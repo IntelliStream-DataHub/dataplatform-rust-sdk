@@ -3,6 +3,7 @@ use pretend_reqwest::Client;
 use pretend_reqwest::reqwest::Url;
 use pretend_reqwest::reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use pretend_reqwest::reqwest::Client as RClient;
+use crate::datahub::DataHubApi;
 use crate::generic::IdAndExtIdCollection;
 use crate::timeseries::{LimitParam, TimeSeriesResponse};
 use crate::unit::{UnitResponse};
@@ -10,9 +11,26 @@ use crate::unit::{UnitResponse};
 mod unit;
 mod generic;
 mod timeseries;
+mod datahub;
 
 pub(crate) type UnitResult = Response<Json<UnitResponse>>;
 pub(crate) type TimeSeriesResult = Response<Json<TimeSeriesResponse>>;
+
+struct ApiConfig{
+    base_url: String,
+    token: String,
+    client_id: Option<String>,
+    client_secret: Option<String>,
+    token_url: Option<String>,
+}
+
+impl ApiConfig {
+
+    fn new_with_token(base_url: String, token: String) -> ApiConfig {
+        ApiConfig{base_url, token, client_id: None, client_secret: None, token_url: None}
+    }
+
+}
 
 #[pretend]
 trait ApiService {
@@ -39,10 +57,10 @@ trait ApiService {
     // Resources
 }
 
-fn create_api_service(base_url: &str, token: &str) -> impl ApiService {
-    let url = Url::parse(base_url).unwrap();
+fn create_api_service(dataplatform_api: &DataHubApi) -> impl ApiService {
+    let url = Url::parse(&*dataplatform_api.base_url).unwrap();
 
-    let t = "Bearer ".to_owned() + token;
+    let t = "Bearer ".to_owned() + dataplatform_api.token.as_ref().unwrap();
     let mut headers = HeaderMap::new();
     headers.insert(AUTHORIZATION, HeaderValue::from_str(t.as_str()).unwrap());
     headers.insert(CONTENT_TYPE, HeaderValue::from_str("application/json").unwrap());
@@ -58,23 +76,10 @@ mod tests {
     use super::*;
     use std::env;
 
-    fn get_token() -> String {
-        let key = "TOKEN";
-
-        // Attempt to read the environment variable
-        let token = match env::var(key) {
-            Ok(value) => value,
-            Err(e) => {
-                panic!("Couldn't find environment variable {}: {}", key, e);
-            },
-        };
-        token
-    }
-
     #[tokio::test]
     async fn test_unit_requests() -> Result<(), Box<dyn std::error::Error>> {
 
-        let api_service = create_api_service("http://localhost:8081", &get_token());
+        let api_service = create_api_service(&DataHubApi::create_default());
 
         let result = api_service.get_all_units().await;
         match result {
@@ -147,10 +152,7 @@ mod tests {
     #[tokio::test]
     async fn test_timeseries_requests() -> Result<(), Box<dyn std::error::Error>> {
 
-        let api_service = create_api_service("http://localhost:8081", &get_token());
-
-
-
+        let api_service = create_api_service(&DataHubApi::create_default());
 
         let mut params = LimitParam::new();
         params.set_limit(5);

@@ -8,6 +8,7 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0.215", features = ["derive"] }
 pretend = { version = "0.4.0", features = ["default"]}
 pretend-reqwest = { version = "0.4.0", default-features = true }
+oauth2 = { version = "5.0.0-rc.1", features = ["reqwest-blocking"] }
 
 [lib]
 proc-macro = true
