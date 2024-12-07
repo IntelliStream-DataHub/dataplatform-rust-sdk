@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
+use crate::generic::IdAndExtId;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeries {
@@ -34,6 +35,100 @@ pub struct TimeSeries {
 
 impl TimeSeries {
 
+    pub fn new(external_id: &str, name: &str, unit: &str) -> TimeSeries{
+        TimeSeries {
+            id: 0,
+            external_id: "".to_string(),
+            name: "".to_string(),
+            metadata: None,
+            unit: "".to_string(),
+            description: None,
+            unit_external_id: None,
+            security_categories: None,
+            data_set_id: None,
+            value_type: "float".to_string(),
+            created_time: None,
+            last_updated_time: None,
+            relations_from: vec![],
+            is_string: false,
+            is_step: false,
+        }
+    }
+
+    pub fn builder() -> TimeSeries {
+        TimeSeries::new("", "", "")
+    }
+
+    pub fn set_name(&mut self, name: &str) -> &mut TimeSeries {
+        self.name = name.to_string();
+        self
+    }
+
+    pub fn set_metadata(&mut self, metadata: HashMap<String, String>) -> &mut TimeSeries {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    pub fn set_external_id(&mut self, external_id: &str) -> &mut TimeSeries {
+        self.external_id = external_id.to_string();
+        self
+    }
+
+    pub fn set_unit(&mut self, unit: &str) -> &mut TimeSeries {
+        self.unit = unit.to_string();
+        self
+    }
+
+    pub fn set_description(&mut self, description: &str) -> &mut TimeSeries {
+        self.description = Some(description.to_string());
+        self
+    }
+
+    pub fn set_unit_external_id(&mut self, unit_external_id: &str) -> &mut TimeSeries {
+        self.unit_external_id = Some(unit_external_id.to_string());
+        self
+    }
+
+    pub fn set_security_categories(&mut self, security_categories: Vec<u64>) -> &mut TimeSeries {
+        self.security_categories = Some(security_categories);
+        self
+    }
+
+    pub fn set_data_set_id(&mut self, data_set_id: u64) -> &mut TimeSeries {
+        self.data_set_id = Some(data_set_id);
+        self
+    }
+
+    pub fn set_value_type(&mut self, value_type: &str) -> &mut TimeSeries {
+        self.value_type = value_type.to_string();
+        self
+    }
+
+    pub fn set_created_time(&mut self, created_time: u64) -> &mut TimeSeries {
+        self.created_time = Some(created_time);
+        self
+    }
+
+    pub fn set_last_updated_time(&mut self, last_updated_time: u64) -> &mut TimeSeries {
+        self.last_updated_time = Some(last_updated_time);
+        self
+    }
+
+    pub fn set_relations_from(&mut self, relations_from: Vec<u64>) -> &mut TimeSeries {
+        self.relations_from = relations_from;
+        self
+    }
+
+    pub fn set_is_string(&mut self, is_string: bool) -> &mut TimeSeries {
+        self.is_string = is_string;
+        self
+    }
+
+    pub fn set_is_step(&mut self, is_step: bool) -> &mut TimeSeries {
+        self.is_step = is_step;
+        self
+    }
+
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -45,6 +140,10 @@ impl TimeSeriesResponse {
 
     pub fn get_items(&self) -> Vec<TimeSeries> {
         self.items.clone()
+    }
+
+    pub fn set_items(&mut self, items: Vec<TimeSeries>) {
+        self.items = items;
     }
 
     pub fn length(&self) -> u64 {
@@ -70,5 +169,27 @@ impl LimitParam {
 
     pub fn get_limit(&self) -> u64 {
         self.limit
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TimeSeriesCollection {
+    items: Vec<TimeSeries>
+}
+
+impl TimeSeriesCollection {
+
+    pub fn new() -> Self {
+        TimeSeriesCollection {
+            items: vec![]
+        }
+    }
+
+    pub fn set_items(&mut self, items: Vec<TimeSeries>) {
+        self.items = items;
+    }
+
+    pub fn add_item(&mut self, item: TimeSeries) {
+        self.items.push(item);
     }
 }
