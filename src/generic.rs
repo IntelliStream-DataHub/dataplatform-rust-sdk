@@ -56,3 +56,32 @@ impl IdAndExtIdCollection {
         self.items.push(item);
     }
 }
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DataWrapper<T> {
+    items: Vec<T>
+}
+
+impl<T> DataWrapper<T> {
+    pub fn new() -> Self {
+        DataWrapper {
+            items: vec![]
+        }
+    }
+
+    pub fn get_items(&self) -> &Vec<T> {
+        &self.items
+    }
+
+    pub fn set_items(&mut self, items: Vec<T>) {
+        self.items = items;
+    }
+
+    pub fn add_item(&mut self, item: T) {
+        self.items.push(item);
+    }
+
+    pub fn length(&self) -> u64 {
+        self.items.len() as u64
+    }
+}

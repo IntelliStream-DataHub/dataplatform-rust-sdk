@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
-use crate::generic::IdAndExtId;
+use crate::fields::Field;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeries {
@@ -131,27 +131,6 @@ impl TimeSeries {
 
 }
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct TimeSeriesResponse {
-    items: Vec<TimeSeries>,
-}
-
-impl TimeSeriesResponse {
-
-    pub fn get_items(&self) -> Vec<TimeSeries> {
-        self.items.clone()
-    }
-
-    pub fn set_items(&mut self, items: Vec<TimeSeries>) {
-        self.items = items;
-    }
-
-    pub fn length(&self) -> u64 {
-        self.items.len() as u64
-    }
-
-}
-
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct LimitParam {
     limit: u64,
@@ -183,6 +162,79 @@ impl TimeSeriesCollection {
         TimeSeriesCollection {
             items: vec![]
         }
+    }
+
+    pub fn set_items(&mut self, items: Vec<TimeSeries>) {
+        self.items = items;
+    }
+
+    pub fn add_item(&mut self, item: TimeSeries) {
+        self.items.push(item);
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TimeSeriesUpdateFields {
+    external_id: Option<Field<String>>,
+    name: Option<Field<String>>,
+    metadata: Option<Field<HashMap<String, String>>>,
+    unit: Option<Field<String>>,
+    description: Option<Field<String>>,
+    unit_external_id: Option<Field<String>>,
+    security_categories: Option<Field<Vec<u64>>>,
+    data_set_id: Option<Field<u64>>,
+    relations_from: Option<Field<Vec<u64>>>,
+    is_string: Option<Field<bool>>,
+    is_step: Option<Field<bool>>,
+    value_type: Option<Field<String>>,
+}
+
+impl TimeSeriesUpdateFields {
+
+    pub fn new() -> TimeSeriesUpdateFields {
+        TimeSeriesUpdateFields {
+            external_id: None,
+            name: None,
+            metadata: None,
+            unit: None,
+            description: None,
+            unit_external_id: None,
+            security_categories: None,
+            data_set_id: None,
+            relations_from: None,
+            is_string: None,
+            is_step: None,
+            value_type: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TimeSeriesUpdate {
+    id: Option<u64>,
+    external_id: Option<String>,
+    update: TimeSeriesUpdateFields
+}
+
+impl TimeSeriesUpdate {
+
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TimeSeriesUpdateCollection {
+    items: Vec<TimeSeries>
+}
+
+impl TimeSeriesUpdateCollection {
+
+    pub fn new() -> Self {
+        TimeSeriesUpdateCollection {
+            items: vec![]
+        }
+    }
+
+    pub fn get_items(&self) -> Vec<TimeSeries> {
+        self.items.clone()
     }
 
     pub fn set_items(&mut self, items: Vec<TimeSeries>) {

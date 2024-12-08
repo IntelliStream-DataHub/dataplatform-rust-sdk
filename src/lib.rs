@@ -4,17 +4,18 @@ use pretend_reqwest::reqwest::Url;
 use pretend_reqwest::reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use pretend_reqwest::reqwest::Client as RClient;
 use crate::datahub::DataHubApi;
-use crate::generic::IdAndExtIdCollection;
-use crate::timeseries::{LimitParam, TimeSeriesResponse, TimeSeriesCollection};
+use crate::generic::{DataWrapper, IdAndExtIdCollection};
+use crate::timeseries::{LimitParam, TimeSeriesCollection, TimeSeries, TimeSeriesUpdateCollection};
 use crate::unit::{UnitResponse};
 
 mod unit;
 mod generic;
 mod timeseries;
 mod datahub;
+mod fields;
 
 pub(crate) type UnitResult = Response<Json<UnitResponse>>;
-pub(crate) type TimeSeriesResult = Response<Json<TimeSeriesResponse>>;
+pub(crate) type TimeSeriesResult = Response<Json<DataWrapper<TimeSeries>>>;
 
 struct ApiConfig{
     base_url: String,
@@ -55,6 +56,9 @@ trait ApiService {
 
     #[request(method = "POST", path = "/timeseries/delete")]
     async fn delete_time_series(&self, json: &IdAndExtIdCollection) -> pretend::Result<Response<()>>;
+
+    #[request(method = "POST", path = "/timeseries/update")]
+    async fn update_time_series(&self, json: &TimeSeriesUpdateCollection) -> pretend::Result<TimeSeriesResult>;
 
     // Events
     // Resources
