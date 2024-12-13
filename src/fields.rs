@@ -9,6 +9,13 @@ pub struct Field<T> {
 
 impl<T> Field<T> {
 
+    pub fn new() -> Self {
+        Field {
+            set: None,
+            set_null: false
+        }
+    }
+
     pub fn set(&mut self, value: T) where T: Clone {
         self.set = Some(value);
     }
@@ -31,6 +38,14 @@ pub struct ListField<T>{
 
 impl<T> ListField<T>{
 
+    pub fn new() -> Self {
+        ListField {
+            set: None,
+            add: None,
+            remove: None
+        }
+    }
+
     pub fn set(&mut self, s: Vec<T>) {
         self.set = Some(s);
     }
@@ -52,6 +67,14 @@ pub struct MapField{
 }
 
 impl MapField{
+
+    pub fn new() -> Self {
+        MapField {
+            set: None,
+            add: None,
+            remove: None
+        }
+    }
 
     pub fn set(&mut self, s: HashMap<String, String>) {
         self.set = Some(s);

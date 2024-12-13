@@ -2,7 +2,45 @@
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
-use crate::fields::Field;
+use reqwest::Response;
+use crate::fields::{Field, ListField, MapField};
+use crate::generic::IdAndExtIdCollection;
+
+pub struct TimeSeriesService{
+
+}
+
+impl TimeSeriesService {
+    pub async fn list(&self, query: &LimitParam) -> Option<Response<>>{
+        const METHOD: &str = "GET";
+        const PATH: &str = "/timeseries";
+        None
+    }
+
+    pub async fn create(&self, json: &TimeSeriesCollection) -> Option<Response<>>{
+        const METHOD: &str = "POST";
+        const PATH: &str = "/timeseries/create";
+        None
+    }
+
+    pub async fn delete(&self, json: &IdAndExtIdCollection) -> Option<Response<>>{
+        const METHOD: &str = "POST";
+        const PATH: &str = "/timeseries/delete";
+        None
+    }
+
+    pub async fn update(&self, json: &TimeSeriesUpdateCollection) -> Option<Response<>>{
+        const METHOD: &str = "POST";
+        const PATH: &str = "/timeseries/update";
+        None
+    }
+
+    pub async fn by_ids(&self, json: &IdAndExtIdCollection) -> Option<Response<>>{
+        const METHOD: &str = "POST";
+        const PATH: &str = "/timeseries/byids";
+        None
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeries {
@@ -38,10 +76,10 @@ impl TimeSeries {
     pub fn new(external_id: &str, name: &str, unit: &str) -> TimeSeries{
         TimeSeries {
             id: 0,
-            external_id: "".to_string(),
-            name: "".to_string(),
+            external_id: external_id.to_string(),
+            name: name.to_string(),
             metadata: None,
-            unit: "".to_string(),
+            unit: unit.to_string(),
             description: None,
             unit_external_id: None,
             security_categories: None,
@@ -175,45 +213,45 @@ impl TimeSeriesCollection {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeriesUpdateFields {
-    external_id: Option<Field<String>>,
-    name: Option<Field<String>>,
-    metadata: Option<Field<HashMap<String, String>>>,
-    unit: Option<Field<String>>,
-    description: Option<Field<String>>,
-    unit_external_id: Option<Field<String>>,
-    security_categories: Option<Field<Vec<u64>>>,
-    data_set_id: Option<Field<u64>>,
-    relations_from: Option<Field<Vec<u64>>>,
-    is_string: Option<Field<bool>>,
-    is_step: Option<Field<bool>>,
-    value_type: Option<Field<String>>,
+    pub external_id: Field<String>,
+    pub name: Field<String>,
+    pub metadata: MapField,
+    pub unit: Field<String>,
+    pub description: Field<String>,
+    pub unit_external_id: Field<String>,
+    pub security_categories: ListField<u64>,
+    pub data_set_id: Field<u64>,
+    pub relations_from: ListField<u64>,
+    pub is_string: Field<bool>,
+    pub is_step: Field<bool>,
+    pub value_type: Field<String>,
 }
 
 impl TimeSeriesUpdateFields {
 
     pub fn new() -> TimeSeriesUpdateFields {
         TimeSeriesUpdateFields {
-            external_id: None,
-            name: None,
-            metadata: None,
-            unit: None,
-            description: None,
-            unit_external_id: None,
-            security_categories: None,
-            data_set_id: None,
-            relations_from: None,
-            is_string: None,
-            is_step: None,
-            value_type: None,
+            external_id: Field::new(),
+            name: Field::new(),
+            metadata: MapField::new(),
+            unit: Field::new(),
+            description: Field::new(),
+            unit_external_id: Field::new(),
+            security_categories: ListField::new(),
+            data_set_id: Field::new(),
+            relations_from: ListField::new(),
+            is_string: Field::new(),
+            is_step: Field::new(),
+            value_type: Field::new(),
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeriesUpdate {
-    id: Option<u64>,
-    external_id: Option<String>,
-    update: TimeSeriesUpdateFields
+    pub id: Option<u64>,
+    pub external_id: Option<String>,
+    pub update: TimeSeriesUpdateFields
 }
 
 impl TimeSeriesUpdate {
@@ -222,7 +260,7 @@ impl TimeSeriesUpdate {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TimeSeriesUpdateCollection {
-    items: Vec<TimeSeries>
+    items: Vec<TimeSeriesUpdate>
 }
 
 impl TimeSeriesUpdateCollection {
@@ -233,15 +271,15 @@ impl TimeSeriesUpdateCollection {
         }
     }
 
-    pub fn get_items(&self) -> Vec<TimeSeries> {
+    pub fn get_items(&self) -> Vec<TimeSeriesUpdate> {
         self.items.clone()
     }
 
-    pub fn set_items(&mut self, items: Vec<TimeSeries>) {
+    pub fn set_items(&mut self, items: Vec<TimeSeriesUpdate>) {
         self.items = items;
     }
 
-    pub fn add_item(&mut self, item: TimeSeries) {
+    pub fn add_item(&mut self, item: TimeSeriesUpdate) {
         self.items.push(item);
     }
 }
