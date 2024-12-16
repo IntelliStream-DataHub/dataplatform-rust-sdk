@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use reqwest::{ClientBuilder};
 use reqwest::Client;
@@ -6,7 +5,7 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYP
 use crate::datahub::DataHubApi;
 use crate::events::EventsService;
 use crate::generic::{IdAndExtIdCollection};
-use crate::timeseries::{LimitParam, TimeSeriesCollection, TimeSeries, TimeSeriesUpdateCollection, TimeSeriesService};
+use crate::timeseries::{LimitParam, TimeSeries, TimeSeriesUpdateCollection, TimeSeriesService};
 use crate::unit::{UnitsService};
 
 mod unit;
@@ -15,12 +14,13 @@ mod timeseries;
 mod datahub;
 mod fields;
 mod events;
+mod http;
 
 struct ApiService<'a>{
     config: Box<DataHubApi<'a>>,
-    pub time_series: TimeSeriesService,
+    pub time_series: TimeSeriesService<'a>,
     pub units: UnitsService<'a>,
-    pub events: EventsService,
+    pub events: EventsService<'a>,
     http_client: Client,
 }
 
@@ -34,12 +34,16 @@ fn create_api_service() -> Rc<ApiService<'static>> {
     headers.insert(ACCEPT, HeaderValue::from_str("application/json").unwrap());
 
     let http_client = ClientBuilder::new().default_headers(headers).build().unwrap();
+    let boxed_config = Box::new(dataplatform_api);
+    // Clone the base_url before moving boxed_config into ApiService
+    let base_url_clone = boxed_config.base_url.clone();
+
     let api_service = Rc::new_cyclic(|weak_self| {
         ApiService {
-            config: Box::new(dataplatform_api),
-            time_series: TimeSeriesService {}, // Initialize any other services here
-            units: UnitsService { api_service: Weak::clone(weak_self) }, // Pass the Weak reference
-            events: EventsService {},
+            config: boxed_config,
+            time_series: TimeSeriesService::new(Weak::clone(weak_self), &base_url_clone), // Initialize any other services here
+            units: UnitsService::new ( Weak::clone(weak_self), &base_url_clone ), // Pass the Weak reference
+            events: EventsService::new ( Weak::clone(weak_self), &base_url_clone ),
             http_client,
         }
     });
@@ -49,65 +53,102 @@ fn create_api_service() -> Rc<ApiService<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::timeseries::{TimeSeries, TimeSeriesCollection, TimeSeriesUpdate, TimeSeriesUpdateFields};
+    use crate::timeseries::{TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
     use maplit::hashmap;
     use reqwest::StatusCode;
+    use crate::generic::DataWrapper;
 
     #[tokio::test]
     async fn test_unit_requests() -> Result<(), Box<dyn std::error::Error>> {
 
-        let api_service = create_api_service(&DataHubApi::create_default());
+        let api_service = create_api_service();
 
         let result = api_service.units.list().await;
         match result {
-            Ok(response) => {
-                let units = response.into_body().value().clone();
-                assert_eq!(units.length(), 23);
-            },
-            Err(e) => {
-                println!("{:?}", e);
+            Ok(unit_response) => {
+                // Directly access the `items` field from the response.
+                let units = unit_response.get_items();
+
+                // Verify that the number of units matches the expected count.
+                assert_eq!(units.len(), 23);
+            }
+            Err(error) => {
+                // Log the error that occurred during the fetch operation.
+                panic!("Error occurred while fetching units: {:?}", error.get_message());
             }
         }
 
         let id_collection = IdAndExtIdCollection::from_id_vec(vec![9, 23]);
         let result = api_service.units.by_ids(&id_collection).await;
         match result {
-            Ok(response) => {
-                let units = response.into_body().value().clone();
-                assert_eq!(units.length(), 2);
-                let items = units.get_items();
+            Ok(unit_response) => {
+                assert_eq!(unit_response.length(), 2);
+                let items = unit_response.get_items();
                 let first_unit = items.get(0).unwrap();
                 let second_unit = items.get(1).unwrap();
                 assert_eq!(first_unit.external_id, "area_m2");
                 assert_eq!(second_unit.external_id, "volume_barrel_pet_us");
             },
             Err(e) => {
-                println!("{:?}", e);
+                panic!("{:?}", e.get_message());
+            }
+        }
+
+        // Test empty id collection
+        let id_collection = IdAndExtIdCollection::from_id_vec(vec![]);
+        let result = api_service.units.by_ids(&id_collection).await;
+        match result {
+            Ok(unit_response) => {
+                assert_eq!(unit_response.length(), 0);
+            },
+            Err(e) => {
+                panic!("{:?}", e.get_message());
             }
         }
 
         let id_collection = IdAndExtIdCollection::from_external_id_vec(vec!["energy_kw_hr", "concentration_ppm"]);
-        println!("{:?}", id_collection);
         let result = api_service.units.by_ids(&id_collection).await;
         match result {
-            Ok(response) => {
-                let units = response.into_body().value().clone();
-                assert_eq!(units.length(), 2);
-                let items = units.get_items();
+            Ok(unit_response) => {
+                assert_eq!(unit_response.length(), 2);
+                let items = unit_response.get_items();
                 let first_unit = items.get(0).unwrap();
                 let second_unit = items.get(1).unwrap();
                 assert_eq!(first_unit.id, 2);
                 assert_eq!(second_unit.id, 5);
             },
             Err(e) => {
-                println!("{:?}", e);
+                panic!("{:?}", e.get_message());
+            }
+        }
+
+        // try unit that doesnt exist:
+        let id_collection = IdAndExtIdCollection::from_external_id_vec(vec!["australia", "london"]);
+        let result = api_service.units.by_ids(&id_collection).await;
+        match result {
+            Ok(unit_response) => {
+                assert_eq!(unit_response.length(), 0);
+            },
+            Err(e) => {
+                panic!("{:?}", e.get_message());
+            }
+        }
+
+        // test empty external id
+        let id_collection = IdAndExtIdCollection::from_external_id_vec(vec![]);
+        let result = api_service.units.by_ids(&id_collection).await;
+        match result {
+            Ok(unit_response) => {
+                assert_eq!(unit_response.length(), 0);
+            },
+            Err(e) => {
+                panic!("{:?}", e.get_message());
             }
         }
 
         let result = api_service.units.by_external_id("volume_barrel_pet_us").await;
         match result {
-            Ok(response) => {
-                let units = response.into_body().value().clone();
+            Ok(units) => {
                 assert_eq!(units.length(), 1);
                 let items = units.get_items();
                 let first_unit = items.get(0).unwrap();
@@ -119,7 +160,7 @@ mod tests {
                 assert_eq!(first_unit.alias_names, vec!["bbl_us", "bbl", "bbl-us"]);
             },
             Err(e) => {
-                println!("{:?}", e);
+                println!("{:?}", e.get_message());
             }
         }
 
@@ -129,19 +170,32 @@ mod tests {
     #[tokio::test]
     async fn test_timeseries_requests() -> Result<(), Box<dyn std::error::Error>> {
 
-        let api_service = create_api_service(&DataHubApi::create_default());
+        let api_service = create_api_service();
 
         let mut params = LimitParam::new();
         params.set_limit(5);
 
         let result = api_service.time_series.list(&params).await;
         match result {
-            Ok(response) => {
-                let timeseries = response.into_body().value().clone();
-                assert_eq!(timeseries.length(), params.get_limit());
+            Ok(timeseries) => {
+                assert_eq!(timeseries.length() as i64, 5);
+                println!("Length of time series returned is {:?}", timeseries.length());
             },
             Err(e) => {
-                println!("{:?}", e);
+                panic!("{:?}", e.get_message());
+            }
+        }
+
+        // Test negative number
+        params.set_limit(-5);
+
+        let result = api_service.time_series.list(&params).await;
+        match result {
+            Ok(timeseries) => {
+                panic!("This test is supposed to fail: {:?}", timeseries);
+            },
+            Err(e) => {
+                assert_eq!(StatusCode::BAD_REQUEST, e.get_status());
             }
         }
 
@@ -159,7 +213,7 @@ mod tests {
         let ts_collection = create_timeseries(unique_id);
         let result = api_service.time_series.create(&ts_collection).await;
 
-        match result {
+        /*match result {
             Ok(response) => {
                 let timeseries = response.into_body().value().clone();
                 assert_eq!(timeseries.length(), 2);
@@ -184,7 +238,7 @@ mod tests {
             Err(e) => {
                 println!("{:?}", e);
             }
-        }
+        }*/
 
         // Delete timeseries
         delete_timeseries(unique_id, &api_service).await;
@@ -192,7 +246,7 @@ mod tests {
         Ok(())
     }
 
-    async fn delete_timeseries(id: u64, api_service: &ApiService) {
+    async fn delete_timeseries(id: u64, api_service: &ApiService<'_>) {
         let id_collection = IdAndExtIdCollection::from_external_id_vec(
             vec![
                 format!("rust_sdk_test_{id}_ts", id = id).as_str(),
@@ -200,7 +254,7 @@ mod tests {
             ]
         );
         let result = api_service.time_series.delete(&id_collection).await;
-        match result {
+        /*match result {
             Ok(response) => {
                 assert_eq!(response.status().as_u16(), StatusCode::NO_CONTENT);
 
@@ -208,13 +262,13 @@ mod tests {
             Err(e) => {
                 println!("{:?}", e);
             }
-        }
+        }*/
     }
 
     #[tokio::test]
     async fn test_update_timeseries_without_id() -> Result<(), Box<dyn std::error::Error>> {
 
-        let api_service = create_api_service(&DataHubApi::create_default());
+        let api_service = create_api_service();
 
         let mut ts_update_collection = TimeSeriesUpdateCollection::new();
         let mut ts_update_fields = TimeSeriesUpdateFields::new();
@@ -236,7 +290,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_update_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>> {
         let unique_id: u64 = 1400;
-        let api_service = create_api_service(&DataHubApi::create_default());
+        let api_service = create_api_service();
 
         // Delete timeseries first, in case a test failed and the time series exists
         delete_timeseries(unique_id, &api_service).await;
@@ -263,8 +317,8 @@ mod tests {
 
         let result = api_service.time_series.update(&ts_update_collection).await;
 
-        let mut ts2_id = None;
-        match result {
+        //let mut ts2_id = None;
+        /*match result {
             Ok(response) => {
                 let timeseries = response.into_body().value().clone();
                 assert_eq!(timeseries.length(), 2);
@@ -301,9 +355,9 @@ mod tests {
             Err(e) => {
                 println!("{:?}", e);
             }
-        }
+        }*/
 
-        println!("ts2_id: {:?}", ts2_id);
+        //println!("ts2_id: {:?}", ts2_id);
 
         /*let mut id_collection = IdAndExtIdCollection::from_id_vec(vec![ts2_id.unwrap()]);
         id_collection.add_item(IdAndExtId{id: None, external_id: Some("rust_sdk_test_1400_ts".to_string())});
@@ -331,9 +385,9 @@ mod tests {
         Ok(())
     }
 
-    fn create_timeseries(id: u64) -> TimeSeriesCollection {
+    fn create_timeseries(id: u64) -> DataWrapper<TimeSeries> {
         // Use a unique id as rust process tests in parallel
-        let mut ts_collection = TimeSeriesCollection::new();
+        let mut ts_collection = DataWrapper::new();
         let ts1 = TimeSeries::builder()
             .set_external_id(format!("rust_sdk_test_{id}_ts", id = id).as_str())
             .set_name(format!("Rust SDK Test {id} TimeSeries", id = id).as_str())

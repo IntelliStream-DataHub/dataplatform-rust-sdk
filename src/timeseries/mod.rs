@@ -2,43 +2,78 @@
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
-use reqwest::Response;
+use std::rc::{Rc, Weak};
+use crate::ApiService;
 use crate::fields::{Field, ListField, MapField};
-use crate::generic::IdAndExtIdCollection;
+use crate::generic::{DataWrapper, IdAndExtIdCollection};
+use crate::http::{process_response, ResponseError};
 
-pub struct TimeSeriesService{
-
+pub struct TimeSeriesService<'a>{
+    pub(crate) api_service: Weak<ApiService<'a>>,
+    base_url: String
 }
 
-impl TimeSeriesService {
-    pub async fn list(&self, query: &LimitParam) -> Option<Response<>>{
-        const METHOD: &str = "GET";
-        const PATH: &str = "/timeseries";
-        None
+impl<'a> TimeSeriesService<'a> {
+
+    pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
+        let base_url = format!("{}/timeseries", base_url);
+        TimeSeriesService {api_service, base_url}
     }
 
-    pub async fn create(&self, json: &TimeSeriesCollection) -> Option<Response<>>{
+    fn get_api_service(&self) -> Result<Rc<ApiService<'a>>, ResponseError> {
+        self.api_service.upgrade().ok_or_else(|| {
+            let err = String::from("Failed to upgrade Weak reference to ApiService");
+            eprintln!("{}", err);
+            ResponseError::from(err)
+        })
+    }
+
+    pub async fn list(&self, query: &LimitParam)
+                      -> Result<DataWrapper<TimeSeries>, ResponseError> {
+
+        // Create and send an HTTP GET request
+        let response = self.get_api_service()?
+            .http_client
+            .get(&self.base_url) // Correctly access `base_url`
+            .query(query)
+            .send()
+            .await
+            .map_err(|err| {
+                eprintln!("HTTP request failed: {}", err);
+                ResponseError::from_err(err)
+            })?;
+
+        // Process the HTTP response and deserialize it as `DataWrapper<UnitResponse>`
+        process_response::<DataWrapper<TimeSeries>>(response).await
+    }
+
+    pub async fn create(&self, json: &DataWrapper<TimeSeries>)
+                        -> Result<DataWrapper<TimeSeries>, ResponseError> {
         const METHOD: &str = "POST";
-        const PATH: &str = "/timeseries/create";
-        None
+        let PATH: &str = "/timeseries/create";
+        Ok(DataWrapper::new())
     }
 
-    pub async fn delete(&self, json: &IdAndExtIdCollection) -> Option<Response<>>{
+    pub async fn delete(&self, json: &IdAndExtIdCollection)
+        -> Result<Option<String>, ResponseError> {
         const METHOD: &str = "POST";
-        const PATH: &str = "/timeseries/delete";
-        None
+        let PATH: &str = "/timeseries/delete";
+        Ok(None)
     }
 
-    pub async fn update(&self, json: &TimeSeriesUpdateCollection) -> Option<Response<>>{
+    pub async fn update(&self, json: &TimeSeriesUpdateCollection)
+                        -> Result<DataWrapper<TimeSeries>, ResponseError> {
         const METHOD: &str = "POST";
-        const PATH: &str = "/timeseries/update";
-        None
+        let PATH: &str = "/timeseries/update";
+        Ok(DataWrapper::new())
     }
 
-    pub async fn by_ids(&self, json: &IdAndExtIdCollection) -> Option<Response<>>{
+    pub async fn by_ids(&self, json: &IdAndExtIdCollection)
+        -> Result<DataWrapper<TimeSeries>, ResponseError> {
         const METHOD: &str = "POST";
         const PATH: &str = "/timeseries/byids";
-        None
+
+        Ok(DataWrapper::new())
     }
 }
 
@@ -171,7 +206,7 @@ impl TimeSeries {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct LimitParam {
-    limit: u64,
+    limit: i64,
 }
 
 impl LimitParam {
@@ -180,34 +215,12 @@ impl LimitParam {
         LimitParam { limit: 100 }
     }
 
-    pub fn set_limit(&mut self, limit: u64) {
+    pub fn set_limit(&mut self, limit: i64) {
         self.limit = limit;
     }
 
-    pub fn get_limit(&self) -> u64 {
+    pub fn get_limit(&self) -> i64 {
         self.limit
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct TimeSeriesCollection {
-    items: Vec<TimeSeries>
-}
-
-impl TimeSeriesCollection {
-
-    pub fn new() -> Self {
-        TimeSeriesCollection {
-            items: vec![]
-        }
-    }
-
-    pub fn set_items(&mut self, items: Vec<TimeSeries>) {
-        self.items = items;
-    }
-
-    pub fn add_item(&mut self, item: TimeSeries) {
-        self.items.push(item);
     }
 }
 

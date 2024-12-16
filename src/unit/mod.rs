@@ -1,11 +1,10 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::rc::{Rc, Weak};
-use reqwest::{Method, Response, StatusCode};
 use crate::ApiService;
-use crate::generic::IdAndExtIdCollection;
+use crate::generic::{DataWrapper, IdAndExtIdCollection};
+use crate::http::{process_response, ResponseError};
 
 pub struct UnitsService<'a>{
     pub(crate) api_service: Weak<ApiService<'a>>,
@@ -14,60 +13,76 @@ pub struct UnitsService<'a>{
 
 impl<'a> UnitsService<'a>{
 
-    pub fn new(api_service: Weak<ApiService<'a>>) -> Self {
-        let base_url = format!("{}/units", api_service.upgrade().unwrap().config.base_url.clone().deref().clone());
-        UnitsService {api_service, base_url}
+    pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
+        let unit_base_url = format!("{}/units", base_url);
+        UnitsService {api_service, base_url: unit_base_url}
     }
 
-    pub async fn list(&self) -> Option<Response<>> {
-        // Attempt to upgrade the Weak reference to access ApiService
-        if let Some(api_service) = self.api_service.upgrade() {
-            // Create an HTTP GET request using the client in `api_service`
-            let response = api_service
-                .http_client
-                .get(self.base_url.as_str()) // Ensure `base_url` is properly initialized
-                .send()
-                .await;
-
-            // Check for a valid HTTP response
-            match response {
-                Ok(resp) => {
-                    if resp.status() == StatusCode::OK {
-                        // Access and process the response body
-                        if let Ok(body) = resp.text().await {
-                            println!("Response body: {}", body); // Debug output (replace with actual handling logic)
-                        } else {
-                            eprintln!("Failed to read response body");
-                        }
-                    } else {
-                        eprintln!("Request failed with status: {}", resp.status());
-                    }
-                }
-                Err(err) => {
-                    eprintln!("HTTP request failed: {}", err);
-                }
-            }
-        } else {
-            eprintln!("Failed to upgrade Weak reference to ApiService");
-        }
-
-        None
+    fn get_api_service(&self) -> Result<Rc<ApiService<'a>>, ResponseError> {
+        self.api_service.upgrade().ok_or_else(|| {
+            let err = String::from("Failed to upgrade Weak reference to ApiService");
+            eprintln!("{}", err);
+            ResponseError::from(err)
+        })
     }
 
-    pub async fn by_external_id(&self, value: &str) -> Option<Response<>> {
-        const METHOD: &str = "GET";
-        const PATH: &str = format!("/units/{value}", value = value).as_str();
-        None
+    pub async fn list(&self) -> Result<DataWrapper<Unit>, ResponseError> {
+
+        // Create and send an HTTP GET request
+        let response = self.get_api_service()?
+            .http_client
+            .get(&self.base_url) // Correctly access `base_url`
+            .send()
+            .await
+            .map_err(|err| {
+                eprintln!("HTTP request failed: {}", err);
+                ResponseError::from_err(err)
+            })?;
+
+        // Process the HTTP response and deserialize it as `DataWrapper<UnitResponse>`
+        process_response::<DataWrapper<Unit>>(response).await
     }
 
-    pub async fn by_ids(&self, json: &IdAndExtIdCollection) -> Option<Response<>>{
-        const METHOD: &str = "POST";
-        const PATH: &str = "/units/byids";
-        None
+    pub async fn by_external_id(&self, value: &str) -> Result<DataWrapper<Unit>, ResponseError> {
+        let path = format!("{}/{value}", self.base_url, value = value);
+
+        // Create and send an HTTP GET request
+        let response = self.get_api_service()?
+            .http_client
+            .get(&path) // Correctly access `base_url`
+            .send()
+            .await
+            .map_err(|err| {
+                eprintln!("HTTP request failed: {}", err);
+                ResponseError::from_err(err)
+            })?;
+
+        // Process the HTTP response and deserialize it
+        process_response::<DataWrapper<Unit>>(response).await
+    }
+
+    pub async fn by_ids(&self, json: &IdAndExtIdCollection) -> Result<DataWrapper<Unit>, ResponseError> {
+        let path = format!("{}/byids", self.base_url);
+
+        // Create and send an HTTP GET request
+        let path = format!("{}/byids", &self.base_url);
+        let response = self.get_api_service()?
+            .http_client
+            .post(path) // Correctly access `base_url`
+            .body(serde_json::to_string(json).unwrap())
+            .send()
+            .await
+            .map_err(|err| {
+                eprintln!("HTTP request failed: {}", err);
+                ResponseError::from_err(err)
+            })?;
+
+        // Process the HTTP response and deserialize it
+        process_response::<DataWrapper<Unit>>(response).await
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Unit{
     pub id: u64,
     #[serde(rename = "externalId")]
@@ -84,21 +99,4 @@ pub struct Unit{
     pub source: String,
     #[serde(rename = "sourceReference")]
     pub source_reference: String
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct UnitResponse {
-    items: Vec<Unit>,
-}
-
-impl UnitResponse {
-
-    pub fn get_items(&self) -> Vec<Unit> {
-        self.items.clone()
-    }
-
-    pub fn length(&self) -> usize {
-        self.items.len()
-    }
-
 }
