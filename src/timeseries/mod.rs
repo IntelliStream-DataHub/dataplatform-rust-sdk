@@ -2,10 +2,10 @@
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
+use std::rc::{Weak};
 use crate::ApiService;
 use crate::fields::{Field, ListField, MapField};
-use crate::generic::{DataWrapper, IdAndExtIdCollection};
+use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
 use crate::http::{process_response, ResponseError};
 
 pub struct TimeSeriesService<'a>{
@@ -18,14 +18,6 @@ impl<'a> TimeSeriesService<'a> {
     pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
         let base_url = format!("{}/timeseries", base_url);
         TimeSeriesService {api_service, base_url}
-    }
-
-    fn get_api_service(&self) -> Result<Rc<ApiService<'a>>, ResponseError> {
-        self.api_service.upgrade().ok_or_else(|| {
-            let err = String::from("Failed to upgrade Weak reference to ApiService");
-            eprintln!("{}", err);
-            ResponseError::from(err)
-        })
     }
 
     pub async fn list(&self, query: &LimitParam)
@@ -43,7 +35,7 @@ impl<'a> TimeSeriesService<'a> {
                 ResponseError::from_err(err)
             })?;
 
-        // Process the HTTP response and deserialize it as `DataWrapper<UnitResponse>`
+        // Process the HTTP response and deserialize it as `DataWrapper<TimeSeries>`
         process_response::<DataWrapper<TimeSeries>>(response).await
     }
 

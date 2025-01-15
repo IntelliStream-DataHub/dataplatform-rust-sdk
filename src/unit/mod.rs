@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
+use std::rc::{Weak};
 use crate::ApiService;
-use crate::generic::{DataWrapper, IdAndExtIdCollection};
+use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
 use crate::http::{process_response, ResponseError};
 
 pub struct UnitsService<'a>{
@@ -16,14 +16,6 @@ impl<'a> UnitsService<'a>{
     pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
         let unit_base_url = format!("{}/units", base_url);
         UnitsService {api_service, base_url: unit_base_url}
-    }
-
-    fn get_api_service(&self) -> Result<Rc<ApiService<'a>>, ResponseError> {
-        self.api_service.upgrade().ok_or_else(|| {
-            let err = String::from("Failed to upgrade Weak reference to ApiService");
-            eprintln!("{}", err);
-            ResponseError::from(err)
-        })
     }
 
     pub async fn list(&self) -> Result<DataWrapper<Unit>, ResponseError> {

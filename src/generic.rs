@@ -1,6 +1,9 @@
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use serde::{Deserialize, Serialize};
 use crate::ApiService;
+use crate::http::ResponseError;
+use crate::timeseries::TimeSeriesService;
+use crate::unit::UnitsService;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdAndExtId {
@@ -85,5 +88,28 @@ impl<T> DataWrapper<T> {
 
     pub fn length(&self) -> u64 {
         self.items.len() as u64
+    }
+}
+
+pub trait ApiServiceProvider<'a> {
+    fn api_service(&self) -> &Weak<ApiService<'a>>;
+
+    fn get_api_service(&self) -> Result<Rc<ApiService<'a>>, ResponseError> {
+        self.api_service().upgrade().ok_or_else(|| {
+            let err = String::from("Failed to upgrade Weak reference to ApiService");
+            eprintln!("{}", err);
+            ResponseError::from(err)
+        })
+    }
+}
+impl<'a> ApiServiceProvider<'a> for TimeSeriesService<'a> {
+    fn api_service(&self) -> &Weak<ApiService<'a>> {
+        &self.api_service
+    }
+}
+
+impl<'a> ApiServiceProvider<'a> for UnitsService<'a> {
+    fn api_service(&self) -> &Weak<ApiService<'a>> {
+        &self.api_service
     }
 }
