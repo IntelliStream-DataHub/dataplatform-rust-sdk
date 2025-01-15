@@ -20,12 +20,28 @@ impl<'a> TimeSeriesService<'a> {
         TimeSeriesService {api_service, base_url}
     }
 
-    pub async fn list(&self, query: &LimitParam)
+    pub async fn list(&self)
                       -> Result<DataWrapper<TimeSeries>, ResponseError> {
 
         // Create and send an HTTP GET request
-        let response = self.get_api_service()?
-            .http_client
+        let response = self.get_api_service().http_client
+            .get(&self.base_url) // Correctly access `base_url`
+            .send()
+            .await
+            .map_err(|err| {
+                eprintln!("HTTP request failed: {}", err);
+                ResponseError::from_err(err)
+            })?;
+
+        // Process the HTTP response and deserialize it as `DataWrapper<TimeSeries>`
+        process_response::<DataWrapper<TimeSeries>>(response).await
+    }
+
+    pub async fn list_with_limit(&self, query: &LimitParam)
+                      -> Result<DataWrapper<TimeSeries>, ResponseError> {
+
+        // Create and send an HTTP GET request
+        let response = self.get_api_service().http_client
             .get(&self.base_url) // Correctly access `base_url`
             .query(query)
             .send()
@@ -40,33 +56,33 @@ impl<'a> TimeSeriesService<'a> {
     }
 
     pub async fn create(&self, json: &DataWrapper<TimeSeries>)
-                        -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        const METHOD: &str = "POST";
-        let PATH: &str = "/timeseries/create";
-        Ok(DataWrapper::new())
+            -> Result<DataWrapper<TimeSeries>, ResponseError>
+    {
+        let path = &format!("{}/create", self.base_url);
+        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json).await
     }
 
     pub async fn delete(&self, json: &IdAndExtIdCollection)
-        -> Result<Option<String>, ResponseError> {
-        const METHOD: &str = "POST";
-        let PATH: &str = "/timeseries/delete";
-        Ok(None)
+            -> Result<DataWrapper<TimeSeries>, ResponseError>
+    {
+        let path = &format!("{}/delete", self.base_url);
+        self.execute_post_request(path, json).await
     }
 
     pub async fn update(&self, json: &TimeSeriesUpdateCollection)
-                        -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        const METHOD: &str = "POST";
-        let PATH: &str = "/timeseries/update";
-        Ok(DataWrapper::new())
+            -> Result<DataWrapper<TimeSeries>, ResponseError>
+    {
+        let path = &format!("{}/update", self.base_url);
+        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json).await
     }
 
     pub async fn by_ids(&self, json: &IdAndExtIdCollection)
-        -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        const METHOD: &str = "POST";
-        const PATH: &str = "/timeseries/byids";
-
-        Ok(DataWrapper::new())
+            -> Result<DataWrapper<TimeSeries>, ResponseError>
+    {
+        let path = &format!("{}/byids", self.base_url);
+        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json).await
     }
+
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -218,17 +234,25 @@ impl LimitParam {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeriesUpdateFields {
+    #[serde(rename = "externalId")]
     pub external_id: Field<String>,
     pub name: Field<String>,
     pub metadata: MapField,
     pub unit: Field<String>,
     pub description: Field<String>,
+    #[serde(rename = "unitExternalId")]
     pub unit_external_id: Field<String>,
+    #[serde(rename = "securityCategories")]
     pub security_categories: ListField<u64>,
+    #[serde(rename = "dataSetId")]
     pub data_set_id: Field<u64>,
+    #[serde(rename = "relationsFrom")]
     pub relations_from: ListField<u64>,
+    #[serde(rename = "isString")]
     pub is_string: Field<bool>,
+    #[serde(rename = "isStep")]
     pub is_step: Field<bool>,
+    #[serde(rename = "valueType")]
     pub value_type: Field<String>,
 }
 
@@ -255,6 +279,7 @@ impl TimeSeriesUpdateFields {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeriesUpdate {
     pub id: Option<u64>,
+    #[serde(rename = "externalId")]
     pub external_id: Option<String>,
     pub update: TimeSeriesUpdateFields
 }

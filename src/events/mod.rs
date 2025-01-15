@@ -10,7 +10,7 @@ pub struct EventsService<'a>{
 impl<'a> EventsService<'a>{
 
     pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
-        let base_url = format!("{}/timeseries", base_url);
+        let base_url = format!("{}/events", base_url);
         EventsService {api_service, base_url}
     }
 

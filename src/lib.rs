@@ -38,7 +38,7 @@ fn create_api_service() -> Rc<ApiService<'static>> {
     // Clone the base_url before moving boxed_config into ApiService
     let base_url_clone = boxed_config.base_url.clone();
 
-    let api_service = Rc::new_cyclic(|weak_self| {
+    let mut api_service = Rc::new_cyclic(|weak_self| {
         ApiService {
             config: boxed_config,
             time_series: TimeSeriesService::new(Weak::clone(weak_self), &base_url_clone), // Initialize any other services here
@@ -47,6 +47,7 @@ fn create_api_service() -> Rc<ApiService<'static>> {
             http_client,
         }
     });
+
     api_service
 }
 
@@ -56,7 +57,7 @@ mod tests {
     use crate::timeseries::{TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
     use maplit::hashmap;
     use reqwest::StatusCode;
-    use crate::generic::DataWrapper;
+    use crate::generic::{DataWrapper, IdAndExtId};
 
     #[tokio::test]
     async fn test_unit_requests() -> Result<(), Box<dyn std::error::Error>> {
@@ -175,7 +176,7 @@ mod tests {
         let mut params = LimitParam::new();
         params.set_limit(5);
 
-        let result = api_service.time_series.list(&params).await;
+        let result = api_service.time_series.list_with_limit(&params).await;
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length() as i64, 5);
@@ -189,7 +190,7 @@ mod tests {
         // Test negative number
         params.set_limit(-5);
 
-        let result = api_service.time_series.list(&params).await;
+        let result = api_service.time_series.list_with_limit(&params).await;
         match result {
             Ok(timeseries) => {
                 panic!("This test is supposed to fail: {:?}", timeseries);
@@ -213,9 +214,8 @@ mod tests {
         let ts_collection = create_timeseries(unique_id);
         let result = api_service.time_series.create(&ts_collection).await;
 
-        /*match result {
-            Ok(response) => {
-                let timeseries = response.into_body().value().clone();
+        match result {
+            Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 2);
 
                 let mut items = timeseries.get_items();
@@ -223,6 +223,7 @@ mod tests {
                 println!("{:?}", items);
                 if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1200_ts") {
                     assert_eq!(item.external_id, "rust_sdk_test_1200_ts");
+                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, "rust_sdk_test_1200_ts");
                     assert_eq!(item.metadata.as_ref().unwrap().len(), 2);
                 } else {
                     assert_eq!(StatusCode::OK, StatusCode::NO_CONTENT);
@@ -230,15 +231,17 @@ mod tests {
 
                 if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1201_ts") {
                     assert_eq!(item.external_id, "rust_sdk_test_1201_ts");
+                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, "rust_sdk_test_1201_ts");
                 } else {
                     assert_eq!(StatusCode::OK, StatusCode::NO_CONTENT);
                 }
 
             },
             Err(e) => {
-                println!("{:?}", e);
+                assert_ne!(StatusCode::CREATED, e.get_status());
+                println!("{:?}", e.get_message());
             }
-        }*/
+        }
 
         // Delete timeseries
         delete_timeseries(unique_id, &api_service).await;
@@ -254,15 +257,15 @@ mod tests {
             ]
         );
         let result = api_service.time_series.delete(&id_collection).await;
-        /*match result {
-            Ok(response) => {
-                assert_eq!(response.status().as_u16(), StatusCode::NO_CONTENT);
+        match result {
+            Ok(timeseries) => {
+                assert_eq!(timeseries.length(), 0);
 
             },
             Err(e) => {
-                println!("{:?}", e);
+                println!("{:?}", e.get_message());
             }
-        }*/
+        }
     }
 
     #[tokio::test]
@@ -279,16 +282,22 @@ mod tests {
         };
         ts_update_collection.add_item(ts_update);
         let result = api_service.time_series.update(&ts_update_collection).await;
+        match result {
+            Ok(timeseries) => {
+                panic!("Should be bad request!");
 
-
-        //assert_eq!(status.as_u16(), StatusCode::BAD_REQUEST);
-        //println!("test_update_timeseries_without_id HTTP Request == BAD_REQUEST!");
+            },
+            Err(e) => {
+                assert_eq!(StatusCode::BAD_REQUEST, e.get_status());
+            }
+        }
 
         Ok(())
     }
 
     #[tokio::test]
     async fn test_create_and_update_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>> {
+        println!("test_create_and_update_and_delete_timeseries");
         let unique_id: u64 = 1400;
         let api_service = create_api_service();
 
@@ -297,6 +306,14 @@ mod tests {
 
         let ts_collection = create_timeseries(unique_id);
         let result = api_service.time_series.create(&ts_collection).await;
+        match result {
+            Ok(timeseries) => {
+                assert_eq!(timeseries.length(), 2);
+            },
+            Err(e) => {
+                println!("{:?}", e.get_message());
+            }
+        }
 
         let mut ts_update_collection = TimeSeriesUpdateCollection::new();
         let mut ts_update_fields = TimeSeriesUpdateFields::new();
@@ -315,12 +332,10 @@ mod tests {
 
         println!("external_id: {:?}", &ts_update_collection.get_items()[0].external_id.clone().unwrap() );
 
+        let mut ts2_id = None;
         let result = api_service.time_series.update(&ts_update_collection).await;
-
-        //let mut ts2_id = None;
-        /*match result {
-            Ok(response) => {
-                let timeseries = response.into_body().value().clone();
+        match result {
+            Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 2);
 
                 let mut items = timeseries.get_items();
@@ -353,19 +368,19 @@ mod tests {
 
             },
             Err(e) => {
-                println!("{:?}", e);
+                println!("Message: {:?}, Status: {:?}", e.get_message(), e.get_status());
+                panic!("{:?}", e.get_message());
             }
-        }*/
+        }
 
-        //println!("ts2_id: {:?}", ts2_id);
+        println!("ts2_id: {:?}", ts2_id);
 
-        /*let mut id_collection = IdAndExtIdCollection::from_id_vec(vec![ts2_id.unwrap()]);
+        let mut id_collection = IdAndExtIdCollection::from_id_vec(vec![ts2_id.unwrap()]);
         id_collection.add_item(IdAndExtId{id: None, external_id: Some("rust_sdk_test_1400_ts".to_string())});
-        let result = api_service.get_time_series_by_ids(&id_collection).await;
+        let result = api_service.time_series.by_ids (&id_collection).await;
 
         match result {
-            Ok(response) => {
-                let timeseries = response.into_body().value().clone();
+            Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 2);
 
                 let mut items = timeseries.get_items();
@@ -376,9 +391,9 @@ mod tests {
                 }
             },
             Err(e) => {
-                println!("{:?}", e);
+                println!("{:?}", e.get_message());
             }
-        }*/
+        }
 
         delete_timeseries(unique_id, &api_service).await;
 

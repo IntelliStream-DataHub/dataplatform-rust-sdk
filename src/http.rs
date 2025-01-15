@@ -1,11 +1,11 @@
-use oauth2::http;
 use oauth2::http::StatusCode;
 use reqwest::{Error, Response};
 use serde::de::DeserializeOwned;
+use crate::generic::{DataWrapperDeserialization, DataWrapper};
 
 pub struct ResponseError {
-    status: StatusCode,
-    message: String,
+    pub(crate) status: StatusCode,
+    pub(crate) message: String,
 }
 
 impl ResponseError {
@@ -27,9 +27,12 @@ impl ResponseError {
     }
 }
 
-pub async fn process_response<T: DeserializeOwned>(response: Response) -> Result<T, ResponseError> {
+pub async fn process_response<T: DeserializeOwned>(response: Response) -> Result<T, ResponseError>
+where
+    T: DeserializeOwned + DataWrapperDeserialization,
+{
     let status = response.status();
-    if status == StatusCode::OK {
+    if (200..300).contains(&status.as_u16()) {
         // Read the response body and attempt to deserialize
         let body = response.text().await.map_err(|err| {
             eprintln!("Failed to read response body: {}", err);
@@ -38,10 +41,17 @@ pub async fn process_response<T: DeserializeOwned>(response: Response) -> Result
 
         println!("Response body: {}", body); // Debug output
 
-        serde_json::from_str::<T>(&body).map_err(|err| {
+        // Conditionally apply custom or default logic
+        let result: T = T::deserialize_and_set_status(&body, status.as_u16()).map_err(|err| {
             eprintln!("Failed to deserialize JSON: {}", err);
-            ResponseError {status, message: err.to_string()}
-        })
+            ResponseError {
+                status,
+                message: err.to_string(),
+            }
+        })?;
+
+        Ok(result)
+
     } else {
         let status = response.status();
         eprintln!("Request failed with status: {}", status);

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::rc::{Weak};
 use crate::ApiService;
 use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
-use crate::http::{process_response, ResponseError};
+use crate::http::{ResponseError};
 
 pub struct UnitsService<'a>{
     pub(crate) api_service: Weak<ApiService<'a>>,
@@ -19,58 +19,17 @@ impl<'a> UnitsService<'a>{
     }
 
     pub async fn list(&self) -> Result<DataWrapper<Unit>, ResponseError> {
-
-        // Create and send an HTTP GET request
-        let response = self.get_api_service()?
-            .http_client
-            .get(&self.base_url) // Correctly access `base_url`
-            .send()
-            .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
-
-        // Process the HTTP response and deserialize it as `DataWrapper<UnitResponse>`
-        process_response::<DataWrapper<Unit>>(response).await
+        self.execute_get_request(&self.base_url).await
     }
 
     pub async fn by_external_id(&self, value: &str) -> Result<DataWrapper<Unit>, ResponseError> {
-        let path = format!("{}/{value}", self.base_url, value = value);
-
-        // Create and send an HTTP GET request
-        let response = self.get_api_service()?
-            .http_client
-            .get(&path) // Correctly access `base_url`
-            .send()
-            .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
-
-        // Process the HTTP response and deserialize it
-        process_response::<DataWrapper<Unit>>(response).await
+        let path = &format!("{}/{value}", self.base_url, value = value);
+        self.execute_get_request(path).await
     }
 
     pub async fn by_ids(&self, json: &IdAndExtIdCollection) -> Result<DataWrapper<Unit>, ResponseError> {
-        let path = format!("{}/byids", self.base_url);
-
-        // Create and send an HTTP GET request
-        let path = format!("{}/byids", &self.base_url);
-        let response = self.get_api_service()?
-            .http_client
-            .post(path) // Correctly access `base_url`
-            .body(serde_json::to_string(json).unwrap())
-            .send()
-            .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
-
-        // Process the HTTP response and deserialize it
-        process_response::<DataWrapper<Unit>>(response).await
+        let path = &format!("{}/byids", &self.base_url);
+        self.execute_post_request(path, json).await
     }
 }
 
