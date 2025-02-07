@@ -92,7 +92,7 @@ pub struct TimeSeries {
     pub external_id: String,
     pub name: String,
     pub metadata: Option<HashMap<String, String>>,
-    pub unit: String,
+    pub unit: Option<String>,
     pub description: Option<String>,
     #[serde(rename = "unitExternalId")]
     pub unit_external_id: Option<String>,
@@ -116,13 +116,13 @@ pub struct TimeSeries {
 
 impl TimeSeries {
 
-    pub fn new(external_id: &str, name: &str, unit: &str) -> TimeSeries{
+    pub fn new(external_id: &str, name: &str) -> TimeSeries{
         TimeSeries {
             id: 0,
             external_id: external_id.to_string(),
             name: name.to_string(),
             metadata: None,
-            unit: unit.to_string(),
+            unit: None,
             description: None,
             unit_external_id: None,
             security_categories: None,
@@ -137,7 +137,7 @@ impl TimeSeries {
     }
 
     pub fn builder() -> TimeSeries {
-        TimeSeries::new("", "", "")
+        TimeSeries::new("", "")
     }
 
     pub fn set_name(&mut self, name: &str) -> &mut TimeSeries {
@@ -156,7 +156,7 @@ impl TimeSeries {
     }
 
     pub fn set_unit(&mut self, unit: &str) -> &mut TimeSeries {
-        self.unit = unit.to_string();
+        self.unit = Option::from(unit.to_string());
         self
     }
 

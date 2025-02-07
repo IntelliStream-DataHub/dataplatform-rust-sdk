@@ -198,6 +198,11 @@ impl DataWrapperDeserialization for DataWrapper<TimeSeries> {
     fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>
     where Self: Sized,
     {
+        if status_code == 204 {
+            let mut wrapper: DataWrapper<TimeSeries> = DataWrapper::new();
+            wrapper.set_http_status_code(status_code);
+            return Ok(wrapper)
+        }
         // Deserialize from JSON
         serde_json::from_str(body).map(|mut wrapper: DataWrapper<TimeSeries>| {
             wrapper.set_http_status_code(status_code); // Set the HTTP status code
