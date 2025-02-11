@@ -27,7 +27,7 @@ impl ResponseError {
     }
 }
 
-pub async fn process_response<T: DeserializeOwned>(response: Response) -> Result<T, ResponseError>
+pub async fn process_response<T: DeserializeOwned>(response: Response, path: &str) -> Result<T, ResponseError>
 where
     T: DeserializeOwned + DataWrapperDeserialization,
 {
@@ -39,7 +39,7 @@ where
             ResponseError {status, message: err.to_string()}
         })?;
 
-        println!("Response body: {}", &body); // Debug output
+        println!("Response body for path: {}\n{}", path, &body); // Debug output
 
         // Conditionally apply custom or default logic
         let result: T = T::deserialize_and_set_status(&body, status.as_u16()).map_err(|err| {

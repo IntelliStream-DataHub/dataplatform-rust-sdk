@@ -27,6 +27,51 @@ impl IdAndExtId {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RelationForm {
+    pub(crate) id: Option<u64>,
+    #[serde(rename = "externalId")]
+    pub(crate) external_id: Option<String>,
+    #[serde(rename = "relationshipType")]
+    pub(crate) relationship_type: String,
+}
+
+impl RelationForm {
+    pub fn from_id(id: u64, relationship_type: String) -> Self {
+        RelationForm { id: Some(id), external_id: None, relationship_type }
+    }
+
+    pub fn from_external_id(external_id: String, relationship_type: String) -> Self {
+        RelationForm { id: None, external_id: Some(external_id), relationship_type }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SearchAndFilterForm {
+    pub(crate) filter: Option<u64>,
+    pub(crate) search: Option<SearchForm>,
+    pub(crate) limit: Option<u64>,
+}
+
+impl SearchAndFilterForm {
+    pub fn new() -> Self {
+        SearchAndFilterForm{filter: None, search: None, limit: None}
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SearchForm {
+    pub(crate) name: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) query: Option<String>,
+}
+
+impl SearchForm {
+    pub fn new() -> Self {
+        SearchForm{name: None, description: None, query: None}
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdAndExtIdCollection {
     items: Vec<IdAndExtId>
 }
@@ -124,7 +169,7 @@ pub trait ApiServiceProvider<'a> {
                 eprintln!("HTTP request failed: {}", err);
                 ResponseError::from_err(err)
             })?;
-        process_response::<T>(response).await
+        process_response::<T>(response, path).await
     }
 
     async fn execute_post_request<T: DeserializeOwned + DataWrapperDeserialization, J: Serialize>(
@@ -152,7 +197,7 @@ pub trait ApiServiceProvider<'a> {
                     }
                 })
         } else {
-            process_response::<T>(response).await
+            process_response::<T>(response, path).await
         }
     }
 

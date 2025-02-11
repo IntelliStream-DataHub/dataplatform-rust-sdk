@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::rc::{Weak};
 use crate::ApiService;
 use crate::fields::{Field, ListField, MapField};
-use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
+use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection, RelationForm, SearchAndFilterForm, SearchForm};
 use crate::http::{process_response, ResponseError};
 
 pub struct TimeSeriesService<'a>{
@@ -34,7 +34,7 @@ impl<'a> TimeSeriesService<'a> {
             })?;
 
         // Process the HTTP response and deserialize it as `DataWrapper<TimeSeries>`
-        process_response::<DataWrapper<TimeSeries>>(response).await
+        process_response::<DataWrapper<TimeSeries>>(response, &self.base_url).await
     }
 
     pub async fn list_with_limit(&self, query: &LimitParam)
@@ -52,7 +52,7 @@ impl<'a> TimeSeriesService<'a> {
             })?;
 
         // Process the HTTP response and deserialize it as `DataWrapper<TimeSeries>`
-        process_response::<DataWrapper<TimeSeries>>(response).await
+        process_response::<DataWrapper<TimeSeries>>(response, &self.base_url).await
     }
 
     pub async fn create(&self, json: &DataWrapper<TimeSeries>)
@@ -60,6 +60,22 @@ impl<'a> TimeSeriesService<'a> {
     {
         let path = &format!("{}/create", self.base_url);
         self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json).await
+    }
+
+    pub async fn create_one(&self, ts: &TimeSeries)
+                                  -> Result<DataWrapper<TimeSeries>, ResponseError>
+    {
+        let mut dw = DataWrapper::new();
+        dw.add_item(ts.clone());
+        self.create(&dw).await
+    }
+
+    pub async fn create_from_list(&self, ts_list: &Vec<TimeSeries>)
+                        -> Result<DataWrapper<TimeSeries>, ResponseError>
+    {
+        let mut dw = DataWrapper::new();
+        ts_list.iter().for_each(|ts| { dw.add_item(ts.clone()); });
+        self.create(&dw).await
     }
 
     pub async fn delete(&self, json: &IdAndExtIdCollection)
@@ -81,6 +97,17 @@ impl<'a> TimeSeriesService<'a> {
     {
         let path = &format!("{}/byids", self.base_url);
         self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json).await
+    }
+
+    pub async fn search_by_name(&self, name: &str)
+                        -> Result<DataWrapper<TimeSeries>, ResponseError>
+    {
+        let mut search_form = SearchForm::new();
+        search_form.name = Some(name.to_string());
+        let mut search_and_filter_form = SearchAndFilterForm::new();
+        search_and_filter_form.search = Some(search_form);
+        let path = &format!("{}/search", self.base_url);
+        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, &search_and_filter_form).await
     }
 
 }
@@ -107,7 +134,7 @@ pub struct TimeSeries {
     #[serde(rename = "lastUpdatedTime")]
     pub last_updated_time: Option<u64>,
     #[serde(rename = "relationsFrom")]
-    pub relations_from: Vec<u64>,
+    pub relations_from: Vec<RelationForm>,
     #[serde(rename = "isString")]
     pub is_string: bool,
     #[serde(rename = "isStep")]
@@ -195,7 +222,7 @@ impl TimeSeries {
         self
     }
 
-    pub fn set_relations_from(&mut self, relations_from: Vec<u64>) -> &mut TimeSeries {
+    pub fn set_relations_from(&mut self, relations_from: Vec<RelationForm>) -> &mut TimeSeries {
         self.relations_from = relations_from;
         self
     }
