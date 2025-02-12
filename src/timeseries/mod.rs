@@ -99,15 +99,33 @@ impl<'a> TimeSeriesService<'a> {
         self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json).await
     }
 
-    pub async fn search_by_name(&self, name: &str)
-                        -> Result<DataWrapper<TimeSeries>, ResponseError>
-    {
+    pub async fn search(&self, form: &SearchAndFilterForm) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+        let path = &format!("{}/search", self.base_url);
+        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, form).await
+    }
+
+    pub async fn search_by_name(&self, name: &str) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let mut search_form = SearchForm::new();
         search_form.name = Some(name.to_string());
         let mut search_and_filter_form = SearchAndFilterForm::new();
         search_and_filter_form.search = Some(search_form);
-        let path = &format!("{}/search", self.base_url);
-        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, &search_and_filter_form).await
+        self.search(&search_and_filter_form).await
+    }
+
+    pub async fn search_by_query(&self, query: &str) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+        let mut search_form = SearchForm::new();
+        search_form.query = Some(query.to_string());
+        let mut search_and_filter_form = SearchAndFilterForm::new();
+        search_and_filter_form.search = Some(search_form);
+        self.search(&search_and_filter_form).await
+    }
+
+    pub async fn search_by_description(&self, query: &str) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+        let mut search_form = SearchForm::new();
+        search_form.description = Some(query.to_string());
+        let mut search_and_filter_form = SearchAndFilterForm::new();
+        search_and_filter_form.search = Some(search_form);
+        self.search(&search_and_filter_form).await
     }
 
 }

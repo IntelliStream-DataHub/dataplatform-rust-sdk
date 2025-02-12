@@ -15,7 +15,6 @@ pub struct IdAndExtId {
 }
 
 impl IdAndExtId {
-
     pub fn from_id(id: u64) -> Self {
         IdAndExtId { id: Some(id), external_id: None}
     }
@@ -23,7 +22,30 @@ impl IdAndExtId {
     pub fn from_external_id(external_id: &str) -> Self {
         IdAndExtId { id: None, external_id: Some(external_id.to_string())}
     }
+}
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DatapointString {
+    pub(crate) timestamp: String,
+    pub(crate) value: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DatapointsCollection {
+    pub(crate) id: Option<u64>,
+    #[serde(rename = "externalId")]
+    pub(crate) external_id: Option<String>,
+    datapoints: Vec<DatapointString>
+}
+
+impl DatapointsCollection {
+    pub fn from_id(id: u64) -> Self {
+        DatapointsCollection { id: Some(id), external_id: None, datapoints: vec![] }
+    }
+
+    pub fn from_external_id(external_id: &str) -> Self {
+        DatapointsCollection { id: None, external_id: Some(external_id.to_string()), datapoints: vec![]}
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
