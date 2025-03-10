@@ -479,7 +479,13 @@ mod tests {
         let result = api_service.time_series.search_by_description(query).await;
         match result {
             Ok(timeseries) => {
-                assert_eq!(timeseries.length(), 1);
+                let mut found_timeseries = vec![];
+                for item in timeseries.get_items() {
+                    if item.external_id.contains(unique_id.to_string().as_str()) {
+                        found_timeseries.push(item.clone());
+                    }
+                }
+                assert_eq!(found_timeseries.len(), 1);
             },
             Err(e) => {
                 eprintln!("error with timeseries search_by_description");
