@@ -39,7 +39,9 @@ where
             ResponseError {status, message: err.to_string()}
         })?;
 
-        println!("Response body for path: {}\n{}", path, &body); // Debug output
+        let max_chars = 2000;
+        let truncated_body = &body[..body.len().min(max_chars)];
+        println!("Response body for path: {}\n{}", path, &truncated_body); // Debug output
 
         // Conditionally apply custom or default logic
         let result: T = T::deserialize_and_set_status(&body, status.as_u16()).map_err(|err| {

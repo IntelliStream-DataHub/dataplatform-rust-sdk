@@ -1,6 +1,8 @@
 use std::rc::{Rc, Weak};
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use chrono::{DateTime, Utc, TimeZone};
+
 use crate::{ApiService};
 use crate::events::EventsService;
 use crate::http::{process_response, ResponseError};
@@ -30,15 +32,51 @@ pub struct DatapointString {
     pub(crate) value: String,
 }
 
+impl DatapointString {
+    fn from(timestamp: &str, value: &str) -> Self {
+        DatapointString {timestamp: timestamp.to_string(), value: value.to_string()}
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct DatapointsCollection {
+pub struct Datapoint {
+    // Read from "isoTime" when deserializing, but emit "timestamp" on serialization
+    #[serde(rename(serialize = "timestamp", deserialize = "isoTime"))]
+    pub(crate) timestamp: DateTime<Utc>,
+    pub(crate) value: f64,
+}
+
+impl Datapoint {
+    fn from(timestamp: DateTime<Utc>, value: f64) -> Self {
+        Datapoint {timestamp, value}
+    }
+
+    fn from_epoch_millis_timestamp(epoch_millis: i64, value: f64) -> Self {
+        Datapoint {timestamp: Utc.timestamp_millis_opt(epoch_millis).unwrap(), value}
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DatapointEpoch {
+    pub(crate) timestamp: i64,
+    pub(crate) value: f64,
+}
+
+impl DatapointEpoch {
+    fn from(timestamp: i64, value: f64) -> Self {
+        DatapointEpoch {timestamp, value}
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DatapointsCollection<T> {
     pub(crate) id: Option<u64>,
     #[serde(rename = "externalId")]
     pub(crate) external_id: Option<String>,
-    datapoints: Vec<DatapointString>
+    pub datapoints: Vec<T>
 }
 
-impl DatapointsCollection {
+impl<T> DatapointsCollection<T> {
     pub fn from_id(id: u64) -> Self {
         DatapointsCollection { id: Some(id), external_id: None, datapoints: vec![] }
     }
@@ -132,6 +170,77 @@ impl IdAndExtIdCollection {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RetrieveFilter {
+    pub start: Option<DateTime<Utc>>,
+    pub end: Option<DateTime<Utc>>,
+    pub limit: Option<i64>,
+    pub aggregates: Option<Vec<String>>,
+    pub granularity: Option<String>,
+    pub cursor: Option<String>,
+    pub id: Option<u64>,
+    #[serde(rename = "externalId")]
+    pub external_id: Option<String>,
+}
+
+impl RetrieveFilter {
+    pub(crate) fn new() -> Self {
+        RetrieveFilter {
+            start: None,
+            end: None,
+            limit: None,
+            aggregates: None,
+            granularity: None,
+            cursor: None,
+            id: None,
+            external_id: None,
+        }
+    }
+
+    pub(crate) fn set_start(&mut self, start: DateTime<Utc>) -> &mut RetrieveFilter {
+        self.start = Some(start);
+        self
+    }
+
+    pub(crate) fn set_end(&mut self, end: DateTime<Utc>) -> &mut RetrieveFilter {
+        self.end = Some(end);
+        self
+    }
+
+    pub(crate) fn set_limit(&mut self, limit: i64) -> &mut RetrieveFilter {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub(crate) fn set_aggregates(&mut self, aggregates: Vec<String>) -> &mut RetrieveFilter {
+        self.aggregates = Some(aggregates);
+        self
+    }
+
+    pub(crate) fn add_aggregate(&mut self, aggregate: &str) -> &mut RetrieveFilter {
+        if self.aggregates.is_none() {
+            self.aggregates = Some(vec![]);
+        }
+        self.aggregates.as_mut().unwrap().push(aggregate.to_string());
+        self
+    }
+
+    pub(crate) fn set_granularity(&mut self, granularity: &str) -> &mut RetrieveFilter {
+        self.granularity = Some(granularity.to_string());
+        self
+    }
+
+    pub(crate) fn set_id(&mut self, id: u64) -> &mut RetrieveFilter {
+        self.id = Some(id);
+        self
+    }
+
+    pub(crate) fn set_external_id(&mut self, external_id: &str) -> &mut RetrieveFilter {
+        self.external_id = Some(external_id.to_string());
+        self
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DataWrapper<T> {
     items: Vec<T>,
     #[serde(skip)]
@@ -149,6 +258,11 @@ impl<T> DataWrapper<T> {
     pub fn get_items(&self) -> &Vec<T> {
         &self.items
     }
+
+    pub fn get_items_mut(&mut self) -> &mut Vec<T> {
+        &mut self.items
+    }
+
 
     pub fn set_items(&mut self, items: Vec<T>) {
         self.items = items;
@@ -278,8 +392,38 @@ impl DataWrapperDeserialization for DataWrapper<TimeSeries> {
     }
 }
 
-impl DataWrapperDeserialization for String {
+impl DataWrapperDeserialization for DataWrapper<DatapointsCollection<Datapoint>> {
     fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>
+    where Self: Sized,
+    {
+        // Deserialize from JSON
+        serde_json::from_str(body).map(|mut wrapper: DataWrapper<DatapointsCollection<Datapoint>>| {
+            wrapper.set_http_status_code(status_code); // Set the HTTP status code
+            wrapper // Return the modified wrapper
+        })
+    }
+}
+
+impl DataWrapperDeserialization for DataWrapper<String> {
+    fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>
+    where Self: Sized,
+    {
+        if status_code >= 200 && status_code < 300 {
+            let mut wrapper: DataWrapper<String> = DataWrapper::new();
+            wrapper.set_http_status_code(status_code);
+            Ok(wrapper)
+        } else {
+            eprintln!("Insert datapoints HTTP request failed: {}", body);
+            let mut wrapper: DataWrapper<String> = DataWrapper::new();
+            wrapper.items.push(body.to_string());
+            wrapper.set_http_status_code(status_code);
+            Ok(wrapper)
+        }
+    }
+}
+
+impl DataWrapperDeserialization for String {
+    fn deserialize_and_set_status(body: &str, _status_code: u16) -> Result<Self, serde_json::Error>
     where Self: Sized,
     {
         Ok(body.to_string())

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::rc::{Weak};
 use crate::ApiService;
 use crate::fields::{Field, ListField, MapField};
-use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection, RelationForm, SearchAndFilterForm, SearchForm};
+use crate::generic::{ApiServiceProvider, DataWrapper, Datapoint, DatapointsCollection, IdAndExtIdCollection, RelationForm, RetrieveFilter, SearchAndFilterForm, SearchForm};
 use crate::http::{process_response, ResponseError};
 
 pub struct TimeSeriesService<'a>{
@@ -126,6 +126,20 @@ impl<'a> TimeSeriesService<'a> {
         let mut search_and_filter_form = SearchAndFilterForm::new();
         search_and_filter_form.search = Some(search_form);
         self.search(&search_and_filter_form).await
+    }
+
+    pub async fn insert_datapoints(&self, json: &DataWrapper<DatapointsCollection<Datapoint>>)
+                        -> Result<DataWrapper<String>, ResponseError>
+    {
+        let path = &format!("{}/data", self.base_url);
+        self.execute_post_request::<DataWrapper<String>, _>(path, json).await
+    }
+
+    pub async fn retrieve_datapoints(&self, json: &DataWrapper<RetrieveFilter>)
+                                   -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>
+    {
+        let path = &format!("{}/data/list", self.base_url);
+        self.execute_post_request::<DataWrapper<DatapointsCollection<Datapoint>>, _>(path, json).await
     }
 
 }
