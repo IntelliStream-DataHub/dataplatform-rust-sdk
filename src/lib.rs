@@ -54,6 +54,8 @@ fn create_api_service() -> Rc<ApiService<'static>> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+    use std::io::Read;
     use super::*;
     use crate::timeseries::{TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
     use maplit::hashmap;
@@ -613,8 +615,7 @@ mod tests {
         // This is because it takes some time before data is inserted into clickhouse
         sleep(std::time::Duration::from_secs(10));
 
-        validate_datapoints(&api_service, new_ts_ext_id.as_str()).await;
-        validate_datapoints(&api_service, new_ts_ext_id2.as_str()).await;
+        validate_datapoints(&api_service, vec![new_ts_ext_id, new_ts_ext_id2]).await;
 
         // Delete timeseries when complete
         //delete_timeseries(unique_id, &api_service).await;
@@ -623,34 +624,92 @@ mod tests {
         Ok(())
     }
 
-    async fn validate_datapoints(api_service: &Rc<ApiService<'_>>, ts_external_id: &str) {
+    async fn validate_datapoints(api_service: &Rc<ApiService<'_>>, ts_external_id_vec: Vec<String>) {
+        for ts_external_id in &ts_external_id_vec {
+            let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+            let mut rf = RetrieveFilter::new();
+            rf.set_external_id(ts_external_id);
+            rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+            rf.set_limit(100000);
+            data_request.add_item(rf);
+            let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+            match result {
+                Ok(r) => {
+                    assert_eq!(r.get_items().first().unwrap().datapoints.len(), 86400);
+
+                    let start_date = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+                    for dp in &r.get_items().first().unwrap().datapoints {
+                        // Fail if the timestamp is before the start_date
+                        assert!(
+                            dp.timestamp >= start_date,
+                            "Timestamp {} is before the specified start date {}",
+                            dp.timestamp,
+                            start_date
+                        );
+                        let min_val = 160.0;
+                        let max_val = 200.0;
+                        assert!(
+                            dp.value >= min_val && dp.value <= max_val,
+                            "Value {} is not in the range [160, 200]",
+                            dp.value
+                        );
+                    }
+                },
+                Err(e) => {
+                    eprintln!("error with datapoints fetch");
+                    println!("{:?}", e.get_message());
+                }
+            }
+        }
+
         let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
-        let mut rf = RetrieveFilter::new();
-        rf.set_external_id(ts_external_id);
-        rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
-        rf.set_limit(100000);
-        data_request.add_item(rf);
+        for ts_external_id in &ts_external_id_vec {
+            let mut rf = RetrieveFilter::new();
+            rf.set_external_id(ts_external_id);
+            rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+            rf.set_limit(200);
+            data_request.add_item(rf);
+        }
+
         let result = api_service.time_series.retrieve_datapoints(&data_request).await;
         match result {
             Ok(r) => {
-                assert_eq!(r.get_items().first().unwrap().datapoints.len(), 86400);
+                assert_eq!(r.get_items().len(), 2);
+                for(i, item) in r.get_items().iter().enumerate() {
+                    assert_eq!(item.datapoints.len(), 200);
+                }
+            },
+            Err(e) => {
+                eprintln!("error with datapoints fetch");
+                println!("{:?}", e.get_message());
+            }
+        }
 
-                let start_date = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
-                for dp in &r.get_items().first().unwrap().datapoints {
-                    // Fail if the timestamp is before the start_date
-                    assert!(
-                        dp.timestamp >= start_date,
-                        "Timestamp {} is before the specified start date {}",
-                        dp.timestamp,
-                        start_date
-                    );
-                    let min_val = 160.0;
-                    let max_val = 200.0;
-                    assert!(
-                        dp.value >= min_val && dp.value <= max_val,
-                        "Value {} is not in the range [160, 200]",
-                        dp.value
-                    );
+        let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+        for ts_external_id in &ts_external_id_vec {
+            let mut rf = RetrieveFilter::new();
+            rf.set_external_id(ts_external_id);
+            rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 6, 0, 0).unwrap());
+            rf.set_end(Utc.with_ymd_and_hms(2025, 1, 1, 7, 0, 0).unwrap());
+            rf.set_limit(10000);
+            data_request.add_item(rf);
+        }
+
+        let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+        match result {
+            Ok(r) => {
+                assert_eq!(r.get_items().len(), 2);
+                for item in r.get_items().iter() {
+                    if let Some(external_id) = &item.external_id {
+                        // Compare references to strings, not moving them
+                        if external_id == &ts_external_id_vec[0] {
+                            assert_eq!(item.datapoints.len(), 3600);
+                        } else if external_id == &ts_external_id_vec[1] {
+                            assert_eq!(item.datapoints.len(), 0);
+                        }
+                    } else {
+                        panic!("Item missing external_id");
+                    }
                 }
             },
             Err(e) => {
@@ -666,20 +725,35 @@ mod tests {
         // Create space for all datapoints: 24 hours * 3600 seconds = 86400
         let mut datapoints = Vec::with_capacity(86400);
 
-        // Generate one datapoint for each second of the day
-        for second_offset in 0..86400 {
-            let current_time = date + Duration::seconds(second_offset);
+        let rdm_values_vec = read_values_from_file().unwrap();
 
-            // Generate a random float between 100.0 and 200.0 (exclusive)
-            let random_value = rng.random_range(160.0..200.0);
+        // Generate one datapoint for each second of the day
+        for idx in 0..86400 {
+            let current_time = date + Duration::seconds(idx);
 
             datapoints.push(Datapoint {
                 timestamp: current_time,
-                value: random_value,
+                value: rdm_values_vec[idx as usize],
             });
         }
 
         datapoints
     }
+
+    fn read_values_from_file() -> Result<Vec<f64>, Box<dyn std::error::Error>> {
+        // Read the entire file content
+        let mut file = File::open("resources/test/random_values.csv")?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+
+        // Parse comma-separated values into Vec<f64>
+        let values: Vec<f64> = content
+            .split(',')
+            .map(|s| s.trim().parse::<f64>())
+            .collect::<Result<_, _>>()?;
+
+        Ok(values)
+    }
+
 
 }
