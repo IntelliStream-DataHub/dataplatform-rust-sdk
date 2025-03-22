@@ -562,6 +562,7 @@ mod tests {
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 2);
+                println!("Time series created successfully!");
             },
             Err(e) => {
                 eprintln!("error with timeseries create");
@@ -569,6 +570,7 @@ mod tests {
             }
         }
 
+        println!("Prepare datapoints...");
         // Create datapoints
         let mut data_request: DataWrapper<DatapointsCollection<Datapoint>> = DataWrapper::new();
         let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id.as_str());
@@ -578,7 +580,8 @@ mod tests {
 
         data_request.get_items_mut().push( dp_collection );
 
-        let result = api_service.time_series.insert_datapoints(&data_request).await;
+        println!("Start datapoint insert!");
+        let result = api_service.time_series.insert_datapoints(&mut data_request).await;
         match result {
             Ok(r) => {
                 assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
@@ -589,6 +592,7 @@ mod tests {
             }
         }
 
+        println!("Prepare datapoints for second time series...");
         let mut data_request: DataWrapper<DatapointsCollection<Datapoint>> = DataWrapper::new();
         let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id2.as_str());
 
@@ -600,7 +604,8 @@ mod tests {
 
         data_request.get_items_mut().push( dp_collection );
 
-        let result = api_service.time_series.insert_datapoints(&data_request).await;
+        println!("Start datapoint insert for second time series!");
+        let result = api_service.time_series.insert_datapoints(&mut data_request).await;
         match result {
             Ok(r) => {
                 assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
@@ -613,7 +618,9 @@ mod tests {
 
         // Before validating inserted data, sleep for 10 seconds...
         // This is because it takes some time before data is inserted into clickhouse
+        println!("Sleeping for 10 seconds...while waiting for data to be inserted into clickhouse.");
         sleep(std::time::Duration::from_secs(10));
+        println!("Done sleeping.");
 
         validate_datapoints(&api_service, vec![new_ts_ext_id, new_ts_ext_id2]).await;
 
@@ -635,7 +642,7 @@ mod tests {
             let result = api_service.time_series.retrieve_datapoints(&data_request).await;
             match result {
                 Ok(r) => {
-                    assert_eq!(r.get_items().first().unwrap().datapoints.len(), 86400);
+                    assert_eq!(r.get_items().first().unwrap().datapoints.len(), 100000);
 
                     let start_date = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
                     for dp in &r.get_items().first().unwrap().datapoints {
@@ -691,7 +698,7 @@ mod tests {
             rf.set_external_id(ts_external_id);
             rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 6, 0, 0).unwrap());
             rf.set_end(Utc.with_ymd_and_hms(2025, 1, 1, 7, 0, 0).unwrap());
-            rf.set_limit(10000);
+            rf.set_limit(3600);
             data_request.add_item(rf);
         }
 
@@ -722,14 +729,17 @@ mod tests {
     fn create_daily_datapoints(date: DateTime<Utc> ) -> Vec<Datapoint> {
         let mut rng = rand::rng();
 
-        // Create space for all datapoints: 24 hours * 3600 seconds = 86400
-        let mut datapoints = Vec::with_capacity(86400);
+        // Create space for all datapoints:
+        const NUM_DATAPOINTS: usize = 60 * 24 * 3600;
+        let mut datapoints = Vec::with_capacity(NUM_DATAPOINTS);
 
+        println!("Reading datapoint from file...");
         let rdm_values_vec = read_values_from_file().unwrap();
+        println!("Reading datapoints from file... Done.");
 
         // Generate one datapoint for each second of the day
-        for idx in 0..86400 {
-            let current_time = date + Duration::seconds(idx);
+        for idx in 0..NUM_DATAPOINTS {
+            let current_time = date + Duration::seconds(idx as i64);
 
             datapoints.push(Datapoint {
                 timestamp: current_time,
@@ -749,11 +759,14 @@ mod tests {
         // Parse comma-separated values into Vec<f64>
         let values: Vec<f64> = content
             .split(',')
-            .map(|s| s.trim().parse::<f64>())
-            .collect::<Result<_, _>>()?;
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())       // Skip empty entries
+            .filter_map(|s| s.parse::<f64>().ok())  // Ignore entries that fail to parse
+            .collect();
+
+        assert_eq!(values.len(), 60 * 24 * 3600);
 
         Ok(values)
     }
-
 
 }

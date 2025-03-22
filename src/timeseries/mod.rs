@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
 use std::rc::{Weak};
+use std::future::Future;
+use futures::{future::join_all, FutureExt};
 use crate::ApiService;
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{ApiServiceProvider, DataWrapper, Datapoint, DatapointsCollection, IdAndExtIdCollection, RelationForm, RetrieveFilter, SearchAndFilterForm, SearchForm};
@@ -128,10 +130,89 @@ impl<'a> TimeSeriesService<'a> {
         self.search(&search_and_filter_form).await
     }
 
-    pub async fn insert_datapoints(&self, json: &DataWrapper<DatapointsCollection<Datapoint>>)
+    pub async fn insert_datapoints(&self, json: &mut DataWrapper<DatapointsCollection<Datapoint>>)
                         -> Result<DataWrapper<String>, ResponseError>
     {
         let path = &format!("{}/data", self.base_url);
+        let mut new_request_bodies = vec![];
+        let mut futures = vec![];
+        const MAX_DATAPOINTS_PER_REQUEST: usize = 100000;
+        // Count data points
+        let mut active_timeseries_with_datapoints = vec![];
+        let mut total_datapoints: usize = 0;
+        for dp_collection in json.get_items().iter() {
+            total_datapoints += dp_collection.datapoints.len();
+            active_timeseries_with_datapoints.push(dp_collection.hash());
+        }
+
+        if total_datapoints > MAX_DATAPOINTS_PER_REQUEST {
+
+            while total_datapoints > MAX_DATAPOINTS_PER_REQUEST {
+                println!("Total datapoints left: {}", total_datapoints);
+                // Divide the request into multiple batch requests
+                let mut new_json: DataWrapper<DatapointsCollection<Datapoint>> = DataWrapper::new();
+                for orig_dp_collection in json.get_items_mut() {
+                    let mut new_dp_collection = DatapointsCollection::from(orig_dp_collection.id, orig_dp_collection.external_id.clone());
+                    if Some(orig_dp_collection.id) != None {
+                        new_dp_collection.id = orig_dp_collection.id;
+                    } else if Some(orig_dp_collection.external_id.clone()) != None {
+                        new_dp_collection.external_id = orig_dp_collection.external_id.clone();
+                    }
+
+                    let batch_size: usize = (MAX_DATAPOINTS_PER_REQUEST / active_timeseries_with_datapoints.len());
+                    println!("Current Batch size: {}", batch_size);
+                    if orig_dp_collection.datapoints.len() > batch_size {
+                        let chunk: Vec<Datapoint> = orig_dp_collection.datapoints.drain(..batch_size).collect();
+                        new_dp_collection.datapoints.extend(chunk);
+                    } else if orig_dp_collection.datapoints.len() == 0 {
+                        // Find the hash for active timeseries, and remove it from the vec
+                        if let Some(pos) = active_timeseries_with_datapoints
+                            .iter()
+                            .position(|&x| x == orig_dp_collection.hash())
+                        {
+                            println!("Remove datacollection: {}", orig_dp_collection.to_string());
+                            active_timeseries_with_datapoints.remove(pos);
+                        }
+                    }
+                    else {
+                        new_dp_collection.datapoints.extend(orig_dp_collection.datapoints.clone());
+                    }
+                    new_json.add_item(new_dp_collection.clone());
+                    total_datapoints = total_datapoints - new_dp_collection.datapoints.len();
+                    println!("Total datapoints left: {}", total_datapoints);
+                }
+
+                let mut new_total_datapoints: usize = 0;
+                for dp_collection in new_json.get_items().iter() {
+                    new_total_datapoints += dp_collection.datapoints.len();
+                }
+                println!("Sending insert datapoints request with {} datapoints.", new_total_datapoints);
+
+                let new_json_clone = new_json.clone();
+                new_request_bodies.push(new_json_clone);
+            }
+        }
+        // Now create futures after all request bodies are created
+        for request_body in &new_request_bodies {
+            let f = self.execute_post_request::<DataWrapper<String>, _>(path, request_body)
+                .map(|result| match result {
+                    Ok(ref r) => {
+                        assert_eq!(r.get_http_status_code().unwrap(), 201);
+                        println!("Successfully inserted datapoints.");
+                    },
+                    Err(e) => {
+                        panic!("Error inserting datapoints: {:?}", e.get_message());
+                    }
+                });
+            futures.push(f);
+        }
+        join_all(futures).await;
+
+        total_datapoints = 0;
+        for dp_collection in json.get_items().iter() {
+            total_datapoints += dp_collection.datapoints.len();
+        }
+        println!("Final request: Total datapoints left: {}", total_datapoints);
         self.execute_post_request::<DataWrapper<String>, _>(path, json).await
     }
 

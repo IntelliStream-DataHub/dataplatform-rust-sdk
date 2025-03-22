@@ -1,4 +1,6 @@
 use std::rc::{Rc, Weak};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use chrono::{DateTime, Utc, TimeZone};
@@ -83,6 +85,37 @@ impl<T> DatapointsCollection<T> {
 
     pub fn from_external_id(external_id: &str) -> Self {
         DatapointsCollection { id: None, external_id: Some(external_id.to_string()), datapoints: vec![]}
+    }
+
+    pub fn from(id: Option<u64>, external_id: Option<String>) -> Self {
+        if let Some(id) = id {
+            DatapointsCollection::from_id(id)
+        } else if let Some(external_id) = external_id {
+            DatapointsCollection::from_external_id(&external_id)
+        } else {
+            panic!("Either id or external_id must be provided")
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        format!("DatapointsCollection {{ id: {:?}, external_id: {:?}, datapoints: {:?} }}",
+                self.id,
+                self.external_id,
+                self.datapoints.len()
+        )
+    }
+
+    // Calculate hash based on id and external_id
+    pub fn hash(&self) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        if let Some(id_value) = self.id {
+            hasher.write_u64(id_value);
+        }
+        if let Some(ref external_id_value) = self.external_id {
+            hasher.write(external_id_value.as_bytes());
+        }
+
+        hasher.finish()
     }
 }
 
@@ -240,6 +273,12 @@ impl RetrieveFilter {
     }
 }
 
+pub trait Identifiable {
+    fn id(&self) -> u64;
+    fn external_id(&self) -> &str;
+}
+
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DataWrapper<T> {
     items: Vec<T>,
@@ -285,6 +324,30 @@ impl<T> DataWrapper<T> {
     }
 
 }
+
+// Constrain T by requiring it implement the Identifiable trait.
+impl<T: Identifiable> DataWrapper<T> {
+    pub fn remove_item(&mut self, id_to_remove: Option<u64>, external_id_to_remove: Option<String>) {
+        self.items.retain(|item| {
+            // Filter by ID if provided
+            if let Some(id_val) = id_to_remove {
+                if item.id() == id_val {
+                    return false;
+                }
+            }
+            // Filter by external ID if provided
+            if let Some(ext_val) = &external_id_to_remove {
+                if item.external_id() == ext_val {
+                    return false;
+                }
+            }
+
+            // Keep item if it fails neither check
+            true
+        });
+    }
+}
+
 
 pub trait ApiServiceProvider<'a> {
     fn api_service(&self) -> &Weak<ApiService<'a>>;
