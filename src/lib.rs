@@ -599,7 +599,7 @@ mod tests {
         let datetime = Utc.with_ymd_and_hms(2025, 2, 4, 9, 0, 0).unwrap();
         dp_collection.datapoints = create_daily_datapoints(datetime);
         for mut dp in  &mut dp_collection.datapoints {
-            dp.value = dp.value.trunc();
+            dp.value = dp.value;
         }
 
         data_request.get_items_mut().push( dp_collection );
@@ -616,13 +616,21 @@ mod tests {
             }
         }
 
-        // Before validating inserted data, sleep for 10 seconds...
+        // Before validating inserted data, sleep for 15 seconds...
         // This is because it takes some time before data is inserted into clickhouse
-        println!("Sleeping for 10 seconds...while waiting for data to be inserted into clickhouse.");
-        sleep(std::time::Duration::from_secs(10));
+        println!("Sleeping for 15 seconds...while waiting for data to be inserted into clickhouse.");
+        sleep(std::time::Duration::from_secs(15));
         println!("Done sleeping.");
 
-        validate_datapoints(&api_service, vec![new_ts_ext_id, new_ts_ext_id2]).await;
+        validate_datapoints(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
+
+        // Before validating inserted data, sleep for 30 seconds...
+        // This is because it takes some time before data is inserted into clickhouse and merged into the table
+        println!("Sleeping for 30 seconds...while waiting for data to be inserted into clickhouse and merged into timeseries.");
+        sleep(std::time::Duration::from_secs(30));
+        println!("Done sleeping.");
+
+        validate_daily_avg(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
 
         // Delete timeseries when complete
         //delete_timeseries(unique_id, &api_service).await;
@@ -656,9 +664,9 @@ mod tests {
                         let min_val = 160.0;
                         let max_val = 200.0;
                         assert!(
-                            dp.value >= min_val && dp.value <= max_val,
+                            dp.value.unwrap() >= min_val && dp.value.unwrap() <= max_val,
                             "Value {} is not in the range [160, 200]",
-                            dp.value
+                            dp.value.unwrap()
                         );
                     }
                 },
@@ -726,6 +734,85 @@ mod tests {
         }
     }
 
+    async fn validate_daily_avg(api_service: &Rc<ApiService<'_>>, ts_external_id_vec: Vec<String>) {
+        for ts_external_id in &ts_external_id_vec {
+            for ts_external_id in &ts_external_id_vec {
+                let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+                let mut rf = RetrieveFilter::new();
+                rf.set_external_id(ts_external_id);
+                rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+                rf.set_end(Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap());
+                rf.set_aggregates(vec!["avg".to_string(), "min".to_string(), "max".to_string()]);
+                rf.set_granularity("1d");
+                data_request.add_item(rf);
+                let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+                match result {
+                    Ok(r) => {
+
+                        if let Some(first_item) = r.get_items().first() {
+                            if let Some(external_id) = &first_item.external_id {
+                                if external_id == "rust_sdk_test_6540_ts" {
+                                    assert_eq!(r.get_items().first().unwrap().datapoints.len(), 59);
+                                } else {
+                                    assert_eq!(r.get_items().first().unwrap().datapoints.len(), 25);
+                                }
+                            }
+                        }
+
+                        let start_date = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+                        let end_date = Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap();
+                        for dp in &r.get_items().first().unwrap().datapoints {
+                            // Fail if the timestamp is before the start_date
+                            assert!(
+                                dp.timestamp >= start_date,
+                                "Timestamp {} is before the specified start date {}",
+                                dp.timestamp,
+                                start_date
+                            );
+                            // Fail if the timestamp is after the end_date
+                            assert!(
+                                dp.timestamp <= end_date,
+                                "Timestamp {} is after the specified end date {}",
+                                dp.timestamp,
+                                end_date
+                            );
+
+                            println!("Timestamp: {:?}, avg: {:?}, min: {:?}, max: {:?}",
+                                     dp.get_timestamp(), dp.get_average(), dp.get_min(), dp.get_max());
+
+                            if let Some(first_item) = r.get_items().first() {
+                                if let Some(external_id) = &first_item.external_id {
+                                    if external_id == "rust_sdk_test_6540_ts" {
+                                        if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap() {
+                                            assert_eq!(truncate_10(dp.get_average().unwrap()), 179.9514040223);
+                                        }
+                                        else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 22, 0, 0, 0).unwrap() {
+                                            assert_eq!(truncate_10(dp.get_average().unwrap()), 180.0561890050);
+                                        }
+                                        else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
+                                            assert_eq!(truncate_10(dp.get_average().unwrap()), 179.9661931149);
+                                        }
+                                    } else {
+                                        if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap() {
+                                            assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4611111111);
+                                        }
+                                        else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
+                                            assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4927662037);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("error with datapoints fetch");
+                        println!("{:?}", e.get_message());
+                    }
+                }
+            }
+        }
+    }
+
     fn create_daily_datapoints(date: DateTime<Utc> ) -> Vec<Datapoint> {
         let mut rng = rand::rng();
 
@@ -740,11 +827,7 @@ mod tests {
         // Generate one datapoint for each second of the day
         for idx in 0..NUM_DATAPOINTS {
             let current_time = date + Duration::seconds(idx as i64);
-
-            datapoints.push(Datapoint {
-                timestamp: current_time,
-                value: rdm_values_vec[idx as usize],
-            });
+            datapoints.push( Datapoint::from(current_time, rdm_values_vec[idx]) );
         }
 
         datapoints
@@ -767,6 +850,13 @@ mod tests {
         assert_eq!(values.len(), 60 * 24 * 3600);
 
         Ok(values)
+    }
+
+    fn truncate_10(x: f64) -> f64 {
+        // Clickhouse will have rounding errors using for example avg(), so we truncate the returned
+        // values to mitigate this
+        let multiplier = 10f64.powf(10.0);
+        (x * multiplier).floor() / multiplier
     }
 
 }

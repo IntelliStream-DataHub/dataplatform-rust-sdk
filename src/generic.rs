@@ -1,5 +1,4 @@
 use std::rc::{Rc, Weak};
-use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
@@ -45,16 +44,56 @@ pub struct Datapoint {
     // Read from "isoTime" when deserializing, but emit "timestamp" on serialization
     #[serde(rename(serialize = "timestamp", deserialize = "isoTime"))]
     pub(crate) timestamp: DateTime<Utc>,
-    pub(crate) value: f64,
+    #[serde(default)]
+    pub(crate) value: Option<f64>,
+    #[serde(default)]
+    pub(crate) min: Option<f64>,
+    #[serde(default)]
+    pub(crate) max: Option<f64>,
+    #[serde(default)]
+    pub(crate) average: Option<f64>,
+    #[serde(default)]
+    pub(crate) sum: Option<f64>
 }
 
 impl Datapoint {
-    fn from(timestamp: DateTime<Utc>, value: f64) -> Self {
-        Datapoint {timestamp, value}
+    pub fn from(timestamp: DateTime<Utc>, value: f64) -> Self {
+        Datapoint {timestamp, value: Some(value), min: None, max: None, average: None, sum: None}
     }
 
-    fn from_epoch_millis_timestamp(epoch_millis: i64, value: f64) -> Self {
-        Datapoint {timestamp: Utc.timestamp_millis_opt(epoch_millis).unwrap(), value}
+    pub fn from_epoch_millis_timestamp(epoch_millis: i64, value: f64) -> Self {
+        Datapoint {
+            timestamp: Utc.timestamp_millis_opt(epoch_millis).unwrap(),
+            value: Some(value),
+            min: None,
+            max: None,
+            average: None,
+            sum: None
+        }
+    }
+
+    pub fn get_timestamp(&self) -> DateTime<Utc> {
+        self.timestamp
+    }
+
+    pub fn get_average(&self) -> Option<f64> {
+        self.average
+    }
+
+    pub fn get_value(&self) -> Option<f64> {
+        self.value
+    }
+
+    pub fn get_min(&self) -> Option<f64> {
+        self.min
+    }
+
+    pub fn get_max(&self) -> Option<f64> {
+        self.max
+    }
+
+    pub fn get_sum(&self) -> Option<f64> {
+        self.sum
     }
 }
 
