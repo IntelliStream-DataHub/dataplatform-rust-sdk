@@ -159,7 +159,7 @@ impl<'a> TimeSeriesService<'a> {
                         new_dp_collection.external_id = orig_dp_collection.external_id.clone();
                     }
 
-                    let batch_size: usize = (MAX_DATAPOINTS_PER_REQUEST / active_timeseries_with_datapoints.len());
+                    let batch_size: usize = MAX_DATAPOINTS_PER_REQUEST / active_timeseries_with_datapoints.len();
                     println!("Current Batch size: {}", batch_size);
                     if orig_dp_collection.datapoints.len() > batch_size {
                         let chunk: Vec<Datapoint> = orig_dp_collection.datapoints.drain(..batch_size).collect();

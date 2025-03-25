@@ -6,7 +6,7 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYP
 use crate::datahub::DataHubApi;
 use crate::events::EventsService;
 use crate::generic::{IdAndExtIdCollection};
-use crate::timeseries::{LimitParam, TimeSeries, TimeSeriesUpdateCollection, TimeSeriesService};
+use crate::timeseries::{LimitParam, TimeSeriesUpdateCollection, TimeSeriesService};
 use crate::unit::{UnitsService};
 
 mod unit;
@@ -39,7 +39,7 @@ fn create_api_service() -> Rc<ApiService<'static>> {
     // Clone the base_url before moving boxed_config into ApiService
     let base_url_clone = boxed_config.base_url.clone();
 
-    let mut api_service = Rc::new_cyclic(|weak_self| {
+    let api_service = Rc::new_cyclic(|weak_self| {
         ApiService {
             config: boxed_config,
             time_series: TimeSeriesService::new(Weak::clone(weak_self), &base_url_clone), // Initialize any other services here
@@ -61,7 +61,6 @@ mod tests {
     use maplit::hashmap;
     use reqwest::StatusCode;
     use crate::generic::{DataWrapper, Datapoint, DatapointsCollection, IdAndExtId, RetrieveFilter};
-    use rand::Rng;
     use chrono::{DateTime, Duration, TimeZone, Utc};
     use std::thread::sleep;
 
@@ -224,7 +223,7 @@ mod tests {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 2);
 
-                let mut items = timeseries.get_items();
+                let items = timeseries.get_items();
 
                 println!("{:?}", items);
                 if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1200_ts") {
@@ -290,9 +289,8 @@ mod tests {
         ts_update_collection.add_item(ts_update);
         let result = api_service.time_series.update(&ts_update_collection).await;
         match result {
-            Ok(timeseries) => {
+            Ok(_timeseries) => {
                 panic!("Should be bad request!");
-
             },
             Err(e) => {
                 assert_eq!(StatusCode::BAD_REQUEST, e.get_status());
@@ -345,7 +343,7 @@ mod tests {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
 
-                let mut items = timeseries.get_items();
+                let items = timeseries.get_items();
 
                 println!("updated_timeseries {:?}", items);
                 if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1400_ts_renamed") {
@@ -384,7 +382,7 @@ mod tests {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
 
-                let mut items = timeseries.get_items();
+                let items = timeseries.get_items();
 
                 if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1400_ts_renamed") {
                     assert_eq!(item.external_id, "rust_sdk_test_1400_ts_renamed");
@@ -690,9 +688,9 @@ mod tests {
         match result {
             Ok(r) => {
                 assert_eq!(r.get_items().len(), 2);
-                for(i, item) in r.get_items().iter().enumerate() {
+                r.get_items().iter().for_each(|item| {
                     assert_eq!(item.datapoints.len(), 200);
-                }
+                });
             },
             Err(e) => {
                 eprintln!("error with datapoints fetch");
@@ -814,7 +812,7 @@ mod tests {
     }
 
     fn create_daily_datapoints(date: DateTime<Utc> ) -> Vec<Datapoint> {
-        let mut rng = rand::rng();
+        let rng = rand::rng();
 
         // Create space for all datapoints:
         const NUM_DATAPOINTS: usize = 60 * 24 * 3600;

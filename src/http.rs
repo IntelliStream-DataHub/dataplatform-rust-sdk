@@ -1,7 +1,7 @@
 use oauth2::http::StatusCode;
 use reqwest::{Error, Response};
 use serde::de::DeserializeOwned;
-use crate::generic::{DataWrapperDeserialization, DataWrapper};
+use crate::generic::{DataWrapperDeserialization};
 
 pub struct ResponseError {
     pub(crate) status: StatusCode,
