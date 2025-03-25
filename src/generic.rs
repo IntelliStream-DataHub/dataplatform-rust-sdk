@@ -114,16 +114,43 @@ pub struct DatapointsCollection<T> {
     pub(crate) id: Option<u64>,
     #[serde(rename = "externalId")]
     pub(crate) external_id: Option<String>,
-    pub datapoints: Vec<T>
+    pub datapoints: Vec<T>,
+    #[serde(rename = "nextCursor")]
+    pub next_cursor: Option<String>,
+    pub unit: Option<String>,
+    #[serde(rename = "unitExternalId")]
+    pub unit_external_id: Option<String>,
+    #[serde(rename = "isStep")]
+    pub is_step: bool,
+    #[serde(rename = "isString")]
+    pub is_string: bool,
 }
 
 impl<T> DatapointsCollection<T> {
     pub fn from_id(id: u64) -> Self {
-        DatapointsCollection { id: Some(id), external_id: None, datapoints: vec![] }
+        DatapointsCollection {
+            id: Some(id),
+            external_id: None,
+            datapoints: vec![],
+            next_cursor: None,
+            unit: None,
+            unit_external_id: None,
+            is_step: false,
+            is_string: false,
+        }
     }
 
     pub fn from_external_id(external_id: &str) -> Self {
-        DatapointsCollection { id: None, external_id: Some(external_id.to_string()), datapoints: vec![]}
+        DatapointsCollection {
+            id: None,
+            external_id: Some(external_id.to_string()),
+            datapoints: vec![],
+            next_cursor: None,
+            unit: None,
+            unit_external_id: None,
+            is_step: false,
+            is_string: false,
+        }
     }
 
     pub fn from(id: Option<u64>, external_id: Option<String>) -> Self {
@@ -140,7 +167,7 @@ impl<T> DatapointsCollection<T> {
         format!("DatapointsCollection {{ id: {:?}, external_id: {:?}, datapoints: {:?} }}",
                 self.id,
                 self.external_id,
-                self.datapoints.len()
+                self.datapoints.len(),
         )
     }
 
@@ -310,6 +337,19 @@ impl RetrieveFilter {
         self.external_id = Some(external_id.to_string());
         self
     }
+
+    pub fn to_string(&self) -> String {
+        format!("RetrieveFilter {{ start: {:?}, end: {:?}, limit: {:?}, aggregates: {:?}, granularity: {:?}, cursor: {:?}, id: {:?}, external_id: {:?} }}",
+                self.start,
+                self.end,
+                self.limit,
+                self.aggregates,
+                self.granularity,
+                self.cursor,
+                self.id,
+                self.external_id,
+        )
+    }
 }
 
 pub trait Identifiable {
@@ -362,6 +402,12 @@ impl<T> DataWrapper<T> {
         self.http_status_code = Some(http_status_code);
     }
 
+    pub fn to_string(&self) -> String {
+        format!("DataWrapper {{ items: {:?}, http_status_code: {:?} }}",
+                self.items.len(),
+                self.http_status_code,
+        )
+    }
 }
 
 // Constrain T by requiring it implement the Identifiable trait.

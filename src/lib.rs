@@ -62,7 +62,6 @@ mod tests {
     use reqwest::StatusCode;
     use crate::generic::{DataWrapper, Datapoint, DatapointsCollection, IdAndExtId, RetrieveFilter};
     use chrono::{DateTime, Duration, TimeZone, Utc};
-    use std::thread::sleep;
 
     #[tokio::test]
     async fn test_unit_requests() -> Result<(), Box<dyn std::error::Error>> {
@@ -202,6 +201,7 @@ mod tests {
             },
             Err(e) => {
                 assert_eq!(StatusCode::BAD_REQUEST, e.get_status());
+                println!("StatusCode::BAD_REQUEST == 400 is correct!");
             }
         }
 
@@ -280,7 +280,7 @@ mod tests {
         let api_service = create_api_service();
 
         let mut ts_update_collection = TimeSeriesUpdateCollection::new();
-        let mut ts_update_fields = TimeSeriesUpdateFields::new();
+        let ts_update_fields = TimeSeriesUpdateFields::new();
         let ts_update = TimeSeriesUpdate {
             id: None,
             external_id: None,
@@ -294,6 +294,7 @@ mod tests {
             },
             Err(e) => {
                 assert_eq!(StatusCode::BAD_REQUEST, e.get_status());
+                println!("StatusCode::BAD_REQUEST == 400 is correct!");
             }
         }
 
@@ -596,7 +597,7 @@ mod tests {
 
         let datetime = Utc.with_ymd_and_hms(2025, 2, 4, 9, 0, 0).unwrap();
         dp_collection.datapoints = create_daily_datapoints(datetime);
-        for mut dp in  &mut dp_collection.datapoints {
+        for dp in  &mut dp_collection.datapoints {
             dp.value = dp.value;
         }
 
@@ -614,10 +615,10 @@ mod tests {
             }
         }
 
-        // Before validating inserted data, sleep for 15 seconds...
+        // Before validating inserted data, sleep for 30 seconds...
         // This is because it takes some time before data is inserted into clickhouse
-        println!("Sleeping for 15 seconds...while waiting for data to be inserted into clickhouse.");
-        sleep(std::time::Duration::from_secs(15));
+        println!("Sleeping for 30 seconds...while waiting for data to be inserted into clickhouse.");
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         println!("Done sleeping.");
 
         validate_datapoints(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
@@ -625,10 +626,12 @@ mod tests {
         // Before validating inserted data, sleep for 30 seconds...
         // This is because it takes some time before data is inserted into clickhouse and merged into the table
         println!("Sleeping for 30 seconds...while waiting for data to be inserted into clickhouse and merged into timeseries.");
-        sleep(std::time::Duration::from_secs(30));
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         println!("Done sleeping.");
 
         validate_daily_avg(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
+
+        validate_raw_datapoints_with_cursor(&api_service, new_ts_ext_id.clone()).await;
 
         // Delete timeseries when complete
         //delete_timeseries(unique_id, &api_service).await;
@@ -734,86 +737,117 @@ mod tests {
 
     async fn validate_daily_avg(api_service: &Rc<ApiService<'_>>, ts_external_id_vec: Vec<String>) {
         for ts_external_id in &ts_external_id_vec {
-            for ts_external_id in &ts_external_id_vec {
-                let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
-                let mut rf = RetrieveFilter::new();
-                rf.set_external_id(ts_external_id);
-                rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
-                rf.set_end(Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap());
-                rf.set_aggregates(vec!["avg".to_string(), "min".to_string(), "max".to_string()]);
-                rf.set_granularity("1d");
-                data_request.add_item(rf);
-                let result = api_service.time_series.retrieve_datapoints(&data_request).await;
-                match result {
-                    Ok(r) => {
+            let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+            let mut rf = RetrieveFilter::new();
+            rf.set_external_id(ts_external_id);
+            rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+            rf.set_end(Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap());
+            rf.set_aggregates(vec!["avg".to_string(), "min".to_string(), "max".to_string()]);
+            rf.set_granularity("1d");
+            data_request.add_item(rf);
+            let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+            match result {
+                Ok(r) => {
+
+                    if let Some(first_item) = r.get_items().first() {
+                        if let Some(external_id) = &first_item.external_id {
+                            if external_id == "rust_sdk_test_6540_ts" {
+                                assert_eq!(r.get_items().first().unwrap().datapoints.len(), 59);
+                            } else {
+                                assert_eq!(r.get_items().first().unwrap().datapoints.len(), 25);
+                            }
+                        }
+                    }
+
+                    let start_date = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+                    let end_date = Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap();
+                    for dp in &r.get_items().first().unwrap().datapoints {
+                        // Fail if the timestamp is before the start_date
+                        assert!(
+                            dp.timestamp >= start_date,
+                            "Timestamp {} is before the specified start date {}",
+                            dp.timestamp,
+                            start_date
+                        );
+                        // Fail if the timestamp is after the end_date
+                        assert!(
+                            dp.timestamp <= end_date,
+                            "Timestamp {} is after the specified end date {}",
+                            dp.timestamp,
+                            end_date
+                        );
 
                         if let Some(first_item) = r.get_items().first() {
                             if let Some(external_id) = &first_item.external_id {
                                 if external_id == "rust_sdk_test_6540_ts" {
-                                    assert_eq!(r.get_items().first().unwrap().datapoints.len(), 59);
+                                    if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.9514040223);
+                                    }
+                                    else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 22, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 180.0561890050);
+                                    }
+                                    else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.9661931149);
+                                    }
                                 } else {
-                                    assert_eq!(r.get_items().first().unwrap().datapoints.len(), 25);
-                                }
-                            }
-                        }
-
-                        let start_date = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
-                        let end_date = Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap();
-                        for dp in &r.get_items().first().unwrap().datapoints {
-                            // Fail if the timestamp is before the start_date
-                            assert!(
-                                dp.timestamp >= start_date,
-                                "Timestamp {} is before the specified start date {}",
-                                dp.timestamp,
-                                start_date
-                            );
-                            // Fail if the timestamp is after the end_date
-                            assert!(
-                                dp.timestamp <= end_date,
-                                "Timestamp {} is after the specified end date {}",
-                                dp.timestamp,
-                                end_date
-                            );
-
-                            println!("Timestamp: {:?}, avg: {:?}, min: {:?}, max: {:?}",
-                                     dp.get_timestamp(), dp.get_average(), dp.get_min(), dp.get_max());
-
-                            if let Some(first_item) = r.get_items().first() {
-                                if let Some(external_id) = &first_item.external_id {
-                                    if external_id == "rust_sdk_test_6540_ts" {
-                                        if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap() {
-                                            assert_eq!(truncate_10(dp.get_average().unwrap()), 179.9514040223);
-                                        }
-                                        else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 22, 0, 0, 0).unwrap() {
-                                            assert_eq!(truncate_10(dp.get_average().unwrap()), 180.0561890050);
-                                        }
-                                        else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
-                                            assert_eq!(truncate_10(dp.get_average().unwrap()), 179.9661931149);
-                                        }
-                                    } else {
-                                        if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap() {
-                                            assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4611111111);
-                                        }
-                                        else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
-                                            assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4927662037);
-                                        }
+                                    if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4611111111);
+                                    }
+                                    else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4927662037);
                                     }
                                 }
                             }
                         }
-                    },
-                    Err(e) => {
-                        eprintln!("error with datapoints fetch");
-                        println!("{:?}", e.get_message());
                     }
+                },
+                Err(e) => {
+                    eprintln!("error with datapoints fetch");
+                    println!("{:?}", e.get_message());
                 }
             }
         }
     }
 
-    fn create_daily_datapoints(date: DateTime<Utc> ) -> Vec<Datapoint> {
-        let rng = rand::rng();
+    async fn validate_raw_datapoints_with_cursor(api_service: &Rc<ApiService<'_>>, external_id: String) {
+        let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+        let mut rf = RetrieveFilter::new();
+        rf.set_external_id(external_id.as_str());
+        rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+        rf.set_end(Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap());
+        rf.set_limit(0);
+        data_request.add_item(rf);
+        let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+        match result {
+            Ok(r) => {
+                let ts = r.get_items().first().unwrap();
+                let next_cursor = ts.next_cursor.clone().unwrap();
+                assert!(!next_cursor.is_empty(), "next_cursor should not be empty");
+                println!("First Next cursor is {:?}", next_cursor);
+                let mut new_data_request = data_request.clone();
+                let rf = new_data_request.get_items_mut().first_mut().unwrap();
+                rf.cursor = Some(next_cursor);
+                println!("Second cursor request {:?}", new_data_request);
+                let result = api_service.time_series.retrieve_datapoints(&new_data_request).await;
+                match result {
+                    Ok(r) => {
+                        let ts = r.get_items().first().unwrap();
+                        let next_cursor = ts.next_cursor.clone().unwrap();
+                        println!("Next cursor is {:?}", next_cursor);
+                    },Err(e) => {
+                        eprintln!("error with datapoints with cursor fetch");
+                        println!("{:?}", e.get_message());
+                    }
+                }
+            },
+            Err(e) => {
+                eprintln!("error with datapoints with cursor fetch");
+                println!("{:?}", e.get_message());
+            }
+        }
+    }
 
+    fn create_daily_datapoints(date: DateTime<Utc> ) -> Vec<Datapoint> {
         // Create space for all datapoints:
         const NUM_DATAPOINTS: usize = 60 * 24 * 3600;
         let mut datapoints = Vec::with_capacity(NUM_DATAPOINTS);
