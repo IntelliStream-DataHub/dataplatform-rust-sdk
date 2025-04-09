@@ -629,8 +629,10 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         println!("Done sleeping.");
 
+        println!("Validate aggregated datapoints...");
         validate_daily_avg(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
 
+        println!("Validate raw datapoints...");
         validate_raw_datapoints_with_cursor(&api_service, new_ts_ext_id.clone()).await;
 
         // Delete timeseries when complete
@@ -809,7 +811,19 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_raw_datapoints_query_if_data_is_already_inserted() -> Result<(), Box<dyn std::error::Error>> {
+
+        //let unique_id: u64 = 6540;
+        //let api_service = create_api_service();
+        //let new_ts_ext_id = format!("rust_sdk_test_{id}_ts", id = unique_id);
+        //validate_raw_datapoints_with_cursor(&api_service, new_ts_ext_id.clone()).await;
+
+        Ok(())
+    }
+
     async fn validate_raw_datapoints_with_cursor(api_service: &Rc<ApiService<'_>>, external_id: String) {
+        println!("Validate raw datapoints with cursor...");
         let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
         let mut rf = RetrieveFilter::new();
         rf.set_external_id(external_id.as_str());
@@ -817,26 +831,51 @@ mod tests {
         rf.set_end(Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap());
         rf.set_limit(0);
         data_request.add_item(rf);
+        println!("Request data... {:?}", data_request);
         let result = api_service.time_series.retrieve_datapoints(&data_request).await;
         match result {
             Ok(r) => {
+
                 let ts = r.get_items().first().unwrap();
                 let next_cursor = ts.next_cursor.clone().unwrap();
                 assert!(!next_cursor.is_empty(), "next_cursor should not be empty");
-                println!("First Next cursor is {:?}", next_cursor);
-                let mut new_data_request = data_request.clone();
-                let rf = new_data_request.get_items_mut().first_mut().unwrap();
-                rf.cursor = Some(next_cursor);
-                println!("Second cursor request {:?}", new_data_request);
-                let result = api_service.time_series.retrieve_datapoints(&new_data_request).await;
-                match result {
-                    Ok(r) => {
-                        let ts = r.get_items().first().unwrap();
-                        let next_cursor = ts.next_cursor.clone().unwrap();
-                        println!("Next cursor is {:?}", next_cursor);
-                    },Err(e) => {
-                        eprintln!("error with datapoints with cursor fetch");
-                        println!("{:?}", e.get_message());
+                assert_eq!(ts.datapoints.len(), 100000);
+
+                println!("Got cursor id: {:?}", next_cursor);
+
+                let mut current_cursor: Option<String> = Some(next_cursor);
+                let mut loop_count = 1; // We have already completed 1 request
+                loop {
+                    let mut new_data_request = data_request.clone();
+                    let rf = new_data_request.get_items_mut().first_mut().unwrap();
+                    rf.cursor = current_cursor.clone();
+                    let result = api_service.time_series.retrieve_datapoints(&new_data_request).await;
+                    match result {
+                        Ok(r) => {
+                            let ts = r.get_items().first().unwrap();
+                            println!("Sum datapoints for loop count:{:?} | {:?}", loop_count +1, ts.datapoints.len());
+
+                            if loop_count == 50 {
+                                // Final data count is 97600
+                                assert_eq!(ts.datapoints.len(), 97600);
+                            } else {
+                                assert_eq!(ts.datapoints.len(), 100000);
+                            }
+                            if ts.next_cursor.is_some(){
+                                current_cursor = Some(ts.next_cursor.clone().unwrap());
+                            } else {
+                                current_cursor = None;
+                            }
+                            println!("Next cursor is {:?}", current_cursor);
+                        },Err(e) => {
+                            eprintln!("error with datapoints with cursor fetch");
+                            println!("{:?}", e.get_message());
+                        }
+                    }
+                    loop_count += 1;
+
+                    if current_cursor.is_none() {
+                        break;
                     }
                 }
             },
