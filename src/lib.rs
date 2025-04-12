@@ -615,18 +615,18 @@ mod tests {
             }
         }
 
-        // Before validating inserted data, sleep for 30 seconds...
-        // This is because it takes some time before data is inserted into clickhouse
-        println!("Sleeping for 30 seconds...while waiting for data to be inserted into clickhouse.");
-        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        // Before validating inserted data, sleep for 60 seconds...
+        // This is because it takes some time before data is inserted and merged in clickhouse
+        println!("Sleeping for 60 seconds...while waiting for data to be inserted into clickhouse.");
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         println!("Done sleeping.");
 
         validate_datapoints(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
 
-        // Before validating inserted data, sleep for 30 seconds...
+        // Before validating inserted data, sleep for 60 seconds...
         // This is because it takes some time before data is inserted into clickhouse and merged into the table
-        println!("Sleeping for 30 seconds...while waiting for data to be inserted into clickhouse and merged into timeseries.");
-        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        println!("Sleeping for 60 seconds...while waiting for data to be inserted into clickhouse and merged into timeseries.");
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         println!("Done sleeping.");
 
         println!("Validate aggregated datapoints...");
