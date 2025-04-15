@@ -6,7 +6,7 @@ use std::rc::{Weak};
 use futures::{future::join_all, FutureExt};
 use crate::ApiService;
 use crate::fields::{Field, ListField, MapField};
-use crate::generic::{ApiServiceProvider, DataWrapper, Datapoint, DatapointsCollection, IdAndExtIdCollection, RelationForm, RetrieveFilter, SearchAndFilterForm, SearchForm};
+use crate::generic::{ApiServiceProvider, DataWrapper, Datapoint, DatapointsCollection, DeleteFilter, IdAndExtIdCollection, RelationForm, RetrieveFilter, SearchAndFilterForm, SearchForm};
 use crate::http::{process_response, ResponseError};
 
 pub struct TimeSeriesService<'a>{
@@ -220,6 +220,13 @@ impl<'a> TimeSeriesService<'a> {
     {
         let path = &format!("{}/data/list", self.base_url);
         self.execute_post_request::<DataWrapper<DatapointsCollection<Datapoint>>, _>(path, json).await
+    }
+
+    pub async fn delete_datapoints(&self, json: &DataWrapper<DeleteFilter>)
+                                     -> Result<DataWrapper<String>, ResponseError>
+    {
+        let path = &format!("{}/data/delete", self.base_url);
+        self.execute_post_request::<DataWrapper<String>, _>(path, json).await
     }
 
 }

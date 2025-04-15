@@ -60,7 +60,7 @@ mod tests {
     use crate::timeseries::{TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
     use maplit::hashmap;
     use reqwest::StatusCode;
-    use crate::generic::{DataWrapper, Datapoint, DatapointsCollection, IdAndExtId, RetrieveFilter};
+    use crate::generic::{DataWrapper, Datapoint, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter};
     use chrono::{DateTime, Duration, TimeZone, Utc};
 
     #[tokio::test]
@@ -635,6 +635,9 @@ mod tests {
         println!("Validate raw datapoints...");
         validate_raw_datapoints_with_cursor(&api_service, new_ts_ext_id.clone()).await;
 
+        println!("Delete datapoints");
+        validate_deleted_datapoints(&api_service, new_ts_ext_id.clone()).await;
+
         // Delete timeseries when complete
         //delete_timeseries(unique_id, &api_service).await;
         //delete_timeseries(unique_id+1, &api_service).await;
@@ -732,6 +735,47 @@ mod tests {
             },
             Err(e) => {
                 eprintln!("error with datapoints fetch");
+                println!("{:?}", e.get_message());
+            }
+        }
+    }
+
+    async fn validate_deleted_datapoints(api_service: &Rc<ApiService<'_>>, ts_external_id: String){
+        let delete_after_timestamp = Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap();
+
+        let mut data_request: DataWrapper<DeleteFilter> = DataWrapper::new();
+        let df = DeleteFilter::from_external_id(ts_external_id.clone(), Some(delete_after_timestamp), None);
+        data_request.add_item( df );
+
+        let result = api_service.time_series.delete_datapoints(&data_request).await;
+        match result {
+            Ok(r) => {
+                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::NO_CONTENT.as_u16());
+            },
+            Err(e) => {
+                eprintln!("error with datapoints delete");
+                println!("{:?}", e.get_message());
+            }
+        }
+
+        println!("Sleeping for 60 seconds...while waiting for data to be deleted in clickhouse.");
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+
+        // Validate datapoints that is left
+        let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+        let mut rf = RetrieveFilter::new();
+        rf.set_external_id(&ts_external_id);
+        rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 6, 0, 0).unwrap());
+        rf.set_limit(5000);
+        data_request.add_item(rf);
+
+        let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+        match result {
+            Ok(r) => {
+                assert_eq!(r.get_items().first().unwrap().datapoints.len(), 5000);
+            },
+            Err(e) => {
+                eprintln!("error with checking datapoints left after delete");
                 println!("{:?}", e.get_message());
             }
         }

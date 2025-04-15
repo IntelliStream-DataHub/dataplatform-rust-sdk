@@ -269,6 +269,54 @@ impl IdAndExtIdCollection {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DeleteFilter {
+    pub(crate) id: Option<u64>,
+    #[serde(rename = "externalId")]
+    pub(crate) external_id: Option<String>,
+    #[serde(rename = "inclusiveBegin")]
+    pub(crate) inclusive_begin: Option<DateTime<Utc>>,
+    #[serde(rename = "exclusiveEnd")]
+    pub(crate) exclusive_end: Option<DateTime<Utc>>,
+}
+
+impl DeleteFilter {
+    pub(crate) fn new() -> Self {
+        DeleteFilter {
+            id: None,
+            external_id: None,
+            inclusive_begin: None,
+            exclusive_end: None
+        }
+    }
+
+    pub(crate) fn from_external_id(
+        external_id: String,
+        inclusive_begin: Option<DateTime<Utc>>,
+        exclusive_end: Option<DateTime<Utc>>
+    ) -> Self {
+        DeleteFilter {
+            id: None,
+            external_id: Some(external_id),
+            inclusive_begin,
+            exclusive_end
+        }
+    }
+
+    pub(crate) fn from_id(
+        id: u64,
+        inclusive_begin: Option<DateTime<Utc>>,
+        exclusive_end: Option<DateTime<Utc>>
+    ) -> Self {
+        DeleteFilter {
+            id: Some(id),
+            external_id: None,
+            inclusive_begin,
+            exclusive_end
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RetrieveFilter {
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
