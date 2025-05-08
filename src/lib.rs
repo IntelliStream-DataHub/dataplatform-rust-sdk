@@ -62,7 +62,7 @@ mod tests {
     use crate::timeseries::{TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
     use maplit::hashmap;
     use reqwest::StatusCode;
-    use crate::generic::{DataWrapper, Datapoint, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter};
+    use crate::generic::{DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter};
     use chrono::{DateTime, Duration, TimeZone, Utc};
     use crate::http::ResponseError;
 
@@ -576,7 +576,7 @@ mod tests {
 
         println!("Prepare datapoints...");
         // Create datapoints
-        let mut data_request: DataWrapper<DatapointsCollection<Datapoint>> = DataWrapper::new();
+        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
         let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id.as_str());
 
         let datetime = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
@@ -597,13 +597,13 @@ mod tests {
         }
 
         println!("Prepare datapoints for second time series...");
-        let mut data_request: DataWrapper<DatapointsCollection<Datapoint>> = DataWrapper::new();
+        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
         let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id2.as_str());
 
         let datetime = Utc.with_ymd_and_hms(2025, 2, 4, 9, 0, 0).unwrap();
         dp_collection.datapoints = create_daily_datapoints(datetime);
         for dp in  &mut dp_collection.datapoints {
-            dp.value = dp.value;
+            dp.value = dp.value.clone();
         }
 
         data_request.get_items_mut().push( dp_collection );
@@ -644,8 +644,8 @@ mod tests {
         validate_deleted_datapoints(&api_service, new_ts_ext_id.clone()).await;
 
         // Delete timeseries when complete
-        delete_timeseries(unique_id, &api_service).await;
-        delete_timeseries(unique_id+1, &api_service).await;
+        //delete_timeseries(unique_id, &api_service).await;
+        //delete_timeseries(unique_id+1, &api_service).await;
 
         Ok(())
     }
@@ -866,10 +866,12 @@ mod tests {
     #[tokio::test]
     async fn test_raw_datapoints_query_if_data_is_already_inserted() -> Result<(), Box<dyn std::error::Error>> {
 
-        //let unique_id: u64 = 6540;
-        //let api_service = create_api_service();
-        //let new_ts_ext_id = format!("rust_sdk_test_{id}_ts", id = unique_id);
+        let unique_id: u64 = 6540;
+        let api_service = create_api_service();
+        let new_ts_ext_id = format!("rust_sdk_test_{id}_ts", id = unique_id);
+        let new_ts_ext_id2 = format!("rust_sdk_test_{id}_ts", id = unique_id+1);
         //validate_raw_datapoints_with_cursor(&api_service, new_ts_ext_id.clone()).await;
+        //validate_daily_avg(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
 
         Ok(())
     }
@@ -938,7 +940,7 @@ mod tests {
         }
     }
 
-    fn create_daily_datapoints(date: DateTime<Utc> ) -> Vec<Datapoint> {
+    fn create_daily_datapoints(date: DateTime<Utc> ) -> Vec<DatapointString> {
         // Create space for all datapoints:
         const NUM_DATAPOINTS: usize = 60 * 24 * 3600;
         let mut datapoints = Vec::with_capacity(NUM_DATAPOINTS);
@@ -950,7 +952,7 @@ mod tests {
         // Generate one datapoint for each second of the day
         for idx in 0..NUM_DATAPOINTS {
             let current_time = date + Duration::seconds(idx as i64);
-            datapoints.push( Datapoint::from(current_time, rdm_values_vec[idx]) );
+            datapoints.push( DatapointString::from_datetime(current_time, &rdm_values_vec[idx].to_string()) );
         }
 
         datapoints
@@ -1017,17 +1019,17 @@ mod tests {
         println!("Insert datapoints...");
 
         // Create datapoints
-        let mut data_request: DataWrapper<DatapointsCollection<Datapoint>> = DataWrapper::new();
+        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
         let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id.as_str());
 
         let datetime = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
         let latest_datetime = datetime + Duration::seconds(4);
         dp_collection.datapoints = vec![
-            Datapoint::from(datetime, 177.6544096666),
-            Datapoint::from(datetime + Duration::seconds(1), 179.9514040223),
-            Datapoint::from(datetime + Duration::seconds(2), 178.3544091313),
-            Datapoint::from(datetime + Duration::seconds(3), 180.0000091313),
-            Datapoint::from(latest_datetime, 181.3044577713),
+            DatapointString::from_datetime(datetime, "177.6544096666"),
+            DatapointString::from_datetime(datetime + Duration::seconds(1), "179.9514040223"),
+            DatapointString::from_datetime(datetime + Duration::seconds(2), "178.3544091313"),
+            DatapointString::from_datetime(datetime + Duration::seconds(3), "180.0000091313"),
+            DatapointString::from_datetime(latest_datetime, "181.3044577713"),
         ];
 
         data_request.get_items_mut().push( dp_collection );
@@ -1042,9 +1044,9 @@ mod tests {
         // Create a new Data point collection with older values
         let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id.as_str());
         dp_collection.datapoints = vec![
-            Datapoint::from(datetime - Duration::seconds(1), 179.9514040223),
-            Datapoint::from(datetime - Duration::seconds(2), 178.3544091313),
-            Datapoint::from(datetime - Duration::seconds(3), 180.0000091313),
+            DatapointString::from_datetime(datetime - Duration::seconds(1), "179.9514040223"),
+            DatapointString::from_datetime(datetime - Duration::seconds(2), "178.3544091313"),
+            DatapointString::from_datetime(datetime - Duration::seconds(3), "180.0000091313"),
         ];
         let result = api_service.time_series.insert_datapoints(&mut data_request).await;
         validate_data_insertion(result);

@@ -34,8 +34,12 @@ pub struct DatapointString {
 }
 
 impl DatapointString {
-    fn from(timestamp: &str, value: &str) -> Self {
+    pub fn from(timestamp: &str, value: &str) -> Self {
         DatapointString {timestamp: timestamp.to_string(), value: value.to_string()}
+    }
+
+    pub fn from_datetime(timestamp: DateTime<Utc>, value: &str) -> Self {
+        DatapointString {timestamp: timestamp.timestamp_millis().to_string(), value: value.to_string()}
     }
 }
 

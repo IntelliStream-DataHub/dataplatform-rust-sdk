@@ -3,10 +3,11 @@ use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
 use std::rc::{Weak};
+use chrono::{DateTime, TimeZone, Utc};
 use futures::{future::join_all, FutureExt};
 use crate::ApiService;
 use crate::fields::{Field, ListField, MapField};
-use crate::generic::{ApiServiceProvider, DataWrapper, Datapoint, DatapointsCollection, DeleteFilter, IdAndExtIdCollection, RelationForm, RetrieveFilter, SearchAndFilterForm, SearchForm};
+use crate::generic::{ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtIdCollection, RelationForm, RetrieveFilter, SearchAndFilterForm, SearchForm};
 use crate::http::{process_response, ResponseError};
 
 pub struct TimeSeriesService<'a>{
@@ -129,9 +130,32 @@ impl<'a> TimeSeriesService<'a> {
         self.search(&search_and_filter_form).await
     }
 
-    pub async fn insert_datapoints(&self, json: &mut DataWrapper<DatapointsCollection<Datapoint>>)
-                        -> Result<DataWrapper<String>, ResponseError>
-    {
+    pub async fn insert_datapoint(
+        &self, 
+        id: Option<u64>, 
+        external_id: Option<String>, 
+        timestamp: DateTime<Utc>, 
+        value: String
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+
+        let mut dp_collection = if let Some(id_value) = id {
+            DatapointsCollection::from_id(id_value)
+        } else if let Some(external_id_value) = external_id {
+            DatapointsCollection::from_external_id(&external_id_value) // Assuming from_id can handle both id types based on your selection
+        } else {
+            panic!("Neither id nor external_id provided.");
+        };
+        
+        let dp = DatapointString::from_datetime(timestamp, value.as_str());
+        dp_collection.datapoints.push( dp );
+        data_request.add_item(dp_collection);
+        self.insert_datapoints(&mut data_request).await
+    }
+
+    pub async fn insert_datapoints(
+        &self, json: &mut DataWrapper<DatapointsCollection<DatapointString>>
+    ) -> Result<DataWrapper<String>, ResponseError> {
         let path = &format!("{}/data", self.base_url);
         let mut new_request_bodies = vec![];
         let mut futures = vec![];
@@ -149,7 +173,7 @@ impl<'a> TimeSeriesService<'a> {
             while total_datapoints > MAX_DATAPOINTS_PER_REQUEST {
                 println!("Total datapoints left: {}", total_datapoints);
                 // Divide the request into multiple batch requests
-                let mut new_json: DataWrapper<DatapointsCollection<Datapoint>> = DataWrapper::new();
+                let mut new_json: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
                 for orig_dp_collection in json.get_items_mut() {
                     let mut new_dp_collection = DatapointsCollection::from(orig_dp_collection.id, orig_dp_collection.external_id.clone());
                     if Some(orig_dp_collection.id) != None {
@@ -161,7 +185,7 @@ impl<'a> TimeSeriesService<'a> {
                     let batch_size: usize = MAX_DATAPOINTS_PER_REQUEST / active_timeseries_with_datapoints.len();
                     println!("Current Batch size: {}", batch_size);
                     if orig_dp_collection.datapoints.len() > batch_size {
-                        let chunk: Vec<Datapoint> = orig_dp_collection.datapoints.drain(..batch_size).collect();
+                        let chunk: Vec<DatapointString> = orig_dp_collection.datapoints.drain(..batch_size).collect();
                         new_dp_collection.datapoints.extend(chunk);
                     } else if orig_dp_collection.datapoints.len() == 0 {
                         // Find the hash for active timeseries, and remove it from the vec
