@@ -644,8 +644,8 @@ mod tests {
         validate_deleted_datapoints(&api_service, new_ts_ext_id.clone()).await;
 
         // Delete timeseries when complete
-        //delete_timeseries(unique_id, &api_service).await;
-        //delete_timeseries(unique_id+1, &api_service).await;
+        delete_timeseries(unique_id, &api_service).await;
+        delete_timeseries(unique_id+1, &api_service).await;
 
         Ok(())
     }
@@ -832,13 +832,16 @@ mod tests {
                             if let Some(external_id) = &first_item.external_id {
                                 if external_id == "rust_sdk_test_6540_ts" {
                                     if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap() {
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.9514040223);
+                                        // normal avg would return 179.9514040223, but we use avgweighted over the window
+                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4516319444);
                                     }
                                     else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 22, 0, 0, 0).unwrap() {
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 180.0561890050);
+                                        // normal avg would return 180.0561890050
+                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.5567939814);
                                     }
                                     else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.9661931149);
+                                        // normal avg would return 179.9661931149
+                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4659953703);
                                     }
                                 } else {
                                     if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap() {
@@ -1067,7 +1070,11 @@ mod tests {
         }
     }
 
-    async fn validate_latest_datapoint(api_service: &ApiService<'_>, latest_datetime: DateTime<Utc>, id_collection: &IdAndExtIdCollection) {
+    async fn validate_latest_datapoint(
+        api_service: &ApiService<'_>, 
+        latest_datetime: DateTime<Utc>, 
+        id_collection: &IdAndExtIdCollection
+    ) {
         let result = api_service.time_series.retrieve_latest_datapoint(&id_collection).await;
         match result {
             Ok(timeseries) => {
