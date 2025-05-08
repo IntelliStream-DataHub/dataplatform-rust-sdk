@@ -229,6 +229,13 @@ impl<'a> TimeSeriesService<'a> {
         self.execute_post_request::<DataWrapper<String>, _>(path, json).await
     }
 
+    pub async fn retrieve_latest_datapoint(&self, json: &IdAndExtIdCollection)
+                                   -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>
+    {
+        let path = &format!("{}/data/latest", self.base_url);
+        self.execute_post_request::<DataWrapper<DatapointsCollection<Datapoint>>, _>(path, json).await
+    }
+
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

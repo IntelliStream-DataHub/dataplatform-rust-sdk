@@ -31,7 +31,7 @@ impl DataHubApi<'_> {
     }
 
     pub fn create_default() -> DataHubApi<'static> {
-        let token = env::var("TOKEN").unwrap_or("Missing TOKEN env variable!".to_string());
+        let token = env::var("TOKEN").expect("TOKEN environment variable not set");
         let mut api_service = DataHubApi::init(&None);
         api_service.set_token_value(&token);
         api_service
