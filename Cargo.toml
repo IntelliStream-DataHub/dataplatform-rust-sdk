@@ -13,7 +13,8 @@ reqwest = {  version = "0.12", features = ["blocking", "json"] }
 chrono = { version ="0.4", features = ["serde"] }
 rand = "0.9"
 futures = "0.3"
-dotenv = "0.15.0"
+dotenv = "0.15"
+uuid = { version = "1.16", features = ["v4", "v7", "serde"] }
 
 [lib]
 proc-macro = true

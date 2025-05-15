@@ -1093,4 +1093,14 @@ mod tests {
             }
         }
     }
+    
+    // Events
+
+    #[tokio::test]
+    async fn test_create_and_delete_events() -> Result<(), Box<dyn std::error::Error>> {
+        
+        let unique_id: u64 = 7010;
+        
+        Ok(())
+    }
 }
