@@ -1,9 +1,12 @@
+mod test;
+
 use std::collections::HashMap;
 use std::rc::{Weak};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::ApiService;
+use crate::{to_snake_lower_cased_allow_start_with_digits, ApiService};
+use crate::filters::Filters;
 use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
 use crate::http::ResponseError;
 
@@ -19,19 +22,34 @@ impl<'a> EventsService<'a>{
         EventsService {api_service, base_url}
     }
 
-    pub async fn create(&self, data: &DataWrapper<Event>)
+    pub async fn create(&self, data: &Vec<Event>)
         -> Result<DataWrapper<Event>, ResponseError>
     {
+        let mut dw = DataWrapper::new();
+        dw.set_items(data.clone());
         let path = &format!("{}/create", self.base_url);
-        self.execute_post_request::<DataWrapper<Event>, _>(path, data).await
+        self.execute_post_request::<DataWrapper<Event>, _>(path, &dw).await
     }
 
     pub async fn create_one(&self, event: &Event)
                             -> Result<DataWrapper<Event>, ResponseError>
     {
-        let mut dw = DataWrapper::new();
-        dw.add_item(event.clone());
-        self.create(&dw).await
+        let events = vec![event.clone()];
+        self.create(&events).await
+    }
+
+    pub async fn delete_by_external_ids(&self, data: Vec<&str>)
+                        -> Result<DataWrapper<Event>, ResponseError>
+    {
+        let data = IdAndExtIdCollection::from_external_id_vec(data);
+        self.delete(&data).await
+    }
+
+    pub async fn delete_by_ids(&self, data: Vec<u64>)
+                                        -> Result<DataWrapper<Event>, ResponseError>
+    {
+        let data = IdAndExtIdCollection::from_id_vec(data);
+        self.delete(&data).await
     }
 
     pub async fn delete(&self, json: &IdAndExtIdCollection)
@@ -41,12 +59,10 @@ impl<'a> EventsService<'a>{
         self.execute_post_request(path, json).await
     }
 
-    pub fn filter(&self) -> Result<(), ResponseError> {
-        unimplemented!()
-    }
-
-    pub fn list(&self) -> Result<(), ResponseError> {
-        unimplemented!()
+    pub async fn filter(&self, filters: &Filters) -> Result<DataWrapper<Event>, ResponseError> {
+        let filter_request = RetrieveEventsFilter::new();
+        let path = &format!("{}/list", self.base_url);
+        self.execute_post_request(path, &filter_request).await
     }
 
     pub async fn get_event_by_id(&self, id: String) 
@@ -246,5 +262,127 @@ impl Event {
 
     pub fn get_last_updated_time(&self) -> Option<&DateTime<Utc>> {
         self.last_updated_time.as_ref()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct EventsFilter {
+    id: Option<u64>,
+    external_id_prefix: Option<String>,
+    source: Option<String>,
+    r#type: Option<String>,
+    sub_type: Option<String>,
+    data_set_ids: Option<Vec<u64>>,
+    start_time: Option<DateTime<Utc>>,
+    end_time: Option<DateTime<Utc>>,
+    metadata: Option<HashMap<String, String>>,
+    related_resource_ids: Option<Vec<u64>>,
+    related_resource_external_ids: Option<Vec<String>>,
+}
+
+impl EventsFilter {
+    
+    pub fn new() -> Self {
+        Self{
+            id: None,
+            external_id_prefix: None,
+            source: None,
+            r#type: None,
+            sub_type: None,
+            data_set_ids: None,
+            start_time: None,
+            end_time: None,
+            metadata: None,
+            related_resource_ids: None,
+            related_resource_external_ids: None,
+        }
+    }
+
+    fn set_property(&mut self, property_name: &str, value: &str) {
+        match property_name {
+            "id" => {
+                // You'll need to parse the string value into the correct type (u64 in this case)
+                if let Ok(id) = value.parse::<u64>() {
+                    self.id = Some(id);
+                } else {
+                    // Handle parsing error
+                    eprintln!("Error: Could not parse '{}' as u64 for property 'id'", value);
+                }
+            }
+            "external_id_prefix" => {
+                self.external_id_prefix = Some(value.to_string());
+            }
+            "source" => {
+                self.source = Some(value.to_string());
+            }
+            "type" => { // Using r#type for the keyword
+                self.r#type = Some(value.to_string());
+            }
+            "sub_type" => {
+                self.sub_type = Some(value.to_string());
+            }
+            "data_set_ids" => {
+                eprintln!("Warning: Use set_data_set_ids( Vec<u64> )!");
+            }
+            // Add cases for other properties as needed
+            _ => {
+                // Handle unknown property names
+                eprintln!("Warning: Unknown property name '{}'", property_name);
+            }
+        }
+    }
+    
+    fn set_data_set_ids(&mut self, data_set_ids: Vec<u64>) {
+        self.data_set_ids = Some(data_set_ids.clone());
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct AdvancedEventFilter {
+
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RetrieveEventsFilter {
+    filter: Option<EventsFilter>,
+    limit: Option<u64>,
+    cursor: Option<String>,
+    sort: Option<String>,
+    advanced_filter: Option<AdvancedEventFilter>,
+    #[serde(skip)]
+    http_status_code: Option<u16>,
+}
+
+impl RetrieveEventsFilter {
+    pub fn set_http_status_code(&mut self, http_status_code: u16) {
+        self.http_status_code = Some(http_status_code);
+    }
+}
+
+impl RetrieveEventsFilter {
+    
+    pub fn new() -> Self {
+        RetrieveEventsFilter {
+            filter: None,
+            limit: None,
+            cursor: None,
+            sort: None,
+            advanced_filter: None,
+            http_status_code: None,
+        }
+    }
+    
+    pub fn new_with_prefix(property: &str, value: &str) -> Self {
+        let new_value = to_snake_lower_cased_allow_start_with_digits(value);
+        let mut filter = EventsFilter::new();
+        filter.set_property(property, &new_value);
+        Self {
+            filter: Some(filter),
+            limit: None,
+            cursor: None,
+            sort: None,
+            advanced_filter: None,
+            http_status_code: None,
+        }
     }
 }
