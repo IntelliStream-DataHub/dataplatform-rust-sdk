@@ -2,6 +2,7 @@ use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
 use oauth2::{reqwest, AuthUrl, ClientId, ClientSecret, TokenResponse, TokenUrl};
 use oauth2::basic::BasicClient;
+use regex::Regex;
 
 #[derive(Debug)]
 pub struct DataHubConfig {
@@ -137,5 +138,17 @@ impl DataHubApi<'_> {
 
     pub fn get_config(&mut self) -> &Option<DataHubConfig> {
         self.config
+    }
+}
+
+pub fn to_snake_lower_cased_allow_start_with_digits(s: &str) -> String {
+    let s = s.to_lowercase();
+    let re = Regex::new(r"[\s\W]+").unwrap();
+    let replaced = re.replace_all(&s, "_").into_owned();
+    // Trim trailing underscores, but preserve leading if the original started with them
+    if s.chars().next().map_or(false, |c| c.is_whitespace() || !c.is_alphanumeric()) {
+        replaced.trim_end_matches('_').to_string()
+    } else {
+        replaced.trim_matches('_').to_string()
     }
 }

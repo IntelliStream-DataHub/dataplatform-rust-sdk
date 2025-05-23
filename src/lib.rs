@@ -4,10 +4,10 @@ use reqwest::Client;
 use dotenv::dotenv;
 
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-use regex::Regex;
 
 use crate::datahub::DataHubApi;
 use crate::events::EventsService;
+use crate::files::FileService;
 use crate::generic::{IdAndExtIdCollection};
 use crate::timeseries::{TimeSeriesService};
 use crate::unit::{UnitsService};
@@ -19,6 +19,7 @@ mod datahub;
 mod fields;
 mod events;
 mod http;
+mod files;
 mod filters;
 
 struct ApiService<'a>{
@@ -26,6 +27,7 @@ struct ApiService<'a>{
     pub time_series: TimeSeriesService<'a>,
     pub units: UnitsService<'a>,
     pub events: EventsService<'a>,
+    pub files: FileService<'a>,
     http_client: Client,
 }
 
@@ -50,6 +52,7 @@ fn create_api_service() -> Rc<ApiService<'static>> {
             time_series: TimeSeriesService::new(Weak::clone(weak_self), &base_url_clone), // Initialize any other services here
             units: UnitsService::new ( Weak::clone(weak_self), &base_url_clone ), // Pass the Weak reference
             events: EventsService::new ( Weak::clone(weak_self), &base_url_clone ),
+            files: FileService::new ( Weak::clone(weak_self), &base_url_clone ),
             http_client,
         }
     });
@@ -57,22 +60,11 @@ fn create_api_service() -> Rc<ApiService<'static>> {
     api_service
 }
 
-fn to_snake_lower_cased_allow_start_with_digits(s: &str) -> String {
-    let s = s.to_lowercase();
-    let re = Regex::new(r"[\s\W]+").unwrap();
-    let replaced = re.replace_all(&s, "_").into_owned();
-    // Trim trailing underscores, but preserve leading if the original started with them
-    if s.chars().next().map_or(false, |c| c.is_whitespace() || !c.is_alphanumeric()) {
-        replaced.trim_end_matches('_').to_string()
-    } else {
-        replaced.trim_matches('_').to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
     use super::*;
-    
+
     #[test]
     fn test_to_snake_lower_cased_allow_start_with_digits() {
         assert_eq!(to_snake_lower_cased_allow_start_with_digits("Hello World!"), "hello_world".to_string());
@@ -88,7 +80,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unit_requests() -> Result<(), Box<dyn std::error::Error>> {
-        
+
         println!("test_unit_requests");
 
         let api_service = create_api_service();

@@ -3,9 +3,10 @@ use std::hash::Hasher;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use chrono::{DateTime, Utc, TimeZone};
-
+use reqwest::multipart::Form;
 use crate::{ApiService};
 use crate::events::{Event, EventsService};
+use crate::files::{FileService, FileUpload};
 use crate::http::{process_response, ResponseError};
 use crate::timeseries::{TimeSeries, TimeSeriesService};
 use crate::unit::{Unit, UnitsService};
@@ -537,6 +538,34 @@ pub trait ApiServiceProvider<'a> {
         }
     }
 
+    async fn execute_file_upload_request<T: DeserializeOwned + DataWrapperDeserialization>(
+        &self,
+        path: &str,
+        multipart_form: Form,
+    ) -> Result<T, ResponseError> {
+        let response = self.get_api_service().http_client
+            .put(path)
+            .multipart(multipart_form)
+            .send()
+            .await
+            .map_err(|err| {
+                eprintln!("HTTP file upload request failed: {}", err);
+                ResponseError::from_err(err)
+            })?;
+        if response.status() == 201 {
+            // Return deserialized `T` with an empty body and the HTTP status code
+            T::deserialize_and_set_status("", response.status().as_u16())
+                .map_err(|err| {
+                    eprintln!("Failed to create object from empty response: {}", err);
+                    ResponseError {
+                        status: response.status(),
+                        message: err.to_string(),
+                    }
+                })
+        } else {
+            process_response::<T>(response, path).await
+        }
+    }
 }
 
 impl<'a> ApiServiceProvider<'a> for TimeSeriesService<'a> {
@@ -550,7 +579,14 @@ impl<'a> ApiServiceProvider<'a> for UnitsService<'a> {
         &self.api_service
     }
 }
+
 impl<'a> ApiServiceProvider<'a> for EventsService<'a> {
+    fn api_service(&self) -> &Weak<ApiService<'a>> {
+        &self.api_service
+    }
+}
+
+impl<'a> ApiServiceProvider<'a> for FileService<'a> {
     fn api_service(&self) -> &Weak<ApiService<'a>> {
         &self.api_service
     }
@@ -615,6 +651,18 @@ impl DataWrapperDeserialization for DataWrapper<DatapointsCollection<Datapoint>>
     {
         // Deserialize from JSON
         serde_json::from_str(body).map(|mut wrapper: DataWrapper<DatapointsCollection<Datapoint>>| {
+            wrapper.set_http_status_code(status_code); // Set the HTTP status code
+            wrapper // Return the modified wrapper
+        })
+    }
+}
+
+impl DataWrapperDeserialization for DataWrapper<FileUpload> {
+    fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>
+    where Self: Sized,
+    {
+        // Deserialize from JSON
+        serde_json::from_str(body).map(|mut wrapper: DataWrapper<FileUpload>| {
             wrapper.set_http_status_code(status_code); // Set the HTTP status code
             wrapper // Return the modified wrapper
         })
