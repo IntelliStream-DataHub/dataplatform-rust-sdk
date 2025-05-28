@@ -416,6 +416,7 @@ pub struct DataWrapper<T> {
     items: Vec<T>,
     #[serde(skip)]
     http_status_code: Option<u16>,
+    error_body: Option<String>,
 }
 
 impl<T> DataWrapper<T> {
@@ -423,6 +424,7 @@ impl<T> DataWrapper<T> {
         DataWrapper {
             items: vec![],
             http_status_code: None,
+            error_body: None,
         }
     }
 
@@ -593,96 +595,58 @@ impl<'a> ApiServiceProvider<'a> for FileService<'a> {
 }
 
 // A marker trait
-pub trait DataWrapperDeserialization {
-    fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>
-    where Self: Sized;
+pub trait DataWrapperDeserialization
+where
+    Self: Sized,
+{
+    fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>;
 }
 
-// Implement the custom logic for specific types
-impl DataWrapperDeserialization for DataWrapper<Unit> {
-    fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>
-    where Self: Sized,
-    {
-        // Deserialize from JSON
-        serde_json::from_str(body).map(|mut wrapper: DataWrapper<Unit>| {
-            wrapper.set_http_status_code(status_code); // Set the HTTP status code
-            wrapper // Return the modified wrapper
-        })
-    }
-}
-
-impl DataWrapperDeserialization for DataWrapper<TimeSeries> {
-    fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>
-    where Self: Sized,
-    {
-        if status_code == 204 {
-            let mut wrapper: DataWrapper<TimeSeries> = DataWrapper::new();
-            wrapper.set_http_status_code(status_code);
-            return Ok(wrapper)
-        }
-        // Deserialize from JSON
-        serde_json::from_str(body).map(|mut wrapper: DataWrapper<TimeSeries>| {
-            wrapper.set_http_status_code(status_code); // Set the HTTP status code
-            wrapper // Return the modified wrapper
-        })
-    }
-}
-
-impl DataWrapperDeserialization for DataWrapper<Event> {
-    fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>
-    where Self: Sized,
-    {
-        if status_code == 204 {
-            let mut wrapper: DataWrapper<Event> = DataWrapper::new();
-            wrapper.set_http_status_code(status_code);
-            return Ok(wrapper)
-        }
-        // Deserialize from JSON
-        serde_json::from_str(body).map(|mut wrapper: DataWrapper<Event>| {
-            wrapper.set_http_status_code(status_code); // Set the HTTP status code
-            wrapper // Return the modified wrapper
-        })
-    }
-}
-
-impl DataWrapperDeserialization for DataWrapper<DatapointsCollection<Datapoint>> {
-    fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>
-    where Self: Sized,
-    {
-        // Deserialize from JSON
-        serde_json::from_str(body).map(|mut wrapper: DataWrapper<DatapointsCollection<Datapoint>>| {
-            wrapper.set_http_status_code(status_code); // Set the HTTP status code
-            wrapper // Return the modified wrapper
-        })
-    }
-}
-
-impl DataWrapperDeserialization for DataWrapper<FileUpload> {
-    fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>
-    where Self: Sized,
-    {
-        // Deserialize from JSON
-        serde_json::from_str(body).map(|mut wrapper: DataWrapper<FileUpload>| {
-            wrapper.set_http_status_code(status_code); // Set the HTTP status code
-            wrapper // Return the modified wrapper
-        })
-    }
-}
-
-impl DataWrapperDeserialization for DataWrapper<String> {
-    fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error>
-    where Self: Sized,
-    {
+impl<T> DataWrapperDeserialization for DataWrapper<T>
+where
+    T: DeserializeOwned,
+    DataWrapper<T>: Sized,
+{
+    fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error> {
         if status_code >= 200 && status_code < 300 {
-            let mut wrapper: DataWrapper<String> = DataWrapper::new();
-            wrapper.set_http_status_code(status_code);
-            Ok(wrapper)
+            if status_code == 204 || body.is_empty() { // HTTP No content doesnt return anything
+                let mut wrapper: DataWrapper<T> = DataWrapper::new();
+                wrapper.set_http_status_code(status_code);
+                return Ok(wrapper)
+            }
+            // For 2xx responses, we expect the body to be a valid DataWrapper<T>
+            // If body is empty, it's fine for `from_str` to fail and return an error
+            // Or, if you specifically want an empty wrapper for 2xx with empty body:
+            // let mut wrapper = DataWrapper::new();
+            // wrapper.set_http_status_code(status_code);
+            // return Ok(wrapper);
+            // However, typically a successful response with a body should be parsed.
+            serde_json::from_str(body).map(|mut wrapper: DataWrapper<T>| {
+                wrapper.set_http_status_code(status_code);
+                wrapper
+            })
         } else {
-            eprintln!("Insert datapoints HTTP request failed: {}", body);
-            let mut wrapper: DataWrapper<String> = DataWrapper::new();
-            wrapper.items.push(body.to_string());
-            wrapper.set_http_status_code(status_code);
-            Ok(wrapper)
+            // For non-2xx responses (errors)
+            eprintln!("HTTP request failed with status code {}: {}", status_code, body);
+
+            // Attempt to deserialize the body into DataWrapper<T>
+            // This is useful if the error response *itself* is a structured JSON,
+            // for example, containing an error object.
+            match serde_json::from_str(body).map(|mut wrapper: DataWrapper<T>| {
+                wrapper.set_http_status_code(status_code); // Set the HTTP status code
+                wrapper // Return the modified wrapper
+            }) {
+                Ok(result) => {
+                    Ok(result)
+                },
+                Err(e) => {
+                    eprintln!("Error parsing HTTP response body: {}", body);
+                    let mut wrapper: DataWrapper<T> = DataWrapper::new();
+                    wrapper.error_body = Some(body.to_string());
+                    wrapper.set_http_status_code(status_code);
+                    Ok(wrapper)
+                }
+            }
         }
     }
 }

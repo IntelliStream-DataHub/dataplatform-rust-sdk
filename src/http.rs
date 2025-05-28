@@ -27,7 +27,7 @@ impl ResponseError {
     }
 }
 
-pub async fn process_response<T: DeserializeOwned>(response: Response, path: &str) -> Result<T, ResponseError>
+pub async fn process_response<T>(response: Response, path: &str) -> Result<T, ResponseError>
 where
     T: DeserializeOwned + DataWrapperDeserialization,
 {

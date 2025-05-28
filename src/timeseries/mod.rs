@@ -225,6 +225,7 @@ impl<'a> TimeSeriesService<'a> {
                         println!("Successfully inserted datapoints.");
                     },
                     Err(e) => {
+                        eprintln!("{}", e.message);
                         panic!("Error inserting datapoints: {:?}", e.get_message());
                     }
                 });
