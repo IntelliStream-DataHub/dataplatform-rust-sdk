@@ -28,7 +28,7 @@ impl<'a> FileService<'a> {
     pub async fn upload_file(&self, file_upload: FileUpload) -> Result<DataWrapper<FileUpload>, ResponseError> {
         let multipart_form = file_upload.get_form().await;
         // Create and send an HTTP PUT request
-        self.execute_file_upload_request("", multipart_form).await
+        self.execute_file_upload_request(self.base_url.as_str(), multipart_form).await
     }
 }
 
@@ -81,7 +81,7 @@ impl FileUpload {
             Ok(Some(file_type)) => Some(file_type.mime_type().to_string()),
             Ok(None) => {
                 println!("Could not determine file type for: {}", file_path);
-                None
+                Some("application/octet-stream".to_string())
             },
             Err(e) => {
                 eprintln!("Error detecting file type for {}: {}", file_path, e);
@@ -117,14 +117,33 @@ impl FileUpload {
                 panic!("Failed to set MIME type or filename for file part: {}", e);
             });
 
-        let mut form = Form::new().part("file", file_part);
+        let mut form = Form::new();
         form = form.text("path", "/foo/bar");
+        form = form.text("externalId", self.external_id.clone());
         if let Some(source) = &self.source {
             form = form.text("source", source.clone());
         }
         if let Some(description) = &self.description {
             form = form.text("description", description.clone());
         }
+        if let Some(data_set_id) = &self.data_set_id {
+            form = form.text("dataSetId", data_set_id.to_string());
+        }
+        if let Some(mime_type) = &self.mime_type {
+            form = form.text("mimeType", mime_type.clone());
+        }
+        if let Some(metadata) = &self.metadata {
+            // Serialize metadata to JSON string
+            form = form.text("metadata", serde_json::to_string(metadata).unwrap_or_default());
+        }
+        if let Some(related_resources) = &self.related_resources {
+            let resources_str: Vec<String> = related_resources.iter().map(|&id| id.to_string()).collect();
+            form = form.text("relatedResources", resources_str.join(","));
+        }
+
+        // Add the file part last
+        form = form.part("file", file_part);
+        
         form
     }
     

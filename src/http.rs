@@ -15,7 +15,10 @@ impl ResponseError {
     }
 
     pub fn from_err(error: Error) -> Self {
-        ResponseError{status: error.status().unwrap(), message: error.to_string()}
+        if error.status().is_some() {
+            return ResponseError{status: error.status().unwrap(), message: error.to_string()}
+        }
+        ResponseError{status: StatusCode::BAD_REQUEST, message: error.to_string()}
     }
 
     pub fn get_message(&self) -> String {
