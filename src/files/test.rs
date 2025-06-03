@@ -13,10 +13,12 @@ mod tests {
         let result = api_service.files.upload_file(file_upload_form).await;
         match result {
             Ok(response) => { 
+                assert_eq!(response.get_http_status_code().unwrap(), 200);
                 println!("{:?}", response);
             }, // Added comma
             Err(e) => {
                 eprintln!("{:?}", e.message);
+                panic!("File upload request failed.");
             }
         }
         Ok(())
