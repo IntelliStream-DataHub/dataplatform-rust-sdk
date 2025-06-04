@@ -30,6 +30,12 @@ impl<'a> FileService<'a> {
         // Create and send an HTTP PUT request
         self.execute_file_upload_request(self.base_url.as_str(), multipart_form).await
     }
+
+    pub async fn list_directory(&self, path: &str) -> Result<DataWrapper<String>, ResponseError> {
+        // Create and send an HTTP GET request
+        let full_path = format!("{}/list{}", self.base_url.as_str(), path);
+        self.execute_get_request(full_path.as_str()).await
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
