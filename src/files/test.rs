@@ -2,6 +2,7 @@
 mod tests {
     use crate::{create_api_service, ApiService};
     use crate::files::FileUpload;
+    use crate::generic::{DataWrapper, INode, IdAndExtIdCollection};
 
     #[tokio::test]
     async fn test_file_upload() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,27 +34,54 @@ mod tests {
         for f in upload_forms {
             do_file_upload( &api_service, f ).await;
         }
+
+        // Now test uploaded files
+        let _ = api_service.files.list_directory_by_path("/images/").await.is_ok_and(| res| {
+            test_uploaded_content(res)
+        });
+        let _ = api_service.files.list_directory_by_path("/images").await.is_ok_and(| res| {
+            test_uploaded_content(res)
+        });
+        
+        // Delete uploaded files
+
         Ok(())
     }
-    
+
+    fn test_uploaded_content(res: DataWrapper<INode>) -> bool {
+        assert_eq!(res.get_http_status_code().unwrap(), 200);
+        for inode in res.get_items() {
+            let node_type = inode.r#type.clone().unwrap().clone();
+            let name = inode.name.clone();
+            if node_type == "FILE" {
+                assert_eq!(name, "sola.jpg");
+            }
+            if node_type == "FOLDER" && name == "insects" {
+                let path = inode.path.clone();
+                assert_eq!(path, "/images/insects");
+            }
+            if node_type == "FOLDER" && name == "norway" {
+                let path = inode.path.clone();
+                assert_eq!(path, "/images/norway");
+            }
+        }
+        true
+    }
+
     async fn do_file_upload(api_service: &ApiService<'_>, upload_form: FileUpload) {
-        let _ = api_service.files.upload_file(upload_form).await.is_ok_and(|res| {
-            assert_eq!(res.get_http_status_code().unwrap(), 200);
-            true
-        });
+        let result = api_service.files.upload_file(upload_form).await;
+        let status = match result {
+            Ok(res) => res.get_http_status_code().unwrap(),
+            Err(err) => err.get_status().as_u16(),
+        };
+        assert_eq!(status, 200, "Unexpected status code: {}. Expected 200 (OK)", status);
     }
 
     #[tokio::test]
     async fn list_folders() -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
-
-        // First test root path
-        let empty_root_path = "";
-        let root_path_with_slash = "/";
         
-        let file_path = "resources/test/random_values.csv";
-
-        let result = api_service.files.list_directory(empty_root_path).await;
+        let result = api_service.files.list_root_directory().await;
         match result {
             Ok(response) => {
                 assert_eq!(response.get_http_status_code().unwrap(), 200);
@@ -64,10 +92,42 @@ mod tests {
                 panic!("List directory request failed.");
             }
         }
-        let _ = api_service.files.list_directory(root_path_with_slash).await.is_ok_and(|res| {
+        let _ = api_service.files.list_directory_by_path("/").await.is_ok_and(|res| {
             assert_eq!(res.get_http_status_code().unwrap(), 200);
             true
         });
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_delete() -> Result<(), Box<dyn std::error::Error>> {
+        let api_service = create_api_service();
+
+        let id_collection = IdAndExtIdCollection::from_external_id_vec(
+            vec![
+                "datahub_folder_foo",
+                "datahub_folder_bar",
+                "random_values_csv",
+                "datahub_folder_images",
+                "image_sola_jpg",
+                "datahub_folder_insects",
+                "image_fly_jpg",
+                "datahub_folder_norway",
+                "image_teigland_bomlo_jpg",
+            ]
+        );
+        println!("{:?}", id_collection);
+        let result = api_service.files.delete(&id_collection).await;
+        match result {
+            Ok(response) => {
+                assert_eq!(response.get_http_status_code().unwrap(), 204);
+                println!("{:?}", response);
+            }, // Added comma
+            Err(e) => {
+                eprintln!("{:?}", e.message);
+                panic!("Delete request failed.");
+            }
+        }
         Ok(())
     }
     

@@ -11,9 +11,10 @@ use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio_util::codec::{BytesCodec, FramedRead};
 use crate::ApiService;
-use crate::generic::{ApiServiceProvider, DataWrapper};
+use crate::generic::{ApiServiceProvider, DataWrapper, INode, IdAndExtIdCollection};
 use crate::http::{ResponseError};
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
+use crate::events::Event;
 
 pub struct FileService<'a>{
     pub(crate) api_service: Weak<ApiService<'a>>,
@@ -28,14 +29,23 @@ impl<'a> FileService<'a> {
     
     pub async fn upload_file(&self, file_upload: FileUpload) -> Result<DataWrapper<FileUpload>, ResponseError> {
         let multipart_form = file_upload.get_form().await;
-        // Create and send an HTTP PUT request
         self.execute_file_upload_request(self.base_url.as_str(), multipart_form).await
     }
 
-    pub async fn list_directory(&self, path: &str) -> Result<DataWrapper<String>, ResponseError> {
+    pub async fn list_root_directory(&self) -> Result<DataWrapper<INode>, ResponseError> {
         // Create and send an HTTP GET request
+        let full_path = format!("{}/list", self.base_url.as_str());
+        self.execute_get_request(full_path.as_str()).await
+    }
+
+    pub async fn list_directory_by_path(&self, path: &str) -> Result<DataWrapper<INode>, ResponseError> {
         let full_path = format!("{}/list{}", self.base_url.as_str(), path);
         self.execute_get_request(full_path.as_str()).await
+    }
+
+    pub async fn delete(&self, id_collection: &IdAndExtIdCollection) -> Result<DataWrapper<Event>, ResponseError> {
+        let full_path = format!("{}/delete", self.base_url.as_str());
+        self.execute_post_request(full_path.as_str(), id_collection).await
     }
 }
 

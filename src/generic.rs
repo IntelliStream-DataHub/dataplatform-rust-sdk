@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use std::hash::Hasher;
 use serde::{Deserialize, Serialize};
@@ -5,15 +6,17 @@ use serde::de::DeserializeOwned;
 use chrono::{DateTime, Utc, TimeZone};
 use reqwest::multipart::Form;
 use crate::{ApiService};
-use crate::events::{Event, EventsService};
-use crate::files::{FileService, FileUpload};
+use crate::events::{EventsService};
+use crate::files::{FileService};
 use crate::http::{process_response, ResponseError};
-use crate::timeseries::{TimeSeries, TimeSeriesService};
-use crate::unit::{Unit, UnitsService};
+use crate::timeseries::{TimeSeriesService};
+use crate::unit::{UnitsService};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdAndExtId {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "externalId")]
     pub(crate) external_id: Option<String>,
 }
@@ -657,4 +660,39 @@ impl DataWrapperDeserialization for String {
     {
         Ok(body.to_string())
     }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct INode {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(rename = "externalId")]
+    pub external_id: String,
+    pub path: String,
+    pub size: i64,
+    pub checksum: Option<String>,
+    pub source: Option<String>,
+    pub r#type: Option<String>,
+    #[serde(rename = "mimeType")]
+    pub mime_type: Option<String>,
+    #[serde(rename = "sourceDateCreated")]
+    pub source_date_created: Option<DateTime<Utc>>,
+    #[serde(rename = "sourceLastUpdated")]
+    pub source_last_updated: Option<DateTime<Utc>>,
+    #[serde(rename = "dateCreated")]
+    pub date_created: DateTime<Utc>,
+    #[serde(rename = "lastUpdated")]
+    pub last_updated: DateTime<Utc>,
+    #[serde(rename = "parentId")]
+    pub parent_id: Option<i64>,
+    #[serde(rename = "parentExternalId")]
+    pub parent_external_id: Option<String>,
+    #[serde(rename = "dataSetId")]
+    pub data_set_id: Option<i64>,
+    pub metadata: Option<HashMap<String, String>>,
+    #[serde(rename = "relatedResources")]
+    pub related_resources: Option<Vec<i64>>,
+    #[serde(rename = "securityCategories")]
+    pub security_categories: Option<Vec<i32>>,
 }
