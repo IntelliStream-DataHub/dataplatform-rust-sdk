@@ -109,10 +109,8 @@ pub struct Event {
     #[serde(rename = "relatedResourceExternalIds")]
     pub related_resource_external_ids: Vec<String>,
     pub source: Option<String>,
-    #[serde(rename(serialize = "startTime", deserialize = "startTimeHR"))]
-    pub start_time: Option<DateTime<Utc>>,
-    #[serde(rename(serialize = "endTime", deserialize = "endTimeHR"))]
-    pub end_time: Option<DateTime<Utc>>,
+    #[serde(rename(serialize = "eventTime"))]
+    pub event_time: Option<DateTime<Utc>>,
 }
 
 impl Event {
@@ -131,8 +129,7 @@ impl Event {
             related_resource_ids: vec![],
             related_resource_external_ids: vec![],
             source: None,
-            start_time: None,
-            end_time: None,
+            event_time: None,
         }
     }
 
@@ -225,20 +222,12 @@ impl Event {
         self.source = Some(source);
     }
 
-    pub fn get_start_time(&self) -> Option<&DateTime<Utc>> {
-        self.start_time.as_ref()
+    pub fn get_event_time(&self) -> Option<&DateTime<Utc>> {
+        self.event_time.as_ref()
     }
 
-    pub fn set_start_time(&mut self, start_time: DateTime<Utc>) {
-        self.start_time = Some(start_time);
-    }
-
-    pub fn get_end_time(&self) -> Option<&DateTime<Utc>> {
-        self.end_time.as_ref()
-    }
-
-    pub fn set_end_time(&mut self, end_time: DateTime<Utc>) {
-        self.end_time = Some(end_time);
+    pub fn set_event_time(&mut self, event_time: DateTime<Utc>) {
+        self.event_time = Some(event_time);
     }
 
     pub fn get_related_resource_ids(&self) -> &Vec<u64> {

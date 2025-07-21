@@ -24,7 +24,7 @@ mod tests {
                 ("time".to_string(), "2025-05-16T09:04:53.257Z".to_string()),
             ])
         );
-        new_event.start_time = Option::from(event_time);
+        new_event.event_time = Option::from(event_time);
         new_event.r#type = Option::from("valve".to_string());
         new_event.sub_type = Option::from("alarm".to_string());
         new_event.description = Option::from("Gas valve attached to pipe AS-PIP-2452".to_string());
