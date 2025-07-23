@@ -7,6 +7,10 @@ mod tests {
     #[tokio::test]
     async fn test_file_upload() -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
+
+        // Delete uploaded files
+        delete(&api_service).await;
+
         let mut upload_forms = vec![];
         
         let file_path = "resources/test/random_values.csv";
@@ -44,6 +48,7 @@ mod tests {
         });
         
         // Delete uploaded files
+        delete(&api_service).await;
 
         Ok(())
     }
@@ -99,9 +104,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_delete() -> Result<(), Box<dyn std::error::Error>> {
-        let api_service = create_api_service();
+    async fn delete(api_service: &ApiService<'_>) {
 
         let id_collection = IdAndExtIdCollection::from_external_id_vec(
             vec![
@@ -128,7 +131,6 @@ mod tests {
                 panic!("Delete request failed.");
             }
         }
-        Ok(())
     }
     
 }

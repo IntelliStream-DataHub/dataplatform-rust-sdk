@@ -282,9 +282,9 @@ pub struct TimeSeries {
     #[serde(rename = "valueType")]
     pub value_type: String,
     #[serde(rename = "createdTime")]
-    pub created_time: Option<u64>,
+    pub created_time: Option<DateTime<Utc>>,
     #[serde(rename = "lastUpdatedTime")]
-    pub last_updated_time: Option<u64>,
+    pub last_updated_time: Option<DateTime<Utc>>,
     #[serde(rename = "relationsFrom")]
     pub relations_from: Vec<RelationForm>,
     #[serde(rename = "isString")]
@@ -364,12 +364,12 @@ impl TimeSeries {
         self
     }
 
-    pub fn set_created_time(&mut self, created_time: u64) -> &mut TimeSeries {
+    pub fn set_created_time(&mut self, created_time: DateTime<Utc>) -> &mut TimeSeries {
         self.created_time = Some(created_time);
         self
     }
 
-    pub fn set_last_updated_time(&mut self, last_updated_time: u64) -> &mut TimeSeries {
+    pub fn set_last_updated_time(&mut self, last_updated_time: DateTime<Utc>) -> &mut TimeSeries {
         self.last_updated_time = Some(last_updated_time);
         self
     }
