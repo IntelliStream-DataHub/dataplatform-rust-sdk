@@ -21,6 +21,7 @@ mod events;
 mod http;
 mod files;
 mod filters;
+mod serde_helper;
 
 struct ApiService<'a>{
     config: Box<DataHubApi<'a>>,

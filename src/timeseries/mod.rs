@@ -10,6 +10,7 @@ use crate::ApiService;
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtIdCollection, RelationForm, RetrieveFilter, SearchAndFilterForm, SearchForm};
 use crate::http::{process_response, ResponseError};
+use crate::serde_helper::is_zero;
 
 pub struct TimeSeriesService<'a>{
     pub(crate) api_service: Weak<ApiService<'a>>,
@@ -266,6 +267,7 @@ impl<'a> TimeSeriesService<'a> {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeries {
+    #[serde(skip_serializing_if = "is_zero")]
     pub id: u64,
     #[serde(rename = "externalId")]
     pub external_id: String,
