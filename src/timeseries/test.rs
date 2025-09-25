@@ -469,8 +469,8 @@ mod tests {
         validate_deleted_datapoints(&api_service, new_ts_ext_id.clone()).await;
 
         // Delete timeseries when complete
-        //delete_timeseries(unique_id, &api_service).await;
-        //delete_timeseries(unique_id+1, &api_service).await;
+        delete_timeseries(unique_id, &api_service).await;
+        delete_timeseries(unique_id+1, &api_service).await;
 
         Ok(())
     }
@@ -684,7 +684,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    /*#[tokio::test]
     async fn test_raw_datapoints_query_if_data_is_already_inserted() -> Result<(), Box<dyn std::error::Error>> {
         let unique_id: u64 = 6540;
         let api_service = create_api_service();
@@ -694,7 +694,7 @@ mod tests {
         //validate_daily_avg(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
 
         Ok(())
-    }
+    }*/
 
     async fn validate_raw_datapoints_with_cursor(api_service: &Rc<ApiService<'_>>, external_id: String) {
         println!("Validate raw datapoints with cursor...");

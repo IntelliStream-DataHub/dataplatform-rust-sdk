@@ -642,7 +642,7 @@ where
                 Ok(result) => {
                     Ok(result)
                 },
-                Err(e) => {
+                Err(_) => {
                     eprintln!("Error parsing HTTP response body: {}", body);
                     let mut wrapper: DataWrapper<T> = DataWrapper::new();
                     wrapper.error_body = Some(body.to_string());

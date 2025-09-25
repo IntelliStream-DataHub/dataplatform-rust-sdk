@@ -10,7 +10,6 @@ use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::filters::Filters;
 use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
 use crate::http::ResponseError;
-use crate::timeseries::TimeSeries;
 
 pub struct EventsService<'a>{
     pub(crate) api_service: Weak<ApiService<'a>>,
@@ -228,11 +227,19 @@ impl Event {
         self.source = Some(source);
     }
 
+    pub fn get_status(&self) -> Option<&str> {
+        self.status.as_deref()
+    }
+
+    pub fn set_status(&mut self, status: &str) {
+        self.status = Some(status.to_string());
+    }
+
     pub fn get_event_time(&self) -> Option<&DateTime<Utc>> {
         self.event_time.as_ref()
     }
 
-    pub fn set_start_time(&mut self, event_time: DateTime<Utc>) {
+    pub fn set_event_time(&mut self, event_time: DateTime<Utc>) {
         self.event_time = Some(event_time);
     }
 
