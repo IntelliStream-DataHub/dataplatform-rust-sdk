@@ -10,6 +10,7 @@ use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::filters::Filters;
 use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
 use crate::http::ResponseError;
+use crate::timeseries::TimeSeries;
 
 pub struct EventsService<'a>{
     pub(crate) api_service: Weak<ApiService<'a>>,
@@ -66,9 +67,13 @@ impl<'a> EventsService<'a>{
         self.execute_post_request(path, &filter_request).await
     }
 
-    pub async fn get_event_by_id(&self, id: String) 
-        -> Result<DataWrapper<Event>, ResponseError> {
+    pub async fn get_event_by_id(&self, id: String) -> Result<DataWrapper<Event>, ResponseError> {
         self.execute_get_request(&self.base_url).await
+    }
+
+    pub async fn by_ids(&self, id_collection: &IdAndExtIdCollection) -> Result<DataWrapper<Event>, ResponseError> {
+        let path = &format!("{}/byids", self.base_url);
+        self.execute_post_request::<DataWrapper<Event>, _>(path, id_collection).await
     }
 
     pub fn retrieve(&self) -> Result<(), ResponseError> {

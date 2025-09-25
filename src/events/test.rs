@@ -4,6 +4,7 @@ mod tests {
     use chrono::{DateTime, TimeZone, Utc};
     use crate::{create_api_service, ApiService};
     use crate::events::Event;
+    use crate::generic::IdAndExtIdCollection;
 
     #[tokio::test]
     async fn test_create_and_delete_events() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,6 +65,8 @@ mod tests {
             }
         }
 
+        delete_events(&api_service, vec![&external_id]).await;
+        find_events_by_external_ids(&api_service, vec![&external_id]).await;
         Ok(())
     }
 
@@ -79,5 +82,18 @@ mod tests {
             }
         }
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+
+    async fn find_events_by_external_ids(api_service: &ApiService<'_>, external_ids: Vec<&str>) {
+        let result = api_service.events.by_ids(&IdAndExtIdCollection::from_external_id_vec(external_ids)).await;
+        match result {
+            Ok(events) => {
+                assert_eq!(events.get_http_status_code().unwrap(), 200);
+                assert_eq!(events.length(), 0);
+            },
+            Err(e) => {
+                eprintln!("{:?}", e.get_message());
+            }
+        }
     }
 }
