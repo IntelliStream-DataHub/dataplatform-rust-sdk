@@ -11,14 +11,14 @@ use crate::filters::Filters;
 use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
 use crate::http::ResponseError;
 
-pub struct EventsService<'a>{
-    pub(crate) api_service: Weak<ApiService<'a>>,
+pub struct EventsService{
+    pub(crate) api_service: Weak<ApiService>,
     base_url: String
 }
 
-impl<'a> EventsService<'a>{
+impl EventsService{
 
-    pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
+    pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
         let base_url = format!("{}/events", base_url);
         EventsService {api_service, base_url}
     }

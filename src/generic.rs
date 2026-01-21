@@ -492,10 +492,10 @@ impl<T: Identifiable> DataWrapper<T> {
 }
 
 
-pub trait ApiServiceProvider<'a> {
-    fn api_service(&self) -> &Weak<ApiService<'a>>;
+pub trait ApiServiceProvider {
+    fn api_service(&self) -> &Weak<ApiService>;
 
-    fn get_api_service(&self) -> Rc<ApiService<'a>> {
+    fn get_api_service(&self) -> Rc<ApiService> {
         self.api_service().upgrade().unwrap()
     }
 
@@ -573,26 +573,26 @@ pub trait ApiServiceProvider<'a> {
     }
 }
 
-impl<'a> ApiServiceProvider<'a> for TimeSeriesService<'a> {
-    fn api_service(&self) -> &Weak<ApiService<'a>> {
+impl ApiServiceProvider for TimeSeriesService {
+    fn api_service(&self) -> &Weak<ApiService> {
         &self.api_service
     }
 }
 
-impl<'a> ApiServiceProvider<'a> for UnitsService<'a> {
-    fn api_service(&self) -> &Weak<ApiService<'a>> {
+impl ApiServiceProvider for UnitsService {
+    fn api_service(&self) -> &Weak<ApiService> {
         &self.api_service
     }
 }
 
-impl<'a> ApiServiceProvider<'a> for EventsService<'a> {
-    fn api_service(&self) -> &Weak<ApiService<'a>> {
+impl ApiServiceProvider for EventsService {
+    fn api_service(&self) -> &Weak<ApiService> {
         &self.api_service
     }
 }
 
-impl<'a> ApiServiceProvider<'a> for FileService<'a> {
-    fn api_service(&self) -> &Weak<ApiService<'a>> {
+impl ApiServiceProvider for FileService {
+    fn api_service(&self) -> &Weak<ApiService> {
         &self.api_service
     }
 }

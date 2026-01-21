@@ -6,14 +6,14 @@ use crate::ApiService;
 use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
 use crate::http::{ResponseError};
 
-pub struct UnitsService<'a>{
-    pub(crate) api_service: Weak<ApiService<'a>>,
+pub struct UnitsService{
+    pub(crate) api_service: Weak<ApiService>,
     base_url: String
 }
 
-impl<'a> UnitsService<'a>{
+impl UnitsService{
 
-    pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
+    pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
         let unit_base_url = format!("{}/units", base_url);
         UnitsService {api_service, base_url: unit_base_url}
     }

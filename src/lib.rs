@@ -23,16 +23,17 @@ mod files;
 mod filters;
 mod serde_helper;
 
-struct ApiService<'a>{
-    config: Box<DataHubApi<'a>>,
-    pub time_series: TimeSeriesService<'a>,
-    pub units: UnitsService<'a>,
-    pub events: EventsService<'a>,
-    pub files: FileService<'a>,
+
+struct ApiService{
+    config: Box<DataHubApi>,
+    pub time_series: TimeSeriesService,
+    pub units: UnitsService,
+    pub events: EventsService,
+    pub files: FileService,
     http_client: Client,
 }
 
-fn create_api_service() -> Rc<ApiService<'static>> {
+fn create_api_service() -> Rc<ApiService> {
     dotenv().ok(); // Reads the .env file
     let dataplatform_api = DataHubApi::create_default();
 
@@ -43,7 +44,7 @@ fn create_api_service() -> Rc<ApiService<'static>> {
     headers.insert(ACCEPT, HeaderValue::from_str("application/json").unwrap());
 
     let http_client = ClientBuilder::new().default_headers(headers).build().unwrap();
-    let boxed_config = Box::new(dataplatform_api);
+    let boxed_config = Box::new(dataplatform_api.clone());
     // Clone the base_url before moving boxed_config into ApiService
     let base_url_clone = boxed_config.base_url.clone();
 
@@ -59,6 +60,7 @@ fn create_api_service() -> Rc<ApiService<'static>> {
     });
 
     api_service
+    
 }
 
 #[cfg(test)]

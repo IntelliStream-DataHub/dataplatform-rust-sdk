@@ -70,7 +70,7 @@ mod tests {
         Ok(())
     }
 
-    async fn delete_events(api_service: &ApiService<'_>, events: Vec<&str>) {
+    async fn delete_events(api_service: &ApiService, events: Vec<&str>) {
         let delete_result = api_service.events.delete_by_external_ids(events).await;
         match delete_result {
             Ok(events) => {
@@ -84,7 +84,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
 
-    async fn find_events_by_external_ids(api_service: &ApiService<'_>, external_ids: Vec<&str>) {
+    async fn find_events_by_external_ids(api_service: &ApiService, external_ids: Vec<&str>) {
         let result = api_service.events.by_ids(&IdAndExtIdCollection::from_external_id_vec(external_ids)).await;
         match result {
             Ok(events) => {

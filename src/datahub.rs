@@ -1,10 +1,12 @@
-use std::env;
+use std::{default, env};
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use oauth2::{reqwest, AuthUrl, ClientId, ClientSecret, TokenResponse, TokenUrl};
 use oauth2::basic::BasicClient;
 use regex::Regex;
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
+#[derive(Default)]
 pub struct DataHubConfig {
     pub(crate) client_id: String,
     pub(crate) client_secret: String,
@@ -13,33 +15,38 @@ pub struct DataHubConfig {
     pub(crate) project_name: String
 }
 
-pub struct DataHubApi<'a> {
-    pub(crate) config: &'a Option<DataHubConfig>,
+#[derive(Debug,Clone)]
+pub struct DataHubApi {
+    pub(crate) config: Rc<DataHubConfig>,
     pub(crate) token: Option<String>,
     pub(crate) expires: Option<u64>,
-    pub(crate) base_url: String
+    pub(crate) base_url: String,
+    pub(crate) http_client: reqwest::Client
 }
 
-impl DataHubApi<'_> {
+impl DataHubApi {
 
-    pub fn init(config: &Option<DataHubConfig>) -> DataHubApi {
-        let base_url = if let Some(config) = config {
+    pub fn init(config: Option<DataHubConfig>) -> DataHubApi {
+        let base_url = if let Some(config) = &config {
             format!("https://api-{}.intellistream.ai/timeseries/data", config.project_name)
         } else {
             "http://localhost:8081".to_string()
         };
-        DataHubApi { config, token: None, expires: None, base_url }
+
+        DataHubApi { config:Rc::new(config.unwrap_or_default()), token: None, expires: None, base_url, http_client: reqwest::Client::new() }
     }
 
-    pub fn create_default() -> DataHubApi<'static> {
+    pub fn create_default() -> DataHubApi {
         let token = env::var("TOKEN").expect("TOKEN environment variable not set");
-        let mut api_service = DataHubApi::init(&None);
+
+        let mut api_service = DataHubApi::init(None);
         api_service.set_token_value(&token);
         api_service
     }
 
     async fn refresh_token(&mut self) {
-        if cfg!(test) {
+        todo!("Implement refresh token");
+        /*if cfg!(test) {
             println!("Refreshing Api Token...");
         }
         if let Some(config) = self.config {
@@ -89,6 +96,7 @@ impl DataHubApi<'_> {
             let expire_time = access_token.expires_in().unwrap().as_secs();
             self.set_token_expires(self.get_epoch_seconds_now() + (expire_time-60));
         };
+        */
     }
 
     fn get_epoch_seconds_now(&self) -> u64 {
@@ -136,8 +144,8 @@ impl DataHubApi<'_> {
         self.token.as_ref()
     }
 
-    pub fn get_config(&mut self) -> &Option<DataHubConfig> {
-        self.config
+    pub fn get_config(& self) -> &DataHubConfig {
+        &self.config
     }
 }
 

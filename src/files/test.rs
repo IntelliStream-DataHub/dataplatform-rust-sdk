@@ -73,7 +73,7 @@ mod tests {
         true
     }
 
-    async fn do_file_upload(api_service: &ApiService<'_>, upload_form: FileUpload) {
+    async fn do_file_upload(api_service: &ApiService, upload_form: FileUpload) {
         let result = api_service.files.upload_file(upload_form).await;
         let status = match result {
             Ok(res) => res.get_http_status_code().unwrap(),
@@ -104,7 +104,7 @@ mod tests {
         Ok(())
     }
 
-    async fn delete(api_service: &ApiService<'_>) {
+    async fn delete(api_service: &ApiService) {
 
         let id_collection = IdAndExtIdCollection::from_external_id_vec(
             vec![

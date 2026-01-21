@@ -90,7 +90,7 @@ mod tests {
         Ok(())
     }
 
-    async fn delete_timeseries(id: u64, api_service: &ApiService<'_>) {
+    async fn delete_timeseries(id: u64, api_service: &ApiService) {
         let id_collection = IdAndExtIdCollection::from_external_id_vec(
             vec![
                 format!("rust_sdk_test_{id}_ts", id = id).as_str(),
@@ -475,7 +475,7 @@ mod tests {
         Ok(())
     }
 
-    async fn validate_datapoints(api_service: &Rc<ApiService<'_>>, ts_external_id_vec: Vec<String>) {
+    async fn validate_datapoints(api_service: &Rc<ApiService>, ts_external_id_vec: Vec<String>) {
         for ts_external_id in &ts_external_id_vec {
             let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
             let mut rf = RetrieveFilter::new();
@@ -570,7 +570,7 @@ mod tests {
         }
     }
 
-    async fn validate_deleted_datapoints(api_service: &Rc<ApiService<'_>>, ts_external_id: String) {
+    async fn validate_deleted_datapoints(api_service: &Rc<ApiService>, ts_external_id: String) {
         let delete_after_timestamp = Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap();
 
         let mut data_request: DataWrapper<DeleteFilter> = DataWrapper::new();
@@ -611,7 +611,7 @@ mod tests {
         }
     }
 
-    async fn validate_daily_avg(api_service: &Rc<ApiService<'_>>, ts_external_id_vec: Vec<String>) {
+    async fn validate_daily_avg(api_service: &Rc<ApiService>, ts_external_id_vec: Vec<String>) {
         for ts_external_id in &ts_external_id_vec {
             let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
             let mut rf = RetrieveFilter::new();
@@ -696,7 +696,7 @@ mod tests {
         Ok(())
     }*/
 
-    async fn validate_raw_datapoints_with_cursor(api_service: &Rc<ApiService<'_>>, external_id: String) {
+    async fn validate_raw_datapoints_with_cursor(api_service: &Rc<ApiService>, external_id: String) {
         println!("Validate raw datapoints with cursor...");
         let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
         let mut rf = RetrieveFilter::new();
@@ -893,7 +893,7 @@ mod tests {
     }
 
     async fn validate_latest_datapoint(
-        api_service: &ApiService<'_>,
+        api_service: &ApiService,
         latest_datetime: DateTime<Utc>,
         id_collection: &IdAndExtIdCollection
     ) {

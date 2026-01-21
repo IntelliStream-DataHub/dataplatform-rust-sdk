@@ -12,14 +12,14 @@ use crate::generic::{ApiServiceProvider, DataWrapper, Datapoint, DatapointString
 use crate::http::{process_response, ResponseError};
 use crate::serde_helper::is_zero;
 
-pub struct TimeSeriesService<'a>{
-    pub(crate) api_service: Weak<ApiService<'a>>,
+pub struct TimeSeriesService{
+    pub(crate) api_service: Weak<ApiService>,
     base_url: String
 }
 
-impl<'a> TimeSeriesService<'a> {
+impl TimeSeriesService {
 
-    pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
+    pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
         let base_url = format!("{}/timeseries", base_url);
         TimeSeriesService {api_service, base_url}
     }

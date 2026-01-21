@@ -16,13 +16,13 @@ use crate::http::{ResponseError};
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::events::Event;
 
-pub struct FileService<'a>{
-    pub(crate) api_service: Weak<ApiService<'a>>,
+pub struct FileService{
+    pub(crate) api_service: Weak<ApiService>,
     base_url: String
 }
 
-impl<'a> FileService<'a> {
-    pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
+impl FileService {
+    pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
         let base_url = format!("{}/files", base_url);
         FileService { api_service, base_url }
     }
