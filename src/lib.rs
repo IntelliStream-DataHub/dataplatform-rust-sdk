@@ -4,7 +4,7 @@ use reqwest::Client;
 use dotenv::dotenv;
 
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-
+use serde_json::Value::String;
 use crate::datahub::DataHubApi;
 use crate::events::EventsService;
 use crate::files::FileService;
@@ -22,7 +22,7 @@ mod http;
 mod files;
 mod filters;
 mod serde_helper;
-
+mod errors;
 
 struct ApiService{
     config: Box<DataHubApi>,
@@ -35,11 +35,12 @@ struct ApiService{
 
 fn create_api_service() -> Rc<ApiService> {
     dotenv().ok(); // Reads the .env file
-    let dataplatform_api = DataHubApi::create_default();
-
-    let t = "Bearer ".to_owned() + dataplatform_api.token.as_ref().unwrap();
+    let dataplatform_api:DataHubApi /* Type */ = DataHubApi::create_default();
     let mut headers = HeaderMap::new();
-    headers.insert(AUTHORIZATION, HeaderValue::from_str(t.as_str()).unwrap());
+    //if let Some(token) = dataplatform_api.get_api_token().await{
+    //    let auth_header =format!("Bearer {token}");
+    //headers.insert(AUTHORIZATION, HeaderValue::from_str(auth_header.as_str()).unwrap());
+    //};
     headers.insert(CONTENT_TYPE, HeaderValue::from_str("application/json").unwrap());
     headers.insert(ACCEPT, HeaderValue::from_str("application/json").unwrap());
 
@@ -60,7 +61,7 @@ fn create_api_service() -> Rc<ApiService> {
     });
 
     api_service
-    
+
 }
 
 #[cfg(test)]

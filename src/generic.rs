@@ -4,6 +4,7 @@ use std::hash::Hasher;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use chrono::{DateTime, Utc, TimeZone};
+use oauth2::http;
 use reqwest::multipart::Form;
 use crate::{ApiService};
 use crate::events::{EventsService};
@@ -503,8 +504,18 @@ pub trait ApiServiceProvider {
         &self,
         path: &str
     ) -> Result<T, ResponseError> {
+        let token = self.get_api_service()
+            .config.get_api_token()
+            .await
+            .map_err(
+                |e|
+                    ResponseError{
+                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
+                    }
+            )?;
         let response = self.get_api_service().http_client
             .get(path)
+            .bearer_auth(token)
             .send()
             .await
             .map_err(|err| {
@@ -519,9 +530,19 @@ pub trait ApiServiceProvider {
         path: &str,
         json: &J,
     ) -> Result<T, ResponseError> {
+        let token = self.get_api_service()
+            .config.get_api_token()
+            .await
+            .map_err(
+                |e|
+                    ResponseError{
+                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
+                    }
+            )?;
         let response = self.get_api_service().http_client
             .post(path)
             .json(json)
+            .bearer_auth(token)
             .send()
             .await
             .map_err(|err| {
@@ -548,9 +569,20 @@ pub trait ApiServiceProvider {
         path: &str,
         multipart_form: Form,
     ) -> Result<T, ResponseError> {
+        let token = self.get_api_service()
+            .config.get_api_token()
+            .await
+            .map_err(
+                |e|
+                    ResponseError{
+                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
+                    }
+            )?;
+
         let response = self.get_api_service().http_client
             .put(path)
             .multipart(multipart_form)
+            .bearer_auth(token)
             .send()
             .await
             .map_err(|err| {

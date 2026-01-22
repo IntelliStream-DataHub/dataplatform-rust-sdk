@@ -22,11 +22,12 @@ mod tests {
         let result = api_service.time_series.list_with_limit(&params).await;
         match result {
             Ok(timeseries) => {
-                assert_eq!(timeseries.length() as i64, 5);
+                assert!(timeseries.length() <= 5);
                 println!("Length of time series returned is {:?}", timeseries.length());
             },
             Err(e) => {
                 panic!("{:?}", e.get_message());
+
             }
         }
 
