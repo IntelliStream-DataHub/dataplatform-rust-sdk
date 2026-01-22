@@ -524,6 +524,32 @@ pub trait ApiServiceProvider {
             })?;
         process_response::<T>(response, path).await
     }
+    async fn execute_query_request<T: DeserializeOwned + DataWrapperDeserialization,Param: Serialize>(
+        &self,
+        path: &str,param: &Param
+    ) -> Result<T, ResponseError> {
+        let token = self.get_api_service()
+            .config.get_api_token()
+            .await
+            .map_err(|e|
+                    ResponseError{
+                        status: http::StatusCode::BAD_REQUEST,
+                        message: "failed to get api token: ".to_string() + &e.to_string()
+                    }
+            )?;
+        let response = self.get_api_service().http_client
+            .get(path)
+            .query(param)
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|err| {
+                eprintln!("HTTP request failed: {}", err);
+                ResponseError::from_err(err)
+            })?;
+        process_response::<T>(response, path).await
+    }
+
 
     async fn execute_post_request<T: DeserializeOwned + DataWrapperDeserialization, J: Serialize>(
         &self,

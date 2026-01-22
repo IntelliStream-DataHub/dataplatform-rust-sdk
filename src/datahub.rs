@@ -40,7 +40,7 @@ pub struct DataHubApi {
     pub(crate) config: Rc<OAuthConfig>,
     pub(crate) auth_state: Rc<RwLock<AuthState>>,
     pub(crate) base_url: String,
-    pub(crate) oauth2_client: Option<oauth2::Client<
+    pub(crate) oauth2_client: oauth2::Client<
         oauth2::basic::BasicErrorResponse,
         oauth2::basic::BasicTokenResponse,
         oauth2::basic::BasicTokenIntrospectionResponse,
@@ -50,7 +50,7 @@ pub struct DataHubApi {
         oauth2::EndpointNotSet,
         oauth2::EndpointNotSet,
         oauth2::EndpointNotSet,
-        oauth2::EndpointSet>>,
+        oauth2::EndpointSet>,
     pub(crate) http_client: reqwest::Client,
 }
 impl AuthState {
@@ -94,57 +94,64 @@ impl DataHubApi {
         //let mut token = client.exchange_client_credentials().add_scope(Scope::new("read".to_string())).request_async(&auth_http_client).await.map_err(|e| DataHubError::ConfigError(format!("OAuth2 Request failed: {}", e)))?;
         //let expire_time = token.expires_in().map(|duration| Utc::now() + duration);
 
-        let token = if let Some(t) = map.get("TOKEN") {Some(BasicTokenResponse::new(
-            AccessToken::new(t.to_string()),BasicTokenType::Bearer,EmptyExtraTokenFields{}))} else {None};
-        let auth_state = Rc::new(RwLock::new(AuthState{token,expire_time:None}));
+        let auth_state = if let Some(t) = map.get("TOKEN") {
+            let token=BasicTokenResponse::new(
+                AccessToken::new(t.to_string()),
+                BasicTokenType::Bearer,
+                EmptyExtraTokenFields{});
+            Rc::new(
+                RwLock::new(
+                    AuthState{
+                        token:Some(token.clone()),
+                        expire_time:token.expires_in().map(|duration| Utc::now() + duration)
+                    }
+                )
+            )
+        } else {
+            Rc::new(RwLock::new(AuthState::default()))};
         Ok(Self {
             config:Rc::new(oauthconfig),
             base_url: baseurl.to_string(),
-            oauth2_client: Some(client),
+            oauth2_client: client,
             http_client: reqwest::Client::new(),
             auth_state
              })
     }
 
     async fn refresh_token(&self) -> Result<Option<oauth2::basic::BasicTokenResponse>, DataHubError>{
-        let mut authstate = self.auth_state.write().await;
-        if let Some(t) = &authstate.token {
-            if ! authstate.is_expired(){
-                return Ok(Some(t.clone()))
+        // function is called from get_token, if the token is expired.
+        let refresh_token = {
+            let authstate = self.auth_state.read().await;
+            authstate.token.as_ref().and_then(|t| t.refresh_token().cloned())
+        };
+        let token_result = if let Some(refresh_token) = refresh_token {
+
+            self.oauth2_client
+                .exchange_refresh_token(&refresh_token)
+                .request_async(&self.http_client)
+                .await
+        } else {
+
+            self.oauth2_client
+                .exchange_client_credentials()
+                .request_async(&self.http_client)
+                .await
+        };
+        let new_token=token_result.map_err(|e| DataHubError::OAuthError(format!("OAuth2 Request failed: {}", e)))?;
+        let expire_time = new_token.expires_in().map(|duration| Utc::now() + duration);
+
+        {
+            let mut auth_state = self.auth_state.write().await;
+            if let Some(t) = &auth_state.token {
+                if ! auth_state.is_expired(){
+                    return Ok(Some(t.clone()))
+                }
             }
-            let new_token=self.oauth2_client.as_ref().unwrap()
-                .exchange_refresh_token(
-                    authstate.token.as_ref().unwrap()
-                        .refresh_token().unwrap()
-                )
-                .request_async(&self.http_client).await.map_err(|e| DataHubError::OAuthError(format!("OAuth2 Request failed: {}", e)))?;
-            let expire_time = new_token.expires_in().map(|duration| Utc::now() + duration);
-            authstate.token = Some(new_token.clone());
-            authstate.expire_time = expire_time;
-            Ok(Some(new_token))
-        }   else{
-            let new_token=self.oauth2_client.as_ref().unwrap().exchange_client_credentials().request_async(&self.http_client).await.map_err(|e| DataHubError::OAuthError(format!("OAuth2 Request failed: {}", e)))?;
-            let expire_time = new_token.expires_in().map(|duration| Utc::now() + duration);
-            authstate.token = Some(new_token.clone());
-            authstate.expire_time = expire_time;
+            auth_state.token = Some(new_token.clone());
+            auth_state.expire_time = expire_time;
             Ok(Some(new_token))
         }
-
-
-
     }
-
-
-    async fn set_token_value(&self, value: &str) {
-         let mut state = self.auth_state.write().await;
-
-        state.token.as_mut().unwrap().set_access_token(oauth2::AccessToken::new(value.to_string()));
-
-    }
-
-
-
-
 
     pub async fn get_api_token(& self) -> Result<String,DataHubError> {
         {

@@ -43,20 +43,7 @@ impl TimeSeriesService {
 
     pub async fn list_with_limit(&self, query: &LimitParam)
                       -> Result<DataWrapper<TimeSeries>, ResponseError> {
-
-        // Create and send an HTTP GET request
-        let response = self.get_api_service().http_client
-            .get(&self.base_url) // Correctly access `base_url`
-            .query(query)
-            .send()
-            .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
-
-        // Process the HTTP response and deserialize it as `DataWrapper<TimeSeries>`
-        process_response::<DataWrapper<TimeSeries>>(response, &self.base_url).await
+        self.execute_query_request::<DataWrapper<TimeSeries>,LimitParam>(&self.base_url,query).await
     }
 
     pub async fn create(&self, json: &DataWrapper<TimeSeries>)
