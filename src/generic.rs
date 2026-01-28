@@ -31,6 +31,11 @@ impl IdAndExtId {
         IdAndExtId { id: None, external_id: Some(external_id.to_string())}
     }
 }
+impl From<&Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
+    fn from(value: &Vec<IdAndExtId>) -> Self {
+        DataWrapper{items:value.clone(),http_status_code:None,error_body:None}
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatapointString {
@@ -194,7 +199,7 @@ impl<T> DatapointsCollection<T> {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone,Eq,PartialEq)]
 pub struct RelationForm {
     pub(crate) id: Option<u64>,
     #[serde(rename = "externalId")]
@@ -409,6 +414,23 @@ impl RetrieveFilter {
     }
 }
 
+impl From<IdAndExtId> for DataWrapper<IdAndExtId> {
+    fn from(value: IdAndExtId) -> Self {
+        DataWrapper{items:vec![value],http_status_code:None,error_body:None}
+    }
+}
+impl From<&IdAndExtId> for DataWrapper<IdAndExtId> {
+    fn from(value: &IdAndExtId) -> Self {
+        DataWrapper{items:vec![value.clone()],http_status_code:None,error_body:None}
+    }
+}
+impl From<Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
+    fn from(value: Vec<IdAndExtId>) -> Self {
+        DataWrapper{items:value,http_status_code:None,error_body:None}
+    }
+}
+
+
 pub trait Identifiable {
     fn id(&self) -> u64;
     fn external_id(&self) -> &str;
@@ -500,21 +522,23 @@ pub trait ApiServiceProvider {
         self.api_service().upgrade().unwrap()
     }
 
-    async fn execute_get_request<T: DeserializeOwned + DataWrapperDeserialization, Param:Serialize+ ?Sized>(
-        &self,
-        path: &str,
-        param: Option<&Param>
-    ) -> Result<T, ResponseError> {
-        let token = self.get_api_service()
+    async fn get_token(&self) -> Result<String,ResponseError>{
+        self.get_api_service()
             .config.get_api_token()
             .await
             .map_err(
                 |e|
                     ResponseError{
-                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
-                    }
-            )?;
-        
+                        status: http::StatusCode::UNAUTHORIZED, message: "failed to get api token: ".to_string() + &e.to_string()
+                    })
+    }
+
+    async fn execute_get_request<T: DeserializeOwned + DataWrapperDeserialization, Param:Serialize+ ?Sized>(
+        &self,
+        path: &str,
+        param: Option<&Param>
+    ) -> Result<T, ResponseError> {
+        let token = self.get_token().await?;
         let response = if let Some(param) = param {self.get_api_service().http_client
             .get(path)
             .bearer_auth(token)
@@ -542,15 +566,7 @@ pub trait ApiServiceProvider {
         path: &str,
         json: &J,
     ) -> Result<T, ResponseError> {
-        let token = self.get_api_service()
-            .config.get_api_token()
-            .await
-            .map_err(
-                |e|
-                    ResponseError{
-                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
-                    }
-            )?;
+        let token = self.get_token().await?;
         let response = self.get_api_service().http_client
             .post(path)
             .json(json)
@@ -581,15 +597,7 @@ pub trait ApiServiceProvider {
         path: &str,
         multipart_form: Form,
     ) -> Result<T, ResponseError> {
-        let token = self.get_api_service()
-            .config.get_api_token()
-            .await
-            .map_err(
-                |e|
-                    ResponseError{
-                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
-                    }
-            )?;
+        let token = self.get_token().await?;
 
         let response = self.get_api_service().http_client
             .put(path)
