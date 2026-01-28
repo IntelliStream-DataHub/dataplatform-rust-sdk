@@ -15,6 +15,8 @@ use crate::unit::{UnitsService};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdAndExtId {
+    // todo Implement this as an enum, would allow for better validation
+    // and make it impossible to not provide any id
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -29,6 +31,11 @@ impl IdAndExtId {
 
     pub fn from_external_id(external_id: &str) -> Self {
         IdAndExtId { id: None, external_id: Some(external_id.to_string())}
+    }
+}
+impl From<&Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
+    fn from(value: &Vec<IdAndExtId>) -> Self {
+        DataWrapper{items:value.clone(),http_status_code:None,error_body:None}
     }
 }
 
@@ -194,7 +201,7 @@ impl<T> DatapointsCollection<T> {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone,Eq,PartialEq)]
 pub struct RelationForm {
     pub(crate) id: Option<u64>,
     #[serde(rename = "externalId")]
@@ -409,6 +416,23 @@ impl RetrieveFilter {
     }
 }
 
+impl From<IdAndExtId> for DataWrapper<IdAndExtId> {
+    fn from(value: IdAndExtId) -> Self {
+        DataWrapper{items:vec![value],http_status_code:None,error_body:None}
+    }
+}
+impl From<&IdAndExtId> for DataWrapper<IdAndExtId> {
+    fn from(value: &IdAndExtId) -> Self {
+        DataWrapper{items:vec![value.clone()],http_status_code:None,error_body:None}
+    }
+}
+impl From<Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
+    fn from(value: Vec<IdAndExtId>) -> Self {
+        DataWrapper{items:value,http_status_code:None,error_body:None}
+    }
+}
+
+
 pub trait Identifiable {
     fn id(&self) -> u64;
     fn external_id(&self) -> &str;
@@ -500,19 +524,22 @@ pub trait ApiServiceProvider {
         self.api_service().upgrade().unwrap()
     }
 
-    async fn execute_get_request<T: DeserializeOwned + DataWrapperDeserialization>(
-        &self,
-        path: &str
-    ) -> Result<T, ResponseError> {
-        let token = self.get_api_service()
+    async fn get_token(&self) -> Result<String,ResponseError>{
+        self.get_api_service()
             .config.get_api_token()
             .await
             .map_err(
                 |e|
                     ResponseError{
-                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
-                    }
-            )?;
+                        status: http::StatusCode::UNAUTHORIZED, message: "failed to get api token: ".to_string() + &e.to_string()
+                    })
+    }
+
+    async fn execute_get_request<T: DeserializeOwned + DataWrapperDeserialization>(
+        &self,
+        path: &str
+    ) -> Result<T, ResponseError> {
+        let token = self.get_token().await?;
         let response = self.get_api_service().http_client
             .get(path)
             .bearer_auth(token)
@@ -528,15 +555,7 @@ pub trait ApiServiceProvider {
         &self,
         path: &str,param: &Param
     ) -> Result<T, ResponseError> {
-        let token = self.get_api_service()
-            .config.get_api_token()
-            .await
-            .map_err(|e|
-                    ResponseError{
-                        status: http::StatusCode::BAD_REQUEST,
-                        message: "failed to get api token: ".to_string() + &e.to_string()
-                    }
-            )?;
+        let token = self.get_token().await?;
         let response = self.get_api_service().http_client
             .get(path)
             .query(param)
@@ -556,20 +575,16 @@ pub trait ApiServiceProvider {
         path: &str,
         json: &J,
     ) -> Result<T, ResponseError> {
-        let token = self.get_api_service()
-            .config.get_api_token()
-            .await
-            .map_err(
-                |e|
-                    ResponseError{
-                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
-                    }
-            )?;
-        let response = self.get_api_service().http_client
+        let token = self.get_token().await?;
+        let req = self.get_api_service().http_client
             .post(path)
             .json(json)
             .bearer_auth(token)
-            .send()
+            .build().map_err(|err| {
+            eprintln!("HTTP request failed: {}", err);
+            ResponseError::from_err(err)
+        })?;
+       let response= self.get_api_service().http_client.execute(req)
             .await
             .map_err(|err| {
                 eprintln!("HTTP request failed: {}", err);
@@ -595,15 +610,7 @@ pub trait ApiServiceProvider {
         path: &str,
         multipart_form: Form,
     ) -> Result<T, ResponseError> {
-        let token = self.get_api_service()
-            .config.get_api_token()
-            .await
-            .map_err(
-                |e|
-                    ResponseError{
-                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
-                    }
-            )?;
+        let token = self.get_token().await?;
 
         let response = self.get_api_service().http_client
             .put(path)
