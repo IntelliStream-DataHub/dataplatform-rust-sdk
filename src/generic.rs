@@ -15,6 +15,8 @@ use crate::unit::{UnitsService};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdAndExtId {
+    // todo Implement this as an enum, would allow for better validation
+    // and make it impossible to not provide any id
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -560,6 +562,7 @@ pub trait ApiServiceProvider {
             })?};
         process_response::<T>(response, path).await
     }
+
 
     async fn execute_post_request<T: DeserializeOwned + DataWrapperDeserialization, J: Serialize>(
         &self,
