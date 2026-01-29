@@ -21,12 +21,12 @@ impl UnitsService{
     }
 
     pub async fn list(&self) -> Result<DataWrapper<Unit>, ResponseError> {
-        self.execute_get_request(&self.base_url).await
+        self.execute_get_request(&self.base_url,None::<&str>).await
     }
 
     pub async fn by_external_id(&self, value: &str) -> Result<DataWrapper<Unit>, ResponseError> {
         let path = &format!("{}/{value}", self.base_url, value = value);
-        self.execute_get_request(path).await
+        self.execute_get_request(path,None::<&str>).await
     }
 
     pub async fn by_ids(&self, json: &IdAndExtIdCollection) -> Result<DataWrapper<Unit>, ResponseError> {

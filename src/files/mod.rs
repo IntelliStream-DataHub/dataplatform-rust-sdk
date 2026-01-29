@@ -35,12 +35,12 @@ impl FileService {
     pub async fn list_root_directory(&self) -> Result<DataWrapper<INode>, ResponseError> {
         // Create and send an HTTP GET request
         let full_path = format!("{}/list", self.base_url.as_str());
-        self.execute_get_request(full_path.as_str()).await
+        self.execute_get_request(full_path.as_str(),None::<&str>).await
     }
 
     pub async fn list_directory_by_path(&self, path: &str) -> Result<DataWrapper<INode>, ResponseError> {
         let full_path = format!("{}/list{}", self.base_url.as_str(), path);
-        self.execute_get_request(full_path.as_str()).await
+        self.execute_get_request(full_path.as_str(),None::<&str>).await
     }
 
     pub async fn delete(&self, id_collection: &IdAndExtIdCollection) -> Result<DataWrapper<Event>, ResponseError> {

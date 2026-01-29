@@ -41,9 +41,9 @@ impl TimeSeriesService {
         process_response::<DataWrapper<TimeSeries>>(response, &self.base_url).await
     }
 
-    pub async fn list_with_limit(&self, query: &LimitParam)
+    pub async fn list_with_limit(&self, query: Option<&LimitParam>)
                       -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        self.execute_query_request::<DataWrapper<TimeSeries>,LimitParam>(&self.base_url,query).await
+        self.execute_get_request::<DataWrapper<TimeSeries>,LimitParam>(&self.base_url,query).await
     }
 
     pub async fn create(&self, json: &DataWrapper<TimeSeries>)

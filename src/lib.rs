@@ -23,6 +23,7 @@ mod files;
 mod filters;
 mod serde_helper;
 mod errors;
+mod tests;
 
 struct ApiService{
     config: Box<DataHubApi>,

@@ -19,7 +19,7 @@ mod tests {
         let mut params = LimitParam::new();
         params.set_limit(5);
 
-        let result = api_service.time_series.list_with_limit(&params).await;
+        let result = api_service.time_series.list_with_limit(Some(&params)).await;
         match result {
             Ok(timeseries) => {
                 assert!(timeseries.length() <= 5);
@@ -33,7 +33,7 @@ mod tests {
 
         // Test negative number
         params.set_limit(-5);
-        let result = api_service.time_series.list_with_limit(&params).await;
+        let result = api_service.time_series.list_with_limit(Some(&params)).await;
         match result {
             Ok(timeseries) => {
                 panic!("This test is supposed to fail: {:?}", timeseries);

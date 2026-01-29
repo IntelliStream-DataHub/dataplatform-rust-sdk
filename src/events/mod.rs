@@ -67,7 +67,7 @@ impl EventsService{
     }
 
     pub async fn get_event_by_id(&self, id: String) -> Result<DataWrapper<Event>, ResponseError> {
-        self.execute_get_request(&self.base_url).await
+        self.execute_get_request(&self.base_url,None::<&str>).await
     }
 
     pub async fn by_ids(&self, id_collection: &IdAndExtIdCollection) -> Result<DataWrapper<Event>, ResponseError> {

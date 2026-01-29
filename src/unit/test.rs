@@ -2,23 +2,7 @@
 #[cfg(test)]
 mod tests {
     use crate::create_api_service;
-    use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
     use crate::generic::IdAndExtIdCollection;
-    use super::*;
-
-    #[test]
-    fn test_to_snake_lower_cased_allow_start_with_digits() {
-        assert_eq!(to_snake_lower_cased_allow_start_with_digits("Hello World!"), "hello_world".to_string());
-        assert_eq!(to_snake_lower_cased_allow_start_with_digits("Another-Test_Case"), "another_test_case".to_string());
-        assert_eq!(to_snake_lower_cased_allow_start_with_digits("with_numbers_123"), "with_numbers_123".to_string());
-        assert_eq!(to_snake_lower_cased_allow_start_with_digits("  leading and trailing spaces  "), "_leading_and_trailing_spaces".to_string());
-        assert_eq!(to_snake_lower_cased_allow_start_with_digits("123_Starts_With_Digits"), "123_starts_with_digits".to_string());
-        assert_eq!(to_snake_lower_cased_allow_start_with_digits("Two  spaces"), "two_spaces".to_string());
-        assert_eq!(to_snake_lower_cased_allow_start_with_digits(" Leading space"), "_leading_space".to_string());
-        assert_eq!(to_snake_lower_cased_allow_start_with_digits("Trailing space "), "trailing_space".to_string());
-        assert_eq!(to_snake_lower_cased_allow_start_with_digits("!@#$%^&*()"), "".to_string());
-    }
-
     #[tokio::test]
     async fn test_unit_requests() -> Result<(), Box<dyn std::error::Error>> {
 
