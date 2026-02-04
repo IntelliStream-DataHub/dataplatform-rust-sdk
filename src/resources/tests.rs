@@ -17,7 +17,7 @@ fn create_test_resources() -> Vec<ResourceForm> {
         metadata: Some(hashmap! {
             "foo".to_string() => "bar".to_string(),
             "is_test".to_string() => "true".to_string(),
-            "test_soruce".to_string() => "rust_sdk".to_string()
+            "test_source".to_string() => "rust_sdk".to_string()
         }),
         description: Some("root_test_data_set".to_string()),
         is_root: true,
@@ -94,7 +94,7 @@ async fn test_create_and_delete_resources() -> Result<(), ResponseError> {
     Ok(())
 }
 #[tokio::test]
-async fn test_search_resoruces() -> Result<(), ResponseError> {
+async fn test_search_resources() -> Result<(), ResponseError> {
     let api_service = create_api_service();
     let test_resources = create_test_resources();
     // Delete timeseries first, in case a test failed and the time series exists
