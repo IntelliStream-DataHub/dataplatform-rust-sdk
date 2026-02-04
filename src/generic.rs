@@ -202,11 +202,10 @@ impl<T> DatapointsCollection<T> {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone,Eq,PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct RelationForm {
     pub(crate) id: Option<u64>,
-    #[serde(rename = "externalId")]
     pub(crate) external_id: Option<String>,
-    #[serde(rename = "relationshipType")]
     pub(crate) relationship_type: String,
 }
 
@@ -222,11 +221,28 @@ impl RelationForm {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SearchAndFilterForm {
-    pub(crate) filter: Option<u64>,
+    pub(crate) filter: Option<FilterForm>, // todo!() not implemented yet in java app
     pub(crate) search: Option<SearchForm>,
     pub(crate) limit: Option<u64>,
 }
-
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FilterForm {
+    // not implemented yet on java app
+    pub(crate) name: Option<String>,
+    pub(crate) parent_id: Option<u64>,
+    pub(crate) parent_external_id: Option<String>,
+    pub(crate) asset_subtree_ids: Option<IdAndExtId>,
+    pub(crate) data_set_id: Option<u64>,
+    pub(crate) metadata: Option<HashMap<String, String>>,
+    pub(crate) source: Option<String>,
+    pub(crate) created_time: Option<DateTime<Utc>>,
+    pub(crate) last_updated: Option<DateTime<Utc>>,
+    pub(crate) root: bool,
+    pub(crate) external_id_prefix: Option<String>,
+    pub(crate) labels: Option<Vec<String>>,
+    pub(crate) geo_location: Option<HashMap<String, f64>>,
+}
 impl SearchAndFilterForm {
     pub fn new() -> Self {
         SearchAndFilterForm{filter: None, search: None, limit: None}

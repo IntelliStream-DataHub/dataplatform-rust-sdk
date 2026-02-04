@@ -1,39 +1,29 @@
+mod forms;
 #[cfg(test)]
 mod tests;
-mod forms;
 
-use std::collections::HashMap;
-use std::rc::{Rc, Weak};
-use chrono::{DateTime, Utc};
-use futures::future::join_all;
-use reqwest::{Response, Url};
-use serde::{Deserialize, Serialize};
-use crate::ApiService;
-use crate::errors::DataHubError;
 use crate::fields::{Field, ListField, MapField};
-use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtId, Identifiable, RelationForm, };
+use crate::generic::{
+    ApiServiceProvider, DataWrapper, IdAndExtId, Identifiable, RelationForm, SearchAndFilterForm,
+};
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::{process_response, ResponseError};
-use crate::resources::forms::{FilterAndSearchForm, ResourceForm};
-use crate::timeseries::{LimitParam, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
+use crate::resources::forms::ResourceForm;
+use crate::ApiService;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::rc::Weak;
 
 pub struct ResourceService {
     api_service: Weak<ApiService>,
-    base_url: String
+    base_url: String,
 }
-/*
-impl ApiProvider for ResourceService {
-    fn get_api_service(&self) -> Rc<ApiService> {
-        self.api_service.upgrade().unwrap()
-    }
-}
-*/
 impl ApiServiceProvider for ResourceService {
     fn api_service(&self) -> &Weak<ApiService> {
         &self.api_service
     }
 }
-
 
 impl ResourceService {
     pub fn new(api_service: Weak<ApiService>, base_url: String) -> Self {
@@ -43,87 +33,70 @@ impl ResourceService {
         }
     }
 
-
-    pub async fn create<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError> where for<'a> &'a I: Into<GraphDataWrapper<ResourceForm>>
+    pub async fn create<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
+    where
+        for<'a> &'a I: Into<GraphDataWrapper<ResourceForm>>,
     {
-        let payload=input.into();
-        let token = self.get_token().await?;
-        let url= &format!("{}/create", self.base_url);
-        println!("payload: {payload:?}");
-        let response = self.get_api_service().http_client
-            .post(url)
-            .json(&payload)
-            .bearer_auth(token)
-            .send()
-            .await.map_err(|e| ResponseError{status: e.status().unwrap(),message:e.to_string()})?;
-        process_response::<GraphDataWrapper<Resource>>(response, url).await
-
-
+        let payload = input.into();
+        let url = &format!("{}/create", self.base_url);
+        self.execute_post_request::<GraphDataWrapper<Resource>, _>(&url, &payload)
+            .await
     }
-    pub async fn by_ids<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>where for<'a> &'a I: Into<DataWrapper<IdAndExtId>> {
-        let payload=input.into();
-        let token = self.get_token().await?;
-        let url= &format!("{}/byids", self.base_url);
-
-        let response = self.get_api_service().http_client
-            .post(url)
-            .json(&payload)
-            .bearer_auth(token)
-            .send()
-            .await.map_err(|e| ResponseError{status: e.status().unwrap(),message:e.to_string()})?;
-        process_response::<GraphDataWrapper<Resource>>(response, url).await
-
+    pub async fn by_ids<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
+    where
+        for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
+    {
+        let payload = input.into();
+        let url = &format!("{}/byids", self.base_url);
+        self.execute_post_request::<GraphDataWrapper<Resource>, _>(&url, &payload)
+            .await
     }
 
-    pub async fn delete<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError> where for<'a> &'a I: Into<DataWrapper<IdAndExtId>> {
-        let payload=input.into();
-        let token = self.get_token().await?;
-        let url= &format!("{}/delete", self.base_url);
-
-        let response = self.get_api_service().http_client
-            .delete(url)
-            .json(&payload)
-            .bearer_auth(token)
-            .send()
-            .await.map_err(|e| ResponseError{status: e.status().unwrap_or(reqwest::StatusCode::SERVICE_UNAVAILABLE),message:e.to_string()})?;
-        process_response::<GraphDataWrapper<Resource>>(response, url).await
-        //self.delete_req(&format!("{}/create", self.base_url), &payload).await
-
+    pub async fn delete<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
+    where
+        for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
+    {
+        let payload = input.into();
+        //let token = self.get_token().await?;
+        let url = &format!("{}/delete", self.base_url);
+        self.execute_post_request::<GraphDataWrapper<Resource>, _>(&url, &payload)
+            .await
     }
-
-    pub async fn update<I>(&self, input: &I) -> Result<DataWrapper<Resource>, ResponseError> where for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>
+    pub async fn search(
+        &self,
+        payload: &SearchAndFilterForm,
+    ) -> Result<DataWrapper<Resource>, ResponseError> {
+        let url = &format!("{}/search", self.base_url);
+        self.execute_post_request::<DataWrapper<Resource>, _>(&url, &payload)
+            .await
+    }
+    pub async fn update<I>(&self, input: &I) -> Result<DataWrapper<Resource>, ResponseError>
+    where
+        for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
     {
         todo!();
 
-        let payload=input.into();
+        let payload = input.into();
         let token = self.get_token().await?;
-        let url= &format!("{}/update", self.base_url);
+        let url = &format!("{}/update", self.base_url);
 
-        let response = self.get_api_service().http_client
+        let response = self
+            .get_api_service()
+            .http_client
             .post(url)
             .json(&payload)
             .bearer_auth(token)
             .send()
-            .await.map_err(|e| ResponseError{status: e.status().unwrap(),message:e.to_string()})?;
+            .await
+            .map_err(|e| ResponseError {
+                status: e.status().unwrap(),
+                message: e.to_string(),
+            })?;
         process_response::<DataWrapper<Resource>>(response, url).await
     }
-
-    pub async fn search(&self, payload: &FilterAndSearchForm) -> Result<DataWrapper<Resource>, ResponseError> {
-
-        let token = self.get_token().await?;
-        let url= &format!("{}/search", self.base_url);
-
-        let response = self.get_api_service().http_client
-            .post(url)
-            .json(&payload)
-            .bearer_auth(token)
-            .send()
-            .await.map_err(|e| ResponseError{status: e.status().unwrap(),message:e.to_string()})?;
-        process_response::<DataWrapper<Resource>>(response, url).await
-    }
-
+    //
 }
-#[derive(Debug, Serialize, Deserialize, Clone,PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Resource {
     // used to be a serde skip if zero here. don't understand why
@@ -147,22 +120,22 @@ pub struct Resource {
 }
 
 impl Resource {
-    pub fn new() -> Self{
-        Self{
-            id:None,
-            external_id:"".to_string(),
-            name:"".to_string(),
-            metadata:None,
-            description:None,
-            is_root:false,
-            data_set_id:None,
-            source:None,
-            labels:None,
-            relations:None,
-            geolocation:None,
-            created_time:None,
-            last_updated_time:None,
-            relations_form:Some(vec![])
+    pub fn new() -> Self {
+        Self {
+            id: None,
+            external_id: "".to_string(),
+            name: "".to_string(),
+            metadata: None,
+            description: None,
+            is_root: false,
+            data_set_id: None,
+            source: None,
+            labels: None,
+            relations: None,
+            geolocation: None,
+            created_time: None,
+            last_updated_time: None,
+            relations_form: Some(vec![]),
         }
     }
 }
@@ -176,7 +149,6 @@ impl Identifiable for Resource {
     fn external_id(&self) -> &str {
         &self.external_id
     }
-
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ResourceUpdate {
@@ -187,11 +159,9 @@ pub struct ResourceUpdate {
 
 impl GraphNode for ResourceUpdate {}
 
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ResourceUpdateFields {
     //todo!()
-
     #[serde(rename = "externalId")]
     external_id: Field<String>,
     name: Field<String>,
@@ -201,5 +171,4 @@ pub struct ResourceUpdateFields {
     metadata: MapField,
     source: Field<String>,
     labels: ListField<String>,
-
 }
