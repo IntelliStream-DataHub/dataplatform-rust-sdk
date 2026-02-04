@@ -11,14 +11,14 @@ use crate::filters::Filters;
 use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
 use crate::http::ResponseError;
 
-pub struct EventsService<'a>{
-    pub(crate) api_service: Weak<ApiService<'a>>,
+pub struct EventsService{
+    pub(crate) api_service: Weak<ApiService>,
     base_url: String
 }
 
-impl<'a> EventsService<'a>{
+impl EventsService{
 
-    pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
+    pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
         let base_url = format!("{}/events", base_url);
         EventsService {api_service, base_url}
     }
@@ -67,7 +67,7 @@ impl<'a> EventsService<'a>{
     }
 
     pub async fn get_event_by_id(&self, id: String) -> Result<DataWrapper<Event>, ResponseError> {
-        self.execute_get_request(&self.base_url).await
+        self.execute_get_request(&self.base_url,None::<&str>).await
     }
 
     pub async fn by_ids(&self, id_collection: &IdAndExtIdCollection) -> Result<DataWrapper<Event>, ResponseError> {

@@ -1,3 +1,5 @@
+mod test;
+
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
@@ -6,25 +8,25 @@ use crate::ApiService;
 use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
 use crate::http::{ResponseError};
 
-pub struct UnitsService<'a>{
-    pub(crate) api_service: Weak<ApiService<'a>>,
+pub struct UnitsService{
+    pub(crate) api_service: Weak<ApiService>,
     base_url: String
 }
 
-impl<'a> UnitsService<'a>{
+impl UnitsService{
 
-    pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
+    pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
         let unit_base_url = format!("{}/units", base_url);
         UnitsService {api_service, base_url: unit_base_url}
     }
 
     pub async fn list(&self) -> Result<DataWrapper<Unit>, ResponseError> {
-        self.execute_get_request(&self.base_url).await
+        self.execute_get_request(&self.base_url,None::<&str>).await
     }
 
     pub async fn by_external_id(&self, value: &str) -> Result<DataWrapper<Unit>, ResponseError> {
         let path = &format!("{}/{value}", self.base_url, value = value);
-        self.execute_get_request(path).await
+        self.execute_get_request(path,None::<&str>).await
     }
 
     pub async fn by_ids(&self, json: &IdAndExtIdCollection) -> Result<DataWrapper<Unit>, ResponseError> {

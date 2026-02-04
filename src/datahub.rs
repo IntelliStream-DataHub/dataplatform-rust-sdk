@@ -1,143 +1,200 @@
-use std::env;
-use std::time::{SystemTime, UNIX_EPOCH};
-use oauth2::{reqwest, AuthUrl, ClientId, ClientSecret, TokenResponse, TokenUrl};
-use oauth2::basic::BasicClient;
+use std::{default, env};
+use std::collections::HashMap;
+use std::rc::Rc;
+use chrono::{DateTime, Utc, Duration};
+use oauth2::{reqwest, RedirectUrl, AuthUrl, ClientId, ClientSecret, EndpointNotSet, EndpointSet, TokenResponse, TokenUrl, Scope, AccessToken, EmptyExtraTokenFields};
+use oauth2::basic::{BasicClient, BasicTokenResponse, BasicTokenType};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
+use crate::errors::DataHubError;
 
-#[derive(Debug)]
-pub struct DataHubConfig {
-    pub(crate) client_id: String,
-    pub(crate) client_secret: String,
-    pub(crate) auth_path: String,
-    pub(crate) token_path: String,
-    pub(crate) project_name: String
+#[derive(Default,Deserialize,Debug,Clone)]
+pub struct OAuthConfig {
+    #[serde(alias = "CLIENT_ID")]
+    pub(crate) client_id: Option<String>,
+
+    #[serde(alias = "CLIENT_SECRET")]
+    pub(crate) client_secret: Option<String>,
+
+    #[serde(alias = "AUTH_URI")]
+    pub(crate) auth_uri: Option<String>,
+
+    #[serde(alias = "TOKEN_URI")]
+    pub(crate) token_uri: Option<String>,
+
+    #[serde(alias = "REDIRECT_URI")]
+    pub(crate) redirect_uri: Option<String>,
+
+    #[serde(alias = "PROJECT_NAME")]
+    pub(crate) project_name: Option<String>,
 }
-
-pub struct DataHubApi<'a> {
-    pub(crate) config: &'a Option<DataHubConfig>,
-    pub(crate) token: Option<String>,
-    pub(crate) expires: Option<u64>,
-    pub(crate) base_url: String
+#[derive(Default,Debug,Clone)]
+struct AuthState {
+    pub token: Option<oauth2::basic::BasicTokenResponse>,
+    pub expire_time: Option<DateTime<Utc>>,
 }
-
-impl DataHubApi<'_> {
-
-    pub fn init(config: &Option<DataHubConfig>) -> DataHubApi {
-        let base_url = if let Some(config) = config {
-            format!("https://api-{}.intellistream.ai/timeseries/data", config.project_name)
+#[derive(Debug,Clone)]
+pub struct DataHubApi {
+    pub(crate) config: Rc<OAuthConfig>,
+    pub(crate) auth_state: Rc<RwLock<AuthState>>,
+    pub(crate) base_url: String,
+    pub(crate) oauth2_client: Option<oauth2::Client<
+        oauth2::basic::BasicErrorResponse,
+        oauth2::basic::BasicTokenResponse,
+        oauth2::basic::BasicTokenIntrospectionResponse,
+        oauth2::StandardRevocableToken,
+        oauth2::basic::BasicRevocationErrorResponse,
+        oauth2::EndpointSet,
+        oauth2::EndpointNotSet,
+        oauth2::EndpointNotSet,
+        oauth2::EndpointNotSet,
+        oauth2::EndpointSet>>,
+    pub(crate) http_client: reqwest::Client,
+}
+impl AuthState {
+    pub fn is_expired(&self) -> bool {
+        if let Some(expire_time) = self.expire_time {
+            expire_time < Utc::now()
         } else {
-            "http://localhost:8081".to_string()
-        };
-        DataHubApi { config, token: None, expires: None, base_url }
-    }
-
-    pub fn create_default() -> DataHubApi<'static> {
-        let token = env::var("TOKEN").expect("TOKEN environment variable not set");
-        let mut api_service = DataHubApi::init(&None);
-        api_service.set_token_value(&token);
-        api_service
-    }
-
-    async fn refresh_token(&mut self) {
-        if cfg!(test) {
-            println!("Refreshing Api Token...");
+            false
         }
-        if let Some(config) = self.config {
-            let auth_path = config.auth_path.clone();
-            let auth_url = AuthUrl::new(auth_path).expect("Invalid authorization endpoint URL");
-            let token_path = config.token_path.clone();
-            let token_url = TokenUrl::new(token_path).expect("Invalid token endpoint URL");
-
-            let client_id = config.client_id.clone();
-            let client_secret = config.client_secret.clone();
-
-            let client =
-                BasicClient::new( ClientId::new(client_id))
-                      .set_client_secret(ClientSecret::new(client_secret))
-                      .set_auth_uri(auth_url)
-                      .set_token_uri(token_url);
-
-            let http_client = reqwest::blocking::ClientBuilder::new()
-                // Following redirects opens the client up to SSRF vulnerabilities.
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .expect("Client should build");
-
-            let token_result =
-                client
-                    .exchange_client_credentials()
-                    .request(&http_client);
-
-            if cfg!(test) {
-                println!("Token:{:?}", token_result);
-            }
-
-            let access_token = match token_result {
-                Ok(t) => t,
-                Err(_) => {
-                    println!("Error!");
-                    std::process::exit(1)
-                }
-            };
-
-            if cfg!(test) {
-                println!("Token: {}", access_token.access_token().secret());
-                println!("Expires: {}", access_token.expires_in().unwrap().as_secs());
-            }
-
-            self.set_token_value(access_token.access_token().secret());
-            let expire_time = access_token.expires_in().unwrap().as_secs();
-            self.set_token_expires(self.get_epoch_seconds_now() + (expire_time-60));
-        };
     }
+}
 
-    fn get_epoch_seconds_now(&self) -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
+impl DataHubApi {
+
+    pub(crate) fn from_env() -> Result<Self, DataHubError>{
+        let env_vars = env::vars().collect::<HashMap<String, String>>();
+        Self::from_map(env_vars)
     }
-
-    fn set_token_value(&mut self, value: &str) {
-        self.token = Some(String::from(value))
+    pub  fn create_default() -> DataHubApi {
+        //let token = env::var("TOKEN").expect("TOKEN environment variable not set");
+        DataHubApi::from_env().unwrap()
+        
     }
+    pub(crate)  fn from_map(map: HashMap<String, String>) -> Result<Self, DataHubError> {
+        let baseurl = map.get("BASE_URL").unwrap().to_string();
 
-    fn set_token_expires(&mut self, value: u64) {
-        self.expires = Some(value)
-    }
+        let oauthconfig: OAuthConfig = serde_json::from_value(serde_json::to_value(&map)?)?;
 
-    fn has_token_expired(&self) -> bool{
-        let expires: &u64 = &self.expires.unwrap();
-        let now = self.get_epoch_seconds_now();
-        if now > *expires {
-            return true;
-        }
-        false
-    }
+        // Oauth client will only be configured if all required fields are present
+        // Environment passed Token will be used if no oauth config is present
+        let client = Self::setup_oauth(&oauthconfig);
 
-    pub async fn get_api_token(&mut self) -> Option<&String> {
-        let token = &self.token;
-        match token {
-            Some(_t) => {
-                if self.has_token_expired(){
-                    if cfg!(test) {
-                        println!("Token has expired!");
+
+        // this handles environment passed token
+        let auth_state = if let Some(t) = map.get("TOKEN") {
+            let token = BasicTokenResponse::new(
+                AccessToken::new(t.to_string()),
+                BasicTokenType::Bearer,
+                EmptyExtraTokenFields{});
+
+            Rc::new(
+                RwLock::new(
+                    AuthState{
+                        token:Some(token.clone()),
+                        expire_time:None // user passed token has no expire time. is_expired() returns true always
                     }
-                    self.refresh_token().await;
-                }
-            },
-            None => {
-                if cfg!(test) {
-                    println!("Token not found!");
-                }
-                self.refresh_token().await;
-            }
-        }
-        self.token.as_ref()
+                )
+            )
+        } else { // if token is not passed, token and expire_time will be None
+            Rc::new(RwLock::new(AuthState::default()))
+        };
+        Ok(Self {
+            config:Rc::new(oauthconfig),
+            base_url: baseurl.to_string(),
+            oauth2_client: client,
+            http_client: reqwest::Client::new(),
+            auth_state
+             })
     }
 
-    pub fn get_config(&mut self) -> &Option<DataHubConfig> {
-        self.config
+    async fn refresh_token(&self) -> Result<Option<oauth2::basic::BasicTokenResponse>, DataHubError>{
+        /// will use refresh token if  present otherwise it will make a new client credentials request
+        let refresh_token = {
+            let authstate = self.auth_state.read().await;
+            authstate.token.as_ref().and_then(|t| t.refresh_token().cloned())
+        };
+
+        let token_result = if let Some(refresh_token) = refresh_token {
+            let Some(authclient) = self.oauth2_client.as_ref() else {
+                return Err(DataHubError::ConfigError(format!("OAuth2 Client not configured")))
+            };
+            authclient
+                .exchange_refresh_token(&refresh_token)
+                .request_async(&self.http_client)
+                .await
+        } else {
+            let Some(authclient) = self.oauth2_client.as_ref() else {
+                return Err(DataHubError::ConfigError(format!("OAuth2 Client not configured")))
+            };
+            authclient
+                .exchange_client_credentials()
+                .request_async(&self.http_client)
+                .await
+        };
+        let new_token=token_result.map_err(|e| DataHubError::OAuthError(format!("OAuth2 Request failed: {}", e)))?;
+        let expire_time = new_token.expires_in().map(|duration| Utc::now() + duration);
+
+        { // lock scope
+            let mut auth_state = self.auth_state.write().await;
+            // double check  the token has not been refreshed while waiting for network
+            if let Some(t) = &auth_state.token {
+                if ! auth_state.is_expired(){
+                    return Ok(Some(t.clone()))
+                }
+            }
+            auth_state.token = Some(new_token.clone());
+            auth_state.expire_time = expire_time;
+            Ok(Some(new_token))
+        }
+    }
+
+    pub async fn get_api_token(& self) -> Result<String,DataHubError> {
+        { // lock scope. read and if expired refresh token
+            let authstate = self.auth_state.read().await;
+            if let Some(t) = &authstate.token {
+                if !authstate.is_expired() {
+                    return Ok(t.access_token().secret().clone())
+                }
+            }
+        }
+        let new_token= self.refresh_token().await?;
+
+        Ok(
+            new_token.unwrap().access_token().secret().clone()
+        )
+    }
+    fn setup_oauth(oauth_config: &OAuthConfig)-> Option<oauth2::Client<
+        oauth2::basic::BasicErrorResponse,
+        oauth2::basic::BasicTokenResponse,
+        oauth2::basic::BasicTokenIntrospectionResponse,
+        oauth2::StandardRevocableToken,
+        oauth2::basic::BasicRevocationErrorResponse,
+        oauth2::EndpointSet,
+        oauth2::EndpointNotSet,
+        oauth2::EndpointNotSet,
+        oauth2::EndpointNotSet,
+        oauth2::EndpointSet>> {
+    let client= if let (
+    Some(client_id),
+    Some(client_secret),
+    Some(auth_uri),
+    Some(token_uri),
+    Some(redirect_uri)) = (
+    &oauth_config.client_id,
+    &oauth_config.client_secret,
+    &oauth_config.auth_uri,
+    &oauth_config.token_uri,
+    &oauth_config.redirect_uri) {
+    Some(BasicClient::new(ClientId::new(client_id.clone()))
+    .set_client_secret(ClientSecret::new(client_secret.clone()))
+    .set_auth_uri(AuthUrl::new(auth_uri.clone()).ok().expect("Invalid Auth URI"))
+    .set_token_uri(TokenUrl::new(token_uri.clone()).ok().expect("Invalid Token URI"))
+    .set_redirect_uri(RedirectUrl::new(redirect_uri.clone()).ok().expect("Invalid Redirect URI")))
+    } else { None };
+        client
     }
 }
 

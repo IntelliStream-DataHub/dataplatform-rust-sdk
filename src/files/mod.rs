@@ -16,13 +16,13 @@ use crate::http::{ResponseError};
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::events::Event;
 
-pub struct FileService<'a>{
-    pub(crate) api_service: Weak<ApiService<'a>>,
+pub struct FileService{
+    pub(crate) api_service: Weak<ApiService>,
     base_url: String
 }
 
-impl<'a> FileService<'a> {
-    pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
+impl FileService {
+    pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
         let base_url = format!("{}/files", base_url);
         FileService { api_service, base_url }
     }
@@ -35,12 +35,12 @@ impl<'a> FileService<'a> {
     pub async fn list_root_directory(&self) -> Result<DataWrapper<INode>, ResponseError> {
         // Create and send an HTTP GET request
         let full_path = format!("{}/list", self.base_url.as_str());
-        self.execute_get_request(full_path.as_str()).await
+        self.execute_get_request(full_path.as_str(),None::<&str>).await
     }
 
     pub async fn list_directory_by_path(&self, path: &str) -> Result<DataWrapper<INode>, ResponseError> {
         let full_path = format!("{}/list{}", self.base_url.as_str(), path);
-        self.execute_get_request(full_path.as_str()).await
+        self.execute_get_request(full_path.as_str(),None::<&str>).await
     }
 
     pub async fn delete(&self, id_collection: &IdAndExtIdCollection) -> Result<DataWrapper<Event>, ResponseError> {

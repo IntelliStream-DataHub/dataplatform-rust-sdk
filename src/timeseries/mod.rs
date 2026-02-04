@@ -12,14 +12,14 @@ use crate::generic::{ApiServiceProvider, DataWrapper, Datapoint, DatapointString
 use crate::http::{process_response, ResponseError};
 use crate::serde_helper::is_zero;
 
-pub struct TimeSeriesService<'a>{
-    pub(crate) api_service: Weak<ApiService<'a>>,
+pub struct TimeSeriesService{
+    pub(crate) api_service: Weak<ApiService>,
     base_url: String
 }
 
-impl<'a> TimeSeriesService<'a> {
+impl TimeSeriesService {
 
-    pub fn new(api_service: Weak<ApiService<'a>>, base_url: &String) -> Self {
+    pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
         let base_url = format!("{}/timeseries", base_url);
         TimeSeriesService {api_service, base_url}
     }
@@ -41,22 +41,9 @@ impl<'a> TimeSeriesService<'a> {
         process_response::<DataWrapper<TimeSeries>>(response, &self.base_url).await
     }
 
-    pub async fn list_with_limit(&self, query: &LimitParam)
+    pub async fn list_with_limit(&self, query: Option<&LimitParam>)
                       -> Result<DataWrapper<TimeSeries>, ResponseError> {
-
-        // Create and send an HTTP GET request
-        let response = self.get_api_service().http_client
-            .get(&self.base_url) // Correctly access `base_url`
-            .query(query)
-            .send()
-            .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
-
-        // Process the HTTP response and deserialize it as `DataWrapper<TimeSeries>`
-        process_response::<DataWrapper<TimeSeries>>(response, &self.base_url).await
+        self.execute_get_request::<DataWrapper<TimeSeries>,LimitParam>(&self.base_url,query).await
     }
 
     pub async fn create(&self, json: &DataWrapper<TimeSeries>)

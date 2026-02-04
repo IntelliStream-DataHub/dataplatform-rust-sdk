@@ -4,6 +4,7 @@ use std::hash::Hasher;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use chrono::{DateTime, Utc, TimeZone};
+use oauth2::http;
 use reqwest::multipart::Form;
 use crate::{ApiService};
 use crate::events::{EventsService};
@@ -492,25 +493,47 @@ impl<T: Identifiable> DataWrapper<T> {
 }
 
 
-pub trait ApiServiceProvider<'a> {
-    fn api_service(&self) -> &Weak<ApiService<'a>>;
+pub trait ApiServiceProvider {
+    fn api_service(&self) -> &Weak<ApiService>;
 
-    fn get_api_service(&self) -> Rc<ApiService<'a>> {
+    fn get_api_service(&self) -> Rc<ApiService> {
         self.api_service().upgrade().unwrap()
     }
 
-    async fn execute_get_request<T: DeserializeOwned + DataWrapperDeserialization>(
+    async fn execute_get_request<T: DeserializeOwned + DataWrapperDeserialization, Param:Serialize+ ?Sized>(
         &self,
-        path: &str
+        path: &str,
+        param: Option<&Param>
     ) -> Result<T, ResponseError> {
-        let response = self.get_api_service().http_client
+        let token = self.get_api_service()
+            .config.get_api_token()
+            .await
+            .map_err(
+                |e|
+                    ResponseError{
+                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
+                    }
+            )?;
+        
+        let response = if let Some(param) = param {self.get_api_service().http_client
             .get(path)
+            .bearer_auth(token)
+            .query(param)
             .send()
             .await
             .map_err(|err| {
                 eprintln!("HTTP request failed: {}", err);
                 ResponseError::from_err(err)
-            })?;
+            })?}
+            else {self.get_api_service().http_client
+            .get(path)
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|err| {
+                eprintln!("HTTP request failed: {}", err);
+                ResponseError::from_err(err)
+            })?};
         process_response::<T>(response, path).await
     }
 
@@ -519,9 +542,19 @@ pub trait ApiServiceProvider<'a> {
         path: &str,
         json: &J,
     ) -> Result<T, ResponseError> {
+        let token = self.get_api_service()
+            .config.get_api_token()
+            .await
+            .map_err(
+                |e|
+                    ResponseError{
+                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
+                    }
+            )?;
         let response = self.get_api_service().http_client
             .post(path)
             .json(json)
+            .bearer_auth(token)
             .send()
             .await
             .map_err(|err| {
@@ -548,9 +581,20 @@ pub trait ApiServiceProvider<'a> {
         path: &str,
         multipart_form: Form,
     ) -> Result<T, ResponseError> {
+        let token = self.get_api_service()
+            .config.get_api_token()
+            .await
+            .map_err(
+                |e|
+                    ResponseError{
+                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
+                    }
+            )?;
+
         let response = self.get_api_service().http_client
             .put(path)
             .multipart(multipart_form)
+            .bearer_auth(token)
             .send()
             .await
             .map_err(|err| {
@@ -573,26 +617,26 @@ pub trait ApiServiceProvider<'a> {
     }
 }
 
-impl<'a> ApiServiceProvider<'a> for TimeSeriesService<'a> {
-    fn api_service(&self) -> &Weak<ApiService<'a>> {
+impl ApiServiceProvider for TimeSeriesService {
+    fn api_service(&self) -> &Weak<ApiService> {
         &self.api_service
     }
 }
 
-impl<'a> ApiServiceProvider<'a> for UnitsService<'a> {
-    fn api_service(&self) -> &Weak<ApiService<'a>> {
+impl ApiServiceProvider for UnitsService {
+    fn api_service(&self) -> &Weak<ApiService> {
         &self.api_service
     }
 }
 
-impl<'a> ApiServiceProvider<'a> for EventsService<'a> {
-    fn api_service(&self) -> &Weak<ApiService<'a>> {
+impl ApiServiceProvider for EventsService {
+    fn api_service(&self) -> &Weak<ApiService> {
         &self.api_service
     }
 }
 
-impl<'a> ApiServiceProvider<'a> for FileService<'a> {
-    fn api_service(&self) -> &Weak<ApiService<'a>> {
+impl ApiServiceProvider for FileService {
+    fn api_service(&self) -> &Weak<ApiService> {
         &self.api_service
     }
 }

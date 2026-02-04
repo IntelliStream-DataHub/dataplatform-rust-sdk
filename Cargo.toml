@@ -18,6 +18,8 @@ uuid = { version = "1.16", features = ["v4", "v7", "serde"] }
 regex = "1.11.1"
 tokio-util = "0.7"
 infer = { version = "0.19", default-features = false, features = ["std"] }
+thiserror = "2.0.17"
 
-[lib]
-proc-macro = true
+
+#[lib]
+#proc-macro = true
