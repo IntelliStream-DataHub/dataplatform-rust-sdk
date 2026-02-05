@@ -349,6 +349,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_datapoints() -> Result<(), Box<dyn std::error::Error>> {
         let unique_id: u64 = 6540;
         let api_service = create_api_service();

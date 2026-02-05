@@ -447,7 +447,30 @@ impl From<Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
         DataWrapper{items:value,http_status_code:None,error_body:None}
     }
 }
+pub(crate) trait DataHubEntity: Clone + Serialize {
+    fn ext_id(&self) -> &String;
+}
+impl<T:DataHubEntity> From<T> for DataWrapper<T> {
+    fn from(value: T) -> Self {
+        DataWrapper{items:vec![value],http_status_code:None,error_body:None}
+    }
+}
+impl<T:DataHubEntity> From<Vec<T>> for DataWrapper<T> {
+    fn from(vector: Vec<T>) -> Self {
+        DataWrapper{items:vector,http_status_code:None,error_body:None}
+    }
+}
 
+impl<T:DataHubEntity> From<&Vec<T>> for DataWrapper<T> {
+    fn from(vector: &Vec<T>) -> Self {
+        DataWrapper{items: vector.clone(),http_status_code:None,error_body:None}
+    }
+}
+impl<T:DataHubEntity> From<&T> for DataWrapper<T> {
+    fn from(val: &T) -> Self {
+        DataWrapper{items: vec![val.clone()],http_status_code:None,error_body:None}
+    }
+}
 
 pub trait Identifiable {
     fn id(&self) -> u64;

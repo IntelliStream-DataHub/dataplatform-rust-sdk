@@ -117,7 +117,7 @@ async fn test_search_resources() -> Result<(), ResponseError> {
         filter: None,
     };
 
-    api_service.resources.create(&test_resources).await?;
+    let test_data = api_service.resources.create(&test_resources).await?;
     let search_result = api_service.resources.search(&query).await?;
     let search_result2 = api_service.resources.search(&query2).await?;
     println!("{:?}", search_result2.get_items().len());
@@ -126,8 +126,7 @@ async fn test_search_resources() -> Result<(), ResponseError> {
         .get_items()
         .iter()
         .all(|r| r.name.contains("test") || r.external_id.contains("test")));
-    let resulting_ids = search_result2
-        .get_items()
+    let resulting_ids = test_data.nodes().unwrap()
         .iter()
         .map(|r| IdAndExtId::from_external_id(&r.external_id))
         .collect::<Vec<IdAndExtId>>();

@@ -5,11 +5,11 @@ use dotenv::dotenv;
 
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE};
 use crate::datahub::DataHubApi;
-use crate::events::EventsService;
-use crate::files::FileService;
-use crate::resources::ResourceService;
-use crate::timeseries::{TimeSeriesService};
-use crate::unit::{UnitsService};
+pub use crate::events::EventsService;
+pub use crate::files::FileService;
+pub use crate::resources::ResourceService;
+pub use crate::timeseries::{TimeSeriesService};
+pub use crate::unit::{UnitsService};
 
 mod unit;
 mod generic;
@@ -19,13 +19,17 @@ mod fields;
 mod events;
 mod http;
 mod files;
-mod filters;
+pub mod filters;
 mod serde_helper;
 mod errors;
 mod resources;
 mod graph_data_wrapper;
 #[cfg(test)]
 mod tests;
+pub use resources::Resource;
+pub use events::Event;
+pub use timeseries::TimeSeries;
+//pub use filters::Filter;
 
 pub struct ApiService{
     config: Box<DataHubApi>,
@@ -42,7 +46,7 @@ pub fn create_api_service() -> Rc<ApiService> {
     let dataplatform_api:DataHubApi /* Type */ = DataHubApi::create_default();
     let mut headers = HeaderMap::new();
     //if let Some(token) = dataplatform_api.get_api_token().await{
-    //    let auth_header =format!("Bearer {token}");
+    //    let auth_header = format!("Bearer {token}");
     //headers.insert(AUTHORIZATION, HeaderValue::from_str(auth_header.as_str()).unwrap());
     //};
     headers.insert(CONTENT_TYPE, HeaderValue::from_str("application/json").unwrap());
