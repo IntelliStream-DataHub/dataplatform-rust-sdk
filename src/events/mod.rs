@@ -1,14 +1,12 @@
-mod filters;
 #[cfg(test)]
 mod tests;
 
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
-use crate::filters::Filters;
-use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
+use crate::filters::EventFilter;
+use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId};
 use crate::http::ResponseError;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
-use filters::EventFilter;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::rc::Weak;
@@ -28,38 +26,22 @@ impl EventsService {
         }
     }
 
-    pub async fn create(&self, data: &Vec<Event>) -> Result<DataWrapper<Event>, ResponseError> {
-        let mut dw = DataWrapper::new();
-        dw.set_items(data.clone());
+    pub async fn create<I>(&self, data: &I) -> Result<DataWrapper<Event>, ResponseError>
+    where
+        for<'a> &'a I: Into<DataWrapper<Event>>,
+    {
+        let dw = data.into();
         let path = &format!("{}/create", self.base_url);
         self.execute_post_request::<DataWrapper<Event>, _>(path, &dw)
             .await
     }
 
-    pub async fn create_one(&self, event: &Event) -> Result<DataWrapper<Event>, ResponseError> {
-        let events = vec![event.clone()];
-        self.create(&events).await
-    }
-
-    pub async fn delete_by_external_ids(
-        &self,
-        data: Vec<&str>,
-    ) -> Result<DataWrapper<Event>, ResponseError> {
-        let data = IdAndExtIdCollection::from_external_id_vec(data);
-        self.delete(&data).await
-    }
-
-    pub async fn delete_by_ids(&self, data: Vec<u64>) -> Result<DataWrapper<Event>, ResponseError> {
-        let data = IdAndExtIdCollection::from_id_vec(data);
-        self.delete(&data).await
-    }
-
-    pub async fn delete(
-        &self,
-        json: &IdAndExtIdCollection,
-    ) -> Result<DataWrapper<Event>, ResponseError> {
+    pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<Event>, ResponseError>
+    where
+        for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
+    {
         let path = &format!("{}/delete", self.base_url);
-        self.execute_post_request(path, json).await
+        self.execute_post_request(path, &json.into()).await
     }
 
     pub async fn filter(&self, filter: &EventFilter) -> Result<DataWrapper<Event>, ResponseError> {
@@ -67,16 +49,12 @@ impl EventsService {
         self.execute_post_request(path, &filter).await
     }
 
-    pub async fn get_event_by_id(&self, id: String) -> Result<DataWrapper<Event>, ResponseError> {
-        self.execute_get_request(&self.base_url,None::<&str>).await
-    }
-
-    pub async fn by_ids(
-        &self,
-        id_collection: &IdAndExtIdCollection,
-    ) -> Result<DataWrapper<Event>, ResponseError> {
+    pub async fn by_ids<I>(&self, id_collection: &I) -> Result<DataWrapper<Event>, ResponseError>
+    where
+        for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
+    {
         let path = &format!("{}/byids", self.base_url);
-        self.execute_post_request::<DataWrapper<Event>, _>(path, id_collection)
+        self.execute_post_request::<DataWrapper<Event>, _>(path, &id_collection.into())
             .await
     }
 
@@ -94,32 +72,29 @@ impl EventsService {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Event {
     pub id: Option<Uuid>,
-    #[serde(rename = "externalId")]
     pub external_id: String,
     pub metadata: Option<HashMap<String, String>>,
     pub description: Option<String>,
-    #[serde(rename = "type")]
     pub r#type: Option<String>,
-    #[serde(rename = "subType")]
     pub sub_type: Option<String>,
     pub status: Option<String>,
-    #[serde(rename = "dataSetId")]
     pub data_set_id: Option<u64>,
     #[serde(skip_serializing)]
-    #[serde(rename = "createdTime")]
     pub created_time: Option<DateTime<Utc>>,
     #[serde(skip_serializing)]
-    #[serde(rename = "lastUpdatedTime")]
     pub last_updated_time: Option<DateTime<Utc>>,
-    #[serde(rename = "relatedResourceIds")]
     pub related_resource_ids: Vec<u64>,
-    #[serde(rename = "relatedResourceExternalIds")]
     pub related_resource_external_ids: Vec<String>,
     pub source: Option<String>,
-    #[serde(rename = "eventTime")]
     pub event_time: Option<DateTime<Utc>>,
+}
+impl DataHubEntity for Event {
+    fn ext_id(&self) -> &String {
+        &self.external_id
+    }
 }
 
 impl Event {
