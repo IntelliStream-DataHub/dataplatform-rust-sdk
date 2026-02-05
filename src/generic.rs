@@ -15,6 +15,8 @@ use crate::unit::{UnitsService};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdAndExtId {
+    // todo Implement this as an enum, would allow for better validation
+    // and make it impossible to not provide any id
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -29,6 +31,11 @@ impl IdAndExtId {
 
     pub fn from_external_id(external_id: &str) -> Self {
         IdAndExtId { id: None, external_id: Some(external_id.to_string())}
+    }
+}
+impl From<&Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
+    fn from(value: &Vec<IdAndExtId>) -> Self {
+        DataWrapper{items:value.clone(),http_status_code:None,error_body:None}
     }
 }
 
@@ -194,12 +201,11 @@ impl<T> DatapointsCollection<T> {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone,Eq,PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct RelationForm {
     pub(crate) id: Option<u64>,
-    #[serde(rename = "externalId")]
     pub(crate) external_id: Option<String>,
-    #[serde(rename = "relationshipType")]
     pub(crate) relationship_type: String,
 }
 
@@ -215,11 +221,28 @@ impl RelationForm {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SearchAndFilterForm {
-    pub(crate) filter: Option<u64>,
+    pub(crate) filter: Option<FilterForm>, // todo!() not implemented yet in java app
     pub(crate) search: Option<SearchForm>,
     pub(crate) limit: Option<u64>,
 }
-
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FilterForm {
+    // not implemented yet on java app
+    pub(crate) name: Option<String>,
+    pub(crate) parent_id: Option<u64>,
+    pub(crate) parent_external_id: Option<String>,
+    pub(crate) asset_subtree_ids: Option<IdAndExtId>,
+    pub(crate) data_set_id: Option<u64>,
+    pub(crate) metadata: Option<HashMap<String, String>>,
+    pub(crate) source: Option<String>,
+    pub(crate) created_time: Option<DateTime<Utc>>,
+    pub(crate) last_updated: Option<DateTime<Utc>>,
+    pub(crate) root: bool,
+    pub(crate) external_id_prefix: Option<String>,
+    pub(crate) labels: Option<Vec<String>>,
+    pub(crate) geo_location: Option<HashMap<String, f64>>,
+}
 impl SearchAndFilterForm {
     pub fn new() -> Self {
         SearchAndFilterForm{filter: None, search: None, limit: None}
@@ -409,6 +432,23 @@ impl RetrieveFilter {
     }
 }
 
+impl From<IdAndExtId> for DataWrapper<IdAndExtId> {
+    fn from(value: IdAndExtId) -> Self {
+        DataWrapper{items:vec![value],http_status_code:None,error_body:None}
+    }
+}
+impl From<&IdAndExtId> for DataWrapper<IdAndExtId> {
+    fn from(value: &IdAndExtId) -> Self {
+        DataWrapper{items:vec![value.clone()],http_status_code:None,error_body:None}
+    }
+}
+impl From<Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
+    fn from(value: Vec<IdAndExtId>) -> Self {
+        DataWrapper{items:value,http_status_code:None,error_body:None}
+    }
+}
+
+
 pub trait Identifiable {
     fn id(&self) -> u64;
     fn external_id(&self) -> &str;
@@ -500,21 +540,23 @@ pub trait ApiServiceProvider {
         self.api_service().upgrade().unwrap()
     }
 
-    async fn execute_get_request<T: DeserializeOwned + DataWrapperDeserialization, Param:Serialize+ ?Sized>(
-        &self,
-        path: &str,
-        param: Option<&Param>
-    ) -> Result<T, ResponseError> {
-        let token = self.get_api_service()
+    async fn get_token(&self) -> Result<String,ResponseError>{
+        self.get_api_service()
             .config.get_api_token()
             .await
             .map_err(
                 |e|
                     ResponseError{
-                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
-                    }
-            )?;
-        
+                        status: http::StatusCode::UNAUTHORIZED, message: "failed to get api token: ".to_string() + &e.to_string()
+                    })
+    }
+
+    async fn execute_get_request<T: DeserializeOwned + DataWrapperDeserialization, Param:Serialize+ ?Sized>(
+        &self,
+        path: &str,
+        param: Option<&Param>
+    ) -> Result<T, ResponseError> {
+        let token = self.get_token().await?;
         let response = if let Some(param) = param {self.get_api_service().http_client
             .get(path)
             .bearer_auth(token)
@@ -537,20 +579,13 @@ pub trait ApiServiceProvider {
         process_response::<T>(response, path).await
     }
 
+
     async fn execute_post_request<T: DeserializeOwned + DataWrapperDeserialization, J: Serialize>(
         &self,
         path: &str,
         json: &J,
     ) -> Result<T, ResponseError> {
-        let token = self.get_api_service()
-            .config.get_api_token()
-            .await
-            .map_err(
-                |e|
-                    ResponseError{
-                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
-                    }
-            )?;
+        let token = self.get_token().await?;
         let response = self.get_api_service().http_client
             .post(path)
             .json(json)
@@ -581,15 +616,7 @@ pub trait ApiServiceProvider {
         path: &str,
         multipart_form: Form,
     ) -> Result<T, ResponseError> {
-        let token = self.get_api_service()
-            .config.get_api_token()
-            .await
-            .map_err(
-                |e|
-                    ResponseError{
-                        status: http::StatusCode::BAD_REQUEST, message: "failed to get api token: ".to_string() + &e.to_string()
-                    }
-            )?;
+        let token = self.get_token().await?;
 
         let response = self.get_api_service().http_client
             .put(path)

@@ -3,6 +3,7 @@ use reqwest::{Error, Response};
 use serde::de::DeserializeOwned;
 use crate::generic::{DataWrapperDeserialization};
 
+#[derive(Debug)]
 pub struct ResponseError {
     pub(crate) status: StatusCode,
     pub(crate) message: String,

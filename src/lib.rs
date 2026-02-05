@@ -3,12 +3,11 @@ use reqwest::{ClientBuilder};
 use reqwest::Client;
 use dotenv::dotenv;
 
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-use serde_json::Value::String;
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE};
 use crate::datahub::DataHubApi;
 use crate::events::EventsService;
 use crate::files::FileService;
-use crate::generic::{IdAndExtIdCollection};
+use crate::resources::ResourceService;
 use crate::timeseries::{TimeSeriesService};
 use crate::unit::{UnitsService};
 
@@ -23,18 +22,22 @@ mod files;
 mod filters;
 mod serde_helper;
 mod errors;
+mod resources;
+mod graph_data_wrapper;
+#[cfg(test)]
 mod tests;
 
-struct ApiService{
+pub struct ApiService{
     config: Box<DataHubApi>,
     pub time_series: TimeSeriesService,
     pub units: UnitsService,
     pub events: EventsService,
+    pub resources: ResourceService,
     pub files: FileService,
     http_client: Client,
 }
 
-fn create_api_service() -> Rc<ApiService> {
+pub fn create_api_service() -> Rc<ApiService> {
     dotenv().ok(); // Reads the .env file
     let dataplatform_api:DataHubApi /* Type */ = DataHubApi::create_default();
     let mut headers = HeaderMap::new();
@@ -56,6 +59,7 @@ fn create_api_service() -> Rc<ApiService> {
             time_series: TimeSeriesService::new(Weak::clone(weak_self), &base_url_clone), // Initialize any other services here
             units: UnitsService::new ( Weak::clone(weak_self), &base_url_clone ), // Pass the Weak reference
             events: EventsService::new ( Weak::clone(weak_self), &base_url_clone ),
+            resources: ResourceService::new (Weak::clone(weak_self), base_url_clone.clone() ),
             files: FileService::new ( Weak::clone(weak_self), &base_url_clone ),
             http_client,
         }
