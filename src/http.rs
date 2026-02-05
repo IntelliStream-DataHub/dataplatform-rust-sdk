@@ -1,9 +1,11 @@
+use std::fmt;
 use oauth2::http::StatusCode;
 use reqwest::{Error, Response};
 use serde::de::DeserializeOwned;
+use thiserror::Error;
 use crate::generic::{DataWrapperDeserialization};
 
-#[derive(Debug)]
+#[derive(Debug,Error)]
 pub struct ResponseError {
     pub(crate) status: StatusCode,
     pub(crate) message: String,
@@ -30,6 +32,11 @@ impl ResponseError {
         self.status
     }
 }
+impl fmt::Display for ResponseError {
+    fn fmt(&self,f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,"{}: {}",self.status,self.message)
+    }
+}
 
 pub async fn process_response<T>(response: Response, path: &str) -> Result<T, ResponseError>
 where
@@ -39,7 +46,7 @@ where
     if (200..300).contains(&status.as_u16()) {
         // Read the response body and attempt to deserialize
         let body = response.text().await.map_err(|err| {
-            eprintln!("Failed to read response body: {}", err);
+            eprintln!("Failed to read response body: {err}", );
             ResponseError {status, message: err.to_string()}
         })?;
 
@@ -49,7 +56,7 @@ where
 
         // Conditionally apply custom or default logic
         let result: T = T::deserialize_and_set_status(&body, status.as_u16()).map_err(|err| {
-            eprintln!("Failed to deserialize JSON: {}", err);
+            eprintln!("Failed to deserialize JSON: {err}", );
             ResponseError {
                 status,
                 message: err.to_string(),
@@ -60,7 +67,7 @@ where
 
     } else {
         let status = response.status();
-        eprintln!("Request failed with status: {}", status);
+        eprintln!("Request failed with status: {status}", );
         Err(ResponseError{
             status,
             message: response.text().await.unwrap_or_else(|_|
