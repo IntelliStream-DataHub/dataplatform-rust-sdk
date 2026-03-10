@@ -275,11 +275,7 @@ pub struct TimeSeries {
     #[serde(rename = "lastUpdatedTime")]
     pub last_updated_time: Option<DateTime<Utc>>,
     #[serde(rename = "relationsFrom")]
-    pub relations_from: Vec<RelationForm>,
-    #[serde(rename = "isString", default)]
-    pub is_string: bool,
-    #[serde(rename = "isStep", default)]
-    pub is_step: bool
+    pub relations_from: Vec<RelationForm>
 }
 
 impl TimeSeries {
@@ -299,8 +295,7 @@ impl TimeSeries {
             created_time: None,
             last_updated_time: None,
             relations_from: vec![],
-            is_string: false,
-            is_step: false,
+
         }
     }
 
@@ -367,17 +362,6 @@ impl TimeSeries {
         self.relations_from = relations_from;
         self
     }
-
-    pub fn set_is_string(&mut self, is_string: bool) -> &mut TimeSeries {
-        self.is_string = is_string;
-        self
-    }
-
-    pub fn set_is_step(&mut self, is_step: bool) -> &mut TimeSeries {
-        self.is_step = is_step;
-        self
-    }
-
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

@@ -28,6 +28,8 @@ mod graph_data_wrapper;
 mod subscriptions;
 #[cfg(test)]
 mod tests;
+mod datasets;
+
 pub use resources::Resource;
 pub use events::Event;
 pub use subscriptions::{
@@ -36,6 +38,7 @@ pub use subscriptions::{
     SubscriptionRetriever, WsDatapoint,
 };
 pub use timeseries::TimeSeries;
+use crate::datasets::DatasetsService;
 //pub use filters::Filter;
 
 pub struct ApiService{
@@ -44,6 +47,7 @@ pub struct ApiService{
     pub units: UnitsService,
     pub events: EventsService,
     pub resources: ResourceService,
+    pub datasets: DatasetsService,
     pub files: FileService,
     pub subscriptions: SubscriptionsService,
     http_client: Client,
@@ -72,6 +76,7 @@ pub fn create_api_service() -> Rc<ApiService> {
             units: UnitsService::new ( Weak::clone(weak_self), &base_url_clone ), // Pass the Weak reference
             events: EventsService::new ( Weak::clone(weak_self), &base_url_clone ),
             resources: ResourceService::new (Weak::clone(weak_self), base_url_clone.clone() ),
+            datasets: DatasetsService::new ( Weak::clone(weak_self), &base_url_clone ),
             files: FileService::new ( Weak::clone(weak_self), &base_url_clone ),
             subscriptions: SubscriptionsService::new ( Weak::clone(weak_self), &base_url_clone ),
             http_client,

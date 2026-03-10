@@ -7,6 +7,7 @@ use futures::StreamExt;
 use maplit::hashmap;
 use std::collections::HashMap;
 use tokio::task::id;
+use crate::datasets::Dataset;
 
 async fn delete_events(api_service: &ApiService, events: Vec<IdAndExtId>) {
     let delete_result = api_service.events.delete(&events).await;
@@ -23,7 +24,6 @@ async fn delete_events(api_service: &ApiService, events: Vec<IdAndExtId>) {
 }
 
 fn create_test_events() -> Vec<Event> {
-    let api_service = create_api_service();
 
     let unique_id: u64 = 7110;
     let total_events = 89;
@@ -48,6 +48,7 @@ fn create_test_events() -> Vec<Event> {
                 ((i as f64 * 0.5).sin().abs() * 10.0).to_string(),
             ),
         ]));
+        new_event.set_data_set_id(1);
         new_event.event_time = Option::from(event_time);
         new_event.r#type = Option::from("pump".to_string());
         if i % 3 == 0 {
@@ -104,6 +105,7 @@ fn create_test_events() -> Vec<Event> {
 async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     fn equal_external_ids(lhs: &Vec<Event>, rhs: &Vec<Event>, expect_empty: bool) -> bool {
         if lhs.is_empty() || rhs.is_empty() {
+            println!("{:?} {:?}", lhs.len(), rhs.len());
             return expect_empty;
         }
         println!("{:?} {:?}", lhs.len(), rhs.len());
@@ -121,16 +123,28 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     let max_time = DateTime::parse_from_rfc3339("2025-09-06T06:08:00Z")
         .unwrap()
         .to_utc();
-    let time_delta =
-        Duration::minutes(((5 * 24) + 24) as i64) + Duration::seconds((5 * 3 * 11) as i64);
+    let time_delta = Duration::minutes(((5 * 24) + 24) as i64)
+        + Duration::seconds((5 * 3 * 11) as i64);
     let min_time = Utc.with_ymd_and_hms(2025, 9, 5, 16, 22, 0).unwrap();
     let time_range = (min_time, min_time + time_delta);
-    println!("{}", api_service.config.get_api_token().await?);
+
     let ids = test_events
         .iter()
         .map(|e| IdAndExtId::from_external_id(&e.external_id))
         .collect::<Vec<IdAndExtId>>();
-
+    let dt = Dataset{
+        id: Some(1),
+        external_id: "Test_dataset".to_string(),
+        name: "Test_dataset".to_string(),
+        description: None,
+        policies: None,
+        metadata: Default::default(),
+        active: false,
+        connected_data_sets: vec![],
+        created_time: None,
+        last_updated_time: None,
+    };
+    //api_service.datasets.create(&dt).await?;
     api_service.events.delete(&ids).await?;
 
     api_service.events.create(&test_events).await?;
@@ -180,7 +194,10 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
         false
     ));
 
-    let filtermap = hashmap!("bytes".to_string()=>"24770963".to_string());
+    let filtermap = hashmap!(
+        "bytes".to_string()=>"24770963".to_string(),
+        //"bytes2".to_string()=>(3 * 3482 + 15).to_string()
+    );
     let metadata_filter = BasicEventFilter::new().set_metadata(&filtermap).build();
     let res_filter_metadata = api_service
         .events

@@ -59,7 +59,7 @@ impl DatapointString {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Datapoint {
     // Read from "isoTime" when deserializing, but emit "timestamp" on serialization
-    #[serde(rename(serialize = "timestamp", deserialize = "isoTime"))]
+    #[serde(rename(serialize = "timestamp", deserialize = "timestamp"))]
     pub(crate) timestamp: DateTime<Utc>,
     #[serde(default)]
     pub(crate) value: Option<f64>,
@@ -137,9 +137,9 @@ pub struct DatapointsCollection<T> {
     pub unit: Option<String>,
     #[serde(rename = "unitExternalId")]
     pub unit_external_id: Option<String>,
-    #[serde(rename = "isStep")]
+    #[serde(rename = "isStep", default)]
     pub is_step: bool,
-    #[serde(rename = "isString")]
+    #[serde(rename = "isString",default)]
     pub is_string: bool,
 }
 
