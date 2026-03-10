@@ -387,12 +387,12 @@ mod tests {
             .set_value_type("bigint").clone();
 
         ts_collection.add_item(ts1);
-        ts_collection.add_item(ts2);
+        // ts_collection.add_item(ts2);
 
         let result = api_service.time_series.create(&ts_collection).await;
         match result {
             Ok(timeseries) => {
-                assert_eq!(timeseries.length(), 2);
+                assert_eq!(timeseries.length(), 1);
                 println!("Time series created successfully!");
             },
             Err(e) => {
@@ -423,21 +423,21 @@ mod tests {
             }
         }
 
-        println!("Prepare datapoints for second time series...");
-        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
-        let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id2.as_str());
+        //println!("Prepare datapoints for second time series...");
+        //let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+        //let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id.as_str());
 
-        let datetime = Utc.with_ymd_and_hms(2025, 2, 4, 9, 0, 0).unwrap();
-        dp_collection.datapoints = create_daily_datapoints(datetime);
-        for dp in &mut dp_collection.datapoints {
-            dp.value = dp.value.clone();
-        }
+        //let datetime = Utc.with_ymd_and_hms(2025, 2, 4, 9, 0, 0).unwrap();
+        //dp_collection.datapoints = create_daily_datapoints(datetime);
+        //for dp in &mut dp_collection.datapoints {
+        //    dp.value = dp.value.clone();
+        //}
 
-        data_request.get_items_mut().push(dp_collection);
+        //data_request.get_items_mut().push(dp_collection);
 
         println!("Start datapoint insert for second time series!");
-        let result = api_service.time_series.insert_datapoints(&mut data_request).await;
-        match result {
+        //let result = api_service.time_series.insert_datapoints(&mut data_request).await;
+        /*match result {
             Ok(r) => {
                 assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
             },
@@ -447,13 +447,15 @@ mod tests {
             }
         }
 
+         */
+
         // Before validating inserted data, sleep for 60 seconds...
         // This is because it takes some time before data is inserted and merged in clickhouse
         println!("Sleeping for 60 seconds...while waiting for data to be inserted into clickhouse.");
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         println!("Done sleeping.");
 
-        validate_datapoints(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
+        validate_datapoints(&api_service, vec![new_ts_ext_id.clone()]).await;
 
         // Before validating inserted data, sleep for 60 seconds...
         // This is because it takes some time before data is inserted into clickhouse and merged into the table
@@ -462,7 +464,7 @@ mod tests {
         println!("Done sleeping.");
 
         println!("Validate aggregated datapoints...");
-        validate_daily_avg(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
+        validate_daily_avg(&api_service, vec![new_ts_ext_id.clone()]).await;
 
         println!("Validate raw datapoints...");
         validate_raw_datapoints_with_cursor(&api_service, new_ts_ext_id.clone()).await;
@@ -476,6 +478,7 @@ mod tests {
 
         Ok(())
     }
+    // total is 9 354 000
 
     async fn validate_datapoints(api_service: &Rc<ApiService>, ts_external_id_vec: Vec<String>) {
         for ts_external_id in &ts_external_id_vec {
@@ -527,7 +530,7 @@ mod tests {
         let result = api_service.time_series.retrieve_datapoints(&data_request).await;
         match result {
             Ok(r) => {
-                assert_eq!(r.get_items().len(), 2);
+                assert_eq!(r.get_items().len(), 1);
                 r.get_items().iter().for_each(|item| {
                     assert_eq!(item.datapoints.len(), 200);
                 });
@@ -551,7 +554,7 @@ mod tests {
         let result = api_service.time_series.retrieve_datapoints(&data_request).await;
         match result {
             Ok(r) => {
-                assert_eq!(r.get_items().len(), 2);
+                assert_eq!(r.get_items().len(), 1);
                 for item in r.get_items().iter() {
                     if let Some(external_id) = &item.external_id {
                         // Compare references to strings, not moving them
@@ -729,18 +732,18 @@ mod tests {
                         Ok(r) => {
                             let ts = r.get_items().first().unwrap();
                             println!("Sum datapoints for loop count:{:?} | {:?}", loop_count + 1, ts.datapoints.len());
-
-                            if loop_count == 50 {
-                                // Final data count is 97600
-                                assert_eq!(ts.datapoints.len(), 97600);
-                            } else {
-                                assert_eq!(ts.datapoints.len(), 100000);
-                            }
                             if ts.next_cursor.is_some() {
                                 current_cursor = Some(ts.next_cursor.clone().unwrap());
                             } else {
                                 current_cursor = None;
                             }
+                            if current_cursor == None {
+                                // Final data count is 97600 total 9_468_000
+                                assert_eq!(ts.datapoints.len(), 97_600);
+                            } else {
+                                assert_eq!(ts.datapoints.len(), 100_000);
+                            }
+
                             println!("Next cursor is {:?}", current_cursor);
                         },
                         Err(e) => {

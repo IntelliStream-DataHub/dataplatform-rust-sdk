@@ -5,18 +5,31 @@ use std::collections::HashMap;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BasicEventFilter {
+    #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     external_id_prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     r#type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     sub_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     data_set_ids: Option<Vec<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     event_time: Option<TimeFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     related_resource_ids: Option<Vec<u64>>,
-    related_resource_external_ids: Option<Vec<String>>, //todo implement IdCollection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    related_resource_external_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]//todo implement IdCollection
     created_time: Option<TimeFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     last_updated_time: Option<TimeFilter>,
 }
 
