@@ -2,55 +2,70 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct BasicEventFilter {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    external_id_prefix: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    r#type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sub_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data_set_ids: Option<Vec<u64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    event_time: Option<TimeFilter>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    metadata: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    related_resource_ids: Option<Vec<u64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    related_resource_external_ids: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]//todo implement IdCollection
-    created_time: Option<TimeFilter>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    last_updated_time: Option<TimeFilter>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id_prefix: Option<String>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub sub_type: Option<String>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub data_set_ids: Option<Vec<u64>>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub event_time: Option<TimeFilter>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<HashMap<String, String>>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub related_resource_ids: Option<Vec<u64>>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub related_resource_external_ids: Option<Vec<String>>,
+    //#[serde(skip_serializing_if = "Option::is_none")]//todo implement IdCollection
+    pub created_time: Option<TimeFilter>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub last_updated_time: Option<TimeFilter>,
 }
 
 impl BasicEventFilter {
-    pub fn new() -> Self {
+    pub fn new(
+        id: Option<u64>,
+        external_id_prefix: Option<String>,
+        description: Option<String>,
+        source: Option<String>,
+        r#type: Option<String>,
+        sub_type: Option<String>,
+        data_set_ids: Option<Vec<u64>>,
+        event_time: Option<TimeFilter>,
+        metadata: Option<HashMap<String, String>>,
+        related_resource_ids: Option<Vec<u64>>,
+        related_resource_external_ids: Option<Vec<String>>,
+        created_time: Option<TimeFilter>,
+        last_updated_time: Option<TimeFilter>,
+    ) -> Self {
         Self {
-            id: None,
-            external_id_prefix: None,
-            description: None,
-            source: None,
-            r#type: None,
-            sub_type: None,
-            data_set_ids: None,
-            event_time: None,
-            metadata: None,
-            related_resource_ids: None,
-            related_resource_external_ids: None,
-            created_time: None,
-            last_updated_time: None,
+            id,
+            external_id_prefix,
+            description,
+            source,
+            r#type,
+            sub_type,
+            data_set_ids,
+            event_time,
+            metadata,
+            related_resource_ids,
+            related_resource_external_ids,
+            created_time,
+            last_updated_time,
         }
     }
+
     pub fn set_id(&mut self, id: &u64) -> &mut Self {
         self.id = Some(*id);
         self
@@ -143,8 +158,8 @@ impl EventFilter {
             advanced_filter: None,
         }
     }
-    pub fn set_filter(&mut self, filter: &BasicEventFilter) -> &mut Self {
-        self.filter = Some(filter.clone());
+    pub fn set_filter(&mut self, filter: BasicEventFilter) -> &mut Self {
+        self.filter = Some(filter);
         self
     }
     pub fn set_limit(&mut self, limit: u64) -> &mut Self {

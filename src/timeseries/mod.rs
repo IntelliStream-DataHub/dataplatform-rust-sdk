@@ -3,7 +3,7 @@ mod test;
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
-use std::rc::{Weak};
+use std::sync::{Weak};
 use chrono::{DateTime, Utc};
 use futures::{future::join_all, FutureExt};
 use crate::ApiService;
@@ -26,19 +26,7 @@ impl TimeSeriesService {
 
     pub async fn list(&self)
                       -> Result<DataWrapper<TimeSeries>, ResponseError> {
-
-        // Create and send an HTTP GET request
-        let response = self.get_api_service().http_client
-            .get(&self.base_url) // Correctly access `base_url`
-            .send()
-            .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
-
-        // Process the HTTP response and deserialize it as `DataWrapper<TimeSeries>`
-        process_response::<DataWrapper<TimeSeries>>(response, &self.base_url).await
+        self.execute_get_request(&self.base_url,None::<&str>).await
     }
 
     pub async fn list_with_limit(&self, query: Option<&LimitParam>)
@@ -298,6 +286,23 @@ impl TimeSeries {
 
         }
     }
+    pub fn from_dict(dict: HashMap<String, String>) -> Self {
+        Self{
+            id: dict.get("id").unwrap().parse::<u64>().unwrap(),
+            external_id: dict.get("externalId").unwrap().to_string(),
+            name: dict.get("name").unwrap().to_string(),
+            metadata: dict.get("metadata").map(|v| serde_json::from_str(v).unwrap()),
+            unit: dict.get("unit").map(|v| v.to_string()),
+            description: dict.get("description").map(|v| v.to_string()),
+            unit_external_id: dict.get("unitExternalId").map(|v| v.to_string()),
+            security_categories: dict.get("securityCategories").map(|v| serde_json::from_str(v).unwrap()),
+            data_set_id: dict.get("dataSetId").map(|v| v.parse::<u64>().unwrap()),
+            value_type: dict.get("valueType").unwrap().to_string(),
+            created_time:None,
+            last_updated_time:None,
+            relations_from: vec![],
+        }
+    }
 
     pub fn builder() -> TimeSeries {
         TimeSeries::new("", "")
@@ -436,10 +441,6 @@ pub struct TimeSeriesUpdate {
     pub update: TimeSeriesUpdateFields
 }
 
-impl TimeSeriesUpdate {
-
-}
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TimeSeriesUpdateCollection {
     items: Vec<TimeSeriesUpdate>
@@ -452,7 +453,12 @@ impl TimeSeriesUpdateCollection {
             items: vec![]
         }
     }
-
+    #[must_use]
+    pub fn from_vec(items: Vec<TimeSeriesUpdate>) -> Self {
+        TimeSeriesUpdateCollection {
+            items
+        }
+    }
     pub fn get_items(&self) -> Vec<TimeSeriesUpdate> {
         self.items.clone()
     }

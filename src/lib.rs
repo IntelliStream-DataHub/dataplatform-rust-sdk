@@ -1,4 +1,4 @@
-use std::rc::{Rc, Weak};
+use std::sync::{Arc, Weak};
 use reqwest::{ClientBuilder};
 use reqwest::Client;
 use dotenv::dotenv;
@@ -6,32 +6,32 @@ use dotenv::dotenv;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE};
 use crate::datahub::DataHubApi;
 pub use crate::events::EventsService;
-pub use crate::files::FileService;
+pub use crate::files::{FileService, FileUpload};
 pub use crate::resources::ResourceService;
 pub use crate::timeseries::{TimeSeriesService};
-pub use crate::unit::{UnitsService};
+pub use unit::{UnitsService, Unit};
 
-mod unit;
-mod generic;
-mod timeseries;
-mod datahub;
-mod fields;
-mod events;
-mod http;
-mod files;
+pub mod unit;
+pub mod generic;
+pub mod timeseries;
+pub mod datahub;
+pub mod fields;
+pub mod events;
+pub mod http;
+pub mod files;
 pub mod filters;
-mod serde_helper;
-mod errors;
-mod resources;
-mod graph_data_wrapper;
+pub mod serde_helper;
+pub mod errors;
+pub mod resources;
+pub mod graph_data_wrapper;
 #[cfg(test)]
-mod tests;
-mod datasets;
+pub mod tests;
+pub mod datasets;
 
-pub use resources::Resource;
-pub use events::Event;
-pub use timeseries::TimeSeries;
-use crate::datasets::DatasetsService;
+pub use resources::*;
+pub use events::*;
+pub use timeseries::*;
+use crate::datasets::*;
 //pub use filters::Filter;
 
 pub struct ApiService{
@@ -42,17 +42,14 @@ pub struct ApiService{
     pub resources: ResourceService,
     pub datasets: DatasetsService,
     pub files: FileService,
-    http_client: Client,
+    pub(crate) http_client: Client,
 }
 
-pub fn create_api_service() -> Rc<ApiService> {
+pub fn create_api_service() -> Arc<ApiService> {
     dotenv().ok(); // Reads the .env file
-    let dataplatform_api:DataHubApi /* Type */ = DataHubApi::create_default();
+    let dataplatform_api: DataHubApi /* Type */ = DataHubApi::create_default();
     let mut headers = HeaderMap::new();
-    //if let Some(token) = dataplatform_api.get_api_token().await{
-    //    let auth_header = format!("Bearer {token}");
-    //headers.insert(AUTHORIZATION, HeaderValue::from_str(auth_header.as_str()).unwrap());
-    //};
+
     headers.insert(CONTENT_TYPE, HeaderValue::from_str("application/json").unwrap());
     headers.insert(ACCEPT, HeaderValue::from_str("application/json").unwrap());
 
@@ -61,13 +58,13 @@ pub fn create_api_service() -> Rc<ApiService> {
     // Clone the base_url before moving boxed_config into ApiService
     let base_url_clone = boxed_config.base_url.clone();
 
-    let api_service = Rc::new_cyclic(|weak_self| {
+    let api_service = Arc::new_cyclic(|weak_self| {
         ApiService {
             config: boxed_config,
             time_series: TimeSeriesService::new(Weak::clone(weak_self), &base_url_clone), // Initialize any other services here
             units: UnitsService::new ( Weak::clone(weak_self), &base_url_clone ), // Pass the Weak reference
             events: EventsService::new ( Weak::clone(weak_self), &base_url_clone ),
-            resources: ResourceService::new (Weak::clone(weak_self), base_url_clone.clone() ),
+            resources: ResourceService::new (Weak::clone(weak_self), &base_url_clone ),
             datasets: DatasetsService::new ( Weak::clone(weak_self), &base_url_clone ),
             files: FileService::new ( Weak::clone(weak_self), &base_url_clone ),
             http_client,
@@ -77,4 +74,59 @@ pub fn create_api_service() -> Rc<ApiService> {
     api_service
 
 }
+impl ApiService {
+    pub fn new(config: DataHubApi) -> Arc<ApiService> {
+        let mut headers = HeaderMap::new();
 
+        headers.insert(CONTENT_TYPE, HeaderValue::from_str("application/json").unwrap());
+        headers.insert(ACCEPT, HeaderValue::from_str("application/json").unwrap());
+
+        let http_client = ClientBuilder::new().default_headers(headers).build().unwrap();
+        let boxed_config = Box::new(config);
+        // Clone the base_url before moving boxed_config into ApiService
+        let base_url_clone = boxed_config.base_url.clone();
+
+        let api_service = Arc::new_cyclic(|weak_self| {
+            ApiService {
+                config: boxed_config,
+                time_series: TimeSeriesService::new(Weak::clone(weak_self), &base_url_clone), // Initialize any other services here
+                units: UnitsService::new ( Weak::clone(weak_self), &base_url_clone ), // Pass the Weak reference
+                events: EventsService::new ( Weak::clone(weak_self), &base_url_clone ),
+                resources: ResourceService::new (Weak::clone(weak_self), &base_url_clone ),
+                datasets: DatasetsService::new ( Weak::clone(weak_self), &base_url_clone ),
+                files: FileService::new ( Weak::clone(weak_self), &base_url_clone ),
+                http_client,
+            }
+        });
+
+        api_service
+    }
+    pub fn api_service_from_env() -> Arc<ApiService> {
+        let dataplatform_api: DataHubApi /* Type */ = DataHubApi::from_env().unwrap();
+        let mut headers = HeaderMap::new();
+
+        headers.insert(CONTENT_TYPE, HeaderValue::from_str("application/json").unwrap());
+        headers.insert(ACCEPT, HeaderValue::from_str("application/json").unwrap());
+
+        let http_client = ClientBuilder::new().default_headers(headers).build().unwrap();
+        let boxed_config = Box::new(dataplatform_api.clone());
+        // Clone the base_url before moving boxed_config into ApiService
+        let base_url_clone = boxed_config.base_url.clone();
+
+        let api_service = Arc::new_cyclic(|weak_self| {
+            ApiService {
+                config: boxed_config,
+                time_series: TimeSeriesService::new(Weak::clone(weak_self), &base_url_clone), // Initialize any other services here
+                units: UnitsService::new ( Weak::clone(weak_self), &base_url_clone ), // Pass the Weak reference
+                events: EventsService::new ( Weak::clone(weak_self), &base_url_clone ),
+                resources: ResourceService::new (Weak::clone(weak_self), &base_url_clone ),
+                datasets: DatasetsService::new ( Weak::clone(weak_self), &base_url_clone ),
+                files: FileService::new ( Weak::clone(weak_self), &base_url_clone ),
+                http_client,
+            }
+        });
+
+        api_service
+
+    }
+}

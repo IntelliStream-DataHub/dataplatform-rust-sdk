@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 use thiserror::Error;
 use crate::generic::{DataWrapperDeserialization};
 
-#[derive(Debug,Error)]
+#[derive(Debug,Error,Clone)]
 pub struct ResponseError {
     pub(crate) status: StatusCode,
     pub(crate) message: String,

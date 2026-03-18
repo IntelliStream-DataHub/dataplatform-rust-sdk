@@ -4,6 +4,7 @@ mod tests {
     use std::fs::File;
     use std::io::Read;
     use std::rc::Rc;
+    use std::sync::Arc;
     use chrono::{DateTime, Duration, TimeZone, Utc};
     use maplit::hashmap;
     use reqwest::StatusCode;
@@ -45,7 +46,21 @@ mod tests {
         }
         Ok(())
     }
-
+    #[tokio::test]
+    async fn test_list()-> Result<(), Box<dyn std::error::Error>> {
+        let api_service = create_api_service();
+        let result = api_service.time_series.list().await;
+        match result {
+            Ok(timeseries) => {
+               // assert!(timeseries.length() <= 5);
+                println!("Length of time series returned is {:?}", timeseries.length());
+            },
+            Err(e) => {
+                panic!("{:?}", e.get_message());
+            }
+        }
+        Ok(())
+    }
     #[tokio::test]
     async fn test_create_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>> {
         let unique_id: u64 = 1200;
@@ -480,7 +495,7 @@ mod tests {
     }
     // total is 9 354 000
 
-    async fn validate_datapoints(api_service: &Rc<ApiService>, ts_external_id_vec: Vec<String>) {
+    async fn validate_datapoints(api_service: &Arc<ApiService>, ts_external_id_vec: Vec<String>) {
         for ts_external_id in &ts_external_id_vec {
             let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
             let mut rf = RetrieveFilter::new();
@@ -575,7 +590,7 @@ mod tests {
         }
     }
 
-    async fn validate_deleted_datapoints(api_service: &Rc<ApiService>, ts_external_id: String) {
+    async fn validate_deleted_datapoints(api_service: &Arc<ApiService>, ts_external_id: String) {
         let delete_after_timestamp = Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap();
 
         let mut data_request: DataWrapper<DeleteFilter> = DataWrapper::new();
@@ -616,7 +631,7 @@ mod tests {
         }
     }
 
-    async fn validate_daily_avg(api_service: &Rc<ApiService>, ts_external_id_vec: Vec<String>) {
+    async fn validate_daily_avg(api_service: &Arc<ApiService>, ts_external_id_vec: Vec<String>) {
         for ts_external_id in &ts_external_id_vec {
             let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
             let mut rf = RetrieveFilter::new();
@@ -701,7 +716,7 @@ mod tests {
         Ok(())
     }*/
 
-    async fn validate_raw_datapoints_with_cursor(api_service: &Rc<ApiService>, external_id: String) {
+    async fn validate_raw_datapoints_with_cursor(api_service: &Arc<ApiService>, external_id: String) {
         println!("Validate raw datapoints with cursor...");
         let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
         let mut rf = RetrieveFilter::new();
