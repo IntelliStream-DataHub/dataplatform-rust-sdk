@@ -9,7 +9,7 @@ use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::rc::Weak;
+use std::sync::Weak;
 use uuid::Uuid;
 
 pub struct EventsService {

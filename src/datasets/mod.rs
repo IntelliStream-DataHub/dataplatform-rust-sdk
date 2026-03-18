@@ -7,7 +7,7 @@ use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
+use std::sync::{Arc, Weak};
 use maplit::hashmap;
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::fields::{Field, ListField, MapField};

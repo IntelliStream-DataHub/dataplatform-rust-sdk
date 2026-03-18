@@ -1,7 +1,8 @@
 use std::{default, env};
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 use chrono::{DateTime, Utc, Duration};
+use maplit::hashmap;
 use oauth2::{reqwest, RedirectUrl, AuthUrl, ClientId, ClientSecret, EndpointNotSet, EndpointSet, TokenResponse, TokenUrl, Scope, AccessToken, EmptyExtraTokenFields};
 use oauth2::basic::{BasicClient, BasicTokenResponse, BasicTokenType};
 use regex::Regex;
@@ -36,8 +37,8 @@ struct AuthState {
 }
 #[derive(Debug,Clone)]
 pub struct DataHubApi {
-    pub(crate) config: Rc<OAuthConfig>,
-    pub(crate) auth_state: Rc<RwLock<AuthState>>,
+    pub(crate) config: Arc<OAuthConfig>,
+    pub(crate) auth_state: Arc<RwLock<AuthState>>,
     pub(crate) base_url: String,
     pub(crate) oauth2_client: Option<oauth2::Client<
         oauth2::basic::BasicErrorResponse,
@@ -71,8 +72,60 @@ impl DataHubApi {
     pub  fn create_default() -> DataHubApi {
         //let token = env::var("TOKEN").expect("TOKEN environment variable not set");
         DataHubApi::from_env().unwrap()
-        
+
     }
+
+    pub fn from_vars(
+        base_url: String,
+        token: Option<String>,
+        auth_uri: Option<String>,
+        token_uri: Option<String>,
+        redirect_uri: Option<String>,
+        client_id: Option<String>,
+        client_secret: Option<String>,
+        project_name: Option<String>
+    ) -> DataHubApi {
+        let oauthconfig = OAuthConfig {
+            client_id,
+            client_secret,
+            auth_uri,
+            token_uri,
+            redirect_uri,
+            project_name
+        };
+
+        // Oauth client will only be configured if all required fields are present
+        // Environment passed Token will be used if no oauth config is present
+        let client = Self::setup_oauth(&oauthconfig);
+
+        // this handles environment passed token
+        let auth_state = if let Some(t) = token {
+            let token = BasicTokenResponse::new(
+                AccessToken::new(t.to_string()),
+                BasicTokenType::Bearer,
+                EmptyExtraTokenFields {});
+
+            Arc::new(
+                RwLock::new(
+                    AuthState {
+                        token: Some(token.clone()),
+                        expire_time: None // user passed token has no expire time. is_expired() returns true always
+                    }
+                )
+            )
+        } else { // if token is not passed, token and expire_time will be None
+            Arc::new(RwLock::new(AuthState::default()))
+        };
+        Self {
+            config: Arc::new(oauthconfig),
+            base_url,
+            oauth2_client: client,
+            http_client: reqwest::Client::new(),
+            auth_state
+        }
+    }
+
+
     pub(crate)  fn from_map(map: HashMap<String, String>) -> Result<Self, DataHubError> {
         let baseurl = map.get("BASE_URL")
             .ok_or_else(|| DataHubError::ConfigError(
@@ -94,7 +147,7 @@ impl DataHubApi {
                 BasicTokenType::Bearer,
                 EmptyExtraTokenFields{});
 
-            Rc::new(
+            Arc::new(
                 RwLock::new(
                     AuthState{
                         token:Some(token.clone()),
@@ -103,10 +156,10 @@ impl DataHubApi {
                 )
             )
         } else { // if token is not passed, token and expire_time will be None
-            Rc::new(RwLock::new(AuthState::default()))
+            Arc::new(RwLock::new(AuthState::default()))
         };
         Ok(Self {
-            config:Rc::new(oauthconfig),
+            config:Arc::new(oauthconfig),
             base_url: baseurl.to_string(),
             oauth2_client: client,
             http_client: reqwest::Client::new(),

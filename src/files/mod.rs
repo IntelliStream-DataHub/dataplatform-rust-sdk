@@ -3,7 +3,7 @@ mod test;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::rc::Weak;
+use std::sync::Weak;
 use chrono::{DateTime, Utc};
 use reqwest::{Body};
 use reqwest::multipart::{Form, Part};

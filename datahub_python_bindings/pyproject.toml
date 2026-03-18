@@ -1,0 +1,22 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+bindings = "pyo3"
+# This tells maturin that the python package is in the 'python' folder
+# python-source = "python"
+# The name of the compiled rust module (must match lib.name in Cargo.toml)
+module-name = "datahub_sdk"
+
+[project]
+name = "datahub-sdk"
+
+version = "0.1.0"
+description = "Python bindings for the DataHub Rust SDK"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Operating System :: OS Independent",
+]

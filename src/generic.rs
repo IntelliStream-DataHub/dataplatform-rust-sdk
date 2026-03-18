@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
+use std::sync::{Arc, Weak};
 use std::hash::Hasher;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
@@ -42,12 +42,12 @@ impl From<&Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatapointString {
-    pub(crate) timestamp: String,
-    pub(crate) value: String,
+    pub timestamp: String,
+    pub value: String,
 }
 
 impl DatapointString {
-    pub fn from(timestamp: &str, value: &str) -> Self {
+    pub fn new(timestamp: &str, value: &str) -> Self {
         DatapointString {timestamp: timestamp.to_string(), value: value.to_string()}
     }
 
@@ -55,6 +55,7 @@ impl DatapointString {
         DatapointString {timestamp: timestamp.timestamp_millis().to_string(), value: value.to_string()}
     }
 }
+
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Datapoint {
@@ -128,19 +129,15 @@ impl DatapointEpoch {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatapointsCollection<T> {
-    pub(crate) id: Option<u64>,
+    pub id: Option<u64>,
     #[serde(rename = "externalId")]
-    pub(crate) external_id: Option<String>,
+    pub external_id: Option<String>,
     pub datapoints: Vec<T>,
     #[serde(rename = "nextCursor")]
     pub next_cursor: Option<String>,
     pub unit: Option<String>,
     #[serde(rename = "unitExternalId")]
     pub unit_external_id: Option<String>,
-    #[serde(rename = "isStep", default)]
-    pub is_step: bool,
-    #[serde(rename = "isString",default)]
-    pub is_string: bool,
 }
 
 impl<T> DatapointsCollection<T> {
@@ -152,8 +149,6 @@ impl<T> DatapointsCollection<T> {
             next_cursor: None,
             unit: None,
             unit_external_id: None,
-            is_step: false,
-            is_string: false,
         }
     }
 
@@ -165,8 +160,6 @@ impl<T> DatapointsCollection<T> {
             next_cursor: None,
             unit: None,
             unit_external_id: None,
-            is_step: false,
-            is_string: false,
         }
     }
 
@@ -291,7 +284,9 @@ impl IdAndExtIdCollection {
         }
         IdAndExtIdCollection { items }
     }
-
+    pub fn from_id_and_ext_id_vec(items: Vec<IdAndExtId>) -> Self {
+        IdAndExtIdCollection { items }
+    }
     pub fn set_items(&mut self, items: Vec<IdAndExtId>) {
         self.items = items;
     }
@@ -303,13 +298,13 @@ impl IdAndExtIdCollection {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DeleteFilter {
-    pub(crate) id: Option<u64>,
+    pub id: Option<u64>,
     #[serde(rename = "externalId")]
-    pub(crate) external_id: Option<String>,
+    pub external_id: Option<String>,
     #[serde(rename = "inclusiveBegin")]
-    pub(crate) inclusive_begin: Option<DateTime<Utc>>,
+    pub inclusive_begin: Option<DateTime<Utc>>,
     #[serde(rename = "exclusiveEnd")]
-    pub(crate) exclusive_end: Option<DateTime<Utc>>,
+    pub exclusive_end: Option<DateTime<Utc>>,
 }
 
 impl DeleteFilter {
@@ -496,6 +491,16 @@ impl<T> DataWrapper<T> {
         }
     }
 
+    #[must_use]
+    pub fn from_vec(vec: Vec<T>) -> Self {
+        DataWrapper {
+            items: vec,
+            http_status_code: None,
+            error_body: None,
+        }
+    }
+
+    #[must_use]
     pub fn get_items(&self) -> &Vec<T> {
         &self.items
     }
@@ -513,10 +518,12 @@ impl<T> DataWrapper<T> {
         self.items.push(item);
     }
 
+    #[must_use]
     pub fn length(&self) -> u64 {
         self.items.len() as u64
     }
 
+    #[must_use]
     pub fn get_http_status_code(&self) -> Option<u16> {
         self.http_status_code
     }
@@ -560,7 +567,7 @@ impl<T: Identifiable> DataWrapper<T> {
 pub trait ApiServiceProvider {
     fn api_service(&self) -> &Weak<ApiService>;
 
-    fn get_api_service(&self) -> Rc<ApiService> {
+    fn get_api_service(&self) -> Arc<ApiService> {
         self.api_service().upgrade().unwrap()
     }
 

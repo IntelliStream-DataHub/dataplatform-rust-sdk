@@ -5,11 +5,11 @@ use crate::generic::{IdAndExtId, SearchForm};
 use maplit::hashmap;
 use uuid::Uuid;
 
-fn create_test_resources() -> Vec<ResourceForm> {
+fn create_test_resources() -> Vec<Resource> {
     // helper function to create test resources will
     let count = 2;
     let uuids = (0..count).map(|_| Uuid::new_v4()).collect::<Vec<Uuid>>();
-    let res1 = ResourceForm {
+    let res1 = Resource {
         // used to be a serde skip if zero here. don't understand why
         id: None,
         external_id: format!("Rust_SDK_Test_Resource_{:?}", uuids[0]),
@@ -23,16 +23,14 @@ fn create_test_resources() -> Vec<ResourceForm> {
         is_root: true,
         data_set_id: None,
         source: Some("Test_Rust_SDK".to_string()),
-        labels: Some(vec![
-            hashmap! {"name".to_string()=>"ASSET".to_string()},
-        ]),
+        labels: Some(vec!["ASSET".to_string()]),
         relations: None,
         geolocation: None,
         created_time: None,
         last_updated_time: None,
         relations_form: Some(vec![]),
     };
-    let res2 = ResourceForm {
+    let res2 = Resource {
         // used to be a serde skip if zero here. don't understand why
         id: None,
         external_id: format!("Rust_SDK_Test_Resource_{:?}", uuids[1]),
@@ -42,9 +40,7 @@ fn create_test_resources() -> Vec<ResourceForm> {
         is_root: false,
         data_set_id: None,
         source: Some("Test_Rust_SDK".to_string()),
-        labels: Some(vec![
-            hashmap! {"name".to_string()=>"ASSET".to_string()},
-        ]),
+        labels: Some(vec!["ASSET".to_string()]),
         relations: None,
         geolocation: None,
         created_time: None,
