@@ -1,13 +1,14 @@
 use std::sync::Arc;
+use chrono::{DateTime, FixedOffset};
 use pyo3::{pyclass, pymethods, Bound, PyAny, PyResult, Python};
 use pyo3::exceptions::PyException;
+use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use dataplatform_rust_sdk::{ApiService, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection};
-use dataplatform_rust_sdk::generic::{DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, IdAndExtIdCollection, RetrieveFilter, SearchAndFilterForm};
-use crate::{PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm};
-use crate::timeseries::{PyDatapointsCollectionDatapoints, PyDatapointsCollectionString, PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
-use crate::unit::PyUnit;
-
+use dataplatform_rust_sdk::generic::{DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, IdAndExtIdCollection, RetrieveFilter};
+use crate::{DatahubIdentity, Identifyable, PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm};
+use crate::timeseries::{ PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
+use crate::timeseries::datapoints::{PyDatapoint, PyDatapointsCollectionDatapoints, PyDatapointsCollectionString};
 #[pyclass]
 pub struct PyTimeSeriesServiceAsync {
     pub api_service: Arc<ApiService>,
@@ -64,11 +65,11 @@ impl PyTimeSeriesServiceAsync {
             Ok(py_units)
         })
     }
-    fn delete<'p>(&self, py: Python<'p>,input: Vec<PyIdCollection>) -> PyResult<Bound<'p, PyAny>> {
+    fn delete<'p>(&self, py: Python<'p>,input: Vec<Identifyable>) -> PyResult<Bound<'p, PyAny>> {
         let service = self.api_service.clone();
         let input_ids = input
             .iter()
-            .map(|u| u.inner.clone())
+            .map(DatahubIdentity::id_collection)
             .collect::<Vec<IdAndExtId>>();
         let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
 
@@ -107,7 +108,7 @@ impl PyTimeSeriesServiceAsync {
             Ok(py_ts)
         })
     }
-    
+
     fn insert_datapoints<'py>(&self, py: Python<'py>, input: Vec<PyDatapointsCollectionString> )-> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         let vec: Vec<DatapointsCollection<DatapointString>> = input.into_iter().map(|item| item.into()).collect();
@@ -120,6 +121,20 @@ impl PyTimeSeriesServiceAsync {
             Ok(result.get_items().clone())
         })
     }
+    fn insert_from_lists<'py>(&self, py: Python<'py>,timestamps: Vec<DateTime<FixedOffset>>,values: Vec<f64>, ts: Identifyable)-> PyResult<Bound<'py, PyAny>> {
+        let service = self.api_service.clone();
+        let datapoints: Vec<DatapointString> = timestamps.into_iter().zip(values.into_iter()).map(|(timestamp,value)| DatapointString{timestamp:timestamp.timestamp_millis().to_string(),value:value.to_string()}).collect();
+        let inner: DatapointsCollection<DatapointString> = DatapointsCollection{datapoints,next_cursor:None,id:ts.id_collection().id,external_id:ts.id_collection().external_id,unit:None,unit_external_id:None};
+        let mut wrapper = DataWrapper::<DatapointsCollection<DatapointString>>::from_vec(vec![inner]);
+        future_into_py(py, async move {
+            let result = service.time_series.insert_datapoints(&mut wrapper).await.map_err(|e| {
+                PyException::new_err(e.get_message())
+            })?;
+            let val = result.get_items().clone();
+            Ok(result.get_items().clone())
+        })
+    }
+
     fn retrieve_datapoints<'py>(&self,  py: Python<'py>, input: PyRetrieveFilter )-> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         let wrapper = DataWrapper::<RetrieveFilter>::from_vec(vec![input.into()]);
@@ -141,19 +156,44 @@ impl PyTimeSeriesServiceAsync {
             Ok(())
         })
     }
-    fn retrive_latest_datapoints<'py>(&self,  py: Python<'py>, input: Vec<PyIdCollection> )-> PyResult<Bound<'py, PyAny>> {
+    /// Retrieve latest datapoints for a collection of Timeseries
+    ///
+    /// Errors: type error if input is not a collection of Identifyable
+    /// Value error if input is empty
+    /// Value error if input does not contain a external id or a id
+    /// 
+    fn retrieve_latest_datapoints<'py>(&self, py: Python<'py>, input: Vec<Identifyable> ) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         let input_ids = input
             .iter()
-            .map(|u| u.inner.clone())
+            .map(|u| u.id_collection())
             .collect::<Vec<IdAndExtId>>();
         let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
         future_into_py(py, async move {
             let result = service.time_series.retrieve_latest_datapoint(&wrapper).await.map_err(|e| {
                 PyException::new_err(e.get_message())
             })?;
-            Ok(())
+            let res: Vec<PyDatapointsCollectionDatapoints> = result.get_items().iter().map(|ts| PyDatapointsCollectionDatapoints::from(ts.clone())).collect();
+            Ok(res)
         })
     }
+    /*
+    fn unpack_series(series: &PyAny) -> PyResult<(Vec<f64>, Vec<i64>)> {
+        // 1. Extract values as a NumPy array
+        let values_attr = series.getattr("values")?;
+        let val_array: &PyArray1<f64> = values_attr.downcast::<PyArray1<f64>>()?;
 
+        // 2. Extract index as a NumPy array (assuming integer index)
+        let index_attr = series.getattr("index")?.call_method0("to_numpy")?;
+        let idx_array: &PyArray1<i64> = index_attr.downcast::<PyArray1<i64>>()?;
+
+        // 3. Convert to Rust Vectors
+        // Note: .to_vec() copies the data. For large datasets,
+        // you might prefer working with the arrays directly.
+        let values_vec = val_array.to_vec()?;
+        let index_vec = idx_array.to_vec()?;
+
+        Ok((values_vec, index_vec))
+    }
+    */
 }

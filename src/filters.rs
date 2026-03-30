@@ -143,8 +143,8 @@ pub enum TimeFilter {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EventFilter {
-    pub(crate) filter: Option<BasicEventFilter>,
-    limit: Option<u64>,
+    pub filter: Option<BasicEventFilter>,
+    pub limit: u64,
     cursor: Option<String>,
     advanced_filter: Option<AdvancedEventFilter>,
 }
@@ -153,7 +153,7 @@ impl EventFilter {
     pub fn new() -> Self {
         Self {
             filter: None,
-            limit: None,
+            limit: 100,
             cursor: None, // todo implement cursor
             advanced_filter: None,
         }
@@ -162,9 +162,22 @@ impl EventFilter {
         self.filter = Some(filter);
         self
     }
+    pub fn filter(&self)-> Option<&BasicEventFilter> {
+        self.filter.as_ref()
+    }
+    pub fn cursor(&self) -> Option<&str> {
+        self.cursor.as_deref()
+    }
     pub fn set_limit(&mut self, limit: u64) -> &mut Self {
-        self.limit = Some(limit);
+        self.limit = limit;
         self
+    }
+    pub fn set_advanced_filter(&mut self, filter: AdvancedEventFilter) -> &mut Self {
+        self.advanced_filter = Some(filter);
+        self
+    }
+    pub fn build(&self) -> Self {
+        self.clone()
     }
 }
 

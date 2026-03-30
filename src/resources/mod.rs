@@ -100,8 +100,8 @@ impl ResourceService {
 pub struct Resource {
     // used to be a serde skip if zero here. don't understand why
     // todo implement a smooth way to convert "datahub entities" to id-collections
-    id: Option<u64>,
-    external_id: String,
+    pub id: Option<u64>,
+    pub external_id: String,
     pub name: String,
     pub metadata: Option<HashMap<String, String>>,
     pub description: Option<String>,

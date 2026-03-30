@@ -1,4 +1,4 @@
-from ._rust_interface import PyUnit
+"""from ._rust_interface import PyUnit
 class Unit:
     _unit: PyUnit
     def __init__(
@@ -27,4 +27,8 @@ class Unit:
             conversion= conversion,
             source= source,
             source_reference= source_reference,
-        )
+        )"""
+
+
+class Unit:
+    pass

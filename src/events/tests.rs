@@ -134,18 +134,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .map(|e| IdAndExtId::from_external_id(&e.external_id))
         .collect::<Vec<IdAndExtId>>();
-    let dt = Dataset{
-        id: Some(1),
-        external_id: "Test_dataset".to_string(),
-        name: "Test_dataset".to_string(),
-        description: None,
-        policies: None,
-        metadata: Default::default(),
-        active: false,
-        connected_data_sets: vec![],
-        created_time: None,
-        last_updated_time: None,
-    };
+    let dt = Dataset::new("Test_dataset".to_string());
     //api_service.datasets.create(&dt).await?;
     api_service.events.delete(&ids).await?;
 

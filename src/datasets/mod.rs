@@ -4,7 +4,7 @@ mod tests;
 use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, RelationForm, SearchAndFilterForm, SearchForm};
 use crate::http::ResponseError;
 use crate::ApiService;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
@@ -34,13 +34,13 @@ impl DatasetsService {
         }
     }
 
-    pub async fn create<I>(&self, data: &I) -> Result<GraphDataWrapper<Dataset>, ResponseError>
+    pub async fn create<I>(&self, data: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
             for<'a> &'a I: Into<DataWrapper<Dataset>>,
     {
         let dw = data.into();
         let path = &format!("{}/create", self.base_url);
-        self.execute_post_request::<GraphDataWrapper<Dataset>, _>(path, &dw)
+        self.execute_post_request::<DataWrapper<Dataset>, _>(path, &dw)
             .await
     }
 
@@ -85,16 +85,18 @@ impl DatasetsService {
 #[serde(rename_all = "camelCase")]
 pub struct Dataset {
     pub id: Option<u64>,
-    pub external_id: String,
+    //@NotNull
+    //@Size(min= 3, max = 256)
+    pub  external_id:String,
+    //@NotNull
+    //3, max = 512)
     pub name: String,
     pub description: Option<String>,
-    pub policies: Option<Vec<String>>,
-    pub metadata:HashMap<String,String>,
-    #[serde(default)] // hack since api doesnt implement active properly.
-    pub active: bool,
-    pub connected_data_sets: Vec<u64>,
-    pub created_time: Option<DateTime<Utc>>,
-    pub last_updated_time: Option<DateTime<Utc>>,
+    pub policies :Option<Vec<String>>,
+    pub metadata: HashMap<String, String>,
+    pub connected_data_sets:Vec<u64>,
+    pub created_time: Option<DateTime<FixedOffset>>,
+    pub last_updated_time: Option<DateTime<FixedOffset>>,
 }
 impl DataHubEntity for Dataset {
     fn ext_id(&self) -> &String {
@@ -115,7 +117,6 @@ impl Dataset {
             policies: None,
             connected_data_sets: vec![],
 
-            active: true,
             created_time: None,
             last_updated_time: None,
         }
@@ -162,10 +163,10 @@ impl Dataset {
         self.description = Some(description);
         self
     }
-    pub fn created_time(&self) -> Option<&DateTime<Utc>> {
+    pub fn created_time(&self) -> Option<&DateTime<FixedOffset>> {
         self.created_time.as_ref()
     }
-    pub fn last_updated_time(&self) -> Option<&DateTime<Utc>> {
+    pub fn last_updated_time(&self) -> Option<&DateTime<FixedOffset>> {
         self.last_updated_time.as_ref()
     }
     pub fn build(&self) -> Self {

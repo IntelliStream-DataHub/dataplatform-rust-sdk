@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fmt;
+use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Weak};
 use std::hash::Hasher;
 use serde::{Deserialize, Serialize};
@@ -18,10 +20,10 @@ pub struct IdAndExtId {
     // todo Implement this as an enum, would allow for better validation
     // and make it impossible to not provide any id
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) id: Option<u64>,
+    pub id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "externalId")]
-    pub(crate) external_id: Option<String>,
+    pub external_id: Option<String>,
 }
 
 impl IdAndExtId {
@@ -54,25 +56,56 @@ impl DatapointString {
         DatapointString {timestamp: timestamp.timestamp_millis().to_string(), value: value.to_string()}
     }
 }
-
+pub struct DatapointTyped {
+    pub timestamp: DateTime<Utc>,
+    pub value: f64,
+}
+impl DatapointTyped {
+    #[must_use]
+    pub fn new(timestamp: DateTime<Utc>, value: f64) -> Self {
+        DatapointTyped {timestamp, value}
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Datapoint {
     // Read from "isoTime" when deserializing, but emit "timestamp" on serialization
     #[serde(rename(serialize = "timestamp", deserialize = "timestamp"))]
-    pub(crate) timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Utc>,
     #[serde(default)]
-    pub(crate) value: Option<f64>,
+    pub value: Option<f64>,
     #[serde(default)]
-    pub(crate) min: Option<f64>,
+    pub min: Option<f64>,
     #[serde(default)]
-    pub(crate) max: Option<f64>,
+    pub max: Option<f64>,
     #[serde(default)]
-    pub(crate) average: Option<f64>,
+    pub average: Option<f64>,
     #[serde(default)]
-    pub(crate) sum: Option<f64>
+    pub sum: Option<f64>
 }
 
+impl Display for Datapoint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut parts = Vec::new();
+
+        parts.push(format!("timestamp: {}", self.timestamp));
+
+        if let Some(v) = self.value {
+            parts.push(format!("value: {}", v));
+        }
+        if let Some(v) = self.min {
+            parts.push(format!("min: {}", v));
+        }
+        if let Some(v) = self.max {
+            parts.push(format!("max: {}", v));
+        }
+        if let Some(v) = self.average {
+            parts.push(format!("average: {}", v)); }
+        if let Some(v) = self.sum { parts.push(format!("sum: {}", v)); }
+
+        write!(f, "Datapoint {{ {} }}", parts.join(", "))
+    }
+}
 impl Datapoint {
     pub fn from(timestamp: DateTime<Utc>, value: f64) -> Self {
         Datapoint {timestamp, value: Some(value), min: None, max: None, average: None, sum: None}
@@ -89,27 +122,22 @@ impl Datapoint {
         }
     }
 
-    pub fn get_timestamp(&self) -> DateTime<Utc> {
+    pub fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
-
-    pub fn get_average(&self) -> Option<f64> {
+    pub fn average(&self) -> Option<f64> {
         self.average
     }
-
-    pub fn get_value(&self) -> Option<f64> {
+    pub fn value(&self) -> Option<f64> {
         self.value
     }
-
-    pub fn get_min(&self) -> Option<f64> {
+    pub fn min(&self) -> Option<f64> {
         self.min
     }
-
-    pub fn get_max(&self) -> Option<f64> {
+    pub fn max(&self) -> Option<f64> {
         self.max
     }
-
-    pub fn get_sum(&self) -> Option<f64> {
+    pub fn sum(&self) -> Option<f64> {
         self.sum
     }
 }
@@ -197,12 +225,13 @@ impl<T> DatapointsCollection<T> {
 #[derive(Debug, Deserialize, Serialize, Clone,Eq,PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RelationForm {
-    pub(crate) id: Option<u64>,
-    pub(crate) external_id: Option<String>,
-    pub(crate) relationship_type: String,
+    pub id: Option<u64>,
+    pub external_id: Option<String>,
+    pub relationship_type: String,
 }
 
 impl RelationForm {
+
     pub fn from_id(id: u64, relationship_type: String) -> Self {
         RelationForm { id: Some(id), external_id: None, relationship_type }
     }
@@ -344,15 +373,15 @@ impl DeleteFilter {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct RetrieveFilter {
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
-    pub limit: Option<i64>,
+    pub limit: Option<u64>,
     pub aggregates: Option<Vec<String>>,
     pub granularity: Option<String>,
     pub cursor: Option<String>,
     pub id: Option<u64>,
-    #[serde(rename = "externalId")]
     pub external_id: Option<String>,
 }
 
@@ -380,7 +409,7 @@ impl RetrieveFilter {
         self
     }
 
-    pub(crate) fn set_limit(&mut self, limit: i64) -> &mut RetrieveFilter {
+    pub(crate) fn set_limit(&mut self, limit: u64) -> &mut RetrieveFilter {
         self.limit = Some(limit);
         self
     }

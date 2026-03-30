@@ -5,7 +5,7 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use dataplatform_rust_sdk::{ApiService, Event, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection};
 use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId, IdAndExtIdCollection};
 use crate::{PyIdCollection, PySearchAndFilterForm};
-use crate::events::{PyEvent, PyEventFilter};
+use crate::events::{EventIdentifyable, PyEvent, PyEventFilter};
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
 use crate::timeseries::{PyTimeSeries, PyTimeSeriesUpdate};
 
@@ -31,11 +31,11 @@ impl PyEventsServiceAsync {
         })
     }
 
-    fn by_ids<'py>(&self, py: Python<'py>, input: Vec<PyIdCollection>) -> PyResult<Bound<'py, PyAny>> {
+    fn by_ids<'py>(&self, py: Python<'py>, input: Vec<EventIdentifyable>) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         let input_ids = input
             .iter()
-            .map(|u| u.inner.clone())
+            .map(|u| IdAndExtId::from(u.clone()))
             .collect::<Vec<IdAndExtId>>();
 
         future_into_py(py, async move {
@@ -53,11 +53,11 @@ impl PyEventsServiceAsync {
             Ok(py_units)
         })
     }
-    fn delete<'py>(&self, py: Python<'py>,input: Vec<PyIdCollection>) -> PyResult<Bound<'py, PyAny>> {
+    fn delete<'py>(&self, py: Python<'py>,input: Vec<EventIdentifyable>) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         let input_ids = input
             .iter()
-            .map(|u| u.inner.clone())
+            .map(|u| IdAndExtId::from(u.clone()))
             .collect::<Vec<IdAndExtId>>();
 
         future_into_py(py, async move {

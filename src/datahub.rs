@@ -1,7 +1,9 @@
 use std::{default, env};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use chrono::{DateTime, Utc, Duration};
+use dotenv::from_path;
 use maplit::hashmap;
 use oauth2::{reqwest, RedirectUrl, AuthUrl, ClientId, ClientSecret, EndpointNotSet, EndpointSet, TokenResponse, TokenUrl, Scope, AccessToken, EmptyExtraTokenFields};
 use oauth2::basic::{BasicClient, BasicTokenResponse, BasicTokenType};
@@ -65,7 +67,17 @@ impl AuthState {
 
 impl DataHubApi {
 
-    pub(crate) fn from_env() -> Result<Self, DataHubError>{
+    pub fn from_envfile(path: Option<&str>) -> Result<Self, DataHubError> {
+        if let Some(path) = path {
+            // Load a specific .env file
+            from_path(Path::new(path)).expect("Failed to load .env from custom path");
+        } else {
+            // Load the default .env in project root
+            dotenv::dotenv().ok();
+        }
+        Self::from_env()
+    }
+    pub fn from_env() -> Result<Self, DataHubError>{
         let env_vars = env::vars().collect::<HashMap<String, String>>();
         Self::from_map(env_vars)
     }
