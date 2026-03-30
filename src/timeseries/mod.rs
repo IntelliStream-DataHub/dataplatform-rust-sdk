@@ -242,8 +242,7 @@ impl TimeSeriesService {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeries {
-    #[serde(skip_serializing_if = "is_zero")]
-    pub id: u64,
+    pub id: Option<u64>,
     #[serde(rename = "externalId")]
     pub external_id: String,
     pub name: String,
@@ -270,7 +269,7 @@ impl TimeSeries {
 
     pub fn new(external_id: &str, name: &str) -> TimeSeries{
         TimeSeries {
-            id: 0,
+            id: None,
             external_id: external_id.to_string(),
             name: name.to_string(),
             metadata: None,
@@ -288,7 +287,7 @@ impl TimeSeries {
     }
     pub fn from_dict(dict: HashMap<String, String>) -> Self {
         Self{
-            id: dict.get("id").unwrap().parse::<u64>().unwrap(),
+            id: dict.get("id").map(|v| v.parse::<u64>().unwrap()),
             external_id: dict.get("externalId").unwrap().to_string(),
             name: dict.get("name").unwrap().to_string(),
             metadata: dict.get("metadata").map(|v| serde_json::from_str(v).unwrap()),
@@ -405,10 +404,6 @@ pub struct TimeSeriesUpdateFields {
     pub data_set_id: Field<u64>,
     #[serde(rename = "relationsFrom")]
     pub relations_from: ListField<u64>,
-    #[serde(rename = "isString")]
-    pub is_string: Field<bool>,
-    #[serde(rename = "isStep")]
-    pub is_step: Field<bool>,
     #[serde(rename = "valueType")]
     pub value_type: Field<String>,
 }
@@ -417,18 +412,16 @@ impl TimeSeriesUpdateFields {
 
     pub fn new() -> TimeSeriesUpdateFields {
         TimeSeriesUpdateFields {
-            external_id: Field::new(),
-            name: Field::new(),
-            metadata: MapField::new(),
-            unit: Field::new(),
-            description: Field::new(),
-            unit_external_id: Field::new(),
-            security_categories: ListField::new(),
-            data_set_id: Field::new(),
-            relations_from: ListField::new(),
-            is_string: Field::new(),
-            is_step: Field::new(),
-            value_type: Field::new(),
+            external_id: Field::default(),
+            name: Field::default(),
+            metadata: MapField::default(),
+            unit: Field::default(),
+            description: Field::default(),
+            unit_external_id: Field::default(),
+            security_categories: ListField::default(),
+            data_set_id: Field::default(),
+            relations_from: ListField::default(),
+            value_type: Field::default(),
         }
     }
 }

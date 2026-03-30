@@ -188,7 +188,7 @@ mod tests {
 
         println!("external_id: {:?}", &ts_update_collection.get_items()[0].external_id.clone().unwrap());
 
-        let mut ts2_id = None;
+        let mut ts2_id: Option<u64> = None;
         let result = api_service.time_series.update(&ts_update_collection).await;
         match result {
             Ok(timeseries) => {
@@ -211,7 +211,7 @@ mod tests {
                         None => panic!("Expected unit_external_id to be present"),
                     }
 
-                    ts2_id = Some(item.id);
+                    ts2_id = item.id;
                 } else {
                     assert_eq!(StatusCode::OK, StatusCode::NO_CONTENT);
                 }
@@ -675,21 +675,21 @@ mod tests {
                         if let Some(first_item) = r.get_items().first() {
                             if let Some(external_id) = &first_item.external_id {
                                 if external_id == "rust_sdk_test_6540_ts" {
-                                    if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap() {
+                                    if dp.timestamp() == Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap() {
                                         // normal avg would return 179.9514040223, but we use avgweighted over the window
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4516319444);
-                                    } else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 22, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4516319444);
+                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 1, 22, 0, 0, 0).unwrap() {
                                         // normal avg would return 180.0561890050
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.5567939814);
-                                    } else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.5567939814);
+                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
                                         // normal avg would return 179.9661931149
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4659953703);
+                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4659953703);
                                     }
                                 } else {
-                                    if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap() {
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4611111111);
-                                    } else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4927662037);
+                                    if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4611111111);
+                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4927662037);
                                     }
                                 }
                             }

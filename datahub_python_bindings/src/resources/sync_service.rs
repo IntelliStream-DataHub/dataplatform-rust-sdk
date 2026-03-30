@@ -29,9 +29,6 @@ impl PyResourcesServiceSync {
 
         let py_res: Vec<PyResource> = result.nodes().as_ref().unwrap().iter().map(|ts| PyResource { inner: ts.clone() }).collect();
         Ok(py_res)
-
-
-
     }
 
     fn by_ids<'py>(&self, py: Python<'py>, input: Vec<PyIdCollection>) -> PyResult<Vec<PyResource>> {
@@ -58,14 +55,11 @@ impl PyResourcesServiceSync {
             .map(|u| u.inner.clone())
             .collect::<Vec<IdAndExtId>>();
 
-        let result = py.detach(|| {
+        py.detach(|| {
             self.runtime
-                .block_on(service.resources.by_ids(&input_ids))
-        });
+                .block_on(service.resources.delete(&input_ids)).map_err(|e| PyException::new_err(e.get_message()))
+        })?;
 
-        let result = result.map_err(|e| PyException::new_err(e.get_message()))?;
-
-        let py_res: Vec<PyResource> = result.nodes().as_ref().unwrap().iter().map(|ts| PyResource { inner: ts.clone() }).collect();
         Ok(())
         
     }

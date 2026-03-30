@@ -1,15 +1,21 @@
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
-use pyo3::{pyclass, pymethods, PyErr};
+use pyo3::{pyclass, pymethods, Bound, PyErr, PyResult};
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use dataplatform_rust_sdk::{Event, TimeSeries};
 use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter, TimeFilter};
+use uuid::Uuid;
+use dataplatform_rust_sdk::generic::IdAndExtId;
+use crate::PyIdCollection;
+use crate::timeseries::datapoints::{PyDatapointString, PyDatapointsCollectionDatapoints, PyDatapointsCollectionString, PyRetrieveFilter};
+use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
 
 pub mod general;
 pub mod async_service;
 pub mod sync_service;
 
-#[pyclass(module="datahub_python_sdk")]
+#[pyclass(module="datahub_python_sdk",name="Event",from_py_object)]
 #[derive(Clone)]
 pub struct PyEvent{
     pub inner: Event
@@ -26,13 +32,14 @@ impl From<PyEvent> for Event {
     }
 }
 
-impl PyEvent {
-    pub(crate) fn from_event(inner: Event) -> Self {
-        Self { inner }
+impl PyEvent{
+    pub fn uuid(&self) -> Option<&Uuid> {
+        self.inner.id.as_ref()
     }
+
 }
 
-#[pyclass(module="datahub_python_sdk")]
+#[pyclass(module="datahub_python_sdk",name="EventFilter",from_py_object)]
 #[derive(Clone)]
 pub struct PyEventFilter{
     pub inner: EventFilter
@@ -52,15 +59,32 @@ impl From<PyEventFilter> for EventFilter {
 #[pymethods]
 impl PyEventFilter{
     #[new]
-    fn new(basic_filter: PyBasicEventFilter) -> Self {
+    #[pyo3(signature=(basic_filter,limit=None))]
+    fn new(basic_filter: PyBasicEventFilter,limit:Option<u64>) -> Self {
         let mut filter = EventFilter::new();
         filter.set_filter(basic_filter.into());
-        Self { inner: EventFilter::new() }
+        filter.set_limit(limit.unwrap_or(100));
+        Self { inner: filter.build() }
+    }
+    #[getter]
+    fn filter(&self) -> Option<PyBasicEventFilter> {
+        self.inner.filter().cloned().map(|f| f.into())
+    }
+    #[getter]
+    pub fn limit(&self) -> u64 {
+        self.inner.limit
+    }
+    #[setter]
+    pub fn set_limit(&mut self, limit: u64) {
+        self.inner.limit = limit;
+    }
+    #[getter]
+    pub fn cursor(&self) -> Option<&str>{
+        self.inner.cursor()
     }
 }
 
-
-#[pyclass(module="datahub_python_sdk")]
+#[pyclass(module="datahub_python_sdk",name="BasicEventFilter",from_py_object)]
 #[derive(Clone)]
 pub struct PyBasicEventFilter{
     inner: BasicEventFilter
@@ -78,6 +102,21 @@ impl From<PyBasicEventFilter> for BasicEventFilter {
 #[pymethods]
 impl PyBasicEventFilter {
     #[new]
+    #[pyo3(signature=(
+        id=None,
+        external_id_prefix=None,
+        description=None,
+        source=None,
+        r#type=None,
+        sub_type=None,
+        data_set_ids=None,
+        event_time=None,
+        metadata=None,
+        related_resource_ids=None,
+        related_resource_external_ids=None,
+        created_time=None,
+        last_updated_time=None,
+    ))]
     fn new(
         id: Option<u64>,
         external_id_prefix: Option<String>,
@@ -111,7 +150,7 @@ impl PyBasicEventFilter {
         ) }
     }
 }
-#[pyclass(from_py_object,module="datahub_python_sdk")]
+#[pyclass(module="datahub_python_sdk",name="TimeFilter",from_py_object)]
 #[derive(Clone)]
 pub struct PyTimeFilter {
     inner: TimeFilter
@@ -130,11 +169,12 @@ impl From<PyTimeFilter> for TimeFilter {
 #[pymethods]
 impl PyTimeFilter {
     #[new]
+    #[pyo3(signature=(start=None,end=None))]
     fn new(
-        start_time: Option<DateTime<Utc>>,
-        end_time: Option<DateTime<Utc>>,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
     ) -> Result<Self,PyErr> { // Returning Option because if both are None, we can't create a filter
-        match (start_time, end_time) {
+        match (start, end) {
             (Some(start), Some(end)) => {
                 if start > end {
                     Err(PyErr::new::<PyValueError, _>("start_time cannot be after end_time"))
@@ -144,7 +184,76 @@ impl PyTimeFilter {
                 },
             (Some(start), None) => Ok(Self {inner:TimeFilter::After { min: start }}),
             (None, Some(end)) => Ok(Self {inner:TimeFilter::Before { max: end }}),
-            (None, None) =>  Err(PyErr::new::<PyValueError, _>("Both start_time and end_time cannot be None")),
+            (None, None) =>  Err(PyErr::new::<PyValueError, _>("Both start and end cannot be None")),
         }
     }
+}
+#[pyclass(module="datahub_python_sdk",name="EventIdCollection",from_py_object)]
+#[derive(Clone)]
+pub struct PyEventIdCollection{
+    pub id: Option<Uuid>,
+    pub external_id: String,
+}
+impl PyEventIdCollection{
+    pub fn new(id: Option<Uuid>, external_id: String) -> Self {
+        Self { id, external_id }
+    }
+    pub fn id(&self) -> Option<&Uuid> {
+        self.id.as_ref()
+    }
+    pub fn external_id(&self) -> &str {
+        &self.external_id
+    }
+}
+
+#[derive(Clone,FromPyObject)]
+pub enum EventIdentifyable{
+    Event(PyEvent),
+    EventId(PyEventIdCollection),
+    ExternalId(String),
+}
+
+impl EventIdentifyable{
+    pub fn id(&self) -> Option<&Uuid> {
+        match self {
+            EventIdentifyable::EventId(id) => id.id(),
+            EventIdentifyable::Event(event) => event.uuid(),
+            EventIdentifyable::ExternalId(_) => None
+        }
+    }
+    pub fn external_id(&self) -> &str {
+        match self {
+            EventIdentifyable::EventId(id) => id.external_id(),
+            EventIdentifyable::Event(event) => event.external_id(),
+            EventIdentifyable::ExternalId(id) => id
+        }
+    }
+}
+impl From<PyEvent> for EventIdentifyable{
+    fn from(event: PyEvent) -> Self {
+        EventIdentifyable::Event(event)
+    }
+}
+impl From<PyEventIdCollection> for EventIdentifyable{
+    fn from(event: PyEventIdCollection) -> Self {
+        EventIdentifyable::EventId(event)
+    }
+}
+impl From<EventIdentifyable> for IdAndExtId{
+    fn from(value: EventIdentifyable) -> Self {
+        match value {
+            EventIdentifyable::EventId(id) => Self{ id:  None, external_id:  Some(id.external_id)},
+            EventIdentifyable::Event(event) => Self{ id : None,  external_id: Some(event.external_id().to_string())},
+            EventIdentifyable::ExternalId(id) => Self{ id: None, external_id: Some(id.to_string())}
+        }
+    }
+}
+
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyEvent>()?;
+    m.add_class::<PyEventIdCollection>()?;
+    m.add_class::<PyEventFilter>()?;
+    m.add_class::<PyBasicEventFilter>()?;
+    m.add_class::<PyTimeFilter>()?;
+    Ok(())
 }

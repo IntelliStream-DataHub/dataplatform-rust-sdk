@@ -1,3 +1,4 @@
+use crate::{DatahubIdentity, Identifyable};
 use super::*;
 use pyo3::exceptions::PyException;
 use std::sync::Arc;
@@ -5,6 +6,7 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use dataplatform_rust_sdk::{ApiService, TimeSeriesUpdateCollection};
 use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId, IdAndExtIdCollection};
 use crate::{PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm};
+use crate::timeseries::datapoints::{PyDatapointsCollectionDatapoints, PyDatapointsCollectionString};
 
 #[pyclass]
 pub struct PyTimeSeriesServiceSync {
@@ -69,16 +71,16 @@ impl PyTimeSeriesServiceSync {
             Ok(py_units)
         })
     }
-    fn delete<'p>(&self, py: Python<'p>,input: Vec<PyIdCollection>) -> PyResult<()> {
+    fn delete<'p>(&self, py: Python<'p>,input: Vec<Identifyable>) -> PyResult<()> {
         let service = self.api_service.clone();
         let input_ids = input
             .iter()
-            .map(|u| u.inner.clone())
+            .map(DatahubIdentity::id_collection)
             .collect::<Vec<IdAndExtId>>();
         let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
 
         py.detach(||{ 
- let result = self.runtime.block_on(service.time_series.delete(&wrapper)).map_err(|e| {
+        let result = self.runtime.block_on(service.time_series.delete(&wrapper)).map_err(|e| {
                 PyException::new_err(e.get_message())
             })?;
 
@@ -122,6 +124,19 @@ impl PyTimeSeriesServiceSync {
             Ok(result.get_items().clone())
         })
     }
+    fn insert_from_lists<'py>(&self, py: Python<'py>,timestamps: Vec<DateTime<chrono::Utc>>,values: Vec<f64>, ts: Identifyable)-> PyResult<Vec<String>> {
+        let service = self.api_service.clone();
+        let datapoints: Vec<DatapointString> = timestamps.into_iter().zip(values.into_iter()).map(|(timestamp,value)| DatapointString{timestamp:timestamp.timestamp_millis().to_string(),value:value.to_string()}).collect();
+        let inner: DatapointsCollection<DatapointString> = DatapointsCollection{datapoints,next_cursor:None,id:ts.id_collection().id,external_id:ts.id_collection().external_id,unit:None,unit_external_id:None};
+        let mut wrapper = DataWrapper::<DatapointsCollection<DatapointString>>::from_vec(vec![inner]);
+        py.detach(||{
+            let result = self.runtime.block_on(service.time_series.insert_datapoints(&mut wrapper)).map_err(|e| {
+                PyException::new_err(e.get_message())
+            })?;
+            Ok(result.get_items().clone())
+        })
+    }
+
     fn retrieve_datapoints<'py>(&self,  py: Python<'py>, input: PyRetrieveFilter )-> PyResult<Vec<PyDatapointsCollectionDatapoints>> {
         let service = self.api_service.clone();
         let wrapper = DataWrapper::<RetrieveFilter>::from_vec(vec![input.into()]);
@@ -146,11 +161,11 @@ impl PyTimeSeriesServiceSync {
         Ok(())
         
     }
-    fn retrieve_latest_datapoints<'py>(&self, py: Python<'py>, input: Vec<PyIdCollection> ) -> PyResult<PyDatapointsCollectionDatapoints> {
+    fn retrieve_latest_datapoints<'py>(&self, py: Python<'py>, input: Vec<Identifyable> ) -> PyResult<Vec<PyDatapointsCollectionDatapoints>> {
         let service = self.api_service.clone();
         let input_ids = input
             .iter()
-            .map(|u| u.inner.clone())
+            .map(|u| u.id_collection())
             .collect::<Vec<IdAndExtId>>();
         let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
         let result = py.detach(|| {
@@ -160,12 +175,7 @@ impl PyTimeSeriesServiceSync {
 
         let result = result.map_err(|e| PyException::new_err(e.get_message()))?;
 
-        let datapoint = result
-            .get_items()
-            .into_iter()
-            .map(|ts| PyDatapointsCollectionDatapoints { inner: ts.clone() })
-            .next()
-            .ok_or_else(|| PyException::new_err("No datapoints returned"))?;
-        Ok(datapoint)
+        let res: Vec<PyDatapointsCollectionDatapoints> = result.get_items().into_iter().map(|ts| PyDatapointsCollectionDatapoints::from(ts.clone())).collect();
+        Ok(res)
     }
 }

@@ -6,7 +6,7 @@ pub mod async_service;
 pub mod sync_service;
 pub mod general;
 
-#[pyclass(module="datahub_python_sdk")]
+#[pyclass(module="datahub_python_sdk",name="Unit")]
 #[derive(Clone)]
 pub struct PyUnit{
     pub inner:  Unit
