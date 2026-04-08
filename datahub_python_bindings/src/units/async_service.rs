@@ -1,13 +1,13 @@
-use std::sync::Arc;
-use pyo3::{pyclass, pymethods, Bound, PyAny, PyResult, Python};
-use pyo3::exceptions::PyException;
-use pyo3_async_runtimes::tokio::future_into_py;
+use crate::PyIdCollection;
+use crate::units::PyUnit;
 use dataplatform_rust_sdk::ApiService;
 use dataplatform_rust_sdk::generic::{IdAndExtId, IdAndExtIdCollection};
-use crate::PyIdCollection;
-use crate::unit::PyUnit;
+use pyo3::exceptions::PyException;
+use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
+use pyo3_async_runtimes::tokio::future_into_py;
+use std::sync::Arc;
 
-#[pyclass(module = "datahub_python_sdk")]
+#[pyclass(module = "datahub_python_sdk", name = "UnitServiceAsync")]
 pub(crate) struct PyUnitServiceAsync {
     pub(crate) api_service: Arc<ApiService>,
 }

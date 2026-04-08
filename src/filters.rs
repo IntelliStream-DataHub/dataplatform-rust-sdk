@@ -162,7 +162,7 @@ impl EventFilter {
         self.filter = Some(filter);
         self
     }
-    pub fn filter(&self)-> Option<&BasicEventFilter> {
+    pub fn filter(&self) -> Option<&BasicEventFilter> {
         self.filter.as_ref()
     }
     pub fn cursor(&self) -> Option<&str> {

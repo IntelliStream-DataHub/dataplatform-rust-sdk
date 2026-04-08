@@ -1,3 +1,4 @@
+use crate::datasets::Dataset;
 use crate::events::Event;
 use crate::filters::{BasicEventFilter, EventFilter, TimeFilter};
 use crate::generic::{IdAndExtId, IdAndExtIdCollection};
@@ -8,7 +9,6 @@ use maplit::hashmap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task::id;
-use crate::datasets::Dataset;
 
 async fn delete_events(api_service: &ApiService, events: Vec<IdAndExtId>) {
     let delete_result = api_service.events.delete(&events).await;
@@ -25,7 +25,6 @@ async fn delete_events(api_service: &ApiService, events: Vec<IdAndExtId>) {
 }
 
 fn create_test_events() -> Vec<Event> {
-
     let unique_id: u64 = 7110;
     let total_events = 89;
     let mut external_ids: Vec<String> = vec![];
@@ -125,8 +124,8 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     let max_time = DateTime::parse_from_rfc3339("2025-09-06T06:08:00Z")
         .unwrap()
         .to_utc();
-    let time_delta = Duration::minutes(((5 * 24) + 24) as i64)
-        + Duration::seconds((5 * 3 * 11) as i64);
+    let time_delta =
+        Duration::minutes(((5 * 24) + 24) as i64) + Duration::seconds((5 * 3 * 11) as i64);
     let min_time = Utc.with_ymd_and_hms(2025, 9, 5, 16, 22, 0).unwrap();
     let time_range = (min_time, min_time + time_delta);
 

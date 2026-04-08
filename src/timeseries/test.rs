@@ -1,17 +1,22 @@
-
 #[cfg(test)]
 mod tests {
+    use crate::generic::{
+        DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId,
+        IdAndExtIdCollection, RetrieveFilter,
+    };
+    use crate::http::ResponseError;
+    use crate::timeseries::{
+        LimitParam, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection,
+        TimeSeriesUpdateFields,
+    };
+    use crate::{create_api_service, ApiService};
+    use chrono::{DateTime, Duration, TimeZone, Utc};
+    use maplit::hashmap;
+    use reqwest::StatusCode;
     use std::fs::File;
     use std::io::Read;
     use std::rc::Rc;
     use std::sync::Arc;
-    use chrono::{DateTime, Duration, TimeZone, Utc};
-    use maplit::hashmap;
-    use reqwest::StatusCode;
-    use crate::{create_api_service, ApiService};
-    use crate::generic::{DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, IdAndExtIdCollection, RetrieveFilter};
-    use crate::http::ResponseError;
-    use crate::timeseries::{LimitParam, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
 
     #[tokio::test]
     async fn test_timeseries_requests() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,11 +29,13 @@ mod tests {
         match result {
             Ok(timeseries) => {
                 assert!(timeseries.length() <= 5);
-                println!("Length of time series returned is {:?}", timeseries.length());
-            },
+                println!(
+                    "Length of time series returned is {:?}",
+                    timeseries.length()
+                );
+            }
             Err(e) => {
                 panic!("{:?}", e.get_message());
-
             }
         }
 
@@ -38,7 +45,7 @@ mod tests {
         match result {
             Ok(timeseries) => {
                 panic!("This test is supposed to fail: {:?}", timeseries);
-            },
+            }
             Err(e) => {
                 assert_eq!(StatusCode::BAD_REQUEST, e.get_status());
                 println!("StatusCode::BAD_REQUEST == 400 is correct!");
@@ -47,14 +54,17 @@ mod tests {
         Ok(())
     }
     #[tokio::test]
-    async fn test_list()-> Result<(), Box<dyn std::error::Error>> {
+    async fn test_list() -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
         let result = api_service.time_series.list().await;
         match result {
             Ok(timeseries) => {
-               // assert!(timeseries.length() <= 5);
-                println!("Length of time series returned is {:?}", timeseries.length());
-            },
+                // assert!(timeseries.length() <= 5);
+                println!(
+                    "Length of time series returned is {:?}",
+                    timeseries.length()
+                );
+            }
             Err(e) => {
                 panic!("{:?}", e.get_message());
             }
@@ -79,21 +89,33 @@ mod tests {
                 let items = timeseries.get_items();
 
                 println!("{:?}", items);
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1200_ts") {
+                if let Some(item) = items
+                    .iter()
+                    .find(|&&ref item| item.external_id == "rust_sdk_test_1200_ts")
+                {
                     assert_eq!(item.external_id, "rust_sdk_test_1200_ts");
-                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, "rust_sdk_test_1200_ts");
+                    println!(
+                        "timeseries with external id: {:?} is equal to: {:?}",
+                        item.external_id, "rust_sdk_test_1200_ts"
+                    );
                     assert_eq!(item.metadata.as_ref().unwrap().len(), 2);
                 } else {
                     assert_eq!(StatusCode::OK, StatusCode::NO_CONTENT);
                 }
 
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1201_ts") {
+                if let Some(item) = items
+                    .iter()
+                    .find(|&&ref item| item.external_id == "rust_sdk_test_1201_ts")
+                {
                     assert_eq!(item.external_id, "rust_sdk_test_1201_ts");
-                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, "rust_sdk_test_1201_ts");
+                    println!(
+                        "timeseries with external id: {:?} is equal to: {:?}",
+                        item.external_id, "rust_sdk_test_1201_ts"
+                    );
                 } else {
                     assert_eq!(StatusCode::OK, StatusCode::NO_CONTENT);
                 }
-            },
+            }
             Err(e) => {
                 assert_ne!(StatusCode::CREATED, e.get_status());
                 println!("{:?}", e.get_message());
@@ -107,18 +129,16 @@ mod tests {
     }
 
     async fn delete_timeseries(id: u64, api_service: &ApiService) {
-        let id_collection = IdAndExtIdCollection::from_external_id_vec(
-            vec![
-                format!("rust_sdk_test_{id}_ts", id = id).as_str(),
-                format!("rust_sdk_test_{id}_ts_renamed", id = id).as_str(),
-                format!("rust_sdk_test_{id}_ts", id = id + 1).as_str()
-            ]
-        );
+        let id_collection = IdAndExtIdCollection::from_external_id_vec(vec![
+            format!("rust_sdk_test_{id}_ts", id = id).as_str(),
+            format!("rust_sdk_test_{id}_ts_renamed", id = id).as_str(),
+            format!("rust_sdk_test_{id}_ts", id = id + 1).as_str(),
+        ]);
         let result = api_service.time_series.delete(&id_collection).await;
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 0);
-            },
+            }
             Err(e) => {
                 println!("{:?}", e.get_message());
             }
@@ -134,14 +154,14 @@ mod tests {
         let ts_update = TimeSeriesUpdate {
             id: None,
             external_id: None,
-            update: ts_update_fields
+            update: ts_update_fields,
         };
         ts_update_collection.add_item(ts_update);
         let result = api_service.time_series.update(&ts_update_collection).await;
         match result {
             Ok(_timeseries) => {
                 panic!("Should be bad request!");
-            },
+            }
             Err(e) => {
                 assert_eq!(StatusCode::BAD_REQUEST, e.get_status());
                 println!("StatusCode::BAD_REQUEST == 400 is correct!");
@@ -152,7 +172,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_and_update_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_create_and_update_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>>
+    {
         println!("test_create_and_update_and_delete_timeseries");
         let unique_id: u64 = 1400;
         let api_service = create_api_service();
@@ -165,7 +186,7 @@ mod tests {
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 2);
-            },
+            }
             Err(e) => {
                 println!("{:?}", e.get_message());
             }
@@ -173,20 +194,36 @@ mod tests {
 
         let mut ts_update_collection = TimeSeriesUpdateCollection::new();
         let mut ts_update_fields = TimeSeriesUpdateFields::new();
-        ts_update_fields.external_id.set("rust_sdk_test_1400_ts_renamed".to_string());
-        ts_update_fields.name.set("Rust SDK Test 1400 TimeSeries Renamed".to_string());
-        ts_update_fields.description.set("This is test timeseries generated by rust sdk test code. Renamed.".to_string());
+        ts_update_fields
+            .external_id
+            .set("rust_sdk_test_1400_ts_renamed".to_string());
+        ts_update_fields
+            .name
+            .set("Rust SDK Test 1400 TimeSeries Renamed".to_string());
+        ts_update_fields
+            .description
+            .set("This is test timeseries generated by rust sdk test code. Renamed.".to_string());
         ts_update_fields.unit.set("fahrenheit".to_string());
-        ts_update_fields.unit_external_id.set("temperature_deg_f".to_string());
-        ts_update_fields.metadata.add(hashmap! {"newkey".to_string() => "newvalue".to_string()});
+        ts_update_fields
+            .unit_external_id
+            .set("temperature_deg_f".to_string());
+        ts_update_fields
+            .metadata
+            .add(hashmap! {"newkey".to_string() => "newvalue".to_string()});
         let ts_update = TimeSeriesUpdate {
             id: None,
             external_id: Some("rust_sdk_test_1400_ts".to_string()),
-            update: ts_update_fields
+            update: ts_update_fields,
         };
         ts_update_collection.add_item(ts_update);
 
-        println!("external_id: {:?}", &ts_update_collection.get_items()[0].external_id.clone().unwrap());
+        println!(
+            "external_id: {:?}",
+            &ts_update_collection.get_items()[0]
+                .external_id
+                .clone()
+                .unwrap()
+        );
 
         let mut ts2_id: Option<u64> = None;
         let result = api_service.time_series.update(&ts_update_collection).await;
@@ -197,12 +234,18 @@ mod tests {
                 let items = timeseries.get_items();
 
                 println!("updated_timeseries {:?}", items);
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1400_ts_renamed") {
+                if let Some(item) = items
+                    .iter()
+                    .find(|&&ref item| item.external_id == "rust_sdk_test_1400_ts_renamed")
+                {
                     assert_eq!(item.external_id, "rust_sdk_test_1400_ts_renamed");
                     assert_eq!(item.metadata.as_ref().unwrap().len(), 3);
                     assert_eq!(item.name, "Rust SDK Test 1400 TimeSeries Renamed");
                     match &item.description {
-                        Some(desc) => assert_eq!(desc, "This is test timeseries generated by rust sdk test code. Renamed."),
+                        Some(desc) => assert_eq!(
+                            desc,
+                            "This is test timeseries generated by rust sdk test code. Renamed."
+                        ),
                         None => panic!("Expected description to be present"),
                     }
                     assert_eq!(item.unit.as_ref().unwrap(), "fahrenheit");
@@ -215,9 +258,13 @@ mod tests {
                 } else {
                     assert_eq!(StatusCode::OK, StatusCode::NO_CONTENT);
                 }
-            },
+            }
             Err(e) => {
-                println!("Message: {:?}, Status: {:?}", e.get_message(), e.get_status());
+                println!(
+                    "Message: {:?}, Status: {:?}",
+                    e.get_message(),
+                    e.get_status()
+                );
                 panic!("{:?}", e.get_message());
             }
         }
@@ -225,7 +272,10 @@ mod tests {
         println!("ts2_id: {:?}", ts2_id);
 
         let mut id_collection = IdAndExtIdCollection::from_id_vec(vec![ts2_id.unwrap()]);
-        id_collection.add_item(IdAndExtId { id: None, external_id: Some("rust_sdk_test_1400_ts".to_string()) });
+        id_collection.add_item(IdAndExtId {
+            id: None,
+            external_id: Some("rust_sdk_test_1400_ts".to_string()),
+        });
         let result = api_service.time_series.by_ids(&id_collection).await;
 
         match result {
@@ -234,11 +284,14 @@ mod tests {
 
                 let items = timeseries.get_items();
 
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1400_ts_renamed") {
+                if let Some(item) = items
+                    .iter()
+                    .find(|&&ref item| item.external_id == "rust_sdk_test_1400_ts_renamed")
+                {
                     assert_eq!(item.external_id, "rust_sdk_test_1400_ts_renamed");
                     assert_eq!(item.metadata.as_ref().unwrap().len(), 3);
                 }
-            },
+            }
             Err(e) => {
                 println!("{:?}", e.get_message());
             }
@@ -258,16 +311,18 @@ mod tests {
             .set_description("This is test timeseries generated by rust sdk test code.")
             .set_unit("celsius")
             .set_metadata(hashmap! {
-                    "foo".to_string() => "bar".to_string(),
-                    "bar".to_string() => "baz".to_string()
-                })
-            .set_value_type("float").clone();
+                "foo".to_string() => "bar".to_string(),
+                "bar".to_string() => "baz".to_string()
+            })
+            .set_value_type("float")
+            .clone();
         ts_collection.add_item(ts1);
         let ts2 = TimeSeries::builder()
             .set_external_id(format!("rust_sdk_test_{id}_ts", id = id + 1).as_str())
             .set_name(format!("Rust SDK Test {id} TimeSeries", id = id + 1).as_str())
             .set_unit("watt")
-            .set_value_type("bigint").clone();
+            .set_value_type("bigint")
+            .clone();
         ts_collection.add_item(ts2);
         ts_collection
     }
@@ -289,27 +344,31 @@ mod tests {
             .set_description("This is test timeseries generated by rust sdk test code.")
             .set_unit("celsius")
             .set_metadata(hashmap! {
-                    "foo".to_string() => "bar".to_string(),
-                    "bar".to_string() => "baz".to_string()
-                })
-            .set_value_type("float").clone();
+                "foo".to_string() => "bar".to_string(),
+                "bar".to_string() => "baz".to_string()
+            })
+            .set_value_type("float")
+            .clone();
         ts_collection.add_item(ts1);
         let result = api_service.time_series.create(&ts_collection).await;
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
-            },
+            }
             Err(e) => {
                 eprintln!("error with timeseries create");
                 println!("{:?}", e.get_message());
             }
         }
 
-        let result = api_service.time_series.search_by_name(new_ts_name.as_str()).await;
+        let result = api_service
+            .time_series
+            .search_by_name(new_ts_name.as_str())
+            .await;
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
-            },
+            }
             Err(e) => {
                 eprintln!("error with timeseries search_by_name");
                 println!("{:?}", e.get_message());
@@ -317,11 +376,14 @@ mod tests {
         }
 
         let query = format!("SDK Test {id}", id = unique_id);
-        let result = api_service.time_series.search_by_query(query.as_str()).await;
+        let result = api_service
+            .time_series
+            .search_by_query(query.as_str())
+            .await;
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
-            },
+            }
             Err(e) => {
                 eprintln!("error with timeseries search_by_query");
                 println!("{:?}", e.get_message());
@@ -339,21 +401,23 @@ mod tests {
                     }
                 }
                 assert_eq!(found_timeseries.len(), 1);
-            },
+            }
             Err(e) => {
                 eprintln!("error with timeseries search_by_description");
                 println!("{:?}", e.get_message());
             }
         }
 
-        let id_collection = IdAndExtIdCollection::from_external_id_vec(
-            vec![format!("rust_sdk_test_{id}_ts", id = unique_id).as_str()]
-        );
+        let id_collection = IdAndExtIdCollection::from_external_id_vec(vec![format!(
+            "rust_sdk_test_{id}_ts",
+            id = unique_id
+        )
+        .as_str()]);
         let result = api_service.time_series.delete(&id_collection).await;
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 0);
-            },
+            }
             Err(e) => {
                 eprintln!("error with timeseries delete");
                 eprintln!("{:?}", e.get_message());
@@ -383,10 +447,11 @@ mod tests {
             .set_description("This is test timeseries generated by rust sdk test code.")
             .set_unit("celsius")
             .set_metadata(hashmap! {
-                    "foo".to_string() => "bar".to_string(),
-                    "bar".to_string() => "baz".to_string()
-                })
-            .set_value_type("float").clone();
+                "foo".to_string() => "bar".to_string(),
+                "bar".to_string() => "baz".to_string()
+            })
+            .set_value_type("float")
+            .clone();
 
         let new_ts_ext_id2 = format!("rust_sdk_test_{id}_ts", id = unique_id + 1);
         let new_ts_name = format!("Rust SDK Test {id} TimeSeries", id = unique_id + 1);
@@ -396,10 +461,11 @@ mod tests {
             .set_description("This is test timeseries generated by rust sdk test code.")
             .set_unit("bar")
             .set_metadata(hashmap! {
-                    "foodda".to_string() => "bardda".to_string(),
-                    "bardda".to_string() => "bazdda".to_string()
-                })
-            .set_value_type("bigint").clone();
+                "foodda".to_string() => "bardda".to_string(),
+                "bardda".to_string() => "bazdda".to_string()
+            })
+            .set_value_type("bigint")
+            .clone();
 
         ts_collection.add_item(ts1);
         // ts_collection.add_item(ts2);
@@ -409,7 +475,7 @@ mod tests {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
                 println!("Time series created successfully!");
-            },
+            }
             Err(e) => {
                 eprintln!("error with timeseries create");
                 println!("{:?}", e.get_message());
@@ -418,7 +484,8 @@ mod tests {
 
         println!("Prepare datapoints...");
         // Create datapoints
-        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> =
+            DataWrapper::new();
         let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id.as_str());
 
         let datetime = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
@@ -427,11 +494,17 @@ mod tests {
         data_request.get_items_mut().push(dp_collection);
 
         println!("Start datapoint insert!");
-        let result = api_service.time_series.insert_datapoints(&mut data_request).await;
+        let result = api_service
+            .time_series
+            .insert_datapoints(&mut data_request)
+            .await;
         match result {
             Ok(r) => {
-                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
-            },
+                assert_eq!(
+                    r.get_http_status_code().unwrap(),
+                    StatusCode::CREATED.as_u16()
+                );
+            }
             Err(e) => {
                 eprintln!("error with timeseries datapoints create");
                 println!("{:?}", e.get_message());
@@ -466,7 +539,9 @@ mod tests {
 
         // Before validating inserted data, sleep for 60 seconds...
         // This is because it takes some time before data is inserted and merged in clickhouse
-        println!("Sleeping for 60 seconds...while waiting for data to be inserted into clickhouse.");
+        println!(
+            "Sleeping for 60 seconds...while waiting for data to be inserted into clickhouse."
+        );
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         println!("Done sleeping.");
 
@@ -489,7 +564,7 @@ mod tests {
 
         // Delete timeseries when complete
         delete_timeseries(unique_id, &api_service).await;
-        delete_timeseries(unique_id+1, &api_service).await;
+        delete_timeseries(unique_id + 1, &api_service).await;
 
         Ok(())
     }
@@ -503,7 +578,10 @@ mod tests {
             rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
             rf.set_limit(100000);
             data_request.add_item(rf);
-            let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+            let result = api_service
+                .time_series
+                .retrieve_datapoints(&data_request)
+                .await;
             match result {
                 Ok(r) => {
                     assert_eq!(r.get_items().first().unwrap().datapoints.len(), 100000);
@@ -525,7 +603,7 @@ mod tests {
                             dp.value.unwrap()
                         );
                     }
-                },
+                }
                 Err(e) => {
                     eprintln!("error with datapoints fetch");
                     println!("{:?}", e.get_message());
@@ -542,14 +620,17 @@ mod tests {
             data_request.add_item(rf);
         }
 
-        let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+        let result = api_service
+            .time_series
+            .retrieve_datapoints(&data_request)
+            .await;
         match result {
             Ok(r) => {
                 assert_eq!(r.get_items().len(), 1);
                 r.get_items().iter().for_each(|item| {
                     assert_eq!(item.datapoints.len(), 200);
                 });
-            },
+            }
             Err(e) => {
                 eprintln!("error with datapoints fetch");
                 println!("{:?}", e.get_message());
@@ -566,7 +647,10 @@ mod tests {
             data_request.add_item(rf);
         }
 
-        let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+        let result = api_service
+            .time_series
+            .retrieve_datapoints(&data_request)
+            .await;
         match result {
             Ok(r) => {
                 assert_eq!(r.get_items().len(), 1);
@@ -582,7 +666,7 @@ mod tests {
                         panic!("Item missing external_id");
                     }
                 }
-            },
+            }
             Err(e) => {
                 eprintln!("error with datapoints fetch");
                 println!("{:?}", e.get_message());
@@ -594,14 +678,24 @@ mod tests {
         let delete_after_timestamp = Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap();
 
         let mut data_request: DataWrapper<DeleteFilter> = DataWrapper::new();
-        let df = DeleteFilter::from_external_id(ts_external_id.clone(), Some(delete_after_timestamp), None);
+        let df = DeleteFilter::from_external_id(
+            ts_external_id.clone(),
+            Some(delete_after_timestamp),
+            None,
+        );
         data_request.add_item(df);
 
-        let result = api_service.time_series.delete_datapoints(&data_request).await;
+        let result = api_service
+            .time_series
+            .delete_datapoints(&data_request)
+            .await;
         match result {
             Ok(r) => {
-                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::NO_CONTENT.as_u16());
-            },
+                assert_eq!(
+                    r.get_http_status_code().unwrap(),
+                    StatusCode::NO_CONTENT.as_u16()
+                );
+            }
             Err(e) => {
                 eprintln!("error with datapoints delete");
                 println!("{:?}", e.get_message());
@@ -619,11 +713,14 @@ mod tests {
         rf.set_limit(5000);
         data_request.add_item(rf);
 
-        let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+        let result = api_service
+            .time_series
+            .retrieve_datapoints(&data_request)
+            .await;
         match result {
             Ok(r) => {
                 assert_eq!(r.get_items().first().unwrap().datapoints.len(), 5000);
-            },
+            }
             Err(e) => {
                 eprintln!("error with checking datapoints left after delete");
                 println!("{:?}", e.get_message());
@@ -638,10 +735,17 @@ mod tests {
             rf.set_external_id(ts_external_id);
             rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
             rf.set_end(Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap());
-            rf.set_aggregates(vec!["avg".to_string(), "min".to_string(), "max".to_string()]);
+            rf.set_aggregates(vec![
+                "avg".to_string(),
+                "min".to_string(),
+                "max".to_string(),
+            ]);
             rf.set_granularity("1d");
             data_request.add_item(rf);
-            let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+            let result = api_service
+                .time_series
+                .retrieve_datapoints(&data_request)
+                .await;
             match result {
                 Ok(r) => {
                     if let Some(first_item) = r.get_items().first() {
@@ -675,27 +779,52 @@ mod tests {
                         if let Some(first_item) = r.get_items().first() {
                             if let Some(external_id) = &first_item.external_id {
                                 if external_id == "rust_sdk_test_6540_ts" {
-                                    if dp.timestamp() == Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap() {
+                                    if dp.timestamp()
+                                        == Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap()
+                                    {
                                         // normal avg would return 179.9514040223, but we use avgweighted over the window
-                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4516319444);
-                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 1, 22, 0, 0, 0).unwrap() {
+                                        assert_eq!(
+                                            truncate_10(dp.average().unwrap()),
+                                            179.4516319444
+                                        );
+                                    } else if dp.timestamp()
+                                        == Utc.with_ymd_and_hms(2025, 1, 22, 0, 0, 0).unwrap()
+                                    {
                                         // normal avg would return 180.0561890050
-                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.5567939814);
-                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
+                                        assert_eq!(
+                                            truncate_10(dp.average().unwrap()),
+                                            179.5567939814
+                                        );
+                                    } else if dp.timestamp()
+                                        == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap()
+                                    {
                                         // normal avg would return 179.9661931149
-                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4659953703);
+                                        assert_eq!(
+                                            truncate_10(dp.average().unwrap()),
+                                            179.4659953703
+                                        );
                                     }
                                 } else {
-                                    if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap() {
-                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4611111111);
-                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
-                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4927662037);
+                                    if dp.timestamp()
+                                        == Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap()
+                                    {
+                                        assert_eq!(
+                                            truncate_10(dp.average().unwrap()),
+                                            179.4611111111
+                                        );
+                                    } else if dp.timestamp()
+                                        == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap()
+                                    {
+                                        assert_eq!(
+                                            truncate_10(dp.average().unwrap()),
+                                            179.4927662037
+                                        );
                                     }
                                 }
                             }
                         }
                     }
-                },
+                }
                 Err(e) => {
                     eprintln!("error with datapoints fetch");
                     println!("{:?}", e.get_message());
@@ -716,7 +845,10 @@ mod tests {
         Ok(())
     }*/
 
-    async fn validate_raw_datapoints_with_cursor(api_service: &Arc<ApiService>, external_id: String) {
+    async fn validate_raw_datapoints_with_cursor(
+        api_service: &Arc<ApiService>,
+        external_id: String,
+    ) {
         println!("Validate raw datapoints with cursor...");
         let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
         let mut rf = RetrieveFilter::new();
@@ -726,7 +858,10 @@ mod tests {
         rf.set_limit(0);
         data_request.add_item(rf);
         println!("Request data... {:?}", data_request);
-        let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+        let result = api_service
+            .time_series
+            .retrieve_datapoints(&data_request)
+            .await;
         match result {
             Ok(r) => {
                 let ts = r.get_items().first().unwrap();
@@ -742,11 +877,18 @@ mod tests {
                     let mut new_data_request = data_request.clone();
                     let rf = new_data_request.get_items_mut().first_mut().unwrap();
                     rf.cursor = current_cursor.clone();
-                    let result = api_service.time_series.retrieve_datapoints(&new_data_request).await;
+                    let result = api_service
+                        .time_series
+                        .retrieve_datapoints(&new_data_request)
+                        .await;
                     match result {
                         Ok(r) => {
                             let ts = r.get_items().first().unwrap();
-                            println!("Sum datapoints for loop count:{:?} | {:?}", loop_count + 1, ts.datapoints.len());
+                            println!(
+                                "Sum datapoints for loop count:{:?} | {:?}",
+                                loop_count + 1,
+                                ts.datapoints.len()
+                            );
                             if ts.next_cursor.is_some() {
                                 current_cursor = Some(ts.next_cursor.clone().unwrap());
                             } else {
@@ -760,7 +902,7 @@ mod tests {
                             }
 
                             println!("Next cursor is {:?}", current_cursor);
-                        },
+                        }
                         Err(e) => {
                             eprintln!("error with datapoints with cursor fetch");
                             println!("{:?}", e.get_message());
@@ -772,7 +914,7 @@ mod tests {
                         break;
                     }
                 }
-            },
+            }
             Err(e) => {
                 eprintln!("error with datapoints with cursor fetch");
                 println!("{:?}", e.get_message());
@@ -792,7 +934,10 @@ mod tests {
         // Generate one datapoint for each second of the day
         for idx in 0..NUM_DATAPOINTS {
             let current_time = date + Duration::seconds(idx as i64);
-            datapoints.push(DatapointString::from_datetime(current_time, &rdm_values_vec[idx].to_string()));
+            datapoints.push(DatapointString::from_datetime(
+                current_time,
+                &rdm_values_vec[idx].to_string(),
+            ));
         }
 
         datapoints
@@ -808,8 +953,8 @@ mod tests {
         let values: Vec<f64> = content
             .split(',')
             .map(|s| s.trim())
-            .filter(|s| !s.is_empty())       // Skip empty entries
-            .filter_map(|s| s.parse::<f64>().ok())  // Ignore entries that fail to parse
+            .filter(|s| !s.is_empty()) // Skip empty entries
+            .filter_map(|s| s.parse::<f64>().ok()) // Ignore entries that fail to parse
             .collect();
 
         assert_eq!(values.len(), 60 * 24 * 3600);
@@ -841,7 +986,8 @@ mod tests {
             .set_name(new_ts_name.as_str())
             .set_description("This is test timeseries generated by rust sdk test code.")
             .set_unit("celsius")
-            .set_value_type("float").clone();
+            .set_value_type("float")
+            .clone();
         ts_collection.add_item(ts1);
 
         let result = api_service.time_series.create(&ts_collection).await;
@@ -849,7 +995,7 @@ mod tests {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
                 println!("Time series created successfully!");
-            },
+            }
             Err(e) => {
                 eprintln!("error with timeseries create");
                 println!("{:?}", e.get_message());
@@ -859,7 +1005,8 @@ mod tests {
         println!("Insert datapoints...");
 
         // Create datapoints
-        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> =
+            DataWrapper::new();
         let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id.as_str());
 
         let datetime = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
@@ -875,7 +1022,10 @@ mod tests {
         data_request.get_items_mut().push(dp_collection);
 
         println!("Start datapoint insert!");
-        let result = api_service.time_series.insert_datapoints(&mut data_request).await;
+        let result = api_service
+            .time_series
+            .insert_datapoints(&mut data_request)
+            .await;
         validate_data_insertion(result);
 
         let id_collection = IdAndExtIdCollection::from_external_id_vec(vec![&new_ts_ext_id]);
@@ -888,7 +1038,10 @@ mod tests {
             DatapointString::from_datetime(datetime - Duration::seconds(2), "178.3544091313"),
             DatapointString::from_datetime(datetime - Duration::seconds(3), "180.0000091313"),
         ];
-        let result = api_service.time_series.insert_datapoints(&mut data_request).await;
+        let result = api_service
+            .time_series
+            .insert_datapoints(&mut data_request)
+            .await;
         validate_data_insertion(result);
 
         // See if the latest data point is still the same
@@ -903,8 +1056,11 @@ mod tests {
     fn validate_data_insertion(result: Result<DataWrapper<String>, ResponseError>) {
         match result {
             Ok(r) => {
-                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
-            },
+                assert_eq!(
+                    r.get_http_status_code().unwrap(),
+                    StatusCode::CREATED.as_u16()
+                );
+            }
             Err(e) => {
                 eprintln!("error with timeseries datapoints create");
                 println!("{:?}", e.get_message());
@@ -915,18 +1071,27 @@ mod tests {
     async fn validate_latest_datapoint(
         api_service: &ApiService,
         latest_datetime: DateTime<Utc>,
-        id_collection: &IdAndExtIdCollection
+        id_collection: &IdAndExtIdCollection,
     ) {
-        let result = api_service.time_series.retrieve_latest_datapoint(&id_collection).await;
+        let result = api_service
+            .time_series
+            .retrieve_latest_datapoint(&id_collection)
+            .await;
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
                 assert_eq!(timeseries.get_items().len(), 1);
                 assert_eq!(timeseries.get_items().first().unwrap().datapoints.len(), 1);
-                let datapoint = timeseries.get_items().first().unwrap().datapoints.first().unwrap();
+                let datapoint = timeseries
+                    .get_items()
+                    .first()
+                    .unwrap()
+                    .datapoints
+                    .first()
+                    .unwrap();
                 assert_eq!(datapoint.timestamp, latest_datetime);
                 assert_eq!(datapoint.value.unwrap(), 181.3044577713);
-            },
+            }
             Err(e) => {
                 println!("{:?}", e.get_message());
                 panic!("error with timeseries retrival for latest data point");

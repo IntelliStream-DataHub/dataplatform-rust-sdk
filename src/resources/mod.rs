@@ -28,7 +28,7 @@ impl ResourceService {
         let resource_base_url = format!("{}/resources", base_url);
         Self {
             api_service,
-            base_url:   resource_base_url
+            base_url: resource_base_url,
         }
     }
 

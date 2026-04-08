@@ -122,7 +122,9 @@ async fn test_search_resources() -> Result<(), ResponseError> {
         .get_items()
         .iter()
         .all(|r| r.name.contains("test") || r.external_id.contains("test")));
-    let resulting_ids = test_data.nodes().unwrap()
+    let resulting_ids = test_data
+        .nodes()
+        .unwrap()
         .iter()
         .map(|r| IdAndExtId::from_external_id(&r.external_id))
         .collect::<Vec<IdAndExtId>>();

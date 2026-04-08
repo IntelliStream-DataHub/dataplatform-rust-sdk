@@ -148,13 +148,13 @@ def test_reject_invalid_timeseries_metadata(sync_client,value_type):
          sync_client.timeseries.delete([test_insert_ts])
 
 
-@pytest.mark.parametrize("unit", ["",None,0],marks=pytest.mark.xfail(reason="TBD what are invalid units"))
+@pytest.mark.parametrize("units", ["",None,0],marks=pytest.mark.xfail(reason="TBD what are invalid units"))
 @pytest.mark.parametrize("unit_external_id", ["",None,0],marks=pytest.mark.xfail(reason="TBD what are invalid units"))
-def test_reject_invalid_timeseries_unit(sync_client,unit,unit_external_id):
+def test_reject_invalid_timeseries_unit(sync_client,units,unit_external_id):
     with pytest.raises(ValueError):
         test_insert_ts = datahub_sdk.TimeSeries(
             name="valid name",
-            unit=unit,
+            units=units,
             unit_external_id=unit_external_id,
         )
          sync_client.timeseries.delete([test_insert_ts])

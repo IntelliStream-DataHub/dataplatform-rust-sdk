@@ -1,24 +1,29 @@
+use crate::events::EventIdentifyable;
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
 use crate::timeseries::datapoints::{
     PyDatapointString, PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
     PyRetrieveFilter,
 };
 use crate::timeseries::sync_service::PyTimeSeriesServiceSync;
-use crate::{DatahubIdentity, Identifyable, PyFieldStr, PyFieldU64, PyIdCollection, PyListFieldU64, PyMapField};
+use crate::{
+    DatahubIdentity, Identifiable, PyFieldStr, PyFieldU64, PyIdCollection, PyListFieldU64,
+    PyMapField,
+};
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
+use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
 use dataplatform_rust_sdk::generic::{
-    Datapoint, DatapointString, DatapointsCollection, DeleteFilter, RelationForm, RetrieveFilter,
+    Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RelationForm,
+    RetrieveFilter,
 };
 use dataplatform_rust_sdk::{TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pyclass;
 use pyo3::types::{PyDict, PyList, PyTuple};
-use std::collections::HashMap;
-use pyo3::exceptions::PyValueError;
-use std::str::FromStr;
 use serde::de::Unexpected::Map;
+use std::collections::HashMap;
+use std::str::FromStr;
 use strum::{Display, EnumString};
-use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
 
 pub mod async_service;
 mod construction;
@@ -26,15 +31,14 @@ pub mod datapoints;
 pub mod general;
 pub mod sync_service;
 
-
 /// Python wrapper for Timeseries objects, represents contextualization data for timeseries
 ///
 /// A timeseries is a univariate series of datapoints of the form (timestamp, value)
 ///
 /// Parameters
 /// ----------
-/// unit: str
-///     unit of the timeseries, e.g. "a.u" or "mW"
+/// units: str
+///     units of the timeseries, e.g. "a.u" or "mW"
 /// name: str | None
 ///     user defined name of the timeseries, if not provided external_id will be used
 ///     external id must be between 3 and 512 characters long.
@@ -52,17 +56,17 @@ pub mod sync_service;
 ///     a dict[str,str] of user defined metadata for semi-structured data storage
 /// description: str, default None
 ///     User defined description of the timeseries
-/// unit: str, default None
-///     unit of the timeseries, e.g. "a.u", "mW", "Liter/min this can be anything
+/// units: str, default None
+///     units of the timeseries, e.g. "a.u", "mW", "Liter/min this can be anything
 /// unit_external_id: str, default None
-///     External id for the unit of the timeseries this is used to connecto to datahub unit system.
-///     The unit system will allow you to convert between units and easily convert between unit-systems for unified storage.
+///     External id for the units of the timeseries this is used to connecto to datahub units system.
+///     The units system will allow you to convert between units and easily convert between units-systems for unified storage.
 ///
 /// security_categories: list[int], default None
 ///     Currenty not supported used.
 ///
 /// data_set_id: int
-///     the id of the dataset this timeseries belongs to
+///     the id of the datasets this timeseries belongs to
 /// relations_from: list[PyRelationFrom]
 ///     A list of other Datahub entities that are connected to this timeseries
 ///     PyRelationForm
@@ -72,7 +76,7 @@ pub mod sync_service;
 ///             a Datahub entity connected to this timeseries can be a Timeseries, Dataset, Asset or Policy
 ///
 ///
-#[pyclass(module = "datahub_python_sdk",name="TimeSeries")]
+#[pyclass(module = "datahub_python_sdk", name = "TimeSeries")]
 #[derive(Clone)]
 pub struct PyTimeSeries {
     pub inner: TimeSeries,
@@ -88,7 +92,17 @@ impl From<PyTimeSeries> for TimeSeries {
         ts.inner
     }
 }
-#[pyclass(module = "datahub_python_sdk",name="RelationFrom")]
+impl From<PyTimeSeries> for PyIdCollection {
+    fn from(value: PyTimeSeries) -> Self {
+        Self {
+            inner: IdAndExtId {
+                id: value.inner.id,
+                external_id: Some(value.inner.external_id.clone()),
+            },
+        }
+    }
+}
+#[pyclass(module = "datahub_python_sdk", name = "RelationFrom")]
 #[derive(Clone, Debug)]
 pub struct PyRelationFrom {
     pub inner: RelationForm,
@@ -109,7 +123,7 @@ impl PyRelationFrom {
     /// constructor for PyRelationFrom
     #[new]
     #[pyo3(signature=(entity, relationship_type))]
-    pub fn new(entity: Identifyable, relationship_type: String) -> Self {
+    pub fn new(entity: Identifiable, relationship_type: String) -> Self {
         let id_collection = entity.id_collection();
         Self {
             inner: RelationForm {
@@ -120,22 +134,45 @@ impl PyRelationFrom {
         }
     }
 }
-/*
-todo! implement identifyable on each datahub type and use them to id stuff
+
 #[derive(FromPyObject)]
-enum PyTimeseriesIdentifyable {
-    #[pyo3(transparent)]
-    Collection(PyIdCollection),
+pub enum PyTimeseriesIdentifiable {
     #[pyo3(transparent)]
     TimeSeries(PyTimeSeries),
-}*/
-
+    #[pyo3(transparent)]
+    Collection(PyIdCollection),
+    ExternalId(String),
+    Id(u64),
+}
+impl From<PyTimeseriesIdentifiable> for IdAndExtId {
+    fn from(value: PyTimeseriesIdentifiable) -> Self {
+        match value {
+            PyTimeseriesIdentifiable::Collection(idcoll) => idcoll.into(),
+            PyTimeseriesIdentifiable::TimeSeries(ts) => Self {
+                id: ts.id(),
+                external_id: Some(ts.external_id().to_string()),
+            },
+            PyTimeseriesIdentifiable::ExternalId(extid) => Self {
+                id: None,
+                external_id: Some(extid.to_string()),
+            },
+            PyTimeseriesIdentifiable::Id(id) => Self {
+                id: Some(id),
+                external_id: None,
+            },
+        }
+    }
+}
 /// Python wrapper for TimeseriesUpdate, represents a request for change to a timeseries
 ///
 /// Parameters
 /// ----------
 /// ts: Timeseries
-#[pyclass(module = "datahub_python_sdk",name="TimeSeriesUpdate",from_py_object)]
+#[pyclass(
+    module = "datahub_python_sdk",
+    name = "TimeSeriesUpdate",
+    from_py_object
+)]
 #[derive(Clone, Debug)]
 pub struct PyTimeSeriesUpdate {
     inner: TimeSeriesUpdate,
@@ -167,7 +204,7 @@ impl PyTimeSeriesUpdate {
         value_type=None,
     ))]
     pub fn __init__(
-        ts: Identifyable, // todo make TimeseriesIdentifyable
+        ts: Identifiable, // todo make TimeseriesIdentifyable
         external_id: Option<PyFieldStr>,
         name: Option<PyFieldStr>,
         metadata: Option<PyMapField>,
@@ -181,16 +218,16 @@ impl PyTimeSeriesUpdate {
     ) -> PyResult<Self> {
         let id_collection = ts.id_collection();
         let update = TimeSeriesUpdateFields {
-            external_id:external_id.map(|s|s.0).unwrap_or_default(),
-            name:name.map(|s|s.0).unwrap_or_default(),
-            metadata:metadata.map(|s|s.0).unwrap_or_default(),
-            unit:unit.map(|s|s.0).unwrap_or_default(),
-            description:description.map(|s|s.0).unwrap_or_default(),
-            unit_external_id:unit_external_id.map(|s|s.0).unwrap_or_default(),
-            security_categories:security_categories.map(|s|s.0).unwrap_or_default(),
-            data_set_id:data_set_id.map(|s|s.0).unwrap_or_default(),
-            relations_from:relations_from.map(|s|s.0).unwrap_or_default(),
-            value_type: Field::new(value_type.map(|s|s.to_string()),false)
+            external_id: external_id.map(|s| s.0).unwrap_or_default(),
+            name: name.map(|s| s.0).unwrap_or_default(),
+            metadata: metadata.map(|s| s.0).unwrap_or_default(),
+            unit: unit.map(|s| s.0).unwrap_or_default(),
+            description: description.map(|s| s.0).unwrap_or_default(),
+            unit_external_id: unit_external_id.map(|s| s.0).unwrap_or_default(),
+            security_categories: security_categories.map(|s| s.0).unwrap_or_default(),
+            data_set_id: data_set_id.map(|s| s.0).unwrap_or_default(),
+            relations_from: relations_from.map(|s| s.0).unwrap_or_default(),
+            value_type: Field::new(value_type.map(|s| s.to_string()), false),
         };
         Ok(Self {
             inner: TimeSeriesUpdate {
@@ -201,77 +238,54 @@ impl PyTimeSeriesUpdate {
         })
     }
     #[getter]
-    fn target_external_id(&self) -> Option<&str>{
+    fn target_external_id(&self) -> Option<&str> {
         self.inner.external_id.as_deref()
     }
     #[getter]
-    fn target_id(&self) -> Option<u64>{
+    fn target_id(&self) -> Option<u64> {
         self.inner.id
     }
     #[getter]
-    fn external_id(&self) ->  PyFieldStr{
+    fn external_id(&self) -> PyFieldStr {
         self.inner.update.external_id.clone().into()
     }
     #[getter]
-    fn name(&self) -> PyFieldStr{
+    fn name(&self) -> PyFieldStr {
         self.inner.update.name.clone().into()
     }
     #[getter]
-    fn metadata(&self) ->  PyMapField{
+    fn metadata(&self) -> PyMapField {
         self.inner.update.metadata.clone().into()
     }
     #[getter]
-    fn unit(&self) ->  PyFieldStr{
+    fn unit(&self) -> PyFieldStr {
         self.inner.update.unit.clone().into()
     }
     #[getter]
-    fn description(&self) ->  PyFieldStr{
+    fn description(&self) -> PyFieldStr {
         self.inner.update.description.clone().into()
     }
     #[getter]
-    fn unit_external_id(&self) ->  PyFieldStr{
+    fn unit_external_id(&self) -> PyFieldStr {
         self.inner.update.unit_external_id.clone().into()
     }
     #[getter]
-    fn security_categories(&self) ->  PyListFieldU64{
+    fn security_categories(&self) -> PyListFieldU64 {
         self.inner.update.security_categories.clone().into()
     }
     #[getter]
-    fn data_set_id(&self) ->  PyFieldU64{
+    fn data_set_id(&self) -> PyFieldU64 {
         self.inner.update.data_set_id.clone().into()
     }
     #[getter]
-    fn relations_from(&self) ->  PyListFieldU64{
+    fn relations_from(&self) -> PyListFieldU64 {
         self.inner.update.relations_from.clone().into()
     }
     #[getter]
-    fn value_type(&self) ->  Option<&String>{
+    fn value_type(&self) -> Option<&String> {
         self.inner.update.value_type.set.as_ref()
     }
 }
-
-
-
-
-/*
-impl<'a, 'py> FromPyObject<'a, 'py> for Wrap<MapField> {
-    type Error = PyErr;
-    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let dict = obj.cast::<PyDict>()?;
-        let mut map_field = MapField::new();
-        if let Some(remove) = dict.get_item("remove")? {
-            map_field.remove(remove.extract::<Vec<String>>()?);
-        }
-        if let Some(add) = dict.get_item("add")? {
-            map_field.add(add.extract::<HashMap<String, String>>()?);
-        }
-        if let Some(set) = dict.get_item("set")? {
-            map_field.set(set.extract::<HashMap<String, String>>()?);
-        }
-        Ok(Wrap(map_field))
-    }
-}*/
-
 
 /// Python wrapper for DeleteFilter, represents a request for deleting datapoints
 ///
@@ -279,7 +293,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Wrap<MapField> {
 /// ----------
 ///
 ///
-#[pyclass(module = "datahub_python_sdk",name="DeleteFilter")]
+#[pyclass(module = "datahub_python_sdk", name = "DeleteFilter")]
 #[derive(Clone, Debug)]
 pub struct PyDeleteFilter {
     inner: DeleteFilter,
@@ -300,7 +314,7 @@ impl PyDeleteFilter {
     #[new]
     #[pyo3(signature=(ts, inclusive_begin=None, exclusive_end=None))]
     pub fn new(
-        ts: Identifyable,
+        ts: Identifiable,
         inclusive_begin: Option<DateTime<FixedOffset>>,
         exclusive_end: Option<DateTime<FixedOffset>>,
     ) -> Self {
@@ -331,9 +345,6 @@ impl PyDeleteFilter {
         self.inner.exclusive_end.map(|d| d.with_timezone(&Utc))
     }
 }
-
-
-
 
 /// Enumerator for the datatype of a timeseries.
 ///

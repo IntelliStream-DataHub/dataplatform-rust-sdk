@@ -1,6 +1,6 @@
 use crate::timeseries::datapoints::{PyDatapointString, PyDatapointsCollectionString};
 use crate::timeseries::{PyRelationFrom, PyTimeSeries, ValueType};
-use crate::{DatahubIdentity, Identifyable};
+use crate::{DatahubIdentity, Identifiable};
 use dataplatform_rust_sdk::TimeSeries;
 use dataplatform_rust_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
 use dataplatform_rust_sdk::generic::{DatapointString, DatapointsCollection, RelationForm};
@@ -88,14 +88,14 @@ impl PyDatapointsCollectionString {
     #[pyo3(signature=(datapoints,ts))]
     pub fn new(
         datapoints: Vec<PyDatapointString>,
-        ts: Identifyable,
+        ts: Identifiable,
     ) -> PyDatapointsCollectionString {
         let datapoints: Vec<DatapointString> = datapoints
             .into_iter()
             .map(|datapoint| datapoint.into())
             .collect();
 
-        if let Identifyable::TimeSeries(ts) = ts {
+        if let Identifiable::TimeSeries(ts) = ts {
             let inner: DatapointsCollection<DatapointString> = DatapointsCollection {
                 datapoints,
                 next_cursor: None,
