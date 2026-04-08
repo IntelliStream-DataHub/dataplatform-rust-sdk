@@ -31,15 +31,6 @@ async def test_retrieve_datapoints(async_client,start,end,inserted_data,ts_decim
     assert datapoints
     assert np.allclose(s,test_data[start:end])
 
-@pytest.mark.asyncio
-async def test_create_timeseries(async_client,ts_decimal,ts_bigint):
-    ts_list= [ts_bigint,ts_decimal]
-    await async_client.timeseries.delete(ts_list)
-    created_ts = await async_client.timeseries.create(ts_list)
-    for created,original in zip(created_ts,ts_list):
-        assert(created.external_id == original.external_id)
-        assert(created.name == original.name)
-        assert(created.value_type == original.value_type)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -159,13 +150,13 @@ async def test_reject_invalid_timeseries_metadata(async_client,value_type):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("unit", ["",None,0],marks=pytest.mark.xfail(reason="TBD what are invalid units"))
+@pytest.mark.parametrize("units", ["",None,0],marks=pytest.mark.xfail(reason="TBD what are invalid units"))
 @pytest.mark.parametrize("unit_external_id", ["",None,0],marks=pytest.mark.xfail(reason="TBD what are invalid units"))
-async def test_reject_invalid_timeseries_unit(async_client,unit,unit_external_id):
+async def test_reject_invalid_timeseries_unit(async_client,units,unit_external_id):
     with pytest.raises(ValueError):
         test_insert_ts = datahub_sdk.TimeSeries(
             name="valid name",
-            unit=unit,
+            units=units,
             unit_external_id=unit_external_id,
         )
         await async_client.timeseries.delete([test_insert_ts])

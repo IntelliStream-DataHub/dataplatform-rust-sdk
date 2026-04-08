@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use crate::PyEvent;
 use chrono::{DateTime, Utc};
 use pyo3::pymethods;
+use std::collections::HashMap;
 use uuid::Uuid;
-use crate::PyEvent;
 
 #[pymethods]
 impl PyEvent {
@@ -20,35 +20,36 @@ impl PyEvent {
     source=None,
     event_time=None,
     ))]
-    pub fn new(
-       external_id: String,
-       metadata: Option<HashMap<String, String>>,
-       description: Option<String>,
-       r#type: Option<String>,
-       sub_type: Option<String>,
-       status: Option<String>,
-       data_set_id: Option<u64>,
-       related_resource_ids: Option<Vec<u64>>,
-       related_resource_external_ids: Option<Vec<String>>,
-       source: Option<String>,
-       event_time: Option<DateTime<Utc>>) -> Self {
+    pub fn __init__(
+        external_id: String,
+        metadata: Option<HashMap<String, String>>,
+        description: Option<String>,
+        r#type: Option<String>,
+        sub_type: Option<String>,
+        status: Option<String>,
+        data_set_id: Option<u64>,
+        related_resource_ids: Option<Vec<u64>>,
+        related_resource_external_ids: Option<Vec<String>>,
+        source: Option<String>,
+        event_time: Option<DateTime<Utc>>,
+    ) -> Self {
         let mut ev = dataplatform_rust_sdk::Event::new(external_id);
-        ev.metadata=metadata;
-        ev.description=description;
-        ev.r#type=r#type;
-        ev.sub_type=sub_type;
-        ev.status=status;
-        ev.data_set_id=data_set_id;
+        ev.metadata = metadata;
+        ev.description = description;
+        ev.r#type = r#type;
+        ev.sub_type = sub_type;
+        ev.status = status;
+        ev.data_set_id = data_set_id;
 
-        ev.data_set_id=data_set_id;
-        ev.related_resource_ids=related_resource_ids.unwrap_or_default();
-        ev.related_resource_external_ids=related_resource_external_ids.unwrap_or_default();
-        ev.source=source;
-        ev.event_time=event_time;
-        Self { inner:ev }
+        ev.data_set_id = data_set_id;
+        ev.related_resource_ids = related_resource_ids.unwrap_or_default();
+        ev.related_resource_external_ids = related_resource_external_ids.unwrap_or_default();
+        ev.source = source;
+        ev.event_time = event_time;
+        Self { inner: ev }
     }
     #[getter]
-    pub fn id(&self) -> Option<String>{
+    pub fn id(&self) -> Option<String> {
         self.inner.get_id().map(ToString::to_string)
     }
 

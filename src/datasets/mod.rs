@@ -1,19 +1,22 @@
 #[cfg(test)]
 mod tests;
 
-use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, RelationForm, SearchAndFilterForm, SearchForm};
-use crate::http::ResponseError;
-use crate::ApiService;
-use chrono::{DateTime, FixedOffset, Utc};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, Weak};
-use maplit::hashmap;
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::fields::{Field, ListField, MapField};
 use crate::filters::{AdvancedEventFilter, BasicEventFilter, TimeFilter};
+use crate::generic::{
+    ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, RelationForm, SearchAndFilterForm,
+    SearchForm,
+};
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
+use crate::http::ResponseError;
 use crate::resources::ResourceUpdateFields;
+use crate::ApiService;
+use chrono::{DateTime, FixedOffset, Utc};
+use maplit::hashmap;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Weak};
 
 pub struct DatasetsService {
     pub(crate) api_service: Weak<ApiService>,
@@ -36,7 +39,7 @@ impl DatasetsService {
 
     pub async fn create<I>(&self, data: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
-            for<'a> &'a I: Into<DataWrapper<Dataset>>,
+        for<'a> &'a I: Into<DataWrapper<Dataset>>,
     {
         let dw = data.into();
         let path = &format!("{}/create", self.base_url);
@@ -46,27 +49,33 @@ impl DatasetsService {
 
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
-            for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
+        for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
     {
         let path = &format!("{}/delete", self.base_url);
         self.execute_post_request(path, &json.into()).await
     }
 
-    pub async fn filter(&self, filter: &DatasetFilter) -> Result<DataWrapper<Dataset>, ResponseError> {
+    pub async fn filter(
+        &self,
+        filter: &DatasetFilter,
+    ) -> Result<DataWrapper<Dataset>, ResponseError> {
         let path = &format!("{}/filter", self.base_url);
         self.execute_post_request(path, &filter).await
     }
 
     pub async fn by_ids<I>(&self, id_collection: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
-            for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
+        for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
     {
         let path = &format!("{}/byids", self.base_url);
         self.execute_post_request::<DataWrapper<Dataset>, _>(path, &id_collection.into())
             .await
     }
 
-    pub async fn search(&self, search: &DatasetSearch) -> Result<DataWrapper<Dataset>, ResponseError> {
+    pub async fn search(
+        &self,
+        search: &DatasetSearch,
+    ) -> Result<DataWrapper<Dataset>, ResponseError> {
         let path = &format!("{}/filter", self.base_url);
         self.execute_post_request(path, &search).await
     }
@@ -87,14 +96,14 @@ pub struct Dataset {
     pub id: Option<u64>,
     //@NotNull
     //@Size(min= 3, max = 256)
-    pub  external_id:String,
+    pub external_id: String,
     //@NotNull
     //3, max = 512)
     pub name: String,
     pub description: Option<String>,
-    pub policies :Option<Vec<String>>,
+    pub policies: Option<Vec<String>>,
     pub metadata: HashMap<String, String>,
-    pub connected_data_sets:Vec<u64>,
+    pub connected_data_sets: Vec<u64>,
     pub created_time: Option<DateTime<FixedOffset>>,
     pub last_updated_time: Option<DateTime<FixedOffset>>,
 }
@@ -107,11 +116,11 @@ impl GraphNode for Dataset {}
 
 impl Dataset {
     pub fn new(name: String) -> Self {
-        // creates an empty dataset with external id given by snake_case of name.
+        // creates an empty datasets with external id given by snake_case of name.
         Dataset {
             id: None,
             external_id: to_snake_lower_cased_allow_start_with_digits(&name),
-            metadata: hashmap!{},
+            metadata: hashmap! {},
             description: None,
             name,
             policies: None,
@@ -121,21 +130,21 @@ impl Dataset {
             last_updated_time: None,
         }
     }
-    pub fn add_metadata(&mut self, key: String, value: String){
+    pub fn add_metadata(&mut self, key: String, value: String) {
         self.metadata.insert(key, value);
     }
     pub fn remove_metadata(&mut self, key: String) {
         self.metadata.remove(&key);
     }
-    pub fn set_name(&mut self, name: String)-> &mut Self {
+    pub fn set_name(&mut self, name: String) -> &mut Self {
         self.name = name;
         self
     }
-    pub fn set_metadata(&mut self, metadata: HashMap<String, String>) -> &mut Self{
+    pub fn set_metadata(&mut self, metadata: HashMap<String, String>) -> &mut Self {
         self.metadata = metadata;
         self
     }
-    pub fn set_policies(&mut self, policies: Vec<String>) -> &mut Self{
+    pub fn set_policies(&mut self, policies: Vec<String>) -> &mut Self {
         self.policies = Some(policies);
         self
     }
@@ -151,15 +160,17 @@ impl Dataset {
     pub fn external_id(&self) -> &String {
         &self.external_id
     }
-    pub fn set_external_id(&mut self, external_id: String)-> &mut Self {
+    pub fn set_external_id(&mut self, external_id: String) -> &mut Self {
         self.external_id = external_id;
         self
     }
     pub fn metadata(&self) -> &HashMap<String, String> {
         &self.metadata
     }
-    pub fn description(&self) -> Option<&String> { self.description.as_ref() }
-    pub fn set_description(&mut self, description: String) -> &mut Self{
+    pub fn description(&self) -> Option<&String> {
+        self.description.as_ref()
+    }
+    pub fn set_description(&mut self, description: String) -> &mut Self {
         self.description = Some(description);
         self
     }
@@ -205,18 +216,21 @@ pub struct DatasetFilter {
 }
 
 impl DatasetFilter {
-    pub fn set_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self{
+    pub fn set_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self {
         self.filter = filter;
         self
     }
-    pub(crate) fn set_advanced_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self{
+    pub(crate) fn set_advanced_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self {
         self.filter = filter;
         self
     }
-    pub fn set_limit (&mut self, limit: usize) -> &mut Self {
+    pub fn set_limit(&mut self, limit: usize) -> &mut Self {
         self.limit = limit;
         self
-    }pub fn cursor(&self) -> Option<&String> { self.cursor.as_ref() }
+    }
+    pub fn cursor(&self) -> Option<&String> {
+        self.cursor.as_ref()
+    }
     pub fn new() -> Self {
         Self {
             filter: BasicDatasetFilter::new(),
@@ -241,7 +255,6 @@ pub struct BasicDatasetFilter {
     description: Option<String>,
     policies: Option<Vec<String>>,
     active: Option<bool>,
-
 }
 
 impl BasicDatasetFilter {
@@ -322,7 +335,9 @@ impl DatasetSearch {
         self.limit = limit;
         self
     }
-    pub fn cursor(&self) -> Option<&String> { self.cursor.as_ref() }
+    pub fn cursor(&self) -> Option<&String> {
+        self.cursor.as_ref()
+    }
     pub fn build(&self) -> Self {
         self.clone()
     }
