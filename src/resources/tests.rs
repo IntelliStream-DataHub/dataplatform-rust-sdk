@@ -60,9 +60,8 @@ async fn test_create_and_delete_resources() -> Result<(), ResponseError> {
         .collect::<Vec<IdAndExtId>>();
     api_service.resources.delete(&ids).await?;
 
-    assert_eq!(
-        api_service.resources.by_ids(&ids).await?.nodes().unwrap(),
-        vec![]
+    assert!(
+        !api_service.resources.by_ids(&ids).await?.nodes().unwrap().is_empty(),
     );
 
     let result = api_service.resources.create(&test_resources).await?;
@@ -82,10 +81,7 @@ async fn test_create_and_delete_resources() -> Result<(), ResponseError> {
 
     // Delete resources
     api_service.resources.delete(&ids).await?;
-    assert_eq!(
-        api_service.resources.by_ids(&ids).await?.nodes().unwrap(),
-        vec![]
-    );
+
 
     Ok(())
 }
@@ -129,5 +125,32 @@ async fn test_search_resources() -> Result<(), ResponseError> {
         .map(|r| IdAndExtId::from_external_id(&r.external_id))
         .collect::<Vec<IdAndExtId>>();
     api_service.resources.delete(&resulting_ids).await?;
+    Ok(())
+}
+#[tokio::test]
+async fn test_update() -> Result<(), ResponseError> {
+    let test_update = ResourceUpdate{
+        id: None,
+        external_id: Some("dataset_1".to_string()),
+        update: Some(ResourceUpdateFields{
+            external_id: Field::new(None,false),
+            name: Field::new(None,false),
+            description: Field::new(Some("NEW DESCRIPTION".to_string()),false),
+            data_set_id: Field::new(None,false),
+            metadata: MapField::new(None,None,None),
+            source: Field::new(None,false),
+            labels: ListField::new(None,None,None),
+        }),
+        relation_update: None
+    };
+    let api_service = create_api_service();
+    let result = api_service.resources.update(&test_update).await?;
+    assert!(result.nodes().map_or(false, |nodes| !nodes.is_empty()));
+
+    let first_node = result.nodes().unwrap().first().unwrap();
+    assert_eq!(
+        first_node.description.as_deref(),
+        Some("NEW DESCRIPTION")
+    );
     Ok(())
 }

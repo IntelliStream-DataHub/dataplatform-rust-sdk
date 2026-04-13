@@ -69,11 +69,11 @@ impl ResourceService {
         self.execute_post_request::<DataWrapper<Resource>, _>(&url, &payload)
             .await
     }
-    pub async fn update<I>(&self, input: &I) -> Result<DataWrapper<Resource>, ResponseError>
+    pub async fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
     where
         for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
     {
-        todo!();
+
 
         let payload = input.into();
         let token = self.get_token().await?;
@@ -91,7 +91,7 @@ impl ResourceService {
                 status: e.status().unwrap(),
                 message: e.to_string(),
             })?;
-        process_response::<DataWrapper<Resource>>(response, url).await
+        process_response::<GraphDataWrapper<Resource>>(response, url).await
     }
     //
 }
@@ -149,7 +149,10 @@ impl Identifiable for Resource {
     }
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceUpdate {
+    pub id: Option<u64>,
+    pub external_id: Option<String>,
     //todo!()
     pub update: Option<ResourceUpdateFields>,
     pub relation_update: Option<Vec<String>>,

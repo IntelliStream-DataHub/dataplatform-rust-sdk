@@ -28,8 +28,8 @@ impl<T: GraphNode> GraphDataWrapper<T> {
             http_status_code: None,
         }
     }
-    pub fn nodes(&self) -> Option<Vec<T>> {
-        self.nodes.clone()
+    pub fn nodes(&self) -> Option<&Vec<T>> {
+        self.nodes.as_ref()
     }
     pub fn relations(&self) -> Option<&Vec<RelationForm>> {
         self.relations.as_ref()
