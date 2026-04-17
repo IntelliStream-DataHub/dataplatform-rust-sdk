@@ -1,4 +1,10 @@
+pub mod listen;
 mod test;
+
+pub use listen::{
+    DataCollectionString, DataWrapperMessage, EventAction, EventObject, ListenError,
+    SubscriptionListener, SubscriptionMessage, WsDatapoint,
+};
 
 use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId};
 use crate::http::ResponseError;
@@ -45,6 +51,21 @@ impl SubscriptionsService {
     {
         let path = &format!("{}/delete", self.base_url);
         self.execute_post_request(path, &json.into()).await
+    }
+
+    /// Open a WebSocket listener for the named subscription's fan-out topic. Returns a
+    /// [`SubscriptionListener`] the caller drives with `next` / `ack` / `nack` / `close`.
+    /// The handshake uses the bearer token currently cached in the API service.
+    pub async fn listen(
+        &self,
+        subscription_external_id: &str,
+    ) -> Result<SubscriptionListener, ListenError> {
+        let token = self
+            .get_token()
+            .await
+            .map_err(|e| ListenError::Request(format!("failed to get api token: {}", e.get_message())))?;
+        let ws_url = listen::build_ws_url(&self.base_url, subscription_external_id)?;
+        SubscriptionListener::connect(&ws_url, &token).await
     }
 }
 

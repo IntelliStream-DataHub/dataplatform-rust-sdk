@@ -30,7 +30,11 @@ mod subscriptions;
 mod tests;
 pub use resources::Resource;
 pub use events::Event;
-pub use subscriptions::{Subscription, SubscriptionFilter, SubscriptionRetriever, DataSort};
+pub use subscriptions::{
+    DataCollectionString, DataSort, DataWrapperMessage, EventAction, EventObject, ListenError,
+    Subscription, SubscriptionFilter, SubscriptionListener, SubscriptionMessage,
+    SubscriptionRetriever, WsDatapoint,
+};
 pub use timeseries::TimeSeries;
 //pub use filters::Filter;
 

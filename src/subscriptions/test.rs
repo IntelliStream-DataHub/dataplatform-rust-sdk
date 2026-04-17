@@ -1,7 +1,11 @@
 #[cfg(test)]
 mod tests {
     use crate::generic::{IdAndExtId, IdAndExtIdCollection};
-    use crate::subscriptions::{DataSort, Subscription, SubscriptionFilter, SubscriptionRetriever};
+    use crate::subscriptions::listen::build_ws_url;
+    use crate::subscriptions::{
+        DataSort, EventAction, EventObject, Subscription, SubscriptionFilter, SubscriptionMessage,
+        SubscriptionRetriever,
+    };
     use crate::timeseries::TimeSeries;
     use crate::{create_api_service, ApiService};
     use uuid::Uuid;
@@ -174,5 +178,153 @@ mod tests {
         // Clean up supporting timeseries.
         delete_timeseries(&api_service, ts_ids).await;
         Ok(())
+    }
+
+    #[test]
+    fn test_build_ws_url_http_to_ws() {
+        let url = build_ws_url("http://localhost:8081/subscriptions", "sub_ext_id").unwrap();
+        assert_eq!(url, "ws://localhost:8081/subscriptions/listen/sub_ext_id");
+    }
+
+    #[test]
+    fn test_build_ws_url_https_to_wss() {
+        let url = build_ws_url("https://api.example.com/subscriptions", "my_sub").unwrap();
+        assert_eq!(url, "wss://api.example.com/subscriptions/listen/my_sub");
+    }
+
+    #[test]
+    fn test_build_ws_url_rejects_unknown_scheme() {
+        assert!(build_ws_url("ftp://example.com/subscriptions", "x").is_err());
+    }
+
+    // Deserialize a realistic server frame — SubscriptionWebSocketHandler::sendBatch always
+    // wraps messages in `{ "messages": [...] }` with a base64 messageId and a DataWrapperMessage
+    // payload. If this parses, the wire contract lines up with the backend.
+    #[test]
+    fn test_server_frame_deserialize() {
+        let wire = serde_json::json!({
+            "messages": [
+                {
+                    "messageId": "CAEQABgAIAA",
+                    "payload": {
+                        "eventAction": "CREATE",
+                        "eventObject": "DATAPOINTS",
+                        "tenantId": "tenant-1",
+                        "items": [
+                            {
+                                "id": 30,
+                                "externalId": "heater_2012_temp",
+                                "valueType": "float",
+                                "inclusiveBegin": null,
+                                "exclusiveEnd": null,
+                                "datapoints": [
+                                    {"timestamp": "2026-04-18T12:00:00Z", "value": "21.5"},
+                                    {"timestamp": "1723759200000", "value": "22.0"}
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
+
+        // Batch wrapper is private — deserialize one element at a time via SubscriptionMessage.
+        let arr = wire["messages"].as_array().unwrap();
+        let msg: SubscriptionMessage = serde_json::from_value(arr[0].clone()).unwrap();
+        assert_eq!(msg.message_id, "CAEQABgAIAA");
+        assert_eq!(msg.payload.event_action, EventAction::Create);
+        assert_eq!(msg.payload.event_object, EventObject::Datapoints);
+        assert_eq!(msg.payload.tenant_id.as_deref(), Some("tenant-1"));
+        assert_eq!(msg.payload.items.len(), 1);
+        let coll = &msg.payload.items[0];
+        assert_eq!(coll.id, Some(30));
+        assert_eq!(coll.external_id.as_deref(), Some("heater_2012_temp"));
+        assert_eq!(coll.datapoints.len(), 2);
+        assert_eq!(coll.datapoints[0].value, "21.5");
+    }
+
+    #[test]
+    fn test_event_object_resource_and_relation_snake() {
+        // The odd enum — the Java side uses UPPER_SNAKE for this variant, others are single-word UPPER.
+        let v: EventObject = serde_json::from_value(serde_json::json!("RESOURCE_AND_RELATION")).unwrap();
+        assert_eq!(v, EventObject::ResourceAndRelation);
+        let back = serde_json::to_value(&v).unwrap();
+        assert_eq!(back, serde_json::json!("RESOURCE_AND_RELATION"));
+    }
+
+    // End-to-end: requires backend consumer running so datapoints written via the REST API are
+    // fanned out over Pulsar to the subscription topic. Ignored by default. Run with:
+    //   cargo test subscriptions::test::tests::test_subscription_listen_end_to_end -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn test_subscription_listen_end_to_end() -> Result<(), Box<dyn std::error::Error>> {
+        use chrono::Utc;
+        use std::time::Duration;
+
+        let api_service = create_api_service();
+        let suffix = Uuid::new_v4().simple().to_string();
+        let ts_ext = format!("sub_listen_ts_{}", &suffix[..8]);
+        let sub_ext = format!("sub_listen_{}", &suffix[..8]);
+
+        let mut ts = TimeSeries::new(&ts_ext, "Sub Listen TS");
+        ts.set_unit("Celsius").set_unit_external_id("temperature_deg_c");
+        api_service.time_series.create_from_list(&vec![ts]).await?;
+
+        let sub = Subscription::new(
+            sub_ext.clone(),
+            format!("Sub Listen {}", &suffix[..8]),
+            vec![IdAndExtId::from_external_id(&ts_ext)],
+        );
+        api_service.subscriptions.create(&sub).await?;
+
+        // Open listener before writing datapoints so we catch the fan-out.
+        let mut listener = api_service.subscriptions.listen(&sub_ext).await?;
+
+        // Write a datapoint to the subscribed timeseries. The consumer fans it out to the
+        // subscription topic; we expect it on the listener.
+        api_service
+            .time_series
+            .insert_datapoint(None, Some(ts_ext.clone()), Utc::now(), "42.0".to_string())
+            .await?;
+
+        // Wait up to ~10s for the datapoint to land.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let mut received: Option<SubscriptionMessage> = None;
+        while tokio::time::Instant::now() < deadline {
+            tokio::select! {
+                maybe = listener.next() => {
+                    if let Some(Ok(msg)) = maybe {
+                        received = Some(msg);
+                        break;
+                    }
+                }
+                _ = tokio::time::sleep(Duration::from_millis(200)) => {}
+            }
+        }
+        let msg = received.expect("no message arrived before the deadline");
+        assert_eq!(msg.payload.event_object, EventObject::Datapoints);
+        assert_eq!(msg.payload.event_action, EventAction::Create);
+        listener.ack(&[msg.message_id.as_str()]).await?;
+
+        listener.close().await?;
+        api_service
+            .subscriptions
+            .delete(&IdAndExtId::from_external_id(&sub_ext))
+            .await?;
+        let mut ts_coll = IdAndExtIdCollection::new();
+        ts_coll.set_items(vec![IdAndExtId::from_external_id(&ts_ext)]);
+        let _ = api_service.time_series.delete(&ts_coll).await;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn _require_send<T: Send>(_: &T) {}
+
+    // Compile-time check: the returned listener is Send so it can be moved to other tasks.
+    #[allow(dead_code)]
+    async fn _listener_is_send() {
+        let api_service = create_api_service();
+        let listener = api_service.subscriptions.listen("x").await.unwrap();
+        _require_send(&listener);
     }
 }
