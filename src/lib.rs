@@ -8,6 +8,7 @@ use crate::datahub::DataHubApi;
 pub use crate::events::EventsService;
 pub use crate::files::FileService;
 pub use crate::resources::ResourceService;
+pub use crate::subscriptions::SubscriptionsService;
 pub use crate::timeseries::{TimeSeriesService};
 pub use crate::unit::{UnitsService};
 
@@ -24,10 +25,12 @@ mod serde_helper;
 mod errors;
 mod resources;
 mod graph_data_wrapper;
+mod subscriptions;
 #[cfg(test)]
 mod tests;
 pub use resources::Resource;
 pub use events::Event;
+pub use subscriptions::{Subscription, SubscriptionFilter, SubscriptionRetriever, DataSort};
 pub use timeseries::TimeSeries;
 //pub use filters::Filter;
 
@@ -38,6 +41,7 @@ pub struct ApiService{
     pub events: EventsService,
     pub resources: ResourceService,
     pub files: FileService,
+    pub subscriptions: SubscriptionsService,
     http_client: Client,
 }
 
@@ -65,6 +69,7 @@ pub fn create_api_service() -> Rc<ApiService> {
             events: EventsService::new ( Weak::clone(weak_self), &base_url_clone ),
             resources: ResourceService::new (Weak::clone(weak_self), base_url_clone.clone() ),
             files: FileService::new ( Weak::clone(weak_self), &base_url_clone ),
+            subscriptions: SubscriptionsService::new ( Weak::clone(weak_self), &base_url_clone ),
             http_client,
         }
     });

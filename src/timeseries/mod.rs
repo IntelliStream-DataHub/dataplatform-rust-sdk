@@ -276,9 +276,9 @@ pub struct TimeSeries {
     pub last_updated_time: Option<DateTime<Utc>>,
     #[serde(rename = "relationsFrom")]
     pub relations_from: Vec<RelationForm>,
-    #[serde(rename = "isString")]
+    #[serde(rename = "isString", default)]
     pub is_string: bool,
-    #[serde(rename = "isStep")]
+    #[serde(rename = "isStep", default)]
     pub is_step: bool
 }
 

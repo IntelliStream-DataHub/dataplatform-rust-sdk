@@ -10,6 +10,7 @@ use crate::{ApiService};
 use crate::events::{EventsService};
 use crate::files::{FileService};
 use crate::http::{process_response, ResponseError};
+use crate::subscriptions::SubscriptionsService;
 use crate::timeseries::{TimeSeriesService};
 use crate::unit::{UnitsService};
 
@@ -686,6 +687,12 @@ impl ApiServiceProvider for EventsService {
 }
 
 impl ApiServiceProvider for FileService {
+    fn api_service(&self) -> &Weak<ApiService> {
+        &self.api_service
+    }
+}
+
+impl ApiServiceProvider for SubscriptionsService {
     fn api_service(&self) -> &Weak<ApiService> {
         &self.api_service
     }
