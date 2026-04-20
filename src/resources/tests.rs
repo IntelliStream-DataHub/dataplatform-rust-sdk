@@ -59,10 +59,8 @@ async fn test_create_and_delete_resources() -> Result<(), ResponseError> {
         .map(|r| IdAndExtId::from_external_id(&r.external_id))
         .collect::<Vec<IdAndExtId>>();
     api_service.resources.delete(&ids).await?;
-
-    assert!(
-        !api_service.resources.by_ids(&ids).await?.nodes().unwrap().is_empty(),
-    );
+    // cleanup before start
+    assert!(api_service.resources.by_ids(&ids).await?.nodes().unwrap().is_empty(),);
 
     let result = api_service.resources.create(&test_resources).await?;
     let res_ids = result

@@ -187,8 +187,8 @@ impl Event {
         self.data_set_id.as_ref()
     }
 
-    pub fn set_data_set_id(&mut self, data_set_id: u64) {
-        self.data_set_id = Some(data_set_id);
+    pub fn set_data_set_id(&mut self, data_set_id: Option<u64>) {
+        self.data_set_id = data_set_id;
     }
 
     pub fn get_description(&self) -> Option<&str> {

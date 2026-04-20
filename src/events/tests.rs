@@ -1,7 +1,7 @@
 use crate::datasets::Dataset;
 use crate::events::Event;
 use crate::filters::{BasicEventFilter, EventFilter, TimeFilter};
-use crate::generic::{IdAndExtId, IdAndExtIdCollection};
+use crate::generic::{ApiServiceProvider, IdAndExtId, IdAndExtIdCollection};
 use crate::{create_api_service, ApiService};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use futures::StreamExt;
@@ -24,7 +24,7 @@ async fn delete_events(api_service: &ApiService, events: Vec<IdAndExtId>) {
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 }
 
-fn create_test_events() -> Vec<Event> {
+fn create_test_events(dataset: Dataset) -> Vec<Event> {
     let unique_id: u64 = 7110;
     let total_events = 89;
     let mut external_ids: Vec<String> = vec![];
@@ -48,7 +48,7 @@ fn create_test_events() -> Vec<Event> {
                 ((i as f64 * 0.5).sin().abs() * 10.0).to_string(),
             ),
         ]));
-        new_event.set_data_set_id(1);
+        new_event.set_data_set_id(dataset.id);
         new_event.event_time = Option::from(event_time);
         new_event.r#type = Option::from("pump".to_string());
         if i % 3 == 0 {
@@ -115,12 +115,14 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
                 .iter()
                 .all(|e| lhs.iter().any(|r| r.external_id == e.external_id))
     } // helper function. Events derive PartialEq but that doesnt really work whe id is None.
+    let api_service = create_api_service();
 
-    let mut test_events = create_test_events();
+    let test_dataset = api_service.datasets.create(&Dataset::new("Test_dataset".to_string())).await?.get_items().first().unwrap().clone();
+
+    let mut test_events = create_test_events(test_dataset.clone());
 
     let mut basic_filter = BasicEventFilter::default();
     let mut eventfilter = EventFilter::new();
-    let api_service = create_api_service();
     let max_time = DateTime::parse_from_rfc3339("2025-09-06T06:08:00Z")
         .unwrap()
         .to_utc();
@@ -345,5 +347,8 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
 
     // cleanup
     api_service.events.delete(&ids).await;
+    IdAndExtId::from_external_id(test_dataset.clone().external_id.as_str());
+    api_service.datasets.delete(&IdAndExtId::from_external_id(test_dataset.external_id.as_str())).await?;
+
     Ok(())
 }
