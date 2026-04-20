@@ -43,6 +43,8 @@ pub struct ApiService {
     pub datasets: DatasetsService,
     pub files: FileService,
     pub(crate) http_client: Client,
+    pub subscriptions: SubscriptionsService,
+    http_client: Client,
 }
 
 pub fn create_api_service() -> Arc<ApiService> {
@@ -68,11 +70,12 @@ pub fn create_api_service() -> Arc<ApiService> {
         ApiService {
             config: boxed_config,
             time_series: TimeSeriesService::new(Weak::clone(weak_self), &base_url_clone), // Initialize any other services here
-            units: UnitsService::new(Weak::clone(weak_self), &base_url_clone), // Pass the Weak reference
-            events: EventsService::new(Weak::clone(weak_self), &base_url_clone),
-            resources: ResourceService::new(Weak::clone(weak_self), &base_url_clone),
+            units: UnitsService::new ( Weak::clone(weak_self), &base_url_clone ), // Pass the Weak reference
+            events: EventsService::new ( Weak::clone(weak_self), &base_url_clone ),
+            resources: ResourceService::new (Weak::clone(weak_self), base_url_clone.clone() ),
             datasets: DatasetsService::new(Weak::clone(weak_self), &base_url_clone),
-            files: FileService::new(Weak::clone(weak_self), &base_url_clone),
+            files: FileService::new ( Weak::clone(weak_self), &base_url_clone ),
+            subscriptions: SubscriptionsService::new ( Weak::clone(weak_self), &base_url_clone ),
             http_client,
         }
     });

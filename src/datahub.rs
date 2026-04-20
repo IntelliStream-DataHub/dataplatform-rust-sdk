@@ -139,8 +139,12 @@ impl DataHubApi {
         }
     }
 
-    pub(crate) fn from_map(map: HashMap<String, String>) -> Result<Self, DataHubError> {
-        let baseurl = map.get("BASE_URL").unwrap().to_string();
+    pub(crate)  fn from_map(map: HashMap<String, String>) -> Result<Self, DataHubError> {
+        let baseurl = map.get("BASE_URL")
+            .ok_or_else(|| DataHubError::ConfigError(
+                "BASE_URL is not set. Define it in your .env file or export it in the environment (e.g. BASE_URL=http://localhost:8081).".to_string()
+            ))?
+            .to_string();
 
         let oauthconfig: OAuthConfig = serde_json::from_value(serde_json::to_value(&map)?)?;
 
