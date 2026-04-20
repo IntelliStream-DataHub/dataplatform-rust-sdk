@@ -11,7 +11,6 @@ pub use crate::timeseries::TimeSeriesService;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE};
 pub use unit::{Unit, UnitsService};
 pub use crate::subscriptions::SubscriptionsService;
-pub use crate::timeseries::{TimeSeriesService};
 
 pub mod datahub;
 pub mod datasets;
@@ -80,7 +79,7 @@ pub fn create_api_service() -> Arc<ApiService> {
             time_series: TimeSeriesService::new(Weak::clone(weak_self), &base_url_clone), // Initialize any other services here
             units: UnitsService::new(Weak::clone(weak_self), &base_url_clone), // Pass the Weak reference
             events: EventsService::new(Weak::clone(weak_self), &base_url_clone),
-            resources: ResourceService::new(Weak::clone(weak_self), base_url_clone.clone()),
+            resources: ResourceService::new(Weak::clone(weak_self), &base_url_clone),
             datasets: DatasetsService::new(Weak::clone(weak_self), &base_url_clone),
             files: FileService::new(Weak::clone(weak_self), &base_url_clone),
             subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
@@ -116,6 +115,7 @@ impl ApiService {
                 resources: ResourceService::new(Weak::clone(weak_self), &base_url_clone),
                 datasets: DatasetsService::new(Weak::clone(weak_self), &base_url_clone),
                 files: FileService::new(Weak::clone(weak_self), &base_url_clone),
+                subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });
@@ -149,6 +149,7 @@ impl ApiService {
                 resources: ResourceService::new(Weak::clone(weak_self), &base_url_clone),
                 datasets: DatasetsService::new(Weak::clone(weak_self), &base_url_clone),
                 files: FileService::new(Weak::clone(weak_self), &base_url_clone),
+                subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });
