@@ -430,7 +430,7 @@ mod tests {
         let datetime = Utc.with_ymd_and_hms(2025, 2, 4, 9, 0, 0).unwrap();
         dp_collection.datapoints = create_daily_datapoints(datetime);
         for dp in &mut dp_collection.datapoints {
-            dp.value = dp.value.clone();
+            dp.value = (dp.value.parse::<f64>().unwrap() as i64).to_string();
         }
 
         data_request.get_items_mut().push(dp_collection);
