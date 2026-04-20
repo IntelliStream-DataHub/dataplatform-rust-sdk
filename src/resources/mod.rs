@@ -1,4 +1,3 @@
-mod forms;
 #[cfg(test)]
 mod tests;
 
@@ -8,12 +7,11 @@ use crate::generic::{
 };
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::{process_response, ResponseError};
-use crate::resources::forms::ResourceForm;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::rc::Weak;
+use std::sync::Weak;
 
 pub struct ResourceService {
     api_service: Weak<ApiService>,
@@ -26,16 +24,17 @@ impl ApiServiceProvider for ResourceService {
 }
 
 impl ResourceService {
-    pub fn new(api_service: Weak<ApiService>, base_url: String) -> Self {
+    pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
+        let resource_base_url = format!("{}/resources", base_url);
         Self {
             api_service,
-            base_url: base_url + "/resources",
+            base_url: resource_base_url,
         }
     }
 
     pub async fn create<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
     where
-        for<'a> &'a I: Into<GraphDataWrapper<ResourceForm>>,
+        for<'a> &'a I: Into<GraphDataWrapper<Resource>>,
     {
         let payload = input.into();
         let url = &format!("{}/create", self.base_url);
@@ -70,11 +69,11 @@ impl ResourceService {
         self.execute_post_request::<DataWrapper<Resource>, _>(&url, &payload)
             .await
     }
-    pub async fn update<I>(&self, input: &I) -> Result<DataWrapper<Resource>, ResponseError>
+    pub async fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
     where
         for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
     {
-        todo!();
+
 
         let payload = input.into();
         let token = self.get_token().await?;
@@ -92,7 +91,7 @@ impl ResourceService {
                 status: e.status().unwrap(),
                 message: e.to_string(),
             })?;
-        process_response::<DataWrapper<Resource>>(response, url).await
+        process_response::<GraphDataWrapper<Resource>>(response, url).await
     }
     //
 }
@@ -101,8 +100,8 @@ impl ResourceService {
 pub struct Resource {
     // used to be a serde skip if zero here. don't understand why
     // todo implement a smooth way to convert "datahub entities" to id-collections
-    id: Option<u64>,
-    external_id: String,
+    pub id: Option<u64>,
+    pub external_id: String,
     pub name: String,
     pub metadata: Option<HashMap<String, String>>,
     pub description: Option<String>,
@@ -118,7 +117,6 @@ pub struct Resource {
     pub last_updated_time: Option<DateTime<Utc>>,
     pub relations_form: Option<Vec<RelationForm>>,
 }
-
 impl Resource {
     pub fn new() -> Self {
         Self {
@@ -151,7 +149,10 @@ impl Identifiable for Resource {
     }
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceUpdate {
+    pub id: Option<u64>,
+    pub external_id: Option<String>,
     //todo!()
     pub update: Option<ResourceUpdateFields>,
     pub relation_update: Option<Vec<String>>,

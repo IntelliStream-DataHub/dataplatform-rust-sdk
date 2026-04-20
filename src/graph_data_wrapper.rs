@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
-//todo!() crate::dataset::Dataset;
+use serde::{Deserialize, Serialize};
+//todo!() crate::datasets::Dataset;
 //todo! use crate::policy::Policy;
 use crate::generic::{DataWrapperDeserialization, RelationForm};
 
@@ -10,9 +10,9 @@ pub trait GraphNode: Clone + Serialize {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone,PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct  GraphDataWrapper<T: GraphNode> {
+pub struct GraphDataWrapper<T: GraphNode> {
     #[serde(alias = "items")]
     nodes: Option<Vec<T>>,
     relations: Option<Vec<RelationForm>>,
@@ -28,8 +28,8 @@ impl<T: GraphNode> GraphDataWrapper<T> {
             http_status_code: None,
         }
     }
-    pub fn nodes(&self) -> Option<Vec<T>> {
-        self.nodes.clone()
+    pub fn nodes(&self) -> Option<&Vec<T>> {
+        self.nodes.as_ref()
     }
     pub fn relations(&self) -> Option<&Vec<RelationForm>> {
         self.relations.as_ref()
@@ -45,8 +45,14 @@ impl<T: GraphNode> GraphDataWrapper<T> {
 impl<T: GraphNode + DeserializeOwned> DataWrapperDeserialization for GraphDataWrapper<T> {
     fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error> {
         if status_code >= 200 && status_code < 300 {
-            if status_code == 204 || body.is_empty() { // HTTP No content doesnt return anything
-                return Ok(Self{nodes: None, relations: None, error_body: None, http_status_code: Some(status_code)})
+            if status_code == 204 || body.is_empty() {
+                // HTTP No content doesnt return anything
+                return Ok(Self {
+                    nodes: None,
+                    relations: None,
+                    error_body: None,
+                    http_status_code: Some(status_code),
+                });
             }
             // For 2xx responses, we expect the body to be a valid DataWrapper<T>
             // If body is empty, it's fine for `from_str` to fail and return an error
@@ -61,7 +67,10 @@ impl<T: GraphNode + DeserializeOwned> DataWrapperDeserialization for GraphDataWr
             })
         } else {
             // For non-2xx responses (errors)
-            eprintln!("HTTP request failed with status code {}: {}", status_code, body);
+            eprintln!(
+                "HTTP request failed with status code {}: {}",
+                status_code, body
+            );
 
             // Attempt to deserialize the body into DataWrapper<T>
             // This is useful if the error response *itself* is a structured JSON,
@@ -70,12 +79,15 @@ impl<T: GraphNode + DeserializeOwned> DataWrapperDeserialization for GraphDataWr
                 wrapper.set_http_status_code(status_code); // Set the HTTP status code
                 wrapper // Return the modified wrapper
             }) {
-                Ok(result) => {
-                    Ok(result)
-                },
+                Ok(result) => Ok(result),
                 Err(_) => {
                     eprintln!("Error parsing HTTP response body: {}", body);
-                    Ok(GraphDataWrapper{nodes: None, relations: None, error_body: Some(body.to_string()), http_status_code: Some(status_code)})
+                    Ok(GraphDataWrapper {
+                        nodes: None,
+                        relations: None,
+                        error_body: Some(body.to_string()),
+                        http_status_code: Some(status_code),
+                    })
                 }
             }
         }
@@ -87,7 +99,7 @@ impl<T: GraphNode> From<&T> for GraphDataWrapper<T> {
             nodes: Some(vec![node.clone()]),
             relations: None,
             error_body: None,
-            http_status_code: None
+            http_status_code: None,
         }
     }
 }
@@ -97,27 +109,27 @@ impl<T: GraphNode> From<T> for GraphDataWrapper<T> {
             nodes: Some(vec![node]),
             relations: None,
             error_body: None,
-            http_status_code: None
+            http_status_code: None,
         }
     }
 }
 impl<T: GraphNode> From<Vec<T>> for GraphDataWrapper<T> {
     fn from(nodes: Vec<T>) -> Self {
         Self {
-        nodes:Some(nodes),
-        relations: None,
-        error_body: None,
-        http_status_code: None
+            nodes: Some(nodes),
+            relations: None,
+            error_body: None,
+            http_status_code: None,
         }
     }
 }
 impl<T: GraphNode> From<&Vec<T>> for GraphDataWrapper<T> {
     fn from(nodes: &Vec<T>) -> Self {
         Self {
-            nodes:Some(nodes.clone()),
+            nodes: Some(nodes.clone()),
             relations: None,
             error_body: None,
-            http_status_code: None
+            http_status_code: None,
         }
     }
 }

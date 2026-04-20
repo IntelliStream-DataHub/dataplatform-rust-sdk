@@ -1,11 +1,19 @@
-use std::collections::HashMap;
-use std::rc::{Rc, Weak};
-use std::hash::Hasher;
-use serde::{Deserialize, Serialize};
-use serde::de::DeserializeOwned;
-use chrono::{DateTime, Utc, TimeZone};
+use crate::events::EventsService;
+use crate::files::FileService;
+use crate::http::{process_response, ResponseError};
+use crate::timeseries::TimeSeriesService;
+use crate::unit::UnitsService;
+use crate::ApiService;
+use chrono::{DateTime, TimeZone, Utc};
 use oauth2::http;
 use reqwest::multipart::Form;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt;
+use std::fmt::{Display, Formatter};
+use std::hash::Hasher;
+use std::sync::{Arc, Weak};
 use crate::{ApiService};
 use crate::events::{EventsService};
 use crate::files::{FileService};
@@ -19,63 +27,111 @@ pub struct IdAndExtId {
     // todo Implement this as an enum, would allow for better validation
     // and make it impossible to not provide any id
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) id: Option<u64>,
+    pub id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "externalId")]
-    pub(crate) external_id: Option<String>,
+    pub external_id: Option<String>,
 }
 
 impl IdAndExtId {
     pub fn from_id(id: u64) -> Self {
-        IdAndExtId { id: Some(id), external_id: None}
+        IdAndExtId {
+            id: Some(id),
+            external_id: None,
+        }
     }
 
     pub fn from_external_id(external_id: &str) -> Self {
-        IdAndExtId { id: None, external_id: Some(external_id.to_string())}
+        IdAndExtId {
+            id: None,
+            external_id: Some(external_id.to_string()),
+        }
     }
 }
 impl From<&Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
     fn from(value: &Vec<IdAndExtId>) -> Self {
-        DataWrapper{items:value.clone(),http_status_code:None,error_body:None}
+        DataWrapper {
+            items: value.clone(),
+            http_status_code: None,
+            error_body: None,
+        }
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatapointString {
-    pub(crate) timestamp: String,
-    pub(crate) value: String,
+    pub timestamp: String,
+    pub value: String,
 }
 
 impl DatapointString {
-    pub fn from(timestamp: &str, value: &str) -> Self {
-        DatapointString {timestamp: timestamp.to_string(), value: value.to_string()}
+    pub fn new(timestamp: &str, value: &str) -> Self {
+        DatapointString {
+            timestamp: timestamp.to_string(),
+            value: value.to_string(),
+        }
     }
 
     pub fn from_datetime(timestamp: DateTime<Utc>, value: &str) -> Self {
-        DatapointString {timestamp: timestamp.timestamp_millis().to_string(), value: value.to_string()}
+        DatapointString {
+            timestamp: timestamp.timestamp_millis().to_string(),
+            value: value.to_string(),
+        }
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Datapoint {
     // Read from "isoTime" when deserializing, but emit "timestamp" on serialization
-    #[serde(rename(serialize = "timestamp", deserialize = "isoTime"))]
-    pub(crate) timestamp: DateTime<Utc>,
+    #[serde(rename(serialize = "timestamp", deserialize = "timestamp"))]
+    pub timestamp: DateTime<Utc>,
     #[serde(default)]
-    pub(crate) value: Option<f64>,
+    pub value: Option<f64>,
     #[serde(default)]
-    pub(crate) min: Option<f64>,
+    pub min: Option<f64>,
     #[serde(default)]
-    pub(crate) max: Option<f64>,
+    pub max: Option<f64>,
     #[serde(default)]
-    pub(crate) average: Option<f64>,
+    pub average: Option<f64>,
     #[serde(default)]
-    pub(crate) sum: Option<f64>
+    pub sum: Option<f64>,
 }
 
+impl Display for Datapoint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut parts = Vec::new();
+
+        parts.push(format!("timestamp: {}", self.timestamp));
+
+        if let Some(v) = self.value {
+            parts.push(format!("value: {}", v));
+        }
+        if let Some(v) = self.min {
+            parts.push(format!("min: {}", v));
+        }
+        if let Some(v) = self.max {
+            parts.push(format!("max: {}", v));
+        }
+        if let Some(v) = self.average {
+            parts.push(format!("average: {}", v));
+        }
+        if let Some(v) = self.sum {
+            parts.push(format!("sum: {}", v));
+        }
+
+        write!(f, "Datapoint {{ {} }}", parts.join(", "))
+    }
+}
 impl Datapoint {
     pub fn from(timestamp: DateTime<Utc>, value: f64) -> Self {
-        Datapoint {timestamp, value: Some(value), min: None, max: None, average: None, sum: None}
+        Datapoint {
+            timestamp,
+            value: Some(value),
+            min: None,
+            max: None,
+            average: None,
+            sum: None,
+        }
     }
 
     pub fn from_epoch_millis_timestamp(epoch_millis: i64, value: f64) -> Self {
@@ -85,31 +141,26 @@ impl Datapoint {
             min: None,
             max: None,
             average: None,
-            sum: None
+            sum: None,
         }
     }
 
-    pub fn get_timestamp(&self) -> DateTime<Utc> {
+    pub fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
-
-    pub fn get_average(&self) -> Option<f64> {
+    pub fn average(&self) -> Option<f64> {
         self.average
     }
-
-    pub fn get_value(&self) -> Option<f64> {
+    pub fn value(&self) -> Option<f64> {
         self.value
     }
-
-    pub fn get_min(&self) -> Option<f64> {
+    pub fn min(&self) -> Option<f64> {
         self.min
     }
-
-    pub fn get_max(&self) -> Option<f64> {
+    pub fn max(&self) -> Option<f64> {
         self.max
     }
-
-    pub fn get_sum(&self) -> Option<f64> {
+    pub fn sum(&self) -> Option<f64> {
         self.sum
     }
 }
@@ -122,25 +173,21 @@ pub struct DatapointEpoch {
 
 impl DatapointEpoch {
     fn from(timestamp: i64, value: f64) -> Self {
-        DatapointEpoch {timestamp, value}
+        DatapointEpoch { timestamp, value }
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatapointsCollection<T> {
-    pub(crate) id: Option<u64>,
+    pub id: Option<u64>,
     #[serde(rename = "externalId")]
-    pub(crate) external_id: Option<String>,
+    pub external_id: Option<String>,
     pub datapoints: Vec<T>,
     #[serde(rename = "nextCursor")]
     pub next_cursor: Option<String>,
     pub unit: Option<String>,
     #[serde(rename = "unitExternalId")]
     pub unit_external_id: Option<String>,
-    #[serde(rename = "isStep")]
-    pub is_step: bool,
-    #[serde(rename = "isString")]
-    pub is_string: bool,
 }
 
 impl<T> DatapointsCollection<T> {
@@ -152,8 +199,6 @@ impl<T> DatapointsCollection<T> {
             next_cursor: None,
             unit: None,
             unit_external_id: None,
-            is_step: false,
-            is_string: false,
         }
     }
 
@@ -165,8 +210,6 @@ impl<T> DatapointsCollection<T> {
             next_cursor: None,
             unit: None,
             unit_external_id: None,
-            is_step: false,
-            is_string: false,
         }
     }
 
@@ -181,10 +224,11 @@ impl<T> DatapointsCollection<T> {
     }
 
     pub fn to_string(&self) -> String {
-        format!("DatapointsCollection {{ id: {:?}, external_id: {:?}, datapoints: {:?} }}",
-                self.id,
-                self.external_id,
-                self.datapoints.len(),
+        format!(
+            "DatapointsCollection {{ id: {:?}, external_id: {:?}, datapoints: {:?} }}",
+            self.id,
+            self.external_id,
+            self.datapoints.len(),
         )
     }
 
@@ -202,21 +246,29 @@ impl<T> DatapointsCollection<T> {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone,Eq,PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RelationForm {
-    pub(crate) id: Option<u64>,
-    pub(crate) external_id: Option<String>,
-    pub(crate) relationship_type: String,
+    pub id: Option<u64>,
+    pub external_id: Option<String>,
+    pub relationship_type: String,
 }
 
 impl RelationForm {
     pub fn from_id(id: u64, relationship_type: String) -> Self {
-        RelationForm { id: Some(id), external_id: None, relationship_type }
+        RelationForm {
+            id: Some(id),
+            external_id: None,
+            relationship_type,
+        }
     }
 
     pub fn from_external_id(external_id: String, relationship_type: String) -> Self {
-        RelationForm { id: None, external_id: Some(external_id), relationship_type }
+        RelationForm {
+            id: None,
+            external_id: Some(external_id),
+            relationship_type,
+        }
     }
 }
 
@@ -246,7 +298,11 @@ pub struct FilterForm {
 }
 impl SearchAndFilterForm {
     pub fn new() -> Self {
-        SearchAndFilterForm{filter: None, search: None, limit: None}
+        SearchAndFilterForm {
+            filter: None,
+            search: None,
+            limit: None,
+        }
     }
 }
 
@@ -259,21 +315,22 @@ pub struct SearchForm {
 
 impl SearchForm {
     pub fn new() -> Self {
-        SearchForm{name: None, description: None, query: None}
+        SearchForm {
+            name: None,
+            description: None,
+            query: None,
+        }
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdAndExtIdCollection {
-    items: Vec<IdAndExtId>
+    items: Vec<IdAndExtId>,
 }
 
 impl IdAndExtIdCollection {
-
     pub fn new() -> Self {
-        IdAndExtIdCollection {
-            items: vec![]
-        }
+        IdAndExtIdCollection { items: vec![] }
     }
 
     pub fn from_id_vec(ids: Vec<u64>) -> Self {
@@ -291,7 +348,9 @@ impl IdAndExtIdCollection {
         }
         IdAndExtIdCollection { items }
     }
-
+    pub fn from_id_and_ext_id_vec(items: Vec<IdAndExtId>) -> Self {
+        IdAndExtIdCollection { items }
+    }
     pub fn set_items(&mut self, items: Vec<IdAndExtId>) {
         self.items = items;
     }
@@ -303,13 +362,13 @@ impl IdAndExtIdCollection {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DeleteFilter {
-    pub(crate) id: Option<u64>,
+    pub id: Option<u64>,
     #[serde(rename = "externalId")]
-    pub(crate) external_id: Option<String>,
+    pub external_id: Option<String>,
     #[serde(rename = "inclusiveBegin")]
-    pub(crate) inclusive_begin: Option<DateTime<Utc>>,
+    pub inclusive_begin: Option<DateTime<Utc>>,
     #[serde(rename = "exclusiveEnd")]
-    pub(crate) exclusive_end: Option<DateTime<Utc>>,
+    pub exclusive_end: Option<DateTime<Utc>>,
 }
 
 impl DeleteFilter {
@@ -318,47 +377,47 @@ impl DeleteFilter {
             id: None,
             external_id: None,
             inclusive_begin: None,
-            exclusive_end: None
+            exclusive_end: None,
         }
     }
 
     pub(crate) fn from_external_id(
         external_id: String,
         inclusive_begin: Option<DateTime<Utc>>,
-        exclusive_end: Option<DateTime<Utc>>
+        exclusive_end: Option<DateTime<Utc>>,
     ) -> Self {
         DeleteFilter {
             id: None,
             external_id: Some(external_id),
             inclusive_begin,
-            exclusive_end
+            exclusive_end,
         }
     }
 
     pub(crate) fn from_id(
         id: u64,
         inclusive_begin: Option<DateTime<Utc>>,
-        exclusive_end: Option<DateTime<Utc>>
+        exclusive_end: Option<DateTime<Utc>>,
     ) -> Self {
         DeleteFilter {
             id: Some(id),
             external_id: None,
             inclusive_begin,
-            exclusive_end
+            exclusive_end,
         }
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct RetrieveFilter {
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
-    pub limit: Option<i64>,
+    pub limit: Option<u64>,
     pub aggregates: Option<Vec<String>>,
     pub granularity: Option<String>,
     pub cursor: Option<String>,
     pub id: Option<u64>,
-    #[serde(rename = "externalId")]
     pub external_id: Option<String>,
 }
 
@@ -386,7 +445,7 @@ impl RetrieveFilter {
         self
     }
 
-    pub(crate) fn set_limit(&mut self, limit: i64) -> &mut RetrieveFilter {
+    pub(crate) fn set_limit(&mut self, limit: u64) -> &mut RetrieveFilter {
         self.limit = Some(limit);
         self
     }
@@ -400,7 +459,10 @@ impl RetrieveFilter {
         if self.aggregates.is_none() {
             self.aggregates = Some(vec![]);
         }
-        self.aggregates.as_mut().unwrap().push(aggregate.to_string());
+        self.aggregates
+            .as_mut()
+            .unwrap()
+            .push(aggregate.to_string());
         self
     }
 
@@ -435,41 +497,69 @@ impl RetrieveFilter {
 
 impl From<IdAndExtId> for DataWrapper<IdAndExtId> {
     fn from(value: IdAndExtId) -> Self {
-        DataWrapper{items:vec![value],http_status_code:None,error_body:None}
+        DataWrapper {
+            items: vec![value],
+            http_status_code: None,
+            error_body: None,
+        }
     }
 }
 impl From<&IdAndExtId> for DataWrapper<IdAndExtId> {
     fn from(value: &IdAndExtId) -> Self {
-        DataWrapper{items:vec![value.clone()],http_status_code:None,error_body:None}
+        DataWrapper {
+            items: vec![value.clone()],
+            http_status_code: None,
+            error_body: None,
+        }
     }
 }
 impl From<Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
     fn from(value: Vec<IdAndExtId>) -> Self {
-        DataWrapper{items:value,http_status_code:None,error_body:None}
+        DataWrapper {
+            items: value,
+            http_status_code: None,
+            error_body: None,
+        }
     }
 }
 pub(crate) trait DataHubEntity: Clone + Serialize {
     fn ext_id(&self) -> &String;
 }
-impl<T:DataHubEntity> From<T> for DataWrapper<T> {
+impl<T: DataHubEntity> From<T> for DataWrapper<T> {
     fn from(value: T) -> Self {
-        DataWrapper{items:vec![value],http_status_code:None,error_body:None}
+        DataWrapper {
+            items: vec![value],
+            http_status_code: None,
+            error_body: None,
+        }
     }
 }
-impl<T:DataHubEntity> From<Vec<T>> for DataWrapper<T> {
+impl<T: DataHubEntity> From<Vec<T>> for DataWrapper<T> {
     fn from(vector: Vec<T>) -> Self {
-        DataWrapper{items:vector,http_status_code:None,error_body:None}
+        DataWrapper {
+            items: vector,
+            http_status_code: None,
+            error_body: None,
+        }
     }
 }
 
-impl<T:DataHubEntity> From<&Vec<T>> for DataWrapper<T> {
+impl<T: DataHubEntity> From<&Vec<T>> for DataWrapper<T> {
     fn from(vector: &Vec<T>) -> Self {
-        DataWrapper{items: vector.clone(),http_status_code:None,error_body:None}
+        DataWrapper {
+            items: vector.clone(),
+            http_status_code: None,
+            error_body: None,
+        }
     }
 }
-impl<T:DataHubEntity> From<&T> for DataWrapper<T> {
+impl<T: DataHubEntity> From<&T> for DataWrapper<T> {
     fn from(val: &T) -> Self {
-        DataWrapper{items: vec![val.clone()],http_status_code:None,error_body:None}
+        DataWrapper {
+            items: vec![val.clone()],
+            http_status_code: None,
+            error_body: None,
+        }
     }
 }
 
@@ -477,7 +567,6 @@ pub trait Identifiable {
     fn id(&self) -> u64;
     fn external_id(&self) -> &str;
 }
-
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DataWrapper<T> {
@@ -496,6 +585,16 @@ impl<T> DataWrapper<T> {
         }
     }
 
+    #[must_use]
+    pub fn from_vec(vec: Vec<T>) -> Self {
+        DataWrapper {
+            items: vec,
+            http_status_code: None,
+            error_body: None,
+        }
+    }
+
+    #[must_use]
     pub fn get_items(&self) -> &Vec<T> {
         &self.items
     }
@@ -503,7 +602,6 @@ impl<T> DataWrapper<T> {
     pub fn get_items_mut(&mut self) -> &mut Vec<T> {
         &mut self.items
     }
-
 
     pub fn set_items(&mut self, items: Vec<T>) {
         self.items = items;
@@ -513,10 +611,12 @@ impl<T> DataWrapper<T> {
         self.items.push(item);
     }
 
+    #[must_use]
     pub fn length(&self) -> u64 {
         self.items.len() as u64
     }
 
+    #[must_use]
     pub fn get_http_status_code(&self) -> Option<u16> {
         self.http_status_code
     }
@@ -526,16 +626,21 @@ impl<T> DataWrapper<T> {
     }
 
     pub fn to_string(&self) -> String {
-        format!("DataWrapper {{ items: {:?}, http_status_code: {:?} }}",
-                self.items.len(),
-                self.http_status_code,
+        format!(
+            "DataWrapper {{ items: {:?}, http_status_code: {:?} }}",
+            self.items.len(),
+            self.http_status_code,
         )
     }
 }
 
 // Constrain T by requiring it implement the Identifiable trait.
 impl<T: Identifiable> DataWrapper<T> {
-    pub fn remove_item(&mut self, id_to_remove: Option<u64>, external_id_to_remove: Option<String>) {
+    pub fn remove_item(
+        &mut self,
+        id_to_remove: Option<u64>,
+        external_id_to_remove: Option<String>,
+    ) {
         self.items.retain(|item| {
             // Filter by ID if provided
             if let Some(id_val) = id_to_remove {
@@ -556,61 +661,72 @@ impl<T: Identifiable> DataWrapper<T> {
     }
 }
 
-
 pub trait ApiServiceProvider {
     fn api_service(&self) -> &Weak<ApiService>;
 
-    fn get_api_service(&self) -> Rc<ApiService> {
+    fn get_api_service(&self) -> Arc<ApiService> {
         self.api_service().upgrade().unwrap()
     }
 
-    async fn get_token(&self) -> Result<String,ResponseError>{
+    async fn get_token(&self) -> Result<String, ResponseError> {
         self.get_api_service()
-            .config.get_api_token()
+            .config
+            .get_api_token()
             .await
-            .map_err(
-                |e|
-                    ResponseError{
-                        status: http::StatusCode::UNAUTHORIZED, message: "failed to get api token: ".to_string() + &e.to_string()
-                    })
+            .map_err(|e| ResponseError {
+                status: http::StatusCode::UNAUTHORIZED,
+                message: "failed to get api token: ".to_string() + &e.to_string(),
+            })
     }
 
-    async fn execute_get_request<T: DeserializeOwned + DataWrapperDeserialization, Param:Serialize+ ?Sized>(
+    async fn execute_get_request<
+        T: DeserializeOwned + DataWrapperDeserialization,
+        Param: Serialize + ?Sized,
+    >(
         &self,
         path: &str,
-        param: Option<&Param>
+        param: Option<&Param>,
     ) -> Result<T, ResponseError> {
         let token = self.get_token().await?;
-        let response = if let Some(param) = param {self.get_api_service().http_client
-            .get(path)
-            .bearer_auth(token)
-            .query(param)
-            .send()
-            .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?}
-            else {self.get_api_service().http_client
-            .get(path)
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?};
+        let response = if let Some(param) = param {
+            self.get_api_service()
+                .http_client
+                .get(path)
+                .bearer_auth(token)
+                .query(param)
+                .send()
+                .await
+                .map_err(|err| {
+                    eprintln!("HTTP request failed: {}", err);
+                    ResponseError::from_err(err)
+                })?
+        } else {
+            self.get_api_service()
+                .http_client
+                .get(path)
+                .bearer_auth(token)
+                .send()
+                .await
+                .map_err(|err| {
+                    eprintln!("HTTP request failed: {}", err);
+                    ResponseError::from_err(err)
+                })?
+        };
         process_response::<T>(response, path).await
     }
 
-
-    async fn execute_post_request<T: DeserializeOwned + DataWrapperDeserialization, J: Serialize>(
+    async fn execute_post_request<
+        T: DeserializeOwned + DataWrapperDeserialization,
+        J: Serialize,
+    >(
         &self,
         path: &str,
         json: &J,
     ) -> Result<T, ResponseError> {
         let token = self.get_token().await?;
-        let response = self.get_api_service().http_client
+        let response = self
+            .get_api_service()
+            .http_client
             .post(path)
             .json(json)
             .bearer_auth(token)
@@ -622,14 +738,13 @@ pub trait ApiServiceProvider {
             })?;
         if response.status() == 204 {
             // Return deserialized `T` with an empty body and the HTTP status code
-            T::deserialize_and_set_status("", response.status().as_u16())
-                .map_err(|err| {
-                    eprintln!("Failed to create object from empty response: {}", err);
-                    ResponseError {
-                        status: response.status(),
-                        message: err.to_string(),
-                    }
-                })
+            T::deserialize_and_set_status("", response.status().as_u16()).map_err(|err| {
+                eprintln!("Failed to create object from empty response: {}", err);
+                ResponseError {
+                    status: response.status(),
+                    message: err.to_string(),
+                }
+            })
         } else {
             process_response::<T>(response, path).await
         }
@@ -642,7 +757,9 @@ pub trait ApiServiceProvider {
     ) -> Result<T, ResponseError> {
         let token = self.get_token().await?;
 
-        let response = self.get_api_service().http_client
+        let response = self
+            .get_api_service()
+            .http_client
             .put(path)
             .multipart(multipart_form)
             .bearer_auth(token)
@@ -654,14 +771,13 @@ pub trait ApiServiceProvider {
             })?;
         if response.status() == 201 {
             // Return deserialized `T` with an empty body and the HTTP status code
-            T::deserialize_and_set_status("", response.status().as_u16())
-                .map_err(|err| {
-                    eprintln!("Failed to create object from empty response: {}", err);
-                    ResponseError {
-                        status: response.status(),
-                        message: err.to_string(),
-                    }
-                })
+            T::deserialize_and_set_status("", response.status().as_u16()).map_err(|err| {
+                eprintln!("Failed to create object from empty response: {}", err);
+                ResponseError {
+                    status: response.status(),
+                    message: err.to_string(),
+                }
+            })
         } else {
             process_response::<T>(response, path).await
         }
@@ -713,10 +829,11 @@ where
 {
     fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error> {
         if status_code >= 200 && status_code < 300 {
-            if status_code == 204 || body.is_empty() { // HTTP No content doesnt return anything
+            if status_code == 204 || body.is_empty() {
+                // HTTP No content doesnt return anything
                 let mut wrapper: DataWrapper<T> = DataWrapper::new();
                 wrapper.set_http_status_code(status_code);
-                return Ok(wrapper)
+                return Ok(wrapper);
             }
             // For 2xx responses, we expect the body to be a valid DataWrapper<T>
             // If body is empty, it's fine for `from_str` to fail and return an error
@@ -731,7 +848,10 @@ where
             })
         } else {
             // For non-2xx responses (errors)
-            eprintln!("HTTP request failed with status code {}: {}", status_code, body);
+            eprintln!(
+                "HTTP request failed with status code {}: {}",
+                status_code, body
+            );
 
             // Attempt to deserialize the body into DataWrapper<T>
             // This is useful if the error response *itself* is a structured JSON,
@@ -740,9 +860,7 @@ where
                 wrapper.set_http_status_code(status_code); // Set the HTTP status code
                 wrapper // Return the modified wrapper
             }) {
-                Ok(result) => {
-                    Ok(result)
-                },
+                Ok(result) => Ok(result),
                 Err(_) => {
                     eprintln!("Error parsing HTTP response body: {}", body);
                     let mut wrapper: DataWrapper<T> = DataWrapper::new();
@@ -757,7 +875,8 @@ where
 
 impl DataWrapperDeserialization for String {
     fn deserialize_and_set_status(body: &str, _status_code: u16) -> Result<Self, serde_json::Error>
-    where Self: Sized,
+    where
+        Self: Sized,
     {
         Ok(body.to_string())
     }
@@ -765,13 +884,13 @@ impl DataWrapperDeserialization for String {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct INode {
-    pub id: i64,
+    pub id: Option<u64>,
     pub name: String,
     pub description: Option<String>,
     #[serde(rename = "externalId")]
     pub external_id: String,
     pub path: String,
-    pub size: i64,
+    pub size: u64,
     pub checksum: Option<String>,
     pub source: Option<String>,
     pub r#type: Option<String>,

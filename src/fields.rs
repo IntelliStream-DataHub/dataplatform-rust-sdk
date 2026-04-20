@@ -1,22 +1,25 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct Field<T> {
-    set: Option<T>,
-    set_null: bool
+    pub set: Option<T>,
+    pub set_null: bool,
 }
 
 impl<T> Field<T> {
-
-    pub fn new() -> Self {
+    pub fn new(value: Option<T>, set_null: bool) -> Self {
         Field {
-            set: None,
-            set_null: false
+            set: value,
+            set_null,
         }
     }
 
-    pub fn set(&mut self, value: T) where T: Clone {
+    pub fn set(&mut self, value: T)
+    where
+        T: Clone,
+    {
         self.set = Some(value);
     }
 
@@ -29,20 +32,27 @@ impl<T> Field<T> {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ListField<T>{
-    set: Option<Vec<T>>,
-    add: Option<Vec<T>>,
-    remove: Option<Vec<T>>
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ListField<T> {
+    pub set: Option<Vec<T>>,
+    pub add: Option<Vec<T>>,
+    pub remove: Option<Vec<T>>,
 }
 
-impl<T> ListField<T>{
-
-    pub fn new() -> Self {
+impl<T> ListField<T> {
+    pub fn new(set: Option<Vec<T>>, add: Option<Vec<T>>, remove: Option<Vec<T>>) -> Self {
         ListField {
             set: None,
             add: None,
-            remove: None
+            remove: None,
+        }
+    }
+    pub fn default() -> Self {
+        ListField {
+            set: None,
+            add: None,
+            remove: None,
         }
     }
 
@@ -59,20 +69,41 @@ impl<T> ListField<T>{
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct MapField{
-    set: Option<HashMap<String, String>>,
-    add: Option<HashMap<String, String>>,
-    remove: Option<Vec<String>>
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MapField {
+    pub set: Option<HashMap<String, String>>,
+    pub add: Option<HashMap<String, String>>,
+    pub remove: Option<Vec<String>>,
 }
 
-impl MapField{
-
-    pub fn new() -> Self {
-        MapField {
+impl MapField {
+    pub fn new(
+        set: Option<HashMap<String, String>>,
+        add: Option<HashMap<String, String>>,
+        remove: Option<Vec<String>>,
+    ) -> Self {
+        MapField { set, add, remove }
+    }
+    pub fn new_set(s: Option<HashMap<String, String>>) -> Self {
+        Self {
+            set: s,
+            add: None,
+            remove: None,
+        }
+    }
+    pub fn new_add(s: Option<HashMap<String, String>>) -> Self {
+        Self {
+            set: None,
+            add: s,
+            remove: None,
+        }
+    }
+    pub fn new_remove(s: Option<Vec<String>>) -> Self {
+        Self {
             set: None,
             add: None,
-            remove: None
+            remove: s,
         }
     }
 

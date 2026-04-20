@@ -9,7 +9,7 @@ use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::rc::Weak;
+use std::sync::Weak;
 use uuid::Uuid;
 
 pub struct EventsService {
@@ -152,7 +152,7 @@ impl Event {
     }
 
     pub fn get_external_id(&self) -> &str {
-        self.external_id.as_str()
+        &self.external_id.as_str()
     }
 
     pub fn set_external_id(&mut self, external_id: String) {
@@ -187,8 +187,8 @@ impl Event {
         self.data_set_id.as_ref()
     }
 
-    pub fn set_data_set_id(&mut self, data_set_id: u64) {
-        self.data_set_id = Some(data_set_id);
+    pub fn set_data_set_id(&mut self, data_set_id: Option<u64>) {
+        self.data_set_id = data_set_id;
     }
 
     pub fn get_description(&self) -> Option<&str> {

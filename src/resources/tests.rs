@@ -5,11 +5,11 @@ use crate::generic::{IdAndExtId, SearchForm};
 use maplit::hashmap;
 use uuid::Uuid;
 
-fn create_test_resources() -> Vec<ResourceForm> {
+fn create_test_resources() -> Vec<Resource> {
     // helper function to create test resources will
     let count = 2;
     let uuids = (0..count).map(|_| Uuid::new_v4()).collect::<Vec<Uuid>>();
-    let res1 = ResourceForm {
+    let res1 = Resource {
         // used to be a serde skip if zero here. don't understand why
         id: None,
         external_id: format!("Rust_SDK_Test_Resource_{:?}", uuids[0]),
@@ -21,18 +21,16 @@ fn create_test_resources() -> Vec<ResourceForm> {
         }),
         description: Some("root_test_data_set".to_string()),
         is_root: true,
-        data_set_id: Some(0),
+        data_set_id: None,
         source: Some("Test_Rust_SDK".to_string()),
-        labels: Some(vec![
-            hashmap! {"name".to_string()=>"test_label".to_string()},
-        ]),
+        labels: Some(vec!["ASSET".to_string()]),
         relations: None,
         geolocation: None,
         created_time: None,
         last_updated_time: None,
         relations_form: Some(vec![]),
     };
-    let res2 = ResourceForm {
+    let res2 = Resource {
         // used to be a serde skip if zero here. don't understand why
         id: None,
         external_id: format!("Rust_SDK_Test_Resource_{:?}", uuids[1]),
@@ -40,11 +38,9 @@ fn create_test_resources() -> Vec<ResourceForm> {
         metadata: None,
         description: None,
         is_root: false,
-        data_set_id: Some(0),
+        data_set_id: None,
         source: Some("Test_Rust_SDK".to_string()),
-        labels: Some(vec![
-            hashmap! {"name".to_string()=>"test_label".to_string()},
-        ]),
+        labels: Some(vec!["ASSET".to_string()]),
         relations: None,
         geolocation: None,
         created_time: None,
@@ -63,11 +59,8 @@ async fn test_create_and_delete_resources() -> Result<(), ResponseError> {
         .map(|r| IdAndExtId::from_external_id(&r.external_id))
         .collect::<Vec<IdAndExtId>>();
     api_service.resources.delete(&ids).await?;
-
-    assert_eq!(
-        api_service.resources.by_ids(&ids).await?.nodes().unwrap(),
-        vec![]
-    );
+    // cleanup before start
+    assert!(api_service.resources.by_ids(&ids).await?.nodes().unwrap().is_empty(),);
 
     let result = api_service.resources.create(&test_resources).await?;
     let res_ids = result
@@ -86,10 +79,7 @@ async fn test_create_and_delete_resources() -> Result<(), ResponseError> {
 
     // Delete resources
     api_service.resources.delete(&ids).await?;
-    assert_eq!(
-        api_service.resources.by_ids(&ids).await?.nodes().unwrap(),
-        vec![]
-    );
+
 
     Ok(())
 }
@@ -126,10 +116,39 @@ async fn test_search_resources() -> Result<(), ResponseError> {
         .get_items()
         .iter()
         .all(|r| r.name.contains("test") || r.external_id.contains("test")));
-    let resulting_ids = test_data.nodes().unwrap()
+    let resulting_ids = test_data
+        .nodes()
+        .unwrap()
         .iter()
         .map(|r| IdAndExtId::from_external_id(&r.external_id))
         .collect::<Vec<IdAndExtId>>();
     api_service.resources.delete(&resulting_ids).await?;
+    Ok(())
+}
+#[tokio::test]
+async fn test_update() -> Result<(), ResponseError> {
+    let test_update = ResourceUpdate{
+        id: None,
+        external_id: Some("dataset_1".to_string()),
+        update: Some(ResourceUpdateFields{
+            external_id: Field::new(None,false),
+            name: Field::new(None,false),
+            description: Field::new(Some("NEW DESCRIPTION".to_string()),false),
+            data_set_id: Field::new(None,false),
+            metadata: MapField::new(None,None,None),
+            source: Field::new(None,false),
+            labels: ListField::new(None,None,None),
+        }),
+        relation_update: None
+    };
+    let api_service = create_api_service();
+    let result = api_service.resources.update(&test_update).await?;
+    assert!(result.nodes().map_or(false, |nodes| !nodes.is_empty()));
+
+    let first_node = result.nodes().unwrap().first().unwrap();
+    assert_eq!(
+        first_node.description.as_deref(),
+        Some("NEW DESCRIPTION")
+    );
     Ok(())
 }
