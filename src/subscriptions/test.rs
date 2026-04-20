@@ -112,72 +112,83 @@ mod tests {
         let ts_list = vec![ts_a, ts_b];
         api_service.time_series.create_from_list(&ts_list).await?;
 
-        let sub = Subscription::new(
-            sub_ext.clone(),
-            format!("Sub Test {}", &suffix[..8]),
-            ts_ids.clone(),
-        );
+        // Run the body inside an async block so an early `?` or panic still lets cleanup run.
+        let result: Result<(), Box<dyn std::error::Error>> = async {
+            let sub = Subscription::new(
+                sub_ext.clone(),
+                format!("Sub Test {}", &suffix[..8]),
+                ts_ids.clone(),
+            );
 
-        // 2. Create the subscription.
-        let created = api_service.subscriptions.create(&sub).await?;
-        assert_eq!(created.length(), 1, "create must echo back exactly 1 item");
-        let created_item = &created.get_items()[0];
-        assert_eq!(created_item.external_id, sub_ext);
-        assert!(created_item.id.is_some(), "server must assign an id");
-        assert!(created_item.date_created.is_some());
-        assert_eq!(created_item.timeseries.len(), 2);
+            // 2. Create the subscription.
+            let created = api_service.subscriptions.create(&sub).await?;
+            assert_eq!(created.length(), 1, "create must echo back exactly 1 item");
+            let created_item = &created.get_items()[0];
+            assert_eq!(created_item.external_id, sub_ext);
+            assert!(created_item.id.is_some(), "server must assign an id");
+            assert!(created_item.date_created.is_some());
+            assert_eq!(created_item.timeseries.len(), 2);
 
-        // 3. List — the unfiltered list may include prior test data, so we assert *at least*
-        //    our subscription is present (per CLAUDE.md: avoid exact-count assertions against
-        //    shared backend state).
-        let all = api_service
+            // 3. List — the unfiltered list may include prior test data, so we assert *at least*
+            //    our subscription is present (per CLAUDE.md: avoid exact-count assertions against
+            //    shared backend state).
+            let all = api_service
+                .subscriptions
+                .list(&SubscriptionRetriever::default())
+                .await?;
+            assert!(
+                all.get_items().iter().any(|s| s.external_id == sub_ext),
+                "unfiltered list must contain the subscription we just created"
+            );
+
+            // 4. List with a timeseries filter — only subscriptions bound to ts_a should come back.
+            //    Our subscription is bound to ts_a, so it must appear.
+            let filtered = api_service
+                .subscriptions
+                .list(&SubscriptionRetriever {
+                    filter: SubscriptionFilter {
+                        timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
+                    },
+                    limit: 100,
+                    sort: DataSort::default(),
+                })
+                .await?;
+            assert!(
+                filtered.get_items().iter().any(|s| s.external_id == sub_ext),
+                "timeseries-filtered list must contain the subscription"
+            );
+
+            // 5. Delete the subscription. Backend returns 204 No Content → empty DataWrapper.
+            delete_subscriptions(&api_service, &[IdAndExtId::from_external_id(&sub_ext)]).await;
+
+            // 6. Verify the subscription is gone from the filtered list.
+            let after_delete = api_service
+                .subscriptions
+                .list(&SubscriptionRetriever {
+                    filter: SubscriptionFilter {
+                        timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
+                    },
+                    limit: 100,
+                    sort: DataSort::default(),
+                })
+                .await?;
+            assert!(
+                !after_delete.get_items().iter().any(|s| s.external_id == sub_ext),
+                "subscription should be gone after delete"
+            );
+            Ok(())
+        }
+        .await;
+
+        // Cleanup always runs — a best-effort subscription delete (in case step 5 was skipped)
+        // plus the supporting timeseries.
+        let _ = api_service
             .subscriptions
-            .list(&SubscriptionRetriever::default())
-            .await?;
-        assert!(
-            all.get_items().iter().any(|s| s.external_id == sub_ext),
-            "unfiltered list must contain the subscription we just created"
-        );
-
-        // 4. List with a timeseries filter — only subscriptions bound to ts_a should come back.
-        //    Our subscription is bound to ts_a, so it must appear.
-        let filtered = api_service
-            .subscriptions
-            .list(&SubscriptionRetriever {
-                filter: SubscriptionFilter {
-                    timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
-                },
-                limit: 100,
-                sort: DataSort::default(),
-            })
-            .await?;
-        assert!(
-            filtered.get_items().iter().any(|s| s.external_id == sub_ext),
-            "timeseries-filtered list must contain the subscription"
-        );
-
-        // 5. Delete the subscription. Backend returns 204 No Content → empty DataWrapper.
-        delete_subscriptions(&api_service, &[IdAndExtId::from_external_id(&sub_ext)]).await;
-
-        // 6. Verify the subscription is gone from the filtered list.
-        let after_delete = api_service
-            .subscriptions
-            .list(&SubscriptionRetriever {
-                filter: SubscriptionFilter {
-                    timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
-                },
-                limit: 100,
-                sort: DataSort::default(),
-            })
-            .await?;
-        assert!(
-            !after_delete.get_items().iter().any(|s| s.external_id == sub_ext),
-            "subscription should be gone after delete"
-        );
-
-        // Clean up supporting timeseries.
+            .delete(&vec![IdAndExtId::from_external_id(&sub_ext)])
+            .await;
         delete_timeseries(&api_service, ts_ids).await;
-        Ok(())
+
+        result
     }
 
     #[test]
@@ -277,44 +288,57 @@ mod tests {
         );
         api_service.subscriptions.create(&sub).await?;
 
-        // Open listener before writing datapoints so we catch the fan-out.
-        let mut listener = api_service.subscriptions.listen(&sub_ext).await?;
+        // Run the body inside an async block so an early `?` or panic still lets cleanup run.
+        let result: Result<(), Box<dyn std::error::Error>> = async {
+            // Open listener before writing datapoints so we catch the fan-out.
+            let mut listener = api_service.subscriptions.listen(&sub_ext).await?;
 
-        // Write a datapoint to the subscribed timeseries. The consumer fans it out to the
-        // subscription topic; we expect it on the listener.
-        api_service
-            .time_series
-            .insert_datapoint(None, Some(ts_ext.clone()), Utc::now(), "42.0".to_string())
-            .await?;
+            // Write a datapoint to the subscribed timeseries. The consumer fans it out to the
+            // subscription topic; we expect it on the listener.
+            api_service
+                .time_series
+                .insert_datapoint(None, Some(ts_ext.clone()), Utc::now(), "42.0".to_string())
+                .await?;
 
-        // Wait up to ~10s for the datapoint to land.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        let mut received: Option<SubscriptionMessage> = None;
-        while tokio::time::Instant::now() < deadline {
-            tokio::select! {
-                maybe = listener.next() => {
-                    if let Some(Ok(msg)) = maybe {
-                        received = Some(msg);
-                        break;
+            // Wait up to ~10s for the datapoint to land.
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+            let mut received: Option<SubscriptionMessage> = None;
+            while tokio::time::Instant::now() < deadline {
+                tokio::select! {
+                    maybe = listener.next() => {
+                        if let Some(Ok(msg)) = maybe {
+                            received = Some(msg);
+                            break;
+                        }
                     }
+                    _ = tokio::time::sleep(Duration::from_millis(200)) => {}
                 }
-                _ = tokio::time::sleep(Duration::from_millis(200)) => {}
             }
+            let msg = received.ok_or("no message arrived before the deadline")?;
+            assert_eq!(msg.payload.event_object, EventObject::Datapoints);
+            assert_eq!(msg.payload.event_action, EventAction::Create);
+            listener.ack(&[msg.message_id.as_str()]).await?;
+            listener.close().await?;
+            Ok(())
         }
-        let msg = received.expect("no message arrived before the deadline");
-        assert_eq!(msg.payload.event_object, EventObject::Datapoints);
-        assert_eq!(msg.payload.event_action, EventAction::Create);
-        listener.ack(&[msg.message_id.as_str()]).await?;
+        .await;
 
-        listener.close().await?;
-        api_service
+        // Cleanup always runs, regardless of whether the body succeeded. Errors are logged but
+        // not propagated so the original test result (if any) surfaces.
+        if let Err(e) = api_service
             .subscriptions
             .delete(&IdAndExtId::from_external_id(&sub_ext))
-            .await?;
+            .await
+        {
+            eprintln!("subscription cleanup failed: {:?}", e.get_message());
+        }
         let mut ts_coll = IdAndExtIdCollection::new();
         ts_coll.set_items(vec![IdAndExtId::from_external_id(&ts_ext)]);
-        let _ = api_service.time_series.delete(&ts_coll).await;
-        Ok(())
+        if let Err(e) = api_service.time_series.delete(&ts_coll).await {
+            eprintln!("timeseries cleanup failed: {:?}", e.get_message());
+        }
+
+        result
     }
 
     #[allow(dead_code)]
