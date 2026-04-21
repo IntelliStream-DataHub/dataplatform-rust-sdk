@@ -1,101 +1,115 @@
 mod test;
 
+use crate::fields::{Field, ListField, MapField};
+use crate::generic::{
+    ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection,
+    DeleteFilter, IdAndExtIdCollection, RelationForm, RetrieveFilter, SearchAndFilterForm,
+    SearchForm,
+};
+use crate::http::{process_response, ResponseError};
+use crate::serde_helper::is_zero;
+use crate::ApiService;
+use chrono::{DateTime, Utc};
+use futures::{future::join_all, FutureExt};
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
-use std::rc::{Weak};
-use chrono::{DateTime, Utc};
-use futures::{future::join_all, FutureExt};
-use crate::ApiService;
-use crate::fields::{Field, ListField, MapField};
-use crate::generic::{ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtIdCollection, RelationForm, RetrieveFilter, SearchAndFilterForm, SearchForm};
-use crate::http::{process_response, ResponseError};
-use crate::serde_helper::is_zero;
+use std::sync::Weak;
 
-pub struct TimeSeriesService{
+pub struct TimeSeriesService {
     pub(crate) api_service: Weak<ApiService>,
-    base_url: String
+    base_url: String,
 }
 
 impl TimeSeriesService {
-
     pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
         let base_url = format!("{}/timeseries", base_url);
-        TimeSeriesService {api_service, base_url}
+        TimeSeriesService {
+            api_service,
+            base_url,
+        }
     }
 
-    pub async fn list(&self)
-                      -> Result<DataWrapper<TimeSeries>, ResponseError> {
+    pub async fn list(&self) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+        self.execute_get_request(&self.base_url, None::<&str>).await
+    }
 
-        // Create and send an HTTP GET request
-        let response = self.get_api_service().http_client
-            .get(&self.base_url) // Correctly access `base_url`
-            .send()
+    pub async fn list_with_limit(
+        &self,
+        query: Option<&LimitParam>,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+        self.execute_get_request::<DataWrapper<TimeSeries>, LimitParam>(&self.base_url, query)
             .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
-
-        // Process the HTTP response and deserialize it as `DataWrapper<TimeSeries>`
-        process_response::<DataWrapper<TimeSeries>>(response, &self.base_url).await
     }
 
-    pub async fn list_with_limit(&self, query: Option<&LimitParam>)
-                      -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        self.execute_get_request::<DataWrapper<TimeSeries>,LimitParam>(&self.base_url,query).await
-    }
-
-    pub async fn create(&self, json: &DataWrapper<TimeSeries>)
-            -> Result<DataWrapper<TimeSeries>, ResponseError>
-    {
+    pub async fn create(
+        &self,
+        json: &DataWrapper<TimeSeries>,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let path = &format!("{}/create", self.base_url);
-        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json).await
+        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json)
+            .await
     }
 
-    pub async fn create_one(&self, ts: &TimeSeries)
-                                  -> Result<DataWrapper<TimeSeries>, ResponseError>
-    {
+    pub async fn create_one(
+        &self,
+        ts: &TimeSeries,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let mut dw = DataWrapper::new();
         dw.add_item(ts.clone());
         self.create(&dw).await
     }
 
-    pub async fn create_from_list(&self, ts_list: &Vec<TimeSeries>)
-                        -> Result<DataWrapper<TimeSeries>, ResponseError>
-    {
+    pub async fn create_from_list(
+        &self,
+        ts_list: &Vec<TimeSeries>,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let mut dw = DataWrapper::new();
-        ts_list.iter().for_each(|ts| { dw.add_item(ts.clone()); });
+        ts_list.iter().for_each(|ts| {
+            dw.add_item(ts.clone());
+        });
         self.create(&dw).await
     }
 
-    pub async fn delete(&self, json: &IdAndExtIdCollection)
-            -> Result<DataWrapper<TimeSeries>, ResponseError>
-    {
+    pub async fn delete(
+        &self,
+        json: &IdAndExtIdCollection,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let path = &format!("{}/delete", self.base_url);
         self.execute_post_request(path, json).await
     }
 
-    pub async fn update(&self, json: &TimeSeriesUpdateCollection)
-            -> Result<DataWrapper<TimeSeries>, ResponseError>
-    {
+    pub async fn update(
+        &self,
+        json: &TimeSeriesUpdateCollection,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let path = &format!("{}/update", self.base_url);
-        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json).await
+        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json)
+            .await
     }
 
-    pub async fn by_ids(&self, json: &IdAndExtIdCollection)
-            -> Result<DataWrapper<TimeSeries>, ResponseError>
-    {
+    pub async fn by_ids(
+        &self,
+        json: &IdAndExtIdCollection,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let path = &format!("{}/byids", self.base_url);
-        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json).await
+        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json)
+            .await
     }
 
-    pub async fn search(&self, form: &SearchAndFilterForm) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+    pub async fn search(
+        &self,
+        form: &SearchAndFilterForm,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let path = &format!("{}/search", self.base_url);
-        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, form).await
+        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, form)
+            .await
     }
 
-    pub async fn search_by_name(&self, name: &str) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+    pub async fn search_by_name(
+        &self,
+        name: &str,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let mut search_form = SearchForm::new();
         search_form.name = Some(name.to_string());
         let mut search_and_filter_form = SearchAndFilterForm::new();
@@ -103,7 +117,10 @@ impl TimeSeriesService {
         self.search(&search_and_filter_form).await
     }
 
-    pub async fn search_by_query(&self, query: &str) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+    pub async fn search_by_query(
+        &self,
+        query: &str,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let mut search_form = SearchForm::new();
         search_form.query = Some(query.to_string());
         let mut search_and_filter_form = SearchAndFilterForm::new();
@@ -111,7 +128,10 @@ impl TimeSeriesService {
         self.search(&search_and_filter_form).await
     }
 
-    pub async fn search_by_description(&self, query: &str) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+    pub async fn search_by_description(
+        &self,
+        query: &str,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let mut search_form = SearchForm::new();
         search_form.description = Some(query.to_string());
         let mut search_and_filter_form = SearchAndFilterForm::new();
@@ -120,13 +140,14 @@ impl TimeSeriesService {
     }
 
     pub async fn insert_datapoint(
-        &self, 
-        id: Option<u64>, 
-        external_id: Option<String>, 
-        timestamp: DateTime<Utc>, 
-        value: String
+        &self,
+        id: Option<u64>,
+        external_id: Option<String>,
+        timestamp: DateTime<Utc>,
+        value: String,
     ) -> Result<DataWrapper<String>, ResponseError> {
-        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> =
+            DataWrapper::new();
 
         let mut dp_collection = if let Some(id_value) = id {
             DatapointsCollection::from_id(id_value)
@@ -135,15 +156,16 @@ impl TimeSeriesService {
         } else {
             panic!("Neither id nor external_id provided.");
         };
-        
+
         let dp = DatapointString::from_datetime(timestamp, value.as_str());
-        dp_collection.datapoints.push( dp );
+        dp_collection.datapoints.push(dp);
         data_request.add_item(dp_collection);
         self.insert_datapoints(&mut data_request).await
     }
 
     pub async fn insert_datapoints(
-        &self, json: &mut DataWrapper<DatapointsCollection<DatapointString>>
+        &self,
+        json: &mut DataWrapper<DatapointsCollection<DatapointString>>,
     ) -> Result<DataWrapper<String>, ResponseError> {
         let path = &format!("{}/data", self.base_url);
         let mut new_request_bodies = vec![];
@@ -158,23 +180,28 @@ impl TimeSeriesService {
         }
 
         if total_datapoints > MAX_DATAPOINTS_PER_REQUEST {
-
             while total_datapoints > MAX_DATAPOINTS_PER_REQUEST {
                 println!("Total datapoints left: {}", total_datapoints);
                 // Divide the request into multiple batch requests
-                let mut new_json: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+                let mut new_json: DataWrapper<DatapointsCollection<DatapointString>> =
+                    DataWrapper::new();
                 for orig_dp_collection in json.get_items_mut() {
-                    let mut new_dp_collection = DatapointsCollection::from(orig_dp_collection.id, orig_dp_collection.external_id.clone());
+                    let mut new_dp_collection = DatapointsCollection::from(
+                        orig_dp_collection.id,
+                        orig_dp_collection.external_id.clone(),
+                    );
                     if Some(orig_dp_collection.id) != None {
                         new_dp_collection.id = orig_dp_collection.id;
                     } else if Some(orig_dp_collection.external_id.clone()) != None {
                         new_dp_collection.external_id = orig_dp_collection.external_id.clone();
                     }
 
-                    let batch_size: usize = MAX_DATAPOINTS_PER_REQUEST / active_timeseries_with_datapoints.len();
+                    let batch_size: usize =
+                        MAX_DATAPOINTS_PER_REQUEST / active_timeseries_with_datapoints.len();
                     println!("Current Batch size: {}", batch_size);
                     if orig_dp_collection.datapoints.len() > batch_size {
-                        let chunk: Vec<DatapointString> = orig_dp_collection.datapoints.drain(..batch_size).collect();
+                        let chunk: Vec<DatapointString> =
+                            orig_dp_collection.datapoints.drain(..batch_size).collect();
                         new_dp_collection.datapoints.extend(chunk);
                     } else if orig_dp_collection.datapoints.len() == 0 {
                         // Find the hash for active timeseries, and remove it from the vec
@@ -185,9 +212,10 @@ impl TimeSeriesService {
                             println!("Remove datacollection: {}", orig_dp_collection.to_string());
                             active_timeseries_with_datapoints.remove(pos);
                         }
-                    }
-                    else {
-                        new_dp_collection.datapoints.extend(orig_dp_collection.datapoints.clone());
+                    } else {
+                        new_dp_collection
+                            .datapoints
+                            .extend(orig_dp_collection.datapoints.clone());
                     }
                     new_json.add_item(new_dp_collection.clone());
                     total_datapoints = total_datapoints - new_dp_collection.datapoints.len();
@@ -198,7 +226,10 @@ impl TimeSeriesService {
                 for dp_collection in new_json.get_items().iter() {
                     new_total_datapoints += dp_collection.datapoints.len();
                 }
-                println!("Sending insert datapoints request with {} datapoints.", new_total_datapoints);
+                println!(
+                    "Sending insert datapoints request with {} datapoints.",
+                    new_total_datapoints
+                );
 
                 let new_json_clone = new_json.clone();
                 new_request_bodies.push(new_json_clone);
@@ -206,12 +237,13 @@ impl TimeSeriesService {
         }
         // Now create futures after all request bodies are created
         for request_body in &new_request_bodies {
-            let f = self.execute_post_request::<DataWrapper<String>, _>(path, request_body)
+            let f = self
+                .execute_post_request::<DataWrapper<String>, _>(path, request_body)
                 .map(|result| match result {
                     Ok(ref r) => {
                         assert_eq!(r.get_http_status_code().unwrap(), 201);
                         println!("Successfully inserted datapoints.");
-                    },
+                    }
                     Err(e) => {
                         eprintln!("{}", e.message);
                         panic!("Error inserting datapoints: {:?}", e.get_message());
@@ -226,36 +258,41 @@ impl TimeSeriesService {
             total_datapoints += dp_collection.datapoints.len();
         }
         println!("Final request: Total datapoints left: {}", total_datapoints);
-        self.execute_post_request::<DataWrapper<String>, _>(path, json).await
+        self.execute_post_request::<DataWrapper<String>, _>(path, json)
+            .await
     }
 
-    pub async fn retrieve_datapoints(&self, json: &DataWrapper<RetrieveFilter>)
-                                   -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>
-    {
+    pub async fn retrieve_datapoints(
+        &self,
+        json: &DataWrapper<RetrieveFilter>,
+    ) -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError> {
         let path = &format!("{}/data/list", self.base_url);
-        self.execute_post_request::<DataWrapper<DatapointsCollection<Datapoint>>, _>(path, json).await
+        self.execute_post_request::<DataWrapper<DatapointsCollection<Datapoint>>, _>(path, json)
+            .await
     }
 
-    pub async fn delete_datapoints(&self, json: &DataWrapper<DeleteFilter>)
-                                     -> Result<DataWrapper<String>, ResponseError>
-    {
+    pub async fn delete_datapoints(
+        &self,
+        json: &DataWrapper<DeleteFilter>,
+    ) -> Result<DataWrapper<String>, ResponseError> {
         let path = &format!("{}/data/delete", self.base_url);
-        self.execute_post_request::<DataWrapper<String>, _>(path, json).await
+        self.execute_post_request::<DataWrapper<String>, _>(path, json)
+            .await
     }
 
-    pub async fn retrieve_latest_datapoint(&self, json: &IdAndExtIdCollection)
-                                   -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>
-    {
+    pub async fn retrieve_latest_datapoint(
+        &self,
+        json: &IdAndExtIdCollection,
+    ) -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError> {
         let path = &format!("{}/data/latest", self.base_url);
-        self.execute_post_request::<DataWrapper<DatapointsCollection<Datapoint>>, _>(path, json).await
+        self.execute_post_request::<DataWrapper<DatapointsCollection<Datapoint>>, _>(path, json)
+            .await
     }
-
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeries {
-    #[serde(skip_serializing_if = "is_zero")]
-    pub id: u64,
+    pub id: Option<u64>,
     #[serde(rename = "externalId")]
     pub external_id: String,
     pub name: String,
@@ -276,17 +313,12 @@ pub struct TimeSeries {
     pub last_updated_time: Option<DateTime<Utc>>,
     #[serde(rename = "relationsFrom")]
     pub relations_from: Vec<RelationForm>,
-    #[serde(rename = "isString", default)]
-    pub is_string: bool,
-    #[serde(rename = "isStep", default)]
-    pub is_step: bool
 }
 
 impl TimeSeries {
-
-    pub fn new(external_id: &str, name: &str) -> TimeSeries{
+    pub fn new(external_id: &str, name: &str) -> TimeSeries {
         TimeSeries {
-            id: 0,
+            id: None,
             external_id: external_id.to_string(),
             name: name.to_string(),
             metadata: None,
@@ -299,8 +331,27 @@ impl TimeSeries {
             created_time: None,
             last_updated_time: None,
             relations_from: vec![],
-            is_string: false,
-            is_step: false,
+        }
+    }
+    pub fn from_dict(dict: HashMap<String, String>) -> Self {
+        Self {
+            id: dict.get("id").map(|v| v.parse::<u64>().unwrap()),
+            external_id: dict.get("externalId").unwrap().to_string(),
+            name: dict.get("name").unwrap().to_string(),
+            metadata: dict
+                .get("metadata")
+                .map(|v| serde_json::from_str(v).unwrap()),
+            unit: dict.get("units").map(|v| v.to_string()),
+            description: dict.get("description").map(|v| v.to_string()),
+            unit_external_id: dict.get("unitExternalId").map(|v| v.to_string()),
+            security_categories: dict
+                .get("securityCategories")
+                .map(|v| serde_json::from_str(v).unwrap()),
+            data_set_id: dict.get("dataSetId").map(|v| v.parse::<u64>().unwrap()),
+            value_type: dict.get("valueType").unwrap().to_string(),
+            created_time: None,
+            last_updated_time: None,
+            relations_from: vec![],
         }
     }
 
@@ -367,17 +418,6 @@ impl TimeSeries {
         self.relations_from = relations_from;
         self
     }
-
-    pub fn set_is_string(&mut self, is_string: bool) -> &mut TimeSeries {
-        self.is_string = is_string;
-        self
-    }
-
-    pub fn set_is_step(&mut self, is_step: bool) -> &mut TimeSeries {
-        self.is_step = is_step;
-        self
-    }
-
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -386,7 +426,6 @@ pub struct LimitParam {
 }
 
 impl LimitParam {
-
     pub fn new() -> Self {
         LimitParam { limit: 100 }
     }
@@ -416,30 +455,23 @@ pub struct TimeSeriesUpdateFields {
     pub data_set_id: Field<u64>,
     #[serde(rename = "relationsFrom")]
     pub relations_from: ListField<u64>,
-    #[serde(rename = "isString")]
-    pub is_string: Field<bool>,
-    #[serde(rename = "isStep")]
-    pub is_step: Field<bool>,
     #[serde(rename = "valueType")]
     pub value_type: Field<String>,
 }
 
 impl TimeSeriesUpdateFields {
-
     pub fn new() -> TimeSeriesUpdateFields {
         TimeSeriesUpdateFields {
-            external_id: Field::new(),
-            name: Field::new(),
-            metadata: MapField::new(),
-            unit: Field::new(),
-            description: Field::new(),
-            unit_external_id: Field::new(),
-            security_categories: ListField::new(),
-            data_set_id: Field::new(),
-            relations_from: ListField::new(),
-            is_string: Field::new(),
-            is_step: Field::new(),
-            value_type: Field::new(),
+            external_id: Field::default(),
+            name: Field::default(),
+            metadata: MapField::default(),
+            unit: Field::default(),
+            description: Field::default(),
+            unit_external_id: Field::default(),
+            security_categories: ListField::default(),
+            data_set_id: Field::default(),
+            relations_from: ListField::default(),
+            value_type: Field::default(),
         }
     }
 }
@@ -449,26 +481,22 @@ pub struct TimeSeriesUpdate {
     pub id: Option<u64>,
     #[serde(rename = "externalId")]
     pub external_id: Option<String>,
-    pub update: TimeSeriesUpdateFields
-}
-
-impl TimeSeriesUpdate {
-
+    pub update: TimeSeriesUpdateFields,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TimeSeriesUpdateCollection {
-    items: Vec<TimeSeriesUpdate>
+    items: Vec<TimeSeriesUpdate>,
 }
 
 impl TimeSeriesUpdateCollection {
-
     pub fn new() -> Self {
-        TimeSeriesUpdateCollection {
-            items: vec![]
-        }
+        TimeSeriesUpdateCollection { items: vec![] }
     }
-
+    #[must_use]
+    pub fn from_vec(items: Vec<TimeSeriesUpdate>) -> Self {
+        TimeSeriesUpdateCollection { items }
+    }
     pub fn get_items(&self) -> Vec<TimeSeriesUpdate> {
         self.items.clone()
     }

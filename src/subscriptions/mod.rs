@@ -1,6 +1,7 @@
 pub mod listen;
 mod test;
 
+use std::sync::Weak;
 pub use listen::{
     DataCollectionString, DataWrapperMessage, EventAction, EventObject, ListenError,
     SubscriptionListener, SubscriptionMessage, WsDatapoint,
@@ -11,7 +12,6 @@ use crate::http::ResponseError;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::rc::Weak;
 
 pub struct SubscriptionsService {
     pub(crate) api_service: Weak<ApiService>,

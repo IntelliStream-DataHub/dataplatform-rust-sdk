@@ -1,4 +1,3 @@
-mod forms;
 #[cfg(test)]
 mod tests;
 
@@ -8,12 +7,11 @@ use crate::generic::{
 };
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::{process_response, ResponseError};
-use crate::resources::forms::ResourceForm;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::rc::Weak;
+use std::sync::Weak;
 
 pub struct ResourceService {
     api_service: Weak<ApiService>,
@@ -26,16 +24,17 @@ impl ApiServiceProvider for ResourceService {
 }
 
 impl ResourceService {
-    pub fn new(api_service: Weak<ApiService>, base_url: String) -> Self {
+    pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
+        let resource_base_url = format!("{}/resources", base_url);
         Self {
             api_service,
-            base_url: base_url + "/resources",
+            base_url: resource_base_url,
         }
     }
 
     pub async fn create<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
     where
-        for<'a> &'a I: Into<GraphDataWrapper<ResourceForm>>,
+        for<'a> &'a I: Into<GraphDataWrapper<Resource>>,
     {
         let payload = input.into();
         let url = &format!("{}/create", self.base_url);
@@ -101,8 +100,8 @@ impl ResourceService {
 pub struct Resource {
     // used to be a serde skip if zero here. don't understand why
     // todo implement a smooth way to convert "datahub entities" to id-collections
-    id: Option<u64>,
-    external_id: String,
+    pub id: Option<u64>,
+    pub external_id: String,
     pub name: String,
     pub metadata: Option<HashMap<String, String>>,
     pub description: Option<String>,
@@ -118,7 +117,6 @@ pub struct Resource {
     pub last_updated_time: Option<DateTime<Utc>>,
     pub relations_form: Option<Vec<RelationForm>>,
 }
-
 impl Resource {
     pub fn new() -> Self {
         Self {

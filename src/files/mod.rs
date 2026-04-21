@@ -1,51 +1,67 @@
 mod test;
 
+use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
+use crate::events::Event;
+use crate::generic::{ApiServiceProvider, DataWrapper, INode, IdAndExtIdCollection};
+use crate::http::ResponseError;
+use crate::ApiService;
+use chrono::{DateTime, Utc};
+use reqwest::multipart::{Form, Part};
+use reqwest::Body;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::rc::Weak;
-use chrono::{DateTime, Utc};
-use reqwest::{Body};
-use reqwest::multipart::{Form, Part};
-use serde::{Deserialize, Serialize};
+use std::sync::Weak;
 use tokio::fs::File;
 use tokio_util::codec::{BytesCodec, FramedRead};
-use crate::ApiService;
-use crate::generic::{ApiServiceProvider, DataWrapper, INode, IdAndExtIdCollection};
-use crate::http::{ResponseError};
-use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
-use crate::events::Event;
 
-pub struct FileService{
+pub struct FileService {
     pub(crate) api_service: Weak<ApiService>,
-    base_url: String
+    base_url: String,
 }
 
 impl FileService {
     pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
         let base_url = format!("{}/files", base_url);
-        FileService { api_service, base_url }
+        FileService {
+            api_service,
+            base_url,
+        }
     }
-    
-    pub async fn upload_file(&self, file_upload: FileUpload) -> Result<DataWrapper<FileUpload>, ResponseError> {
+
+    pub async fn upload_file(
+        &self,
+        file_upload: FileUpload,
+    ) -> Result<DataWrapper<FileUpload>, ResponseError> {
         let multipart_form = file_upload.get_form().await;
-        self.execute_file_upload_request(self.base_url.as_str(), multipart_form).await
+        self.execute_file_upload_request(self.base_url.as_str(), multipart_form)
+            .await
     }
 
     pub async fn list_root_directory(&self) -> Result<DataWrapper<INode>, ResponseError> {
         // Create and send an HTTP GET request
         let full_path = format!("{}/list", self.base_url.as_str());
-        self.execute_get_request(full_path.as_str(),None::<&str>).await
+        self.execute_get_request(full_path.as_str(), None::<&str>)
+            .await
     }
 
-    pub async fn list_directory_by_path(&self, path: &str) -> Result<DataWrapper<INode>, ResponseError> {
+    pub async fn list_directory_by_path(
+        &self,
+        path: &str,
+    ) -> Result<DataWrapper<INode>, ResponseError> {
         let full_path = format!("{}/list{}", self.base_url.as_str(), path);
-        self.execute_get_request(full_path.as_str(),None::<&str>).await
+        self.execute_get_request(full_path.as_str(), None::<&str>)
+            .await
     }
 
-    pub async fn delete(&self, id_collection: &IdAndExtIdCollection) -> Result<DataWrapper<Event>, ResponseError> {
+    pub async fn delete(
+        &self,
+        id_collection: &IdAndExtIdCollection,
+    ) -> Result<DataWrapper<Event>, ResponseError> {
         let full_path = format!("{}/delete", self.base_url.as_str());
-        self.execute_post_request(full_path.as_str(), id_collection).await
+        self.execute_post_request(full_path.as_str(), id_collection)
+            .await
     }
 }
 
@@ -54,7 +70,7 @@ pub struct FileUpload {
     #[serde(rename = "externalId")]
     pub external_id: String,
     pub file_path: String,
-    pub path: Option<String>,
+    pub destination_path: Option<String>,
     pub name: String,
     pub metadata: Option<HashMap<String, String>>,
     pub description: Option<String>,
@@ -64,25 +80,23 @@ pub struct FileUpload {
     #[serde(rename = "mimeType")]
     pub mime_type: Option<String>,
     pub related_resources: Option<Vec<u64>>,
-    #[serde(rename = "sourceDateCreated")]   
+    #[serde(rename = "sourceDateCreated")]
     pub source_date_created: Option<DateTime<Utc>>,
     #[serde(rename = "sourceLastUpdated")]
-    pub source_last_updated: Option<DateTime<Utc>>
+    pub source_last_updated: Option<DateTime<Utc>>,
 }
 
 impl FileUpload {
-
     pub fn new_with_destination_path(file_path: &str, destination_path: &str) -> Self {
         let mut f = Self::new(file_path);
         f.set_destination_path(destination_path.to_string());
         f
     }
-    
+
     pub fn new(file_path: &str) -> Self {
-        let metadata = fs::metadata(file_path)
-            .unwrap_or_else(|e| {
-                panic!("Failed to get metadata for file '{}': {}", file_path, e);
-            });
+        let metadata = fs::metadata(file_path).unwrap_or_else(|e| {
+            panic!("Failed to get metadata for file '{}': {}", file_path, e);
+        });
 
         if !metadata.is_file() {
             panic!("Path '{}' is not a regular file.", file_path);
@@ -112,7 +126,7 @@ impl FileUpload {
             Ok(None) => {
                 println!("Could not determine file type for: {}", file_path);
                 Some("application/octet-stream".to_string())
-            },
+            }
             Err(e) => {
                 eprintln!("Error detecting file type for {}: {}", file_path, e);
                 None
@@ -122,7 +136,7 @@ impl FileUpload {
         Self {
             external_id: to_snake_lower_cased_allow_start_with_digits(file_name.as_str()),
             file_path: file_path.to_string(),
-            path: None,
+            destination_path: None,
             name: file_name,
             metadata: None,
             description: None,
@@ -145,7 +159,8 @@ impl FileUpload {
         let file_part = Part::stream(Body::wrap_stream(stream))
             .file_name(self.name.clone())
             .mime_str("application/octet-stream")
-            .unwrap_or_else(|e| { // Handle error for mime_str as well
+            .unwrap_or_else(|e| {
+                // Handle error for mime_str as well
                 panic!("Failed to set MIME type or filename for file part: {}", e);
             });
 
@@ -154,7 +169,7 @@ impl FileUpload {
         if let Some(source) = &self.source {
             form = form.text("source", source.clone());
         }
-        if let Some(path) = &self.path {
+        if let Some(path) = &self.destination_path {
             form = form.text("path", path.clone());
         }
         if let Some(description) = &self.description {
@@ -173,24 +188,28 @@ impl FileUpload {
         if let Some(source_last_updated) = &self.source_last_updated {
             form = form.text("sourceLastUpdated", source_last_updated.to_rfc3339());
         }
-        
+
         if let Some(metadata) = &self.metadata {
             // Serialize metadata to JSON string
-            form = form.text("metadata", serde_json::to_string(metadata).unwrap_or_default());
+            form = form.text(
+                "metadata",
+                serde_json::to_string(metadata).unwrap_or_default(),
+            );
         }
         if let Some(related_resources) = &self.related_resources {
-            let resources_str: Vec<String> = related_resources.iter().map(|&id| id.to_string()).collect();
+            let resources_str: Vec<String> =
+                related_resources.iter().map(|&id| id.to_string()).collect();
             form = form.text("relatedResources", resources_str.join(","));
         }
 
         // Add the file part last
         form = form.part("file", file_part);
-        
+
         form
     }
-    
+
     pub fn set_external_id(&mut self, external_id: String) {
-        self.external_id = external_id;   
+        self.external_id = external_id;
     }
 
     pub fn set_file_name(&mut self, file_name: String) {
@@ -198,25 +217,25 @@ impl FileUpload {
     }
 
     pub fn set_destination_path(&mut self, destination_path: String) {
-        self.path = Some(destination_path);
+        self.destination_path = Some(destination_path);
     }
-    
+
     pub fn set_metadata(&mut self, metadata: HashMap<String, String>) {
         self.metadata = Some(metadata);
     }
-    
+
     pub fn set_description(&mut self, description: String) {
         self.description = Some(description);
     }
-    
+
     pub fn set_source(&mut self, source: String) {
         self.source = Some(source);
     }
-    
+
     pub fn set_data_set_id(&mut self, data_set_id: u64) {
         self.data_set_id = Some(data_set_id);
     }
-    
+
     pub fn set_mime_type(&mut self, mime_type: String) {
         self.mime_type = Some(mime_type);
     }

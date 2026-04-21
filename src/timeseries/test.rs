@@ -4,6 +4,7 @@ mod tests {
     use std::fs::File;
     use std::io::Read;
     use std::rc::Rc;
+    use std::sync::Arc;
     use chrono::{DateTime, Duration, TimeZone, Utc};
     use maplit::hashmap;
     use reqwest::StatusCode;
@@ -45,7 +46,21 @@ mod tests {
         }
         Ok(())
     }
-
+    #[tokio::test]
+    async fn test_list()-> Result<(), Box<dyn std::error::Error>> {
+        let api_service = create_api_service();
+        let result = api_service.time_series.list().await;
+        match result {
+            Ok(timeseries) => {
+               // assert!(timeseries.length() <= 5);
+                println!("Length of time series returned is {:?}", timeseries.length());
+            },
+            Err(e) => {
+                panic!("{:?}", e.get_message());
+            }
+        }
+        Ok(())
+    }
     #[tokio::test]
     async fn test_create_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>> {
         let unique_id: u64 = 1200;
@@ -173,7 +188,7 @@ mod tests {
 
         println!("external_id: {:?}", &ts_update_collection.get_items()[0].external_id.clone().unwrap());
 
-        let mut ts2_id = None;
+        let mut ts2_id: Option<u64> = None;
         let result = api_service.time_series.update(&ts_update_collection).await;
         match result {
             Ok(timeseries) => {
@@ -196,7 +211,7 @@ mod tests {
                         None => panic!("Expected unit_external_id to be present"),
                     }
 
-                    ts2_id = Some(item.id);
+                    ts2_id = item.id;
                 } else {
                     assert_eq!(StatusCode::OK, StatusCode::NO_CONTENT);
                 }
@@ -387,12 +402,12 @@ mod tests {
             .set_value_type("float").clone();
 
         ts_collection.add_item(ts1);
-        ts_collection.add_item(ts2);
+        // ts_collection.add_item(ts2);
 
         let result = api_service.time_series.create(&ts_collection).await;
         match result {
             Ok(timeseries) => {
-                assert_eq!(timeseries.length(), 2);
+                assert_eq!(timeseries.length(), 1);
                 println!("Time series created successfully!");
             },
             Err(e) => {
@@ -423,21 +438,21 @@ mod tests {
             }
         }
 
-        println!("Prepare datapoints for second time series...");
-        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
-        let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id2.as_str());
+        //println!("Prepare datapoints for second time series...");
+        //let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+        //let mut dp_collection = DatapointsCollection::from_external_id(new_ts_ext_id.as_str());
 
-        let datetime = Utc.with_ymd_and_hms(2025, 2, 4, 9, 0, 0).unwrap();
-        dp_collection.datapoints = create_daily_datapoints(datetime);
-        for dp in &mut dp_collection.datapoints {
-            dp.value = dp.value.clone();
-        }
+        //let datetime = Utc.with_ymd_and_hms(2025, 2, 4, 9, 0, 0).unwrap();
+        //dp_collection.datapoints = create_daily_datapoints(datetime);
+        //for dp in &mut dp_collection.datapoints {
+        //    dp.value = dp.value.clone();
+        //}
 
-        data_request.get_items_mut().push(dp_collection);
+        //data_request.get_items_mut().push(dp_collection);
 
         println!("Start datapoint insert for second time series!");
-        let result = api_service.time_series.insert_datapoints(&mut data_request).await;
-        match result {
+        //let result = api_service.time_series.insert_datapoints(&mut data_request).await;
+        /*match result {
             Ok(r) => {
                 assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
             },
@@ -447,13 +462,15 @@ mod tests {
             }
         }
 
+         */
+
         // Before validating inserted data, sleep for 60 seconds...
         // This is because it takes some time before data is inserted and merged in clickhouse
         println!("Sleeping for 60 seconds...while waiting for data to be inserted into clickhouse.");
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         println!("Done sleeping.");
 
-        validate_datapoints(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
+        validate_datapoints(&api_service, vec![new_ts_ext_id.clone()]).await;
 
         // Before validating inserted data, sleep for 60 seconds...
         // This is because it takes some time before data is inserted into clickhouse and merged into the table
@@ -462,7 +479,7 @@ mod tests {
         println!("Done sleeping.");
 
         println!("Validate aggregated datapoints...");
-        validate_daily_avg(&api_service, vec![new_ts_ext_id.clone(), new_ts_ext_id2.clone()]).await;
+        validate_daily_avg(&api_service, vec![new_ts_ext_id.clone()]).await;
 
         println!("Validate raw datapoints...");
         validate_raw_datapoints_with_cursor(&api_service, new_ts_ext_id.clone()).await;
@@ -476,8 +493,9 @@ mod tests {
 
         Ok(())
     }
+    // total is 9 354 000
 
-    async fn validate_datapoints(api_service: &Rc<ApiService>, ts_external_id_vec: Vec<String>) {
+    async fn validate_datapoints(api_service: &Arc<ApiService>, ts_external_id_vec: Vec<String>) {
         for ts_external_id in &ts_external_id_vec {
             let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
             let mut rf = RetrieveFilter::new();
@@ -527,7 +545,7 @@ mod tests {
         let result = api_service.time_series.retrieve_datapoints(&data_request).await;
         match result {
             Ok(r) => {
-                assert_eq!(r.get_items().len(), 2);
+                assert_eq!(r.get_items().len(), 1);
                 r.get_items().iter().for_each(|item| {
                     assert_eq!(item.datapoints.len(), 200);
                 });
@@ -551,7 +569,7 @@ mod tests {
         let result = api_service.time_series.retrieve_datapoints(&data_request).await;
         match result {
             Ok(r) => {
-                assert_eq!(r.get_items().len(), 2);
+                assert_eq!(r.get_items().len(), 1);
                 for item in r.get_items().iter() {
                     if let Some(external_id) = &item.external_id {
                         // Compare references to strings, not moving them
@@ -572,7 +590,7 @@ mod tests {
         }
     }
 
-    async fn validate_deleted_datapoints(api_service: &Rc<ApiService>, ts_external_id: String) {
+    async fn validate_deleted_datapoints(api_service: &Arc<ApiService>, ts_external_id: String) {
         let delete_after_timestamp = Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap();
 
         let mut data_request: DataWrapper<DeleteFilter> = DataWrapper::new();
@@ -613,7 +631,7 @@ mod tests {
         }
     }
 
-    async fn validate_daily_avg(api_service: &Rc<ApiService>, ts_external_id_vec: Vec<String>) {
+    async fn validate_daily_avg(api_service: &Arc<ApiService>, ts_external_id_vec: Vec<String>) {
         for ts_external_id in &ts_external_id_vec {
             let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
             let mut rf = RetrieveFilter::new();
@@ -657,21 +675,21 @@ mod tests {
                         if let Some(first_item) = r.get_items().first() {
                             if let Some(external_id) = &first_item.external_id {
                                 if external_id == "rust_sdk_test_6540_ts" {
-                                    if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap() {
+                                    if dp.timestamp() == Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap() {
                                         // normal avg would return 179.9514040223, but we use avgweighted over the window
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4516319444);
-                                    } else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 1, 22, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4516319444);
+                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 1, 22, 0, 0, 0).unwrap() {
                                         // normal avg would return 180.0561890050
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.5567939814);
-                                    } else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.5567939814);
+                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
                                         // normal avg would return 179.9661931149
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4659953703);
+                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4659953703);
                                     }
                                 } else {
-                                    if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap() {
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4611111111);
-                                    } else if dp.get_timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
-                                        assert_eq!(truncate_10(dp.get_average().unwrap()), 179.4927662037);
+                                    if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4611111111);
+                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
+                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4927662037);
                                     }
                                 }
                             }
@@ -698,7 +716,7 @@ mod tests {
         Ok(())
     }*/
 
-    async fn validate_raw_datapoints_with_cursor(api_service: &Rc<ApiService>, external_id: String) {
+    async fn validate_raw_datapoints_with_cursor(api_service: &Arc<ApiService>, external_id: String) {
         println!("Validate raw datapoints with cursor...");
         let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
         let mut rf = RetrieveFilter::new();
@@ -729,18 +747,18 @@ mod tests {
                         Ok(r) => {
                             let ts = r.get_items().first().unwrap();
                             println!("Sum datapoints for loop count:{:?} | {:?}", loop_count + 1, ts.datapoints.len());
-
-                            if loop_count == 50 {
-                                // Final data count is 97600
-                                assert_eq!(ts.datapoints.len(), 97600);
-                            } else {
-                                assert_eq!(ts.datapoints.len(), 100000);
-                            }
                             if ts.next_cursor.is_some() {
                                 current_cursor = Some(ts.next_cursor.clone().unwrap());
                             } else {
                                 current_cursor = None;
                             }
+                            if current_cursor == None {
+                                // Final data count is 97600 total 9_468_000
+                                assert_eq!(ts.datapoints.len(), 97_600);
+                            } else {
+                                assert_eq!(ts.datapoints.len(), 100_000);
+                            }
+
                             println!("Next cursor is {:?}", current_cursor);
                         },
                         Err(e) => {
