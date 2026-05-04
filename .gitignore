@@ -3,3 +3,4 @@
 Cargo.lock
 .env
 CLAUDE.local.md
+/datahub_python_bindings/target

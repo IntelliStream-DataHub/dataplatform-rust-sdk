@@ -141,7 +141,7 @@ pub enum TimeFilter {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct EventFilter {
     pub filter: Option<BasicEventFilter>,
     pub limit: u64,
@@ -150,7 +150,22 @@ pub struct EventFilter {
 }
 
 impl EventFilter {
-    pub fn new() -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: Option<u64>,
+        external_id_prefix: Option<String>,
+        description: Option<String>,
+        source: Option<String>,
+        r#type: Option<String>,
+        sub_type: Option<String>,
+        data_set_ids: Option<Vec<u64>>,
+        event_time: Option<TimeFilter>,
+        metadata: Option<HashMap<String, String>>,
+        related_resource_ids: Option<Vec<u64>>,
+        related_resource_external_ids: Option<Vec<String>>,
+        created_time: Option<TimeFilter>,
+        last_updated_time: Option<TimeFilter>,
+    ) -> Self {
         Self {
             filter: None,
             limit: 100,
