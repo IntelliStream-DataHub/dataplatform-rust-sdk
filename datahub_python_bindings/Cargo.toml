@@ -1,0 +1,20 @@
+[package]
+name = "datahub_python_bindings"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "datahub_python_sdk"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.28", features = ["extension-module", "chrono","chrono-tz","experimental-inspect", "abi3-py39","multiple-pymethods"] }
+dataplatform-rust-sdk = { path = ".." }
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
+numpy = "0.28.0"
+uuid = { version = "1.22.0", features = ["v4"] }
+strum = { version = "0.28", features = ["derive"] }
