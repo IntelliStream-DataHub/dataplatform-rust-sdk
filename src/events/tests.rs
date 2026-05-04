@@ -119,7 +119,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     let mut test_events = create_test_events();
 
     let mut basic_filter = BasicEventFilter::default();
-    let mut eventfilter = EventFilter::new();
+    let mut eventfilter = EventFilter::default();
     let api_service = create_api_service();
     let max_time = DateTime::parse_from_rfc3339("2025-09-06T06:08:00Z")
         .unwrap()
