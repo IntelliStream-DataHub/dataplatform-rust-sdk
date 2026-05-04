@@ -29,6 +29,7 @@ pub mod subscriptions;
 pub mod tests;
 pub mod timeseries;
 pub mod unit;
+pub mod functions;
 
 pub use resources::*;
 pub use events::*;
@@ -40,6 +41,7 @@ pub use subscriptions::{
     Subscription, SubscriptionFilter, SubscriptionListener, SubscriptionMessage,
     SubscriptionRetriever, WsDatapoint,
 };
+use crate::functions::FunctionsService;
 //pub use filters::Filter;
 
 pub struct ApiService {
@@ -51,6 +53,7 @@ pub struct ApiService {
     pub datasets: DatasetsService,
     pub files: FileService,
     pub subscriptions: SubscriptionsService,
+    pub functions: FunctionsService,
     pub(crate) http_client: Client,
 }
 
@@ -83,6 +86,7 @@ pub fn create_api_service() -> Arc<ApiService> {
             datasets: DatasetsService::new(Weak::clone(weak_self), &base_url_clone),
             files: FileService::new(Weak::clone(weak_self), &base_url_clone),
             subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
+            functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
             http_client,
         }
     });
@@ -116,6 +120,7 @@ impl ApiService {
                 datasets: DatasetsService::new(Weak::clone(weak_self), &base_url_clone),
                 files: FileService::new(Weak::clone(weak_self), &base_url_clone),
                 subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
+                functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });
@@ -150,6 +155,7 @@ impl ApiService {
                 datasets: DatasetsService::new(Weak::clone(weak_self), &base_url_clone),
                 files: FileService::new(Weak::clone(weak_self), &base_url_clone),
                 subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
+                functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });
