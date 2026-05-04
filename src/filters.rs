@@ -141,7 +141,7 @@ pub enum TimeFilter {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct EventFilter {
     pub filter: Option<BasicEventFilter>,
     pub limit: u64,
