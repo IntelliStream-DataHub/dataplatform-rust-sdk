@@ -115,12 +115,12 @@ impl PySubscriptionListener {
     }
 
     #[pyo3(signature=(_exc_type=None, _exc_value=None, _traceback=None))]
-    fn __exit__(
+    fn __exit__<'py>(
         &self,
-        py: Python<'_>,
-        _exc_type: Option<PyObject>,
-        _exc_value: Option<PyObject>,
-        _traceback: Option<PyObject>,
+        py: Python<'py>,
+        _exc_type: Option<Bound<'py, PyAny>>,
+        _exc_value: Option<Bound<'py, PyAny>>,
+        _traceback: Option<Bound<'py, PyAny>>,
     ) -> PyResult<()> {
         self.close(py)
     }
@@ -215,9 +215,9 @@ impl PySubscriptionListenerAsync {
     fn __aexit__<'py>(
         &self,
         py: Python<'py>,
-        _exc_type: Option<PyObject>,
-        _exc_value: Option<PyObject>,
-        _traceback: Option<PyObject>,
+        _exc_type: Option<Bound<'py, PyAny>>,
+        _exc_value: Option<Bound<'py, PyAny>>,
+        _traceback: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         self.close(py)
     }
