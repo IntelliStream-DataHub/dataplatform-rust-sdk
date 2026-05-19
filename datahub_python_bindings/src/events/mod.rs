@@ -18,7 +18,7 @@ pub mod async_service;
 pub mod general;
 pub mod sync_service;
 
-#[pyclass(module = "datahub_python_sdk", name = "Event", from_py_object)]
+#[pyclass(module = "datahub_sdk", name = "Event", from_py_object)]
 #[derive(Clone)]
 pub struct PyEvent {
     pub inner: Event,
@@ -41,7 +41,7 @@ impl PyEvent {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "EventFilter", from_py_object)]
+#[pyclass(module = "datahub_sdk", name = "EventFilter", from_py_object)]
 #[derive(Clone)]
 pub struct PyEventFilter {
     pub inner: EventFilter,
@@ -88,7 +88,7 @@ impl PyEventFilter {
 }
 
 #[pyclass(
-    module = "datahub_python_sdk",
+    module = "datahub_sdk",
     name = "BasicEventFilter",
     from_py_object
 )]
@@ -158,7 +158,7 @@ impl PyBasicEventFilter {
         }
     }
 }
-#[pyclass(module = "datahub_python_sdk", name = "TimeFilter", from_py_object)]
+#[pyclass(module = "datahub_sdk", name = "TimeFilter", from_py_object)]
 #[derive(Clone)]
 pub struct PyTimeFilter {
     inner: TimeFilter,
@@ -208,7 +208,7 @@ impl PyTimeFilter {
     }
 }
 #[pyclass(
-    module = "datahub_python_sdk",
+    module = "datahub_sdk",
     name = "EventIdCollection",
     from_py_object
 )]

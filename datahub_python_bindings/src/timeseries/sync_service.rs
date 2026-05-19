@@ -10,7 +10,7 @@ use pyo3::exceptions::PyException;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_python_sdk", name = "TimeSeriesServiceSync")]
+#[pyclass(module = "datahub_sdk", name = "TimeSeriesServiceSync")]
 pub struct PyTimeSeriesServiceSync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,

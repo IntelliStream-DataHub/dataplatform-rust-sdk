@@ -6,7 +6,7 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_python_sdk", name = "FunctionsServiceSync")]
+#[pyclass(module = "datahub_sdk", name = "FunctionsServiceSync")]
 pub struct PyFunctionsServiceSync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,

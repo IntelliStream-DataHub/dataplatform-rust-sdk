@@ -33,7 +33,7 @@ pub mod sync_service;
 /// source_reference:
 ///     url to the source of the unit
 ///
-#[pyclass(module = "datahub_python_sdk", name = "Unit")]
+#[pyclass(module = "datahub_sdk", name = "Unit")]
 #[derive(Clone)]
 pub struct PyUnit {
     pub inner: Unit,

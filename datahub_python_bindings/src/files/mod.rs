@@ -9,7 +9,7 @@ use pyo3::types::PyType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[pyclass(module = "datahub_python_sdk", name = "INode", from_py_object)]
+#[pyclass(module = "datahub_sdk", name = "INode", from_py_object)]
 #[derive(Clone)]
 pub struct PyINode {
     inner: INode,
@@ -175,7 +175,7 @@ impl PyINode {
         self.inner.security_categories.as_ref()
     }
 }
-#[pyclass(module = "datahub_python_sdk", name = "FileUpload", from_py_object)]
+#[pyclass(module = "datahub_sdk", name = "FileUpload", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyFileUpload {
     pub inner: FileUpload,
