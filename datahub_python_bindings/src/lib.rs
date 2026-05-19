@@ -50,9 +50,7 @@ impl PySyncClient {
     #[pyo3(signature = (
         base_url,
         token=None,
-        auth_url=None,
         token_url=None,
-        redirect_url=None,
         client_id=None,
         client_secret=None,
         project_name=None,
@@ -60,9 +58,7 @@ impl PySyncClient {
     fn new(
         base_url: String,
         token: Option<String>,
-        auth_url: Option<String>,
         token_url: Option<String>,
-        redirect_url: Option<String>,
         client_id: Option<String>,
         client_secret: Option<String>,
         project_name: Option<String>,
@@ -71,9 +67,7 @@ impl PySyncClient {
             inner: ApiService::new(DataHubApi::from_vars(
                 base_url,
                 token,
-                auth_url,
                 token_url,
-                redirect_url,
                 client_id,
                 client_secret,
                 project_name,
@@ -170,9 +164,7 @@ impl PyAsyncClient {
     #[pyo3(signature = (
         base_url,
         token=None,
-        auth_url=None,
         token_url=None,
-        redirect_url=None,
         client_id=None,
         client_secret=None,
         project_name=None,
@@ -180,9 +172,7 @@ impl PyAsyncClient {
     fn new(
         base_url: String,
         token: Option<String>,
-        auth_url: Option<String>,
         token_url: Option<String>,
-        redirect_url: Option<String>,
         client_id: Option<String>,
         client_secret: Option<String>,
         project_name: Option<String>,
@@ -191,9 +181,7 @@ impl PyAsyncClient {
             inner: ApiService::new(DataHubApi::from_vars(
                 base_url,
                 token,
-                auth_url,
                 token_url,
-                redirect_url,
                 client_id,
                 client_secret,
                 project_name,
