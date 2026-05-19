@@ -12,7 +12,7 @@ use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_python_sdk", name = "SubscriptionsServiceSync")]
+#[pyclass(module = "datahub_sdk", name = "SubscriptionsServiceSync")]
 pub struct PySubscriptionsServiceSync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,

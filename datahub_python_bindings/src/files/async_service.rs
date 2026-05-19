@@ -6,14 +6,14 @@ use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
-#[pyclass]
-pub struct PyFilesServiceSync {
+#[pyclass(module = "datahub_sdk", name = "FilesServiceAsync")]
+pub struct PyFilesServiceAsync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,
 }
 
 #[pymethods]
-impl PyFilesServiceSync {
+impl PyFilesServiceAsync {
     fn upload_file<'py>(
         &self,
         py: Python<'py>,

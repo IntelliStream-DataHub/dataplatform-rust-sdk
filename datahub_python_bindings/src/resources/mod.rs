@@ -8,7 +8,7 @@ use std::collections::HashMap;
 pub mod async_service;
 pub mod sync_service;
 
-#[pyclass(module = "datahub_python_sdk", name = "Resource", from_py_object)]
+#[pyclass(module = "datahub_sdk", name = "Resource", from_py_object)]
 #[derive(Clone)]
 pub struct PyResource {
     pub inner: Resource,

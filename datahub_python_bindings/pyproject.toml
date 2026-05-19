@@ -5,7 +5,7 @@ build-backend = "maturin"
 [tool.maturin]
 bindings = "pyo3"
 # This tells maturin that the python package is in the 'python' folder
-# python-source = "python"
+python-source = "python"
 # The name of the compiled rust module (must match lib.name in Cargo.toml)
 module-name = "datahub_sdk"
 

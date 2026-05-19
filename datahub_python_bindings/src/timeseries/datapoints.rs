@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
 use pyo3::{Bound, Py, Python, pyclass, pymethods};
 
-#[pyclass(module = "datahub_python_sdk", name = "DatapointsCollectionString")]
+#[pyclass(module = "datahub_sdk", name = "DatapointsCollectionString")]
 #[derive(Clone, Debug)]
 pub struct PyDatapointsCollectionString {
     pub inner: DatapointsCollection<DatapointString>,
@@ -23,7 +23,7 @@ impl From<PyDatapointsCollectionString> for DatapointsCollection<DatapointString
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "DatapointsCollectionDatapoints")]
+#[pyclass(module = "datahub_sdk", name = "DatapointsCollectionDatapoints")]
 #[derive(Clone, Debug)]
 pub struct PyDatapointsCollectionDatapoints {
     pub inner: DatapointsCollection<Datapoint>,
@@ -83,7 +83,7 @@ impl PyDatapointsCollectionDatapoints {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "DatapointString")]
+#[pyclass(module = "datahub_sdk", name = "DatapointString")]
 #[derive(Clone)]
 pub struct PyDatapointString {
     pub inner: DatapointString,
@@ -136,7 +136,7 @@ impl PyDatapointString {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "RetrieveFilter")]
+#[pyclass(module = "datahub_sdk", name = "RetrieveFilter")]
 #[derive(Clone)]
 pub struct PyRetrieveFilter {
     inner: RetrieveFilter,
@@ -214,7 +214,7 @@ impl PyRetrieveFilter {
         self.inner.cursor.as_ref()
     }
 }
-#[pyclass(module = "datahub_python_sdk", name = "Datapoint")]
+#[pyclass(module = "datahub_sdk", name = "Datapoint")]
 #[derive(Clone)]
 pub struct PyDatapoint {
     inner: Datapoint,

@@ -13,7 +13,7 @@ use pyo3::{Bound, PyResult, pyclass, pymethods};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-#[pyclass(module = "datahub_python_sdk", name = "Dataset", from_py_object)]
+#[pyclass(module = "datahub_sdk", name = "Dataset", from_py_object)]
 #[derive(Clone)]
 pub struct PyDataset {
     pub inner: Dataset,

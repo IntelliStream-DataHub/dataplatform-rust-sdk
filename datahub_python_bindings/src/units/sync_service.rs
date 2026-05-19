@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
-#[pyclass(module = "datahub_python_sdk")]
+#[pyclass(module = "datahub_sdk", name = "UnitServiceSync")]
 pub(crate) struct PyUnitServiceSync {
     pub(crate) api_service: Arc<ApiService>,
     pub(crate) runtime: Arc<Runtime>,

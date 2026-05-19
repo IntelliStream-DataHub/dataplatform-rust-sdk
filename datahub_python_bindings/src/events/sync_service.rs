@@ -11,7 +11,7 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 use tokio::runtime;
 
-#[pyclass]
+#[pyclass(module = "datahub_sdk", name = "EventsServiceSync")]
 pub struct PyEventsServiceSync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,

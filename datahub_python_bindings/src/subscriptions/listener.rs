@@ -11,7 +11,7 @@ type SharedListener = Arc<Mutex<Option<SubscriptionListener>>>;
 /// Synchronous Python wrapper around the Rust `SubscriptionListener`. Iterating drives the
 /// underlying WebSocket: `for msg in listener:` blocks until the next message or returns when
 /// the connection closes cleanly.
-#[pyclass(module = "datahub_python_sdk", name = "SubscriptionListener")]
+#[pyclass(module = "datahub_sdk", name = "SubscriptionListener")]
 pub struct PySubscriptionListener {
     pub(crate) listener: SharedListener,
     pub(crate) runtime: Arc<tokio::runtime::Runtime>,
@@ -127,7 +127,7 @@ impl PySubscriptionListener {
 }
 
 /// Asynchronous Python wrapper. Use `async for msg in listener:` on the asyncio side.
-#[pyclass(module = "datahub_python_sdk", name = "SubscriptionListenerAsync")]
+#[pyclass(module = "datahub_sdk", name = "SubscriptionListenerAsync")]
 pub struct PySubscriptionListenerAsync {
     pub(crate) listener: SharedListener,
 }
