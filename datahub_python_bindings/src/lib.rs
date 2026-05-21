@@ -5,6 +5,7 @@ mod resources;
 mod subscriptions;
 pub mod timeseries;
 pub mod units;
+mod functions;
 
 use crate::datasets::PyDataset;
 use crate::datasets::async_service::PyDatasetsServiceAsync;
@@ -22,6 +23,8 @@ use crate::timeseries::datapoints::PyRetrieveFilter;
 use crate::timeseries::sync_service::PyTimeSeriesServiceSync;
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries};
 use crate::units::PyUnit;
+use crate::functions::async_service::PyFunctionsServiceAsync;
+use crate::functions::sync_service::PyFunctionsServiceSync;
 use crate::units::async_service::PyUnitServiceAsync;
 use crate::units::sync_service::PyUnitServiceSync;
 use dataplatform_rust_sdk::ApiService;
@@ -136,6 +139,14 @@ impl PySyncClient {
             runtime: self.runtime.clone(),
         }
     }
+    #[getter]
+    fn functions(&self) -> PyFunctionsServiceSync {
+        PyFunctionsServiceSync {
+            api_service: self.inner.clone(),
+            runtime: self.runtime.clone(),
+        }
+    }
+
 }
 
 #[pyclass(module = "datahub_python_sdk", name = "AsyncDataHubClient")]
@@ -220,6 +231,12 @@ impl PyAsyncClient {
     fn subscriptions(&self) -> PySubscriptionsServiceAsync {
         PySubscriptionsServiceAsync {
             api_service: self.inner.clone(),
+        }
+    }
+    #[getter]
+    fn functions(&self) -> PyFunctionsServiceAsync {
+        PyFunctionsServiceAsync {
+            api_service: self.inner.clone()
         }
     }
 }
@@ -533,5 +550,6 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     events::register(m)?;
     datasets::register(m)?;
     subscriptions::register(m)?;
+    functions::register(m)?;
     Ok(())
 }

@@ -14,6 +14,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::Hasher;
 use std::sync::{Arc, Weak};
+use crate::functions::FunctionsService;
 use crate::subscriptions::SubscriptionsService;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -803,6 +804,11 @@ impl ApiServiceProvider for FileService {
 }
 
 impl ApiServiceProvider for SubscriptionsService {
+    fn api_service(&self) -> &Weak<ApiService> {
+        &self.api_service
+    }
+}
+impl ApiServiceProvider for FunctionsService {
     fn api_service(&self) -> &Weak<ApiService> {
         &self.api_service
     }

@@ -62,7 +62,7 @@ impl PyEventFilter {
     #[new]
     #[pyo3(signature=(basic_filter,limit=None))]
     fn new(basic_filter: PyBasicEventFilter, limit: Option<u64>) -> Self {
-        let mut filter = EventFilter::new();
+        let mut filter = EventFilter::default();
         filter.set_filter(basic_filter.into());
         filter.set_limit(limit.unwrap_or(100));
         Self {
