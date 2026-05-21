@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_python_sdk", name = "FunctionsServiceAsync")]
+#[pyclass(module = "datahub_sdk", name = "FunctionsServiceAsync")]
 pub struct PyFunctionsServiceAsync {
     pub api_service: Arc<ApiService>,
 }

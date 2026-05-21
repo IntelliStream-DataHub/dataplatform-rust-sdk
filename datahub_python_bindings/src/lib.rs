@@ -39,7 +39,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use units::*;
 
-#[pyclass(module = "datahub_python_sdk", name = "DataHubClient")]
+#[pyclass(module = "datahub_sdk", name = "DataHubClient")]
 pub struct PySyncClient {
     inner: Arc<ApiService>,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -47,12 +47,18 @@ pub struct PySyncClient {
 #[pymethods]
 impl PySyncClient {
     #[new]
+    #[pyo3(signature = (
+        base_url,
+        token=None,
+        token_url=None,
+        client_id=None,
+        client_secret=None,
+        project_name=None,
+    ))]
     fn new(
         base_url: String,
         token: Option<String>,
-        auth_url: Option<String>,
         token_url: Option<String>,
-        redirect_url: Option<String>,
         client_id: Option<String>,
         client_secret: Option<String>,
         project_name: Option<String>,
@@ -61,9 +67,7 @@ impl PySyncClient {
             inner: ApiService::new(DataHubApi::from_vars(
                 base_url,
                 token,
-                auth_url,
                 token_url,
-                redirect_url,
                 client_id,
                 client_secret,
                 project_name,
@@ -149,7 +153,7 @@ impl PySyncClient {
 
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "AsyncDataHubClient")]
+#[pyclass(module = "datahub_sdk", name = "AsyncDataHubClient")]
 struct PyAsyncClient {
     inner: Arc<ApiService>,
 }
@@ -157,12 +161,18 @@ struct PyAsyncClient {
 #[pymethods]
 impl PyAsyncClient {
     #[new]
+    #[pyo3(signature = (
+        base_url,
+        token=None,
+        token_url=None,
+        client_id=None,
+        client_secret=None,
+        project_name=None,
+    ))]
     fn new(
         base_url: String,
         token: Option<String>,
-        auth_url: Option<String>,
         token_url: Option<String>,
-        redirect_url: Option<String>,
         client_id: Option<String>,
         client_secret: Option<String>,
         project_name: Option<String>,
@@ -171,9 +181,7 @@ impl PyAsyncClient {
             inner: ApiService::new(DataHubApi::from_vars(
                 base_url,
                 token,
-                auth_url,
                 token_url,
-                redirect_url,
                 client_id,
                 client_secret,
                 project_name,
@@ -241,7 +249,7 @@ impl PyAsyncClient {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "IdCollection")]
+#[pyclass(module = "datahub_sdk", name = "IdCollection")]
 #[derive(Clone)]
 pub(crate) struct PyIdCollection {
     inner: IdAndExtId,
@@ -269,7 +277,7 @@ impl PyIdCollection {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "SearchAndFilterForm")]
+#[pyclass(module = "datahub_sdk", name = "SearchAndFilterForm")]
 #[derive(Clone)]
 pub struct PySearchAndFilterForm {
     pub inner: SearchAndFilterForm,
@@ -327,7 +335,7 @@ impl DatahubIdentity for Identifiable {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "ListFieldU64")]
+#[pyclass(module = "datahub_sdk", name = "ListFieldU64")]
 #[derive(Clone, Debug)]
 pub struct PyListFieldU64(ListField<u64>);
 impl From<ListField<u64>> for PyListFieldU64 {
@@ -364,7 +372,7 @@ impl PyListFieldU64 {
         self.0.remove.as_ref()
     }
 }
-#[pyclass(module = "datahub_python_sdk", name = "ListFieldStr")]
+#[pyclass(module = "datahub_sdk", name = "ListFieldStr")]
 #[derive(Clone, Debug)]
 pub struct PyListFieldStr(ListField<String>);
 impl From<ListField<String>> for PyListFieldStr {
@@ -402,7 +410,7 @@ impl PyListFieldStr {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "MapField")]
+#[pyclass(module = "datahub_sdk", name = "MapField")]
 #[derive(Clone, Debug)]
 pub struct PyMapField(pub MapField);
 
@@ -443,7 +451,7 @@ impl PyMapField {
         self.0.remove.as_ref()
     }
 }
-#[pyclass(module = "datahub_python_sdk", name = "FieldStr")]
+#[pyclass(module = "datahub_sdk", name = "FieldStr")]
 #[derive(Clone, Debug)]
 pub struct PyFieldStr(Field<String>);
 
@@ -475,7 +483,7 @@ impl PyFieldStr {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "FieldU64")]
+#[pyclass(module = "datahub_sdk", name = "FieldU64")]
 #[derive(Clone, Debug)]
 pub struct PyFieldU64(Field<u64>);
 
@@ -508,7 +516,7 @@ impl PyFieldU64 {
 }
 
 // --- Files ---
-#[pyclass(module = "datahub_python_sdk")]
+#[pyclass(module = "datahub_sdk", name = "FileService")]
 struct PyFileService {
     api_service: Arc<ApiService>,
 }

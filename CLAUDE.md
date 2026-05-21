@@ -16,7 +16,7 @@ cargo test -- --nocapture                # show println! from tests (the SDK pri
 Most tests are integration tests that call a live backend via `create_api_service()`. They read configuration from a local `.env` file (gitignored). Required:
 
 - `BASE_URL` — backend root, e.g. `http://localhost:8081`
-- Either `TOKEN` (bearer token used as-is, no expiry) **or** the full OAuth2 client-credentials set: `CLIENT_ID`, `CLIENT_SECRET`, `AUTH_URI`, `TOKEN_URI`, `REDIRECT_URI` (optional: `PROJECT_NAME`)
+- Either `TOKEN` (bearer token used as-is, no expiry) **or** the OAuth2 client-credentials set: `CLIENT_ID`, `CLIENT_SECRET`, `TOKEN_URI` (optional: `PROJECT_NAME`)
 
 Tests that mutate backend state (create/delete) often `sleep` a few seconds between operations and are sensitive to race conditions — prefer running them serially or isolating by unique external IDs.
 
@@ -48,7 +48,7 @@ The API wraps collections in `{ "items": [...] }`. `DataWrapper<T>` mirrors that
 
 ### Auth (`src/datahub.rs`)
 
-`DataHubApi` holds `Rc<RwLock<AuthState>>`. `get_api_token()` reads the cached token; if missing or expired, `refresh_token()` uses the OAuth2 refresh token when present, otherwise does a client-credentials exchange. A `TOKEN` passed via env is stored with `expire_time: None` (never considered expired by the `is_expired` check — a user-supplied token is assumed to be managed externally). OAuth2 client is `None` unless all five OAuth env vars are present.
+`DataHubApi` holds `Rc<RwLock<AuthState>>`. `get_api_token()` reads the cached token; if missing or expired, `refresh_token()` uses the OAuth2 refresh token when present, otherwise does a client-credentials exchange. A `TOKEN` passed via env is stored with `expire_time: None` (never considered expired by the `is_expired` check — a user-supplied token is assumed to be managed externally). OAuth2 client is `None` unless `CLIENT_ID`, `CLIENT_SECRET`, and `TOKEN_URI` are all present — only the client-credentials and refresh-token flows are supported, so `AUTH_URI` and `REDIRECT_URI` are not consumed.
 
 ### Errors
 

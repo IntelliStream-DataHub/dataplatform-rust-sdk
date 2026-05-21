@@ -4,8 +4,8 @@ use dotenv::from_path;
 use maplit::hashmap;
 use oauth2::basic::{BasicClient, BasicTokenResponse, BasicTokenType};
 use oauth2::{
-    reqwest, AccessToken, AuthUrl, ClientId, ClientSecret, EmptyExtraTokenFields, EndpointNotSet,
-    EndpointSet, RedirectUrl, Scope, TokenResponse, TokenUrl,
+    reqwest, AccessToken, ClientId, ClientSecret, EmptyExtraTokenFields, Scope, TokenResponse,
+    TokenUrl,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -23,14 +23,8 @@ pub struct OAuthConfig {
     #[serde(alias = "CLIENT_SECRET")]
     pub(crate) client_secret: Option<String>,
 
-    #[serde(alias = "AUTH_URI")]
-    pub(crate) auth_uri: Option<String>,
-
     #[serde(alias = "TOKEN_URI")]
     pub(crate) token_uri: Option<String>,
-
-    #[serde(alias = "REDIRECT_URI")]
-    pub(crate) redirect_uri: Option<String>,
 
     #[serde(alias = "PROJECT_NAME")]
     pub(crate) project_name: Option<String>,
@@ -52,7 +46,7 @@ pub struct DataHubApi {
             oauth2::basic::BasicTokenIntrospectionResponse,
             oauth2::StandardRevocableToken,
             oauth2::basic::BasicRevocationErrorResponse,
-            oauth2::EndpointSet,
+            oauth2::EndpointNotSet,
             oauth2::EndpointNotSet,
             oauth2::EndpointNotSet,
             oauth2::EndpointNotSet,
@@ -94,9 +88,7 @@ impl DataHubApi {
     pub fn from_vars(
         base_url: String,
         token: Option<String>,
-        auth_uri: Option<String>,
         token_uri: Option<String>,
-        redirect_uri: Option<String>,
         client_id: Option<String>,
         client_secret: Option<String>,
         project_name: Option<String>,
@@ -104,9 +96,7 @@ impl DataHubApi {
         let oauthconfig = OAuthConfig {
             client_id,
             client_secret,
-            auth_uri,
             token_uri,
-            redirect_uri,
             project_name,
         };
 
@@ -252,49 +242,26 @@ impl DataHubApi {
             oauth2::basic::BasicTokenIntrospectionResponse,
             oauth2::StandardRevocableToken,
             oauth2::basic::BasicRevocationErrorResponse,
-            oauth2::EndpointSet,
+            oauth2::EndpointNotSet,
             oauth2::EndpointNotSet,
             oauth2::EndpointNotSet,
             oauth2::EndpointNotSet,
             oauth2::EndpointSet,
         >,
     > {
-        let client = if let (
-            Some(client_id),
-            Some(client_secret),
-            Some(auth_uri),
-            Some(token_uri),
-            Some(redirect_uri),
-        ) = (
+        let (Some(client_id), Some(client_secret), Some(token_uri)) = (
             &oauth_config.client_id,
             &oauth_config.client_secret,
-            &oauth_config.auth_uri,
             &oauth_config.token_uri,
-            &oauth_config.redirect_uri,
-        ) {
-            Some(
-                BasicClient::new(ClientId::new(client_id.clone()))
-                    .set_client_secret(ClientSecret::new(client_secret.clone()))
-                    .set_auth_uri(
-                        AuthUrl::new(auth_uri.clone())
-                            .ok()
-                            .expect("Invalid Auth URI"),
-                    )
-                    .set_token_uri(
-                        TokenUrl::new(token_uri.clone())
-                            .ok()
-                            .expect("Invalid Token URI"),
-                    )
-                    .set_redirect_uri(
-                        RedirectUrl::new(redirect_uri.clone())
-                            .ok()
-                            .expect("Invalid Redirect URI"),
-                    ),
-            )
-        } else {
-            None
+        ) else {
+            return None;
         };
-        client
+
+        Some(
+            BasicClient::new(ClientId::new(client_id.clone()))
+                .set_client_secret(ClientSecret::new(client_secret.clone()))
+                .set_token_uri(TokenUrl::new(token_uri.clone()).expect("Invalid Token URI")),
+        )
     }
 }
 

@@ -10,7 +10,7 @@ use serde_json::Value as JsonValue;
 pub mod async_service;
 pub mod sync_service;
 
-#[pyclass(module = "datahub_python_sdk", name = "Function")]
+#[pyclass(module = "datahub_sdk", name = "Function")]
 #[derive(Clone)]
 pub struct PyFunction {
     pub inner: Function,
@@ -112,7 +112,7 @@ impl PyFunction {
 
 /// Read-only mirror of the SDK `EdgeProxy` for Python consumers — only the fields the
 /// worker actually needs are exposed.
-#[pyclass(module = "datahub_python_sdk", name = "EdgeProxy")]
+#[pyclass(module = "datahub_sdk", name = "EdgeProxy")]
 #[derive(Clone)]
 pub struct PyEdgeProxy {
     pub inner: EdgeProxy,

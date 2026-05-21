@@ -16,7 +16,7 @@ pub mod general;
 pub mod listener;
 pub mod sync_service;
 
-#[pyclass(module = "datahub_python_sdk", name = "Subscription")]
+#[pyclass(module = "datahub_sdk", name = "Subscription")]
 #[derive(Clone)]
 pub struct PySubscription {
     pub inner: Subscription,
@@ -33,7 +33,7 @@ impl From<PySubscription> for Subscription {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "SubscriptionFilter")]
+#[pyclass(module = "datahub_sdk", name = "SubscriptionFilter")]
 #[derive(Clone, Default)]
 pub struct PySubscriptionFilter {
     pub inner: SubscriptionFilter,
@@ -76,7 +76,7 @@ impl PySubscriptionFilter {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "DataSort")]
+#[pyclass(module = "datahub_sdk", name = "DataSort")]
 #[derive(Clone, Default)]
 pub struct PyDataSort {
     pub inner: DataSort,
@@ -125,7 +125,7 @@ impl PyDataSort {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "SubscriptionRetriever")]
+#[pyclass(module = "datahub_sdk", name = "SubscriptionRetriever")]
 #[derive(Clone)]
 pub struct PySubscriptionRetriever {
     pub inner: SubscriptionRetriever,
@@ -240,7 +240,7 @@ impl From<SubscriptionTimeseriesId> for IdAndExtId {
 
 // -- WebSocket message wrappers ------------------------------------------------------------
 
-#[pyclass(module = "datahub_python_sdk", name = "EventAction")]
+#[pyclass(module = "datahub_sdk", name = "EventAction")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "UPPERCASE")]
 pub enum PyEventAction {
@@ -275,7 +275,7 @@ impl PyEventAction {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "EventObject")]
+#[pyclass(module = "datahub_sdk", name = "EventObject")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "UPPERCASE")]
 pub enum PyEventObject {
@@ -322,7 +322,7 @@ impl PyEventObject {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "WsDatapoint")]
+#[pyclass(module = "datahub_sdk", name = "WsDatapoint")]
 #[derive(Clone)]
 pub struct PyWsDatapoint {
     pub inner: WsDatapoint,
@@ -356,7 +356,7 @@ impl PyWsDatapoint {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "DataCollectionString")]
+#[pyclass(module = "datahub_sdk", name = "DataCollectionString")]
 #[derive(Clone)]
 pub struct PyDataCollectionString {
     pub inner: DataCollectionString,
@@ -401,7 +401,7 @@ impl PyDataCollectionString {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "DataWrapperMessage")]
+#[pyclass(module = "datahub_sdk", name = "DataWrapperMessage")]
 #[derive(Clone)]
 pub struct PyDataWrapperMessage {
     pub inner: DataWrapperMessage,
@@ -438,7 +438,7 @@ impl PyDataWrapperMessage {
     }
 }
 
-#[pyclass(module = "datahub_python_sdk", name = "SubscriptionMessage")]
+#[pyclass(module = "datahub_sdk", name = "SubscriptionMessage")]
 #[derive(Clone)]
 pub struct PySubscriptionMessage {
     pub inner: SubscriptionMessage,

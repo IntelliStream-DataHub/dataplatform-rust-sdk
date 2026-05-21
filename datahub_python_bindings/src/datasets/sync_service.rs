@@ -8,7 +8,7 @@ use pyo3::exceptions::PyException;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_python_sdk", name = "DatasetsService")]
+#[pyclass(module = "datahub_sdk", name = "DatasetsServiceSync")]
 pub struct PyDatasetsServiceSync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,

@@ -76,7 +76,7 @@ pub mod sync_service;
 ///             a Datahub entity connected to this timeseries can be a Timeseries, Dataset, Asset or Policy
 ///
 ///
-#[pyclass(module = "datahub_python_sdk", name = "TimeSeries")]
+#[pyclass(module = "datahub_sdk", name = "TimeSeries")]
 #[derive(Clone)]
 pub struct PyTimeSeries {
     pub inner: TimeSeries,
@@ -102,7 +102,7 @@ impl From<PyTimeSeries> for PyIdCollection {
         }
     }
 }
-#[pyclass(module = "datahub_python_sdk", name = "RelationFrom")]
+#[pyclass(module = "datahub_sdk", name = "RelationFrom")]
 #[derive(Clone, Debug)]
 pub struct PyRelationFrom {
     pub inner: RelationForm,
@@ -169,7 +169,7 @@ impl From<PyTimeseriesIdentifiable> for IdAndExtId {
 /// ----------
 /// ts: Timeseries
 #[pyclass(
-    module = "datahub_python_sdk",
+    module = "datahub_sdk",
     name = "TimeSeriesUpdate",
     from_py_object
 )]
@@ -293,7 +293,7 @@ impl PyTimeSeriesUpdate {
 /// ----------
 ///
 ///
-#[pyclass(module = "datahub_python_sdk", name = "DeleteFilter")]
+#[pyclass(module = "datahub_sdk", name = "DeleteFilter")]
 #[derive(Clone, Debug)]
 pub struct PyDeleteFilter {
     inner: DeleteFilter,
@@ -351,7 +351,7 @@ impl PyDeleteFilter {
 /// 3 options are available: BigInt, Decimal, Text
 ///
 /// from pyhton these can be passed directly as case-insensitive literal strings
-#[pyclass(module = "datahub_python_sdk", skip_from_py_object)]
+#[pyclass(module = "datahub_sdk", skip_from_py_object)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "camelCase")] // Ensures internal string representation is lowercase
 pub enum ValueType {
