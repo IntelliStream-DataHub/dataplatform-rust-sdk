@@ -2,6 +2,7 @@ use super::*;
 use crate::create_api_service;
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::generic::{IdAndExtId, SearchForm};
+use crate::relations::RelForm;
 use maplit::hashmap;
 use uuid::Uuid;
 
@@ -65,7 +66,10 @@ async fn test_create_and_delete_resources() -> Result<(), ResponseError> {
         vec![]
     );
 
-    let result = api_service.resources.create(&test_resources).await?;
+    let result = api_service
+        .resources
+        .create(test_resources.clone(), vec![])
+        .await?;
     let res_ids = result
         .nodes()
         .unwrap()
@@ -113,7 +117,10 @@ async fn test_search_resources() -> Result<(), ResponseError> {
         filter: None,
     };
 
-    let test_data = api_service.resources.create(&test_resources).await?;
+    let test_data = api_service
+        .resources
+        .create(test_resources.clone(), vec![])
+        .await?;
     let search_result = api_service.resources.search(&query).await?;
     let search_result2 = api_service.resources.search(&query2).await?;
     println!("{:?}", search_result2.get_items().len());
@@ -129,5 +136,73 @@ async fn test_search_resources() -> Result<(), ResponseError> {
         .map(|r| IdAndExtId::from_external_id(&r.external_id))
         .collect::<Vec<IdAndExtId>>();
     api_service.resources.delete(&resulting_ids).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_create_with_flows_to_relation() -> Result<(), ResponseError> {
+    let api_service = create_api_service();
+    let test_resources = create_test_resources();
+    let from_ext = test_resources[0].external_id.clone();
+    let to_ext = test_resources[1].external_id.clone();
+
+    // The backend blocks deleting a node that is the START of an edge, and a
+    // single batch containing both endpoints still trips that check, so the END
+    // node (to_ext) must be deleted in its own request first — which auto-deletes
+    // the edge — then the START node (from_ext).
+    let end_id = vec![IdAndExtId::from_external_id(&to_ext)];
+    let start_id = vec![IdAndExtId::from_external_id(&from_ext)];
+    let _ = api_service.resources.delete(&end_id).await;
+    let _ = api_service.resources.delete(&start_id).await;
+
+    let relations = vec![RelForm::by_external_ids(
+        from_ext.clone(),
+        to_ext.clone(),
+        "flows_to",
+    )];
+    let result = api_service
+        .resources
+        .create(test_resources.clone(), relations)
+        .await?;
+
+    let nodes = result.nodes().unwrap();
+    assert_eq!(nodes.len(), 2);
+
+    let edges = result
+        .relations()
+        .expect("response should include a relations array");
+    assert_eq!(edges.len(), 1);
+    let edge = &edges[0];
+    assert!(edge.id.is_some(), "server should assign an edge id");
+    assert!(edge.start.is_some(), "server should populate start node id");
+    assert!(edge.end.is_some(), "server should populate end node id");
+    assert_eq!(
+        edge.relationship_type.as_deref(),
+        Some("FLOWS_TO"),
+        "server should snake-upper-case the relationship type"
+    );
+
+    api_service.resources.delete(&end_id).await?;
+    api_service.resources.delete(&start_id).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_create_with_empty_relations() -> Result<(), ResponseError> {
+    let api_service = create_api_service();
+    let test_resources = create_test_resources();
+    let ids = test_resources
+        .iter()
+        .map(|r| IdAndExtId::from_external_id(&r.external_id))
+        .collect::<Vec<IdAndExtId>>();
+    api_service.resources.delete(&ids).await?;
+
+    let result = api_service
+        .resources
+        .create(test_resources.clone(), vec![])
+        .await?;
+    assert_eq!(result.nodes().unwrap().len(), 2);
+
+    api_service.resources.delete(&ids).await?;
     Ok(())
 }

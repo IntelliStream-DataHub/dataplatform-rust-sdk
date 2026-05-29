@@ -1,6 +1,7 @@
 mod datasets;
 mod events;
 mod files;
+mod relations;
 mod resources;
 mod subscriptions;
 pub mod timeseries;
@@ -31,6 +32,8 @@ use dataplatform_rust_sdk::ApiService;
 use dataplatform_rust_sdk::datahub::DataHubApi;
 use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
 use dataplatform_rust_sdk::generic::*;
+use dataplatform_rust_sdk::http::ResponseError;
+use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
@@ -38,6 +41,26 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
 use std::sync::Arc;
 use units::*;
+
+create_exception!(
+    datahub_sdk,
+    DataHubException,
+    PyException,
+    "Error returned by the DataHub API. Carries the HTTP `status_code` and the raw response `message`."
+);
+
+/// Convert an SDK `ResponseError` into a `DataHubException` that exposes the HTTP
+/// `status_code` and `message` as attributes, so Python callers can branch on the
+/// status code (e.g. `except DataHubException as e: if e.status_code == 409: ...`).
+pub(crate) fn datahub_err(e: ResponseError) -> PyErr {
+    Python::attach(|py| {
+        let err = DataHubException::new_err(e.get_message());
+        let value = err.value(py);
+        let _ = value.setattr("status_code", e.get_status().as_u16());
+        let _ = value.setattr("message", e.get_message());
+        err
+    })
+}
 
 #[pyclass(module = "datahub_sdk", name = "DataHubClient")]
 pub struct PySyncClient {
@@ -530,7 +553,7 @@ impl PyFileService {
                 .files
                 .list_root_directory()
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             // Mapping INode might be complex, simplified for now
             Ok(format!("{:?}", result.get_items()))
         })
@@ -541,6 +564,7 @@ impl PyFileService {
 
 #[pymodule]
 fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("DataHubException", m.py().get_type::<DataHubException>())?;
     m.add_class::<PyAsyncClient>()?;
     m.add_class::<PySyncClient>()?;
     m.add_class::<PyIdCollection>()?;
@@ -559,5 +583,6 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     datasets::register(m)?;
     subscriptions::register(m)?;
     functions::register(m)?;
+    relations::register(m)?;
     Ok(())
 }

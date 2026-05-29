@@ -2,7 +2,6 @@ use crate::PyIdCollection;
 use crate::units::PyUnit;
 use dataplatform_rust_sdk::ApiService;
 use dataplatform_rust_sdk::generic::{IdAndExtId, IdAndExtIdCollection};
-use pyo3::exceptions::PyException;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -21,7 +20,7 @@ impl PyUnitServiceAsync {
                 .units
                 .list()
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyUnit> = result
                 .get_items()
@@ -44,7 +43,7 @@ impl PyUnitServiceAsync {
                 .units
                 .by_ids(&wrapper)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyUnit> = result
                 .get_items()
@@ -62,7 +61,7 @@ impl PyUnitServiceAsync {
                 .units
                 .by_external_id(&input)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyUnit> = result
                 .get_items()

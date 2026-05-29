@@ -31,7 +31,7 @@ impl PySubscriptionsServiceAsync {
                 .subscriptions
                 .create(&subs)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()
                 .iter()
@@ -57,7 +57,7 @@ impl PySubscriptionsServiceAsync {
                 .subscriptions
                 .list(&retriever)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()
                 .iter()
@@ -79,7 +79,7 @@ impl PySubscriptionsServiceAsync {
                 .subscriptions
                 .delete(&ids)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(())
         })
     }

@@ -10,24 +10,7 @@ use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Weak;
 
-/// Mirror of the server-side `EdgeProxy` fields the function worker actually needs.
-/// `start` is the bound input timeseries id; the worker keys its routing map by this.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct EdgeProxy {
-    #[serde(default)]
-    pub id: Option<u64>,
-    #[serde(default)]
-    pub start: Option<u64>,
-    #[serde(default)]
-    pub end: Option<u64>,
-    #[serde(rename = "type", default)]
-    pub edge_type: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub metadata: HashMap<String, String>,
-}
+pub use crate::relations::EdgeProxy;
 
 /// Client for the `/functions` endpoints. A `Function` binds a server-side model template
 /// (e.g. `forecast-ema`, `anomaly-detection`) to a JSON config map. Once a `PROCESSED_BY`

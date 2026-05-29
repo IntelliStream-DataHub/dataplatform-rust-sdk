@@ -4,7 +4,6 @@ use crate::{PyIdCollection, PySearchAndFilterForm};
 use dataplatform_rust_sdk::datasets::Dataset;
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::{ApiService, Resource};
-use pyo3::exceptions::PyException;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use std::sync::Arc;
 
@@ -21,7 +20,7 @@ impl PyDatasetsServiceSync {
         let service = self.api_service.clone();
         let result = py.detach(|| self.runtime.block_on(service.datasets.create(&datasets)));
 
-        let result = result.map_err(|e| PyException::new_err(e.get_message()))?;
+        let result = result.map_err(|e| crate::datahub_err(e))?;
 
         let py_res: Vec<PyDataset> = result
             .get_items()
@@ -44,7 +43,7 @@ impl PyDatasetsServiceSync {
 
         let result = py.detach(|| self.runtime.block_on(service.datasets.by_ids(&input_ids)));
 
-        let result = result.map_err(|e| PyException::new_err(e.get_message()))?;
+        let result = result.map_err(|e| crate::datahub_err(e))?;
 
         let py_res: Vec<PyDataset> = result
             .get_items()
@@ -63,7 +62,7 @@ impl PyDatasetsServiceSync {
         py.detach(|| {
             self.runtime
                 .block_on(service.datasets.delete(&input_ids))
-                .map_err(|e| PyException::new_err(e.get_message()))
+                .map_err(|e| crate::datahub_err(e))
         })?;
         Ok(())
     }

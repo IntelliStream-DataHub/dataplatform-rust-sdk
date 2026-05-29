@@ -6,7 +6,6 @@ use crate::{DatahubIdentity, Identifiable};
 use crate::{PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm};
 use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId, IdAndExtIdCollection};
 use dataplatform_rust_sdk::{ApiService, TimeSeriesUpdateCollection};
-use pyo3::exceptions::PyException;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
@@ -25,7 +24,7 @@ impl PyTimeSeriesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.time_series.list())
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyTimeSeries> = result
                 .get_items()
@@ -46,7 +45,7 @@ impl PyTimeSeriesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.time_series.create(&payload))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
@@ -73,7 +72,7 @@ impl PyTimeSeriesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.time_series.by_ids(&wrapper))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyTimeSeries> = result
                 .get_items()
@@ -95,7 +94,7 @@ impl PyTimeSeriesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.time_series.delete(&wrapper))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             Ok(())
         })
@@ -113,7 +112,7 @@ impl PyTimeSeriesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.time_series.update(&wrapper))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
@@ -134,7 +133,7 @@ impl PyTimeSeriesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.time_series.search(&input.into()))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
                 .iter()
@@ -157,7 +156,7 @@ impl PyTimeSeriesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.time_series.insert_datapoints(&mut wrapper))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result.get_items().clone())
         })
     }
@@ -191,7 +190,7 @@ impl PyTimeSeriesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.time_series.insert_datapoints(&mut wrapper))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result.get_items().clone())
         })
     }
@@ -207,7 +206,7 @@ impl PyTimeSeriesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.time_series.retrieve_datapoints(&wrapper))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             let result: Vec<PyDatapointsCollectionDatapoints> = result
                 .get_items()
                 .into_iter()
@@ -225,7 +224,7 @@ impl PyTimeSeriesServiceSync {
                 .block_on(service.time_series.delete_datapoints(&wrapper))
         });
 
-        let result = result.map_err(|e| PyException::new_err(e.get_message()))?;
+        let result = result.map_err(|e| crate::datahub_err(e))?;
 
         Ok(())
     }
@@ -245,7 +244,7 @@ impl PyTimeSeriesServiceSync {
                 .block_on(service.time_series.retrieve_latest_datapoint(&wrapper))
         });
 
-        let result = result.map_err(|e| PyException::new_err(e.get_message()))?;
+        let result = result.map_err(|e| crate::datahub_err(e))?;
 
         let res: Vec<PyDatapointsCollectionDatapoints> = result
             .get_items()

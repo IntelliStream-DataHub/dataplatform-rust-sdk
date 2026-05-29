@@ -2,7 +2,6 @@ use crate::functions::{FunctionIdentifyable, PyFunction};
 use dataplatform_rust_sdk::ApiService;
 use dataplatform_rust_sdk::functions::Function;
 use dataplatform_rust_sdk::generic::IdAndExtId;
-use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -26,7 +25,7 @@ impl PyFunctionsServiceAsync {
                 .functions
                 .create(&fns)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()
                 .iter()
@@ -43,7 +42,7 @@ impl PyFunctionsServiceAsync {
                 .functions
                 .list()
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()
                 .iter()
@@ -65,7 +64,7 @@ impl PyFunctionsServiceAsync {
                 .functions
                 .by_ids(&ids)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()
                 .iter()
@@ -86,7 +85,7 @@ impl PyFunctionsServiceAsync {
                 .functions
                 .by_external_id(&external_id)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(PyFunction::from(function))
         })
     }
@@ -103,7 +102,7 @@ impl PyFunctionsServiceAsync {
                 .functions
                 .delete(&ids)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(())
         })
     }

@@ -1,7 +1,6 @@
 use crate::files::{PyFileIdentifiable, PyFileUpload, PyINode};
 use dataplatform_rust_sdk::generic::{IdAndExtId, IdAndExtIdCollection};
 use dataplatform_rust_sdk::{ApiService, FileUpload};
-use pyo3::exceptions::PyException;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -27,7 +26,7 @@ impl PyFilesServiceAsync {
                 .files
                 .upload_file(upload)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyFileUpload> = result
                 .get_items()
@@ -46,7 +45,7 @@ impl PyFilesServiceAsync {
                 .files
                 .list_root_directory()
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyINode> = result
                 .get_items()
@@ -69,7 +68,7 @@ impl PyFilesServiceAsync {
                 .files
                 .delete(&wrapper)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(())
         })
     }
@@ -86,7 +85,7 @@ impl PyFilesServiceAsync {
                 .files
                 .list_directory_by_path(path.as_str())
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyINode> = result
                 .get_items()

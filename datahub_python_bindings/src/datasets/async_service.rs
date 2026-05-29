@@ -3,7 +3,6 @@ use crate::{DatahubIdentity, Identifiable, PyIdCollection, PySearchAndFilterForm
 use dataplatform_rust_sdk::ApiService;
 use dataplatform_rust_sdk::datasets::Dataset;
 use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId, IdAndExtIdCollection};
-use pyo3::exceptions::PyException;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -22,7 +21,7 @@ impl PyDatasetsServiceAsync {
                 .datasets
                 .list()
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyDataset> = result
                 .get_items()
@@ -41,7 +40,7 @@ impl PyDatasetsServiceAsync {
                 .datasets
                 .create(&datasets)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyDataset> = result
                 .get_items()
@@ -68,7 +67,7 @@ impl PyDatasetsServiceAsync {
                 .datasets
                 .by_ids(&input_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyDataset> = result
                 .get_items()
@@ -94,7 +93,7 @@ impl PyDatasetsServiceAsync {
                 .datasets
                 .delete(&input_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyDataset> = result
                 .get_items()

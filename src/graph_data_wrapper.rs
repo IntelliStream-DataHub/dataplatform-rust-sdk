@@ -1,8 +1,8 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-//todo!() crate::datasets::Dataset;
-//todo! use crate::policy::Policy;
-use crate::generic::{DataWrapperDeserialization, RelationForm};
+
+use crate::generic::DataWrapperDeserialization;
+use crate::relations::EdgeProxy;
 
 pub trait GraphNode: Clone + Serialize {
     fn into_wrapper(self) -> GraphDataWrapper<Self> {
@@ -10,16 +10,21 @@ pub trait GraphNode: Clone + Serialize {
     }
 }
 
+/// Mirror of the Java `GraphDataWrapper<T, R>`: nodes of type `T` plus relations
+/// of type `R`. `R` defaults to `EdgeProxy` (the response shape) so existing
+/// call sites using `GraphDataWrapper<Resource>` resolve to the response form.
+/// Request payloads use the explicit form `GraphDataWrapper<Resource, RelForm>`.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct GraphDataWrapper<T: GraphNode> {
+pub struct GraphDataWrapper<T: GraphNode, R = EdgeProxy> {
     #[serde(alias = "items")]
     nodes: Option<Vec<T>>,
-    relations: Option<Vec<RelationForm>>,
+    relations: Option<Vec<R>>,
     error_body: Option<String>,
     http_status_code: Option<u16>,
 }
-impl<T: GraphNode> GraphDataWrapper<T> {
+
+impl<T: GraphNode, R> GraphDataWrapper<T, R> {
     pub fn new() -> Self {
         Self {
             nodes: None,
@@ -28,25 +33,37 @@ impl<T: GraphNode> GraphDataWrapper<T> {
             http_status_code: None,
         }
     }
+
+    pub fn with_relations(nodes: Vec<T>, relations: Vec<R>) -> Self {
+        Self {
+            nodes: Some(nodes),
+            relations: Some(relations),
+            error_body: None,
+            http_status_code: None,
+        }
+    }
+
     pub fn nodes(&self) -> Option<Vec<T>> {
         self.nodes.clone()
     }
-    pub fn relations(&self) -> Option<&Vec<RelationForm>> {
+    pub fn relations(&self) -> Option<&Vec<R>> {
         self.relations.as_ref()
     }
     pub fn set_nodes(&mut self, nodes: Vec<T>) {
         self.nodes = Some(nodes);
     }
-    pub fn set_relations(&mut self, relations: Vec<RelationForm>) {
+    pub fn set_relations(&mut self, relations: Vec<R>) {
         self.relations = Some(relations);
     }
-    pub fn set_http_status_code(&mut self, status_code: u16) {}
+    pub fn set_http_status_code(&mut self, _status_code: u16) {}
 }
-impl<T: GraphNode + DeserializeOwned> DataWrapperDeserialization for GraphDataWrapper<T> {
+
+impl<T: GraphNode + DeserializeOwned, R: DeserializeOwned> DataWrapperDeserialization
+    for GraphDataWrapper<T, R>
+{
     fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error> {
         if status_code >= 200 && status_code < 300 {
             if status_code == 204 || body.is_empty() {
-                // HTTP No content doesnt return anything
                 return Ok(Self {
                     nodes: None,
                     relations: None,
@@ -54,30 +71,18 @@ impl<T: GraphNode + DeserializeOwned> DataWrapperDeserialization for GraphDataWr
                     http_status_code: Some(status_code),
                 });
             }
-            // For 2xx responses, we expect the body to be a valid DataWrapper<T>
-            // If body is empty, it's fine for `from_str` to fail and return an error
-            // Or, if you specifically want an empty wrapper for 2xx with empty body:
-            // let mut wrapper = DataWrapper::new();
-            // wrapper.set_http_status_code(status_code);
-            // return Ok(wrapper);
-            // However, typically a successful response with a body should be parsed.
-            serde_json::from_str(body).map(|mut wrapper: GraphDataWrapper<T>| {
+            serde_json::from_str(body).map(|mut wrapper: GraphDataWrapper<T, R>| {
                 wrapper.set_http_status_code(status_code);
                 wrapper
             })
         } else {
-            // For non-2xx responses (errors)
             eprintln!(
                 "HTTP request failed with status code {}: {}",
                 status_code, body
             );
-
-            // Attempt to deserialize the body into DataWrapper<T>
-            // This is useful if the error response *itself* is a structured JSON,
-            // for example, containing an error object.
-            match serde_json::from_str(body).map(|mut wrapper: GraphDataWrapper<T>| {
-                wrapper.set_http_status_code(status_code); // Set the HTTP status code
-                wrapper // Return the modified wrapper
+            match serde_json::from_str(body).map(|mut wrapper: GraphDataWrapper<T, R>| {
+                wrapper.set_http_status_code(status_code);
+                wrapper
             }) {
                 Ok(result) => Ok(result),
                 Err(_) => {
@@ -93,7 +98,10 @@ impl<T: GraphNode + DeserializeOwned> DataWrapperDeserialization for GraphDataWr
         }
     }
 }
-impl<T: GraphNode> From<&T> for GraphDataWrapper<T> {
+
+// `From` impls use the concrete default `R = EdgeProxy` to avoid inference
+// ambiguity at call sites that write `GraphDataWrapper<T>`.
+impl<T: GraphNode> From<&T> for GraphDataWrapper<T, EdgeProxy> {
     fn from(node: &T) -> Self {
         Self {
             nodes: Some(vec![node.clone()]),
@@ -103,7 +111,7 @@ impl<T: GraphNode> From<&T> for GraphDataWrapper<T> {
         }
     }
 }
-impl<T: GraphNode> From<T> for GraphDataWrapper<T> {
+impl<T: GraphNode> From<T> for GraphDataWrapper<T, EdgeProxy> {
     fn from(node: T) -> Self {
         Self {
             nodes: Some(vec![node]),
@@ -113,7 +121,7 @@ impl<T: GraphNode> From<T> for GraphDataWrapper<T> {
         }
     }
 }
-impl<T: GraphNode> From<Vec<T>> for GraphDataWrapper<T> {
+impl<T: GraphNode> From<Vec<T>> for GraphDataWrapper<T, EdgeProxy> {
     fn from(nodes: Vec<T>) -> Self {
         Self {
             nodes: Some(nodes),
@@ -123,7 +131,7 @@ impl<T: GraphNode> From<Vec<T>> for GraphDataWrapper<T> {
         }
     }
 }
-impl<T: GraphNode> From<&Vec<T>> for GraphDataWrapper<T> {
+impl<T: GraphNode> From<&Vec<T>> for GraphDataWrapper<T, EdgeProxy> {
     fn from(nodes: &Vec<T>) -> Self {
         Self {
             nodes: Some(nodes.clone()),
