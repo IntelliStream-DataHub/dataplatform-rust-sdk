@@ -7,6 +7,7 @@ use crate::generic::{
 };
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::{process_response, ResponseError};
+use crate::relations::{EdgeProxy, RelForm};
 use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -32,11 +33,18 @@ impl ResourceService {
         }
     }
 
-    pub async fn create<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
-    where
-        for<'a> &'a I: Into<GraphDataWrapper<Resource>>,
-    {
-        let payload = input.into();
+    /// Create resources, optionally with relations between them. Mirrors Java's
+    /// `POST /resources/create` body shape `GraphDataWrapper<Resource, RelForm>`;
+    /// the response is the graph in its post-create form, with each relation
+    /// returned as an `EdgeProxy` carrying the server-assigned id. Pass an
+    /// empty `Vec` for `relations` to create nodes only.
+    pub async fn create(
+        &self,
+        nodes: Vec<Resource>,
+        relations: Vec<RelForm>,
+    ) -> Result<GraphDataWrapper<Resource>, ResponseError> {
+        let payload: GraphDataWrapper<Resource, RelForm> =
+            GraphDataWrapper::with_relations(nodes, relations);
         let url = &format!("{}/create", self.base_url);
         self.execute_post_request::<GraphDataWrapper<Resource>, _>(&url, &payload)
             .await
@@ -109,7 +117,9 @@ pub struct Resource {
     pub data_set_id: Option<u64>,
     pub source: Option<String>,
     pub labels: Option<Vec<String>>,
-    pub relations: Option<Vec<String>>,
+    /// Edges where this resource is the `start` node, populated by the server on
+    /// read. Empty on resources you construct locally for a create request.
+    pub relations: Option<Vec<EdgeProxy>>,
     pub geolocation: Option<HashMap<String, f64>>, // todo implement GEOJSON, not prio atm
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_time: Option<DateTime<Utc>>,

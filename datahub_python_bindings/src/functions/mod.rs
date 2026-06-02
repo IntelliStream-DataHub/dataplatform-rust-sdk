@@ -1,6 +1,7 @@
 use crate::PyIdCollection;
+use crate::relations::PyEdgeProxy;
 use chrono::{DateTime, Utc};
-use dataplatform_rust_sdk::functions::{EdgeProxy, Function};
+use dataplatform_rust_sdk::functions::Function;
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
@@ -107,56 +108,6 @@ impl PyFunction {
             .cloned()
             .map(PyEdgeProxy::from)
             .collect()
-    }
-}
-
-/// Read-only mirror of the SDK `EdgeProxy` for Python consumers — only the fields the
-/// worker actually needs are exposed.
-#[pyclass(module = "datahub_sdk", name = "EdgeProxy")]
-#[derive(Clone)]
-pub struct PyEdgeProxy {
-    pub inner: EdgeProxy,
-}
-
-impl From<EdgeProxy> for PyEdgeProxy {
-    fn from(e: EdgeProxy) -> Self {
-        Self { inner: e }
-    }
-}
-
-#[pymethods]
-impl PyEdgeProxy {
-    #[getter]
-    fn id(&self) -> Option<u64> {
-        self.inner.id
-    }
-
-    #[getter]
-    fn start(&self) -> Option<u64> {
-        self.inner.start
-    }
-
-    #[getter]
-    fn end(&self) -> Option<u64> {
-        self.inner.end
-    }
-
-    /// Relationship type, e.g. ``"PROCESSED_BY"``. Exposed under the Python-friendly name
-    /// ``edge_type`` because ``type`` shadows the builtin and ``r#type`` doesn't survive
-    /// pyo3's name mapping.
-    #[getter]
-    fn edge_type(&self) -> Option<&str> {
-        self.inner.edge_type.as_deref()
-    }
-
-    #[getter]
-    fn description(&self) -> Option<&str> {
-        self.inner.description.as_deref()
-    }
-
-    #[getter]
-    fn metadata(&self) -> std::collections::HashMap<String, String> {
-        self.inner.metadata.clone()
     }
 }
 
@@ -279,7 +230,6 @@ pub(crate) fn json_to_py<'py>(
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFunction>()?;
-    m.add_class::<PyEdgeProxy>()?;
     m.add_class::<sync_service::PyFunctionsServiceSync>()?;
     m.add_class::<async_service::PyFunctionsServiceAsync>()?;
     Ok(())

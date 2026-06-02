@@ -17,6 +17,25 @@ from uuid import UUID
 Identifiable = Union["TimeSeries", "Resource", "Unit", "Event", "IdCollection", int, str]
 
 
+# ====================== Errors ======================
+
+class DataHubException(Exception):
+    """Raised when the DataHub API returns an error. `status_code` is the HTTP
+    status (e.g. 400, 409) and `message` is the raw response body, so callers can
+    branch on the code:
+
+        try:
+            client.resources.create(nodes, relations)
+        except DataHubException as e:
+            if e.status_code == 409:
+                ...  # already exists
+            elif e.status_code == 400:
+                print(e.message)
+    """
+    status_code: int
+    message: str
+
+
 # ====================== Clients ======================
 
 class DataHubClient:
@@ -538,7 +557,7 @@ class Resource:
         data_set_id: int | None = None,
         source: str | None = None,
         labels: list[str] | None = None,
-        relations: list[str] | None = None,
+        relations: list[EdgeProxy] | None = None,
         geolocation: dict[str, float] | None = None,
     ) -> None: ...
     @property
@@ -560,7 +579,7 @@ class Resource:
     @property
     def labels(self) -> list[str] | None: ...
     @property
-    def relations(self) -> list[str] | None: ...
+    def relations(self) -> list[EdgeProxy] | None: ...
     @property
     def geolocation(self) -> dict[str, float] | None: ...
     @property
@@ -569,17 +588,110 @@ class Resource:
     def last_updated_time(self) -> datetime.datetime | None: ...
 
 
+# ====================== Relations ======================
+# NOTE: `RelForm` (graph/resources relation form) is distinct from the legacy
+# `RelationFrom` used by timeseries — both intentionally coexist.
+
+class EdgeProxy:
+    """Server-assigned edge between two resources. The `relationship_type`
+    attribute maps to the wire field `"type"`."""
+    def __init__(
+        self,
+        id: int | None = None,
+        start: int | None = None,
+        end: int | None = None,
+        relationship_type: str | None = None,
+        description: str | None = None,
+        relationship_type_id: int | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> None: ...
+    @property
+    def id(self) -> int | None: ...
+    @property
+    def start(self) -> int | None: ...
+    @property
+    def end(self) -> int | None: ...
+    @property
+    def relationship_type(self) -> str | None: ...
+    @property
+    def description(self) -> str | None: ...
+    @property
+    def relationship_type_id(self) -> int | None: ...
+    @property
+    def metadata(self) -> dict[str, str]: ...
+
+
+class RelForm:
+    """Request-side edge form. Pair with a list of `Resource` and pass both to
+    `ResourcesService.create()`. `relationship_type` is keyword-required."""
+    def __init__(
+        self,
+        *,
+        relationship_type: str,
+        from_external_id: str | None = None,
+        to_external_id: str | None = None,
+        from_id: int | None = None,
+        to_id: int | None = None,
+        id: int | None = None,
+        relationship_type_id: int | None = None,
+        metadata: dict[str, str] | None = None,
+        data_set_id: int | None = None,
+        description: str | None = None,
+    ) -> None: ...
+    @classmethod
+    def by_external_ids(
+        cls, from_external_id: str, to_external_id: str, relationship_type: str
+    ) -> RelForm: ...
+    @classmethod
+    def by_ids(cls, from_id: int, to_id: int, relationship_type: str) -> RelForm: ...
+    @property
+    def id(self) -> int | None: ...
+    @property
+    def from_external_id(self) -> str | None: ...
+    @property
+    def to_external_id(self) -> str | None: ...
+    @property
+    def from_id(self) -> int | None: ...
+    @property
+    def to_id(self) -> int | None: ...
+    @property
+    def relationship_type(self) -> str: ...
+    @property
+    def relationship_type_id(self) -> int | None: ...
+    @property
+    def metadata(self) -> dict[str, str]: ...
+    @property
+    def data_set_id(self) -> int | None: ...
+    @property
+    def description(self) -> str | None: ...
+
+
+class GraphResult:
+    """Nodes and relations returned from a graph operation."""
+    @property
+    def nodes(self) -> list[Resource]: ...
+    @property
+    def relations(self) -> list[EdgeProxy]: ...
+
+
+ResourceIdentifiable = Union[Resource, str, int]
+
+
 class ResourcesServiceSync:
-    def create(self, input: list[Resource]) -> list[Resource]: ...
-    def by_ids(self, input: list[IdCollection]) -> list[Resource]: ...
-    def delete(self, input: list[IdCollection]) -> None: ...
+    def create(
+        self, nodes: list[Resource], relations: list[RelForm] | None = None
+    ) -> GraphResult: ...
+    def by_ids(self, input: list[ResourceIdentifiable]) -> list[Resource]: ...
+    def delete(self, input: list[ResourceIdentifiable]) -> None: ...
     def search(self, input: SearchAndFilterForm) -> Any: ...
 
 
 class ResourcesServiceAsync:
-    async def create(self, input: list[Resource]) -> list[Resource]: ...
-    async def by_ids(self, input: list[IdCollection]) -> list[Resource]: ...
-    async def delete(self, input: list[IdCollection]) -> None: ...
+    async def create(
+        self, nodes: list[Resource], relations: list[RelForm] | None = None
+    ) -> GraphResult: ...
+    async def by_ids(self, input: list[ResourceIdentifiable]) -> list[Resource]: ...
+    async def delete(self, input: list[ResourceIdentifiable]) -> None: ...
     async def s(self, input: SearchAndFilterForm) -> Any: ...
 
 
@@ -927,21 +1039,6 @@ class Function:
     def last_updated_time(self) -> datetime.datetime | None: ...
     @property
     def relations(self) -> list[EdgeProxy]: ...
-
-
-class EdgeProxy:
-    @property
-    def id(self) -> int | None: ...
-    @property
-    def start(self) -> int | None: ...
-    @property
-    def end(self) -> int | None: ...
-    @property
-    def edge_type(self) -> str | None: ...
-    @property
-    def description(self) -> str | None: ...
-    @property
-    def metadata(self) -> dict[str, str]: ...
 
 
 FunctionIdentifiable = Union[Function, IdCollection, int, str]

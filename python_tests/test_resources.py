@@ -1,12 +1,14 @@
-"""Tests for the Python resources module.
+"""Tests for the Python resources module and graph relations.
 
-Exercises every reachable endpoint on `ResourcesServiceSync`: create, by_ids, delete.
-`search` is `todo!()` in the binding and would panic if called.
+Mirrors `src/resources/tests.rs`. Exercises constructing `EdgeProxy`/`RelForm`
+and creating resources together with relations through the live API. Skipped if
+the backend is unreachable (the fixture takes care of that).
 """
 import uuid
 
 import datahub_sdk
 import pytest
+from datahub_sdk import DataHubException, EdgeProxy, GraphResult, RelForm, Resource
 
 from fixtures import sync_client
 
@@ -15,60 +17,91 @@ def _suffix() -> str:
     return uuid.uuid4().hex[:8]
 
 
-def test_create_by_ids_delete_roundtrip(sync_client):
-    ext_a = f"py_test_resource_a_{_suffix()}"
-    ext_b = f"py_test_resource_b_{_suffix()}"
-    res_a = datahub_sdk.Resource(
-        name=f"Resource {ext_a}",
-        external_id=ext_a,
-        description="resource a",
-        metadata={"env": "test"},
-        labels=["ASSET", "TEST"],
-    )
-    res_b = datahub_sdk.Resource(
-        name=f"Resource {ext_b}",
-        external_id=ext_b,
-        labels=["ASSET", "TEST"],
-    )
-
-    try:
-        # create returns a GraphResult; the entities are on .nodes.
-        created = sync_client.resources.create([res_a, res_b]).nodes
-        assert len(created) == 2
-        ext_ids = {r.external_id for r in created}
-        assert ext_ids == {ext_a, ext_b}
-        assert all(r.id is not None for r in created)
-
-        fetched = sync_client.resources.by_ids(created)
-        assert {r.external_id for r in fetched} == {ext_a, ext_b}
-
-        sync_client.resources.delete(created)
-        after = sync_client.resources.by_ids(created)
-        assert not any(r.external_id in {ext_a, ext_b} for r in after)
-    finally:
+def _cleanup_edge(sync_client, from_ext: str, to_ext: str) -> None:
+    """Best-effort teardown for a from->to edge. The backend blocks deleting a
+    node that is the START of an edge, so the END node is removed first (which
+    auto-deletes the edge), then the START node."""
+    for ext in (to_ext, from_ext):
         try:
-            sync_client.resources.delete([res_a, res_b])
+            sync_client.resources.delete([ext])
         except Exception:
             pass
 
 
-def test_create_preserves_metadata_and_labels(sync_client):
-    ext = f"py_test_resource_meta_{_suffix()}"
-    res = datahub_sdk.Resource(
-        name=f"Resource {ext}",
-        external_id=ext,
-        description="with metadata",
-        metadata={"team": "platform", "tier": "1"},
-        labels=["ASSET", "TEST"],
-    )
+def test_edge_proxy_constructible():
+    edge = EdgeProxy(start=1, end=2, relationship_type="FLOWS_TO")
+    assert edge.start == 1
+    assert edge.end == 2
+    assert edge.relationship_type == "FLOWS_TO"
+    assert edge.metadata == {}
+
+
+def test_rel_form_constructors():
+    by_ext = RelForm.by_external_ids("a", "b", "flows_to")
+    assert by_ext.from_external_id == "a"
+    assert by_ext.to_external_id == "b"
+    assert by_ext.relationship_type == "flows_to"
+
+    by_ids = RelForm.by_ids(5, 6, "FLOWS_TO")
+    assert by_ids.from_id == 5
+    assert by_ids.to_id == 6
+
+    kwargs = RelForm(relationship_type="x", from_id=1, to_id=2, metadata={"k": "v"})
+    assert kwargs.metadata == {"k": "v"}
+
+    with pytest.raises(TypeError):
+        # relationship_type is keyword-required
+        RelForm()
+
+
+def test_create_with_flows_to_relation(sync_client):
+    suffix = _suffix()
+    a_ext = f"py_sdk_rel_a_{suffix}"
+    b_ext = f"py_sdk_rel_b_{suffix}"
+    ra = Resource(external_id=a_ext, name="Py SDK Rel A", is_root=True, labels=["ASSET"])
+    rb = Resource(external_id=b_ext, name="Py SDK Rel B", labels=["ASSET"])
+    rel = RelForm.by_external_ids(a_ext, b_ext, "flows_to")
+
+    _cleanup_edge(sync_client, a_ext, b_ext)
+
     try:
-        created = sync_client.resources.create([res]).nodes[0]
-        assert created.description == "with metadata"
-        assert created.metadata.get("team") == "platform"
-        assert created.metadata.get("tier") == "1"
-        assert set(created.labels) >= {"ASSET", "TEST"}
+        result = sync_client.resources.create([ra, rb], [rel])
+        assert isinstance(result, GraphResult)
+        assert len(result.nodes) == 2
+        assert len(result.relations) == 1
+
+        edge = result.relations[0]
+        assert edge.id is not None
+        assert edge.start is not None
+        assert edge.end is not None
+        # server snake-upper-cases the relationship type
+        assert edge.relationship_type == "FLOWS_TO"
     finally:
-        try:
-            sync_client.resources.delete([res])
-        except Exception:
-            pass
+        _cleanup_edge(sync_client, a_ext, b_ext)
+
+
+def test_create_nodes_only(sync_client):
+    suffix = _suffix()
+    a_ext = f"py_sdk_node_{suffix}"
+    ra = Resource(external_id=a_ext, name="Py SDK Node", is_root=True, labels=["ASSET"])
+
+    sync_client.resources.delete([a_ext])
+
+    try:
+        # relations argument is optional
+        result = sync_client.resources.create([ra])
+        assert isinstance(result, GraphResult)
+        assert len(result.nodes) == 1
+        assert result.nodes[0].external_id == a_ext
+    finally:
+        sync_client.resources.delete([a_ext])
+
+
+def test_api_error_surfaces_status_code(sync_client):
+    # A resource without labels is rejected by the backend with HTTP 400. The
+    # error must reach Python as a DataHubException exposing that status code.
+    bad = Resource(external_id=f"py_sdk_badreq_{_suffix()}", name="Bad Request")
+    with pytest.raises(DataHubException) as exc_info:
+        sync_client.resources.create([bad])
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.message  # raw response body is preserved

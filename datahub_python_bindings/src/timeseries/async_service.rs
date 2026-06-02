@@ -13,7 +13,6 @@ use dataplatform_rust_sdk::generic::{
     IdAndExtIdCollection, RetrieveFilter,
 };
 use dataplatform_rust_sdk::{ApiService, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection};
-use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -33,7 +32,7 @@ impl PyTimeSeriesServiceAsync {
                 .time_series
                 .list()
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
@@ -53,7 +52,7 @@ impl PyTimeSeriesServiceAsync {
                 .time_series
                 .create(&payload)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
@@ -81,7 +80,7 @@ impl PyTimeSeriesServiceAsync {
                 .time_series
                 .by_ids(&wrapper)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyTimeSeries> = result
                 .get_items()
@@ -108,7 +107,7 @@ impl PyTimeSeriesServiceAsync {
                 .time_series
                 .delete(&wrapper)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
@@ -132,7 +131,7 @@ impl PyTimeSeriesServiceAsync {
                 .time_series
                 .update(&wrapper)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
@@ -154,7 +153,7 @@ impl PyTimeSeriesServiceAsync {
                 .time_series
                 .search(&input.into())
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
@@ -179,7 +178,7 @@ impl PyTimeSeriesServiceAsync {
                 .time_series
                 .insert_datapoints(&mut wrapper)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             let val = result.get_items().clone();
             Ok(result.get_items().clone())
         })
@@ -215,7 +214,7 @@ impl PyTimeSeriesServiceAsync {
                 .time_series
                 .insert_datapoints(&mut wrapper)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             let val = result.get_items().clone();
             Ok(result.get_items().clone())
         })
@@ -233,7 +232,7 @@ impl PyTimeSeriesServiceAsync {
                 .time_series
                 .retrieve_datapoints(&wrapper)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             let result: Vec<PyDatapointsCollectionDatapoints> = result
                 .get_items()
                 .into_iter()
@@ -255,7 +254,7 @@ impl PyTimeSeriesServiceAsync {
                 .time_series
                 .delete_datapoints(&wrapper)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(())
         })
     }
@@ -281,7 +280,7 @@ impl PyTimeSeriesServiceAsync {
                 .time_series
                 .retrieve_latest_datapoint(&wrapper)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             let res: Vec<PyDatapointsCollectionDatapoints> = result
                 .get_items()
                 .iter()

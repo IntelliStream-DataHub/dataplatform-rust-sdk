@@ -1,7 +1,9 @@
-use crate::{PyIdCollection, PyResource, PySearchAndFilterForm};
+use crate::relations::{PyGraphResult, PyRelForm};
+use crate::resources::ResourceIdentifiable;
+use crate::{PyResource, PySearchAndFilterForm};
 use dataplatform_rust_sdk::generic::IdAndExtId;
+use dataplatform_rust_sdk::relations::RelForm;
 use dataplatform_rust_sdk::{ApiService, Resource};
-use pyo3::exceptions::PyException;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -13,37 +15,39 @@ pub struct PyResourcesServiceAsync {
 
 #[pymethods]
 impl PyResourcesServiceAsync {
-    fn create<'py>(&self, py: Python<'py>, input: Vec<PyResource>) -> PyResult<Bound<'py, PyAny>> {
-        let resources: Vec<Resource> = input.iter().cloned().map(Resource::from).collect();
-        //let payload = DataWrapper::from_vec(resources);
+    #[pyo3(signature = (nodes, relations = None))]
+    fn create<'py>(
+        &self,
+        py: Python<'py>,
+        nodes: Vec<PyResource>,
+        relations: Option<Vec<PyRelForm>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let resources: Vec<Resource> = nodes.into_iter().map(Resource::from).collect();
+        let rel_forms: Vec<RelForm> = relations
+            .unwrap_or_default()
+            .into_iter()
+            .map(RelForm::from)
+            .collect();
         let service = self.api_service.clone();
         future_into_py(py, async move {
             let result = service
                 .resources
-                .create(&resources)
+                .create(resources, rel_forms)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
-
-            let py_ts: Vec<PyResource> = result
-                .nodes()
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|ts| PyResource { inner: ts.clone() })
-                .collect();
-            Ok(py_ts)
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(PyGraphResult::from_wrapper(result))
         })
     }
 
     fn by_ids<'py>(
         &self,
         py: Python<'py>,
-        input: Vec<PyIdCollection>,
+        input: Vec<ResourceIdentifiable>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         let input_ids = input
-            .iter()
-            .map(|u| u.inner.clone())
+            .into_iter()
+            .map(IdAndExtId::from)
             .collect::<Vec<IdAndExtId>>();
 
         future_into_py(py, async move {
@@ -51,7 +55,7 @@ impl PyResourcesServiceAsync {
                 .resources
                 .by_ids(&input_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyResource> = result
                 .nodes()
@@ -65,12 +69,12 @@ impl PyResourcesServiceAsync {
     fn delete<'py>(
         &self,
         py: Python<'py>,
-        input: Vec<PyIdCollection>,
+        input: Vec<ResourceIdentifiable>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         let input_ids = input
-            .iter()
-            .map(|u| u.inner.clone())
+            .into_iter()
+            .map(IdAndExtId::from)
             .collect::<Vec<IdAndExtId>>();
 
         future_into_py(py, async move {
@@ -78,7 +82,7 @@ impl PyResourcesServiceAsync {
                 .resources
                 .delete(&input_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyResource> = result
                 .nodes()
@@ -95,7 +99,7 @@ impl PyResourcesServiceAsync {
 
             future_into_py(py, async move {
                 let result = service.resources.search(&input.into()).await.map_err(|e| {
-                    PyException::new_err(e.get_message())
+                    crate::datahub_err(e)
                 })?;
 
                 let py_ts: Vec<PyResource> = result.get_items().iter().map(|ts| PyResource { inner: ts.clone() }).collect();

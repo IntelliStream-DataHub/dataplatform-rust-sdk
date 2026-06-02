@@ -2,7 +2,6 @@ use crate::functions::{FunctionIdentifyable, PyFunction};
 use dataplatform_rust_sdk::ApiService;
 use dataplatform_rust_sdk::functions::Function;
 use dataplatform_rust_sdk::generic::IdAndExtId;
-use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use std::sync::Arc;
 
@@ -21,7 +20,7 @@ impl PyFunctionsServiceSync {
             let result = self
                 .runtime
                 .block_on(service.functions.create(&fns))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()
                 .iter()
@@ -38,7 +37,7 @@ impl PyFunctionsServiceSync {
             let result = self
                 .runtime
                 .block_on(service.functions.list())
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()
                 .iter()
@@ -59,7 +58,7 @@ impl PyFunctionsServiceSync {
             let result = self
                 .runtime
                 .block_on(service.functions.by_ids(&ids))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()
                 .iter()
@@ -77,7 +76,7 @@ impl PyFunctionsServiceSync {
             let function = self
                 .runtime
                 .block_on(service.functions.by_external_id(&external_id))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(PyFunction::from(function))
         })
     }
@@ -88,7 +87,7 @@ impl PyFunctionsServiceSync {
         py.detach(|| {
             self.runtime
                 .block_on(service.functions.delete(&ids))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(())
         })
     }

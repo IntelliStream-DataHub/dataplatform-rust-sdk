@@ -51,7 +51,7 @@ impl PyUnitServiceSync {
             let result = self
                 .runtime
                 .block_on(service.units.by_ids(&wrapper))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyUnit> = result
                 .get_items()
@@ -68,7 +68,7 @@ impl PyUnitServiceSync {
             let result = self
                 .runtime
                 .block_on(service.units.by_external_id(input))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyUnit> = result
                 .get_items()
