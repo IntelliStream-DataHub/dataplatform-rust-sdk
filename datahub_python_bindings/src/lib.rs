@@ -330,6 +330,10 @@ pub enum Identifiable {
     Resource(PyResource),
     Unit(PyUnit),
     Event(PyEvent),
+    #[pyo3(transparent)]
+    Id(u64),
+    #[pyo3(transparent)]
+    ExternalId(String),
 }
 pub trait DatahubIdentity {
     fn id_collection(&self) -> IdAndExtId;
@@ -353,6 +357,14 @@ impl DatahubIdentity for Identifiable {
             Identifiable::Event(event) => IdAndExtId {
                 id: None,
                 external_id: Some(event.inner.external_id.clone()),
+            },
+            Identifiable::Id(id) => IdAndExtId {
+                id: Some(*id),
+                external_id: None,
+            },
+            Identifiable::ExternalId(ext) => IdAndExtId {
+                id: None,
+                external_id: Some(ext.clone()),
             },
         }
     }
