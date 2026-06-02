@@ -267,6 +267,18 @@ impl From<PyIdCollection> for IdAndExtId {
 
 #[pymethods]
 impl PyIdCollection {
+    #[new]
+    #[pyo3(signature=(id=None, external_id=None))]
+    pub fn new(id: Option<u64>, external_id: Option<String>) -> PyResult<Self> {
+        if id.is_some() || external_id.is_some() {Ok(Self {
+            inner: IdAndExtId {
+                id,
+                external_id,
+            },
+        })}
+        else {Err(PyException::new_err("Either id or external_id must be provided"))}
+
+    }
     #[getter]
     pub fn id(&self) -> Option<u64> {
         self.inner.id

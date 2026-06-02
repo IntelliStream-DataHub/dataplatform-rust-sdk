@@ -82,6 +82,22 @@ def test_events_func_scope(sync_client,event_dataset):
     yield events
     sync_client.events.delete(events)
 
+def test_by_ids(sync_client, test_events):
+    # Pick a handful spread across the fixture and verify by_ids round-trips them.
+    targets = [test_events[0], test_events[33], test_events[99]]
+    fetched = sync_client.events.by_ids(targets)
+    fetched_ext_ids = {e.external_id for e in fetched}
+    for t in targets:
+        assert t.external_id in fetched_ext_ids
+
+
+def test_by_ids_with_external_id_strings(sync_client, test_events):
+    # EventIdentifyable also accepts raw external_id strings.
+    targets = [test_events[5].external_id, test_events[50].external_id]
+    fetched = sync_client.events.by_ids(targets)
+    assert {e.external_id for e in fetched} == set(targets)
+
+
 def test_delete(sync_client,test_events_func_scope):
     delete_targets = test_events_func_scope[:20]
     sync_client.events.delete(delete_targets)

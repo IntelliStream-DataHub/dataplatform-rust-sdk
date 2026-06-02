@@ -11,6 +11,20 @@ from python_tests.fixtures import *
 
 def test_sync_client(sync_client):
     assert sync_client is not None
+
+
+def test_list_returns_known_timeseries(sync_client, ts_decimal):
+    listed = sync_client.timeseries.list()
+    assert isinstance(listed, list)
+    assert any(t.external_id == ts_decimal.external_id for t in listed)
+
+
+def test_by_ids_returns_known_timeseries(sync_client, ts_decimal):
+    fetched = sync_client.timeseries.by_ids([ts_decimal])
+    assert len(fetched) == 1
+    assert fetched[0].external_id == ts_decimal.external_id
+
+
 @pytest.mark.parametrize(
     "start, end",
     [

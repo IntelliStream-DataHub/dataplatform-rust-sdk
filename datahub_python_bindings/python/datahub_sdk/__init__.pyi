@@ -84,6 +84,7 @@ class AsyncDataHubClient:
 # ====================== Identifiers & search ======================
 
 class IdCollection:
+    def __init__(self, id: int,external_id: str) -> None: ...
     @property
     def id(self) -> int | None: ...
     @property
