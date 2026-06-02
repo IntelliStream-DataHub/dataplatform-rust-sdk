@@ -27,7 +27,7 @@ impl PySubscriptionsServiceSync {
             let result = self
                 .runtime
                 .block_on(service.subscriptions.create(&subs))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()
                 .iter()
@@ -52,7 +52,7 @@ impl PySubscriptionsServiceSync {
             let result = self
                 .runtime
                 .block_on(service.subscriptions.list(&retriever))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()
                 .iter()
@@ -68,7 +68,7 @@ impl PySubscriptionsServiceSync {
         py.detach(|| {
             self.runtime
                 .block_on(service.subscriptions.delete(&ids))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             Ok(())
         })
     }

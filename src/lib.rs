@@ -22,6 +22,7 @@ pub mod filters;
 pub mod generic;
 pub mod graph_data_wrapper;
 pub mod http;
+pub mod relations;
 pub mod resources;
 pub mod serde_helper;
 pub mod subscriptions;
@@ -34,6 +35,7 @@ pub mod functions;
 pub use resources::*;
 pub use events::*;
 pub use timeseries::*;
+pub use relations::{EdgeProxy, RelForm};
 use crate::datasets::*;
 
 pub use subscriptions::{

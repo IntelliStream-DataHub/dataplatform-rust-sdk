@@ -5,7 +5,6 @@ use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId, IdAndExtIdCollecti
 use dataplatform_rust_sdk::{
     ApiService, Event, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection,
 };
-use pyo3::exceptions::PyException;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -27,7 +26,7 @@ impl PyEventsServiceSync {
             let result = self
                 .runtime
                 .block_on(service.events.create(&events))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyEvent> = result
                 .get_items()
@@ -51,7 +50,7 @@ impl PyEventsServiceSync {
             let result = self
                 .runtime
                 .block_on(service.events.by_ids(&input_ids))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyEvent> = result
                 .get_items()
@@ -70,7 +69,7 @@ impl PyEventsServiceSync {
             let result = self
                 .runtime
                 .block_on(service.events.delete(&input_ids))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             Ok(())
         })
@@ -83,7 +82,7 @@ impl PyEventsServiceSync {
             let result = self
                 .runtime
                 .block_on(service.events.filter(&input.into()))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyEvent> = result
                 .get_items()

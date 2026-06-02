@@ -5,7 +5,6 @@ use dataplatform_rust_sdk::generic::{INode, IdAndExtId};
 use dataplatform_rust_sdk::{
     ApiService, FileUpload, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection,
 };
-use pyo3::exceptions::PyException;
 use pyo3::{PyResult, Python, pyclass, pymethods};
 use std::sync::Arc;
 
@@ -29,7 +28,7 @@ impl PyFilesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.files.upload_file(upload))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
             let res = result.get_items().first().unwrap().clone().into();
 
             Ok(res)
@@ -43,7 +42,7 @@ impl PyFilesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.files.list_root_directory())
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyINode> = result
                 .get_items()
@@ -61,7 +60,7 @@ impl PyFilesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.events.delete(&input_ids))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             Ok(())
         })
@@ -74,7 +73,7 @@ impl PyFilesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.files.list_directory_by_path(path))
-                .map_err(|e| PyException::new_err(e.get_message()))?;
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyINode> = result
                 .get_items()
