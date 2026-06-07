@@ -4,13 +4,10 @@ use crate::filters::{BasicEventFilter, EventFilter, TimeFilter};
 use crate::generic::{IdAndExtId, IdAndExtIdCollection};
 use crate::{create_api_service, ApiService};
 use chrono::{DateTime, Duration, TimeZone, Utc};
-use futures::StreamExt;
 use maplit::hashmap;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::task::id;
 
-async fn delete_events(api_service: &ApiService, events: Vec<IdAndExtId>) {
+async fn delete_events(api_service: &ApiService, events: Vec<IdAndExtId>) -> Result<(), Box<dyn std::error::Error>> {
     let delete_result = api_service.events.delete(&events).await;
     match delete_result {
         Ok(events) => {
@@ -22,9 +19,10 @@ async fn delete_events(api_service: &ApiService, events: Vec<IdAndExtId>) {
         }
     }
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    Ok(())
 }
 
-fn create_test_events() -> Vec<Event> {
+fn create_test_events(dataset_id: u64) -> Vec<Event> {
     let unique_id: u64 = 7110;
     let total_events = 89;
     let mut external_ids: Vec<String> = vec![];
@@ -48,7 +46,7 @@ fn create_test_events() -> Vec<Event> {
                 ((i as f64 * 0.5).sin().abs() * 10.0).to_string(),
             ),
         ]));
-        new_event.set_data_set_id(1);
+        new_event.set_data_set_id(dataset_id);
         new_event.event_time = Option::from(event_time);
         new_event.r#type = Option::from("pump".to_string());
         if i % 3 == 0 {
@@ -116,8 +114,6 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
                 .all(|e| lhs.iter().any(|r| r.external_id == e.external_id))
     } // helper function. Events derive PartialEq but that doesnt really work whe id is None.
 
-    let mut test_events = create_test_events();
-
     let mut basic_filter = BasicEventFilter::default();
     let mut eventfilter = EventFilter::default();
     let api_service = create_api_service();
@@ -129,16 +125,34 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     let min_time = Utc.with_ymd_and_hms(2025, 9, 5, 16, 22, 0).unwrap();
     let time_range = (min_time, min_time + time_delta);
 
+    let dataset_test_id = "Test_dataset";
+    let dt = Dataset::new(dataset_test_id.to_string());
+    let ds_ext_id_collection = vec![IdAndExtId::from_external_id(dataset_test_id)];
+    api_service.datasets.delete(&ds_ext_id_collection).await.ok();
+    let dataset_result = api_service.datasets.create(&dt).await;
+    let created_ds_id: u64 = match dataset_result {
+        Ok(data) => {
+            let id = data.get_items().first().unwrap().id;
+            println!("Dataset created with ID: {:?}", id);
+            id.unwrap()
+        }
+        Err(e) => {
+            println!("Failed to create dataset: {}", e);
+            return Err(format!("Dataset creation failed: {}", e).into());
+        }
+    };
+
+    let test_events = create_test_events(created_ds_id);
+
     let ids = test_events
         .iter()
         .map(|e| IdAndExtId::from_external_id(&e.external_id))
         .collect::<Vec<IdAndExtId>>();
-    let dt = Dataset::new("Test_dataset".to_string());
-    //api_service.datasets.create(&dt).await?;
-    api_service.events.delete(&ids).await?;
 
-    api_service.events.create(&test_events).await?;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    api_service.events.delete(&ids).await;
+
+    api_service.events.create(&test_events).await.expect("TODO: panic message");
+    tokio::time::sleep(std::time::Duration::from_secs(20)).await;
     // test empty filter
     println!("empty filter:");
     let mut empty_filter_res = api_service
@@ -344,6 +358,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     // cleanup
-    api_service.events.delete(&ids).await;
+    api_service.events.delete(&ids).await.ok();
+    api_service.datasets.delete(&ds_ext_id_collection).await.ok();
     Ok(())
 }

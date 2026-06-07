@@ -1,10 +1,8 @@
 use crate::create_api_service;
 use crate::datasets::{BasicDatasetFilter, Dataset, DatasetFilter, DatasetSearch};
-use crate::errors::DataHubError;
 use crate::generic::{IdAndExtId, SearchForm};
 use crate::http::ResponseError;
 use maplit::hashmap;
-use std::fs::metadata;
 
 fn create_test_dataset() -> Vec<Dataset> {
     let mut datasets = vec![];

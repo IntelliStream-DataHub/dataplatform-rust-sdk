@@ -141,7 +141,7 @@ pub enum TimeFilter {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct EventFilter {
     pub filter: Option<BasicEventFilter>,
     pub limit: u64,
@@ -150,6 +150,16 @@ pub struct EventFilter {
 }
 
 impl EventFilter {
+    
+    pub fn default() -> Self {
+        Self {
+            filter: None,
+            limit: 100,
+            cursor: None,
+            advanced_filter: None,
+        }
+    }
+    
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: Option<u64>,
@@ -169,7 +179,7 @@ impl EventFilter {
         Self {
             filter: None,
             limit: 100,
-            cursor: None, // todo implement cursor
+            cursor: None,
             advanced_filter: None,
         }
     }
