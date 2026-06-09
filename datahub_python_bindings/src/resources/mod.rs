@@ -127,6 +127,10 @@ impl PyResource {
     pub fn external_id(&self) -> &str {
         self.inner.external_id.as_str()
     }
+    #[setter]
+    pub fn set_external_id(&mut self, external_id: String) {
+        self.inner.external_id = external_id;
+    }
     #[getter]
     pub fn id(&self) -> Option<u64> {
         self.inner.id
