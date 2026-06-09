@@ -2,6 +2,7 @@ use crate::datasets::Dataset;
 use crate::events::Event;
 use crate::filters::{BasicEventFilter, EventFilter, TimeFilter};
 use crate::generic::{IdAndExtId, IdAndExtIdCollection};
+use crate::tests::cleanup::{cleanup_events, cleanup_resources};
 use crate::{create_api_service, ApiService};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use maplit::hashmap;
@@ -143,6 +144,9 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
             return Err(format!("Dataset creation failed: {}", e).into());
         }
     };
+    // Datasets are a resource subtype, so cleanup_resources deletes them via the
+    // resources endpoint. Armed now so a panic below still tears the dataset down.
+    let mut dataset_cleanup = cleanup_resources(vec![dataset_test_id.to_string()]);
 
     let test_events = create_test_events(created_ds_id);
 
@@ -154,6 +158,12 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     api_service.events.delete(&event_external_id_collection).await;
 
     api_service.events.create(&test_events).await.expect("TODO: panic message");
+    // Armed right after create: if any assertion below panics, the events are
+    // still torn down during unwind. Disarmed after the explicit delete on the
+    // happy path so teardown doesn't run twice.
+    let mut event_cleanup = cleanup_events(
+        test_events.iter().map(|e| e.external_id.clone()).collect(),
+    );
     tokio::time::sleep(std::time::Duration::from_secs(20)).await;
     // test empty filter
     println!("empty filter:");
@@ -183,7 +193,6 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
         &filter_eid_prefix_pump.get_items(),
         false
     ));
-
     // test sub type filter
     basic_filter.set_sub_type("alarm");
     let filter_subtype_alarm = api_service
@@ -363,6 +372,8 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
 
     // cleanup
     api_service.events.delete(&event_external_id_collection).await.ok();
+    event_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
     api_service.datasets.delete(&ds_ext_id_collection).await.ok();
+    dataset_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
     Ok(())
 }
