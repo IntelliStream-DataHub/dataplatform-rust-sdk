@@ -3,6 +3,7 @@ mod events;
 mod files;
 mod relations;
 mod resources;
+mod string_map;
 mod subscriptions;
 pub mod timeseries;
 pub mod units;
@@ -477,10 +478,10 @@ impl PyMapField {
     #[pyo3(signature=(remove=None, add=None, set=None))]
     pub fn new(
         remove: Option<Vec<String>>,
-        add: Option<HashMap<String, String>>,
-        set: Option<HashMap<String, String>>,
+        add: Option<crate::string_map::StringMap>,
+        set: Option<crate::string_map::StringMap>,
     ) -> PyResult<Self> {
-        let map_field = MapField::new(set, add, remove);
+        let map_field = MapField::new(set.map(Into::into), add.map(Into::into), remove);
 
         Ok(Self(map_field))
     }

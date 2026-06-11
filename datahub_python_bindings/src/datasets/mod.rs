@@ -55,7 +55,7 @@ impl PyDataset {
         id: Option<u64>,
         description: Option<String>,
         policies: Option<Vec<String>>,
-        metadata: Option<HashMap<String, String>>,
+        metadata: Option<crate::string_map::StringMap>,
         connected_data_sets: Option<Vec<u64>>,
     ) -> Self {
         let name = name.unwrap_or(external_id.clone());
@@ -66,7 +66,7 @@ impl PyDataset {
                 external_id,
                 description,
                 policies,
-                metadata: metadata.unwrap_or_default(),
+                metadata: metadata.map(Into::into).unwrap_or_default(),
                 connected_data_sets: connected_data_sets.unwrap_or_default(),
                 created_time: None,
                 last_updated_time: None,

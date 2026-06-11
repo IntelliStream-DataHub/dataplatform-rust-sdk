@@ -22,7 +22,7 @@ impl PyEvent {
     ))]
     pub fn __init__(
         external_id: String,
-        metadata: Option<HashMap<String, String>>,
+        metadata: Option<crate::string_map::StringMap>,
         description: Option<String>,
         r#type: Option<String>,
         sub_type: Option<String>,
@@ -34,7 +34,7 @@ impl PyEvent {
         event_time: Option<DateTime<Utc>>,
     ) -> Self {
         let mut ev = dataplatform_rust_sdk::Event::new(external_id);
-        ev.metadata = metadata;
+        ev.metadata = metadata.map(Into::into);
         ev.description = description;
         ev.r#type = r#type;
         ev.sub_type = sub_type;

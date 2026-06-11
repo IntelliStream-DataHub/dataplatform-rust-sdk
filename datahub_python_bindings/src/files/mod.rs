@@ -64,7 +64,7 @@ impl PyINode {
         parent_id: Option<i64>,
         parent_external_id: Option<String>,
         data_set_id: Option<i64>,
-        metadata: Option<HashMap<String, String>>,
+        metadata: Option<crate::string_map::StringMap>,
         related_resources: Option<Vec<i64>>,
         security_categories: Option<Vec<i32>>,
     ) -> PyResult<Self> {
@@ -87,7 +87,7 @@ impl PyINode {
                 parent_id,
                 parent_external_id,
                 data_set_id,
-                metadata,
+                metadata: metadata.map(Into::into),
                 related_resources,
                 security_categories,
             },
@@ -211,7 +211,7 @@ impl PyFileUpload {
         destination_path: Option<&str>,
         external_id: Option<&str>,
         name: Option<&str>,
-        metadata: Option<HashMap<String, String>>,
+        metadata: Option<crate::string_map::StringMap>,
         description: Option<&str>,
         source: Option<&str>,
         data_set_id: Option<u64>,
@@ -225,7 +225,7 @@ impl PyFileUpload {
             file_upload.set_destination_path(destination_path.to_string());
         }
         if let Some(metadata) = metadata {
-            file_upload.metadata = Some(metadata);
+            file_upload.metadata = Some(metadata.into());
         }
         if let Some(description) = description {
             file_upload.description = Some(description.to_string());

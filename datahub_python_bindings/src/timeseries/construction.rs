@@ -40,7 +40,7 @@ impl PyTimeSeries {
         name: Option<String>,
         external_id: Option<String>,
         value_type: ValueType,
-        metadata: Option<HashMap<String, String>>,
+        metadata: Option<crate::string_map::StringMap>,
         description: Option<String>,
         unit: Option<String>,
         unit_external_id: Option<String>,
@@ -65,7 +65,7 @@ impl PyTimeSeries {
             id: None,
             external_id: final_ext_id, // external_id is required and is either set or generated from name
             name: final_name,
-            metadata,
+            metadata: metadata.map(Into::into),
             unit,
             description,
             unit_external_id,
