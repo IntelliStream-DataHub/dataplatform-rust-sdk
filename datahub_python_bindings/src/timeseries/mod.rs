@@ -50,7 +50,7 @@ pub mod sync_service;
 ///     if not provided a snakecase of the name will be used.
 /// id: int, default None
 ///     internal id set by datahub
-/// value_type: {"bigint","decimal","text"}
+/// value_type: {"bigint","float","text"}
 ///     String enumerator for the datatype of the timeseries
 /// metadata: dict, default None
 ///     a dict[str,str] of user defined metadata for semi-structured data storage
@@ -348,7 +348,7 @@ impl PyDeleteFilter {
 
 /// Enumerator for the datatype of a timeseries.
 ///
-/// 3 options are available: BigInt, Decimal, Text
+/// 3 options are available: BigInt, Float, Text
 ///
 /// from pyhton these can be passed directly as case-insensitive literal strings
 #[pyclass(module = "datahub_sdk", skip_from_py_object)]
@@ -358,7 +358,7 @@ pub enum ValueType {
     #[strum(ascii_case_insensitive)]
     BigInt,
     #[strum(ascii_case_insensitive)]
-    Decimal,
+    Float,
     #[strum(ascii_case_insensitive)]
     Text,
 }
@@ -384,7 +384,7 @@ impl<'py> FromPyObject<'_, 'py> for ValueType {
         let s = obj.extract::<String>()?;
         ValueType::from_str(&s).map_err(|_| {
             PyValueError::new_err(format!(
-                "ValueType '{s}'. Must be 'bigint', 'decimal', or 'text'."
+                "ValueType '{s}'. Must be 'bigint', 'float', or 'text'."
             ))
         })
     }

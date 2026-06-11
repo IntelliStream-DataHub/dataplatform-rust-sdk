@@ -29,14 +29,14 @@ def subscription_timeseries(sync_client):
     ts_a = datahub_sdk.TimeSeries(
         external_id=ts_a_ext,
         name="Sub Test TS A",
-        value_type="decimal",
+        value_type="float",
         unit="Celsius",
         unit_external_id="temperature_deg_c",
     )
     ts_b = datahub_sdk.TimeSeries(
         external_id=ts_b_ext,
         name="Sub Test TS B",
-        value_type="decimal",
+        value_type="float",
         unit="Celsius",
         unit_external_id="temperature_deg_c",
     )
@@ -137,7 +137,7 @@ def test_listen_end_to_end(sync_client):
     ts = datahub_sdk.TimeSeries(
         external_id=ts_ext,
         name="Sub Listen TS",
-        value_type="decimal",
+        value_type="float",
         unit="Celsius",
         unit_external_id="temperature_deg_c",
     )
@@ -203,7 +203,7 @@ def test_listen_context_manager_closes_cleanly(sync_client):
     ts = datahub_sdk.TimeSeries(
         external_id=ts_ext,
         name="Sub Ctx TS",
-        value_type="decimal",
+        value_type="float",
         unit="a.u",
     )
     sync_client.timeseries.create([ts])

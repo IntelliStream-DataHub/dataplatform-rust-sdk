@@ -13,16 +13,16 @@ def test_sync_client(sync_client):
     assert sync_client is not None
 
 
-def test_list_returns_known_timeseries(sync_client, ts_decimal):
+def test_list_returns_known_timeseries(sync_client, ts_float):
     listed = sync_client.timeseries.list()
     assert isinstance(listed, list)
-    assert any(t.external_id == ts_decimal.external_id for t in listed)
+    assert any(t.external_id == ts_float.external_id for t in listed)
 
 
-def test_by_ids_returns_known_timeseries(sync_client, ts_decimal):
-    fetched = sync_client.timeseries.by_ids([ts_decimal])
+def test_by_ids_returns_known_timeseries(sync_client, ts_float):
+    fetched = sync_client.timeseries.by_ids([ts_float])
     assert len(fetched) == 1
-    assert fetched[0].external_id == ts_decimal.external_id
+    assert fetched[0].external_id == ts_float.external_id
 
 
 @pytest.mark.parametrize(
@@ -34,8 +34,8 @@ def test_by_ids_returns_known_timeseries(sync_client, ts_decimal):
         (pd.Timestamp('2022-01-01', tz='UTC'), pd.Timestamp('2025-01-1', tz='UTC')),
     ]
 )
-def test_retrieve_datapoints(sync_client,start,end,inserted_data,ts_decimal,test_data):
-    datapoints_filter = datahub_sdk.RetrieveFilter(start=start,end=end,ts= ts_decimal)
+def test_retrieve_datapoints(sync_client,start,end,inserted_data,ts_float,test_data):
+    datapoints_filter = datahub_sdk.RetrieveFilter(start=start,end=end,ts= ts_float)
     datapoints =  sync_client.timeseries.retrieve_datapoints(datapoints_filter)
     datapoints = datapoints[0].as_dict()
     s = pd.Series(datapoints["values"], index=datapoints["timestamps"])
@@ -60,17 +60,17 @@ def test_create_timeseries_invalid_value_type(sync_client):
 
     ]
 )
-def test_delete_datapoints(sync_client,fresh_inserted_data,ts_decimal,start,end,test_data):
+def test_delete_datapoints(sync_client,fresh_inserted_data,ts_float,start,end,test_data):
     #start = pd.Timestamp('2023-04-01', tz='UTC')
     #send = pd.Timestamp('2023-04-03', tz='UTC')
-    delete_target = datahub_sdk.DeleteFilter(ts=ts_decimal, inclusive_begin=start,exclusive_end=end)
+    delete_target = datahub_sdk.DeleteFilter(ts=ts_float, inclusive_begin=start,exclusive_end=end)
     sync_client.timeseries.delete_datapoints([delete_target])
     # asyncio.sleep(20)
     """ # commented out because it takes a while to delete datapoints making test flaky
      fix could be to create special test query with final
     datapoints_filter = datahub_sdk.RetrieveFilter(start=pd.Timestamp("2023-01-01",tz='UTC'),
                                                      end=pd.Timestamp("2023-05-01",tz='UTC'),
-                                                     ts= ts_decimal)
+                                                     ts= ts_float)
     datapoints =  sync_client.timeseries.retrieve_datapoints(datapoints_filter)
     datapoints = datapoints[0].get_datapoints()
     s = pd.Series(datapoints["values"], index=datapoints["timestamps"])
@@ -81,8 +81,8 @@ def test_delete_datapoints(sync_client,fresh_inserted_data,ts_decimal,start,end,
     assert np.allclose(s, remaining)
     """
 
-def test_retrieve_latest_datapoint(sync_client,inserted_data,test_data,ts_decimal):
-    latest_datapoint =  sync_client.timeseries.retrieve_latest_datapoints(input=[ts_decimal])
+def test_retrieve_latest_datapoint(sync_client,inserted_data,test_data,ts_float):
+    latest_datapoint =  sync_client.timeseries.retrieve_latest_datapoints(input=[ts_float])
     latest_datapoint = latest_datapoint[0].as_dict()
     ts,val = test_data.tail(1).index[0], test_data.tail(1).values[0]
     assert latest_datapoint["values"][0] == val
@@ -93,9 +93,9 @@ def test_retrieve_latest_datapoint(sync_client,inserted_data,test_data,ts_decima
 @pytest.mark.parametrize(
     "timestamps,values,value_type",
     [
-        (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randn(100),dtype="float64"), "decimal"),
+        (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randn(100),dtype="float64"), "float"),
         (pd.date_range("1-09-21 ",periods=100,tz="UTC"), pd.Series(np.random.randint(100),dtype="int64"), "bigint"),
-        (pd.date_range("2262-04-11",periods=100,tz="UTC"), pd.Series(np.random.randint(100),dtype="int64"), "decimal"),
+        (pd.date_range("2262-04-11",periods=100,tz="UTC"), pd.Series(np.random.randint(100),dtype="int64"), "float"),
     ]
 )
 def test_insert(sync_client,timestamps,values,value_type):
@@ -105,7 +105,7 @@ def test_insert(sync_client,timestamps,values,value_type):
     sync_client.timeseries.create([test_insert_ts])
     if value_type == "bigint":
         data = [datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
-    elif value_type == "decimal":
+    elif value_type == "float":
         data = [datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
 
     vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=test_insert_ts)
