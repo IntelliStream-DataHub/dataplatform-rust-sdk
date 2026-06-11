@@ -121,6 +121,19 @@ def test_create_batch_multiple(sync_client):
         sync_client.timeseries.delete(series)
 
 
+@pytest.mark.parametrize("alias", ["decimal", "DECIMAL", "Decimal"])
+def test_create_value_type_decimal_alias_normalises_to_float(sync_client, alias):
+    """"decimal" (any case) is a legacy alias that normalises to canonical "float"."""
+    ext_id = _uid("alias")
+    ts = datahub_sdk.TimeSeries(external_id=ext_id, value_type=alias, unit="a.u")
+    sync_client.timeseries.delete([ts])
+    try:
+        created = sync_client.timeseries.create([ts])[0]
+        assert created.value_type == "float"
+    finally:
+        sync_client.timeseries.delete([ts])
+
+
 def test_delete_by_external_id_string(sync_client):
     ext_id = _uid("delstr")
     ts = datahub_sdk.TimeSeries(external_id=ext_id, value_type="float", unit="a.u")
