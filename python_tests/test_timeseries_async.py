@@ -20,8 +20,8 @@ def test_async_client(async_client):
         (pd.Timestamp('2022-01-01', tz='UTC'), pd.Timestamp('2025-01-1', tz='UTC')),
     ]
 )
-async def test_retrieve_datapoints(async_client,start,end,inserted_data,ts_decimal,test_data):
-    datapoints_filter = datahub_sdk.RetrieveFilter(start=start,end=end,ts= ts_decimal)
+async def test_retrieve_datapoints(async_client,start,end,inserted_data,ts_float,test_data):
+    datapoints_filter = datahub_sdk.RetrieveFilter(start=start,end=end,ts= ts_float)
     datapoints = await async_client.timeseries.retrieve_datapoints(datapoints_filter)
     datapoints = datapoints[0].as_dict()
     s = pd.Series(datapoints["values"], index=datapoints["timestamps"])
@@ -42,17 +42,17 @@ async def test_retrieve_datapoints(async_client,start,end,inserted_data,ts_decim
         (pd.Timestamp('2023-01-01', tz='+01:00'), pd.Timestamp('2023-01-28T00:00:01', tz='UTC')),
     ]
 )
-async def test_delete_datapoints(async_client,fresh_inserted_data,ts_decimal,start,end,test_data):
+async def test_delete_datapoints(async_client,fresh_inserted_data,ts_float,start,end,test_data):
     #start = pd.Timestamp('2023-04-01', tz='UTC')
     #send = pd.Timestamp('2023-04-03', tz='UTC')
-    delete_target = datahub_sdk.DeleteFilter(ts=ts_decimal, inclusive_begin=start,exclusive_end=end)
+    delete_target = datahub_sdk.DeleteFilter(ts=ts_float, inclusive_begin=start,exclusive_end=end)
     async_client.timeseries.delete_datapoints([delete_target])
     #await asyncio.sleep(20)
     """ # commented out because it takes a while to delete datapoints making test flaky
      fix could be to create special test query with final
     datapoints_filter = datahub_sdk.RetrieveFilter(start=pd.Timestamp("2023-01-01",tz='UTC'),
                                                      end=pd.Timestamp("2023-05-01",tz='UTC'),
-                                                     ts= ts_decimal)
+                                                     ts= ts_float)
     datapoints = await async_client.timeseries.retrieve_datapoints(datapoints_filter)
     datapoints = datapoints[0].get_datapoints()
     s = pd.Series(datapoints["values"], index=datapoints["timestamps"])
@@ -64,8 +64,8 @@ async def test_delete_datapoints(async_client,fresh_inserted_data,ts_decimal,sta
     """
 
 @pytest.mark.asyncio
-async def test_retrieve_latest_datapoint(async_client,inserted_data,test_data,ts_decimal):
-    latest_datapoint = await async_client.timeseries.retrieve_latest_datapoints(input=[ts_decimal])
+async def test_retrieve_latest_datapoint(async_client,inserted_data,test_data,ts_float):
+    latest_datapoint = await async_client.timeseries.retrieve_latest_datapoints(input=[ts_float])
     latest_datapoint = latest_datapoint[0].as_dict()
     ts,val = test_data.tail(1).index[0], test_data.tail(1).values[0]
     assert latest_datapoint["values"][0] == val
@@ -77,9 +77,9 @@ async def test_retrieve_latest_datapoint(async_client,inserted_data,test_data,ts
 @pytest.mark.parametrize(
     "timestamps,values,value_type",
     [
-        (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randn(100),dtype="float64"), "decimal"),
+        (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randn(100),dtype="float64"), "float"),
         (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randint(100),dtype="int64"), "bigint"),
-        (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randint(100),dtype="int64"), "decimal"),
+        (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randint(100),dtype="int64"), "float"),
     ]
 )
 async def test_insert(async_client,timestamps,values,value_type):
@@ -89,7 +89,7 @@ async def test_insert(async_client,timestamps,values,value_type):
     await async_client.timeseries.create([test_insert_ts])
     if value_type == "bigint":
         data = [datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
-    elif value_type == "decimal":
+    elif value_type == "float":
         data = [datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
 
     vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=test_insert_ts)
