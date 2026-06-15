@@ -3,6 +3,7 @@ use crate::create_api_service;
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::generic::{IdAndExtId, SearchForm};
 use crate::relations::RelForm;
+use crate::tests::cleanup::cleanup_resources;
 use maplit::hashmap;
 use uuid::Uuid;
 
@@ -70,6 +71,12 @@ async fn test_create_and_delete_resources() -> Result<(), ResponseError> {
         .resources
         .create(test_resources.clone(), vec![])
         .await?;
+    let mut resource_cleanup = cleanup_resources(
+        test_resources
+            .iter()
+            .map(|r| r.external_id.clone())
+            .collect(),
+    );
     let res_ids = result
         .nodes()
         .unwrap()
@@ -86,6 +93,7 @@ async fn test_create_and_delete_resources() -> Result<(), ResponseError> {
 
     // Delete resources
     api_service.resources.delete(&ids).await?;
+    resource_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
     assert_eq!(
         api_service.resources.by_ids(&ids).await?.nodes().unwrap(),
         vec![]
@@ -121,6 +129,12 @@ async fn test_search_resources() -> Result<(), ResponseError> {
         .resources
         .create(test_resources.clone(), vec![])
         .await?;
+    let mut resource_cleanup = cleanup_resources(
+        test_resources
+            .iter()
+            .map(|r| r.external_id.clone())
+            .collect(),
+    );
     let search_result = api_service.resources.search(&query).await?;
     let search_result2 = api_service.resources.search(&query2).await?;
     println!("{:?}", search_result2.get_items().len());
@@ -136,6 +150,7 @@ async fn test_search_resources() -> Result<(), ResponseError> {
         .map(|r| IdAndExtId::from_external_id(&r.external_id))
         .collect::<Vec<IdAndExtId>>();
     api_service.resources.delete(&resulting_ids).await?;
+    resource_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
     Ok(())
 }
 
@@ -164,6 +179,7 @@ async fn test_create_with_flows_to_relation() -> Result<(), ResponseError> {
         .resources
         .create(test_resources.clone(), relations)
         .await?;
+    let mut resource_cleanup = cleanup_resources(vec![from_ext.clone(), to_ext.clone()]);
 
     let nodes = result.nodes().unwrap();
     assert_eq!(nodes.len(), 2);
@@ -184,6 +200,7 @@ async fn test_create_with_flows_to_relation() -> Result<(), ResponseError> {
 
     api_service.resources.delete(&end_id).await?;
     api_service.resources.delete(&start_id).await?;
+    resource_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
     Ok(())
 }
 
@@ -201,8 +218,15 @@ async fn test_create_with_empty_relations() -> Result<(), ResponseError> {
         .resources
         .create(test_resources.clone(), vec![])
         .await?;
+    let mut resource_cleanup = cleanup_resources(
+        test_resources
+            .iter()
+            .map(|r| r.external_id.clone())
+            .collect(),
+    );
     assert_eq!(result.nodes().unwrap().len(), 2);
 
     api_service.resources.delete(&ids).await?;
+    resource_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
     Ok(())
 }

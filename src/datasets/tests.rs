@@ -2,6 +2,7 @@ use crate::create_api_service;
 use crate::datasets::{BasicDatasetFilter, Dataset, DatasetFilter, DatasetSearch};
 use crate::generic::{IdAndExtId, SearchForm};
 use crate::http::ResponseError;
+use crate::tests::cleanup::cleanup_datasets;
 use maplit::hashmap;
 
 fn create_test_dataset() -> Vec<Dataset> {
@@ -51,12 +52,19 @@ async fn test_dataset_crud() -> Result<(), ResponseError> {
     ));
 
     let create_res = api_service.datasets.create(&test_dataset).await?;
+    let mut dataset_cleanup = cleanup_datasets(
+        test_dataset
+            .iter()
+            .map(|d| d.external_id().to_string())
+            .collect(),
+    );
     assert!(equal_external_ids(
         &api_service.datasets.by_ids(&test_ids).await?.get_items(),
         &test_dataset,
         false
     ));
     api_service.datasets.delete(&test_ids).await?;
+    dataset_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
     assert!(equal_external_ids(
         api_service.datasets.by_ids(&test_ids).await?.get_items(),
         &vec![],

@@ -12,6 +12,7 @@ mod tests {
     use crate::generic::{DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, IdAndExtIdCollection, RetrieveFilter};
     use crate::http::ResponseError;
     use crate::timeseries::{LimitParam, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
+    use crate::tests::cleanup::cleanup_timeseries;
 
     #[tokio::test]
     async fn test_timeseries_requests() -> Result<(), Box<dyn std::error::Error>> {
@@ -72,6 +73,11 @@ mod tests {
         let ts_collection = create_timeseries(unique_id);
         let result = api_service.time_series.create(&ts_collection).await;
 
+        let mut ts_cleanup = cleanup_timeseries(vec![
+            "rust_sdk_test_1200_ts".to_string(),
+            "rust_sdk_test_1201_ts".to_string(),
+        ]);
+
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 2);
@@ -102,6 +108,7 @@ mod tests {
 
         // Delete timeseries
         delete_timeseries(unique_id, &api_service).await;
+        ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 
         Ok(())
     }
@@ -162,6 +169,12 @@ mod tests {
 
         let ts_collection = create_timeseries(unique_id);
         let result = api_service.time_series.create(&ts_collection).await;
+
+        let mut ts_cleanup = cleanup_timeseries(vec![
+            "rust_sdk_test_1400_ts".to_string(),
+            "rust_sdk_test_1400_ts_renamed".to_string(),
+        ]);
+
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 2);
@@ -245,6 +258,7 @@ mod tests {
         }
 
         delete_timeseries(unique_id, &api_service).await;
+        ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 
         Ok(())
     }
@@ -295,6 +309,9 @@ mod tests {
             .set_value_type("float").clone();
         ts_collection.add_item(ts1);
         let result = api_service.time_series.create(&ts_collection).await;
+
+        let mut ts_cleanup = cleanup_timeseries(vec![new_ts_ext_id.clone()]);
+
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
@@ -359,6 +376,7 @@ mod tests {
                 eprintln!("{:?}", e.get_message());
             }
         }
+        ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 
         Ok(())
     }
@@ -405,6 +423,12 @@ mod tests {
         // ts_collection.add_item(ts2);
 
         let result = api_service.time_series.create(&ts_collection).await;
+
+        let mut ts_cleanup = cleanup_timeseries(vec![
+            new_ts_ext_id.clone(),
+            new_ts_ext_id2.clone(),
+        ]);
+
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
@@ -490,6 +514,7 @@ mod tests {
         // Delete timeseries when complete
         delete_timeseries(unique_id, &api_service).await;
         delete_timeseries(unique_id+1, &api_service).await;
+        ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 
         Ok(())
     }
@@ -845,6 +870,9 @@ mod tests {
         ts_collection.add_item(ts1);
 
         let result = api_service.time_series.create(&ts_collection).await;
+
+        let mut ts_cleanup = cleanup_timeseries(vec![new_ts_ext_id.clone()]);
+
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
@@ -896,6 +924,7 @@ mod tests {
 
         // Delete timeseries when complete
         delete_timeseries(unique_id, &api_service).await;
+        ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 
         Ok(())
     }
