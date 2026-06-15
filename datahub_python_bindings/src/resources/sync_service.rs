@@ -6,8 +6,7 @@ use crate::PySearchAndFilterForm;
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::relations::RelForm;
 use dataplatform_rust_sdk::{ApiService, Resource};
-use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
-use pyo3_async_runtimes::tokio::future_into_py;
+use pyo3::{PyResult, Python, pyclass, pymethods};
 use std::sync::Arc;
 
 #[pyclass(module = "datahub_sdk", name = "ResourcesServiceSync")]
@@ -84,18 +83,21 @@ impl PyResourcesServiceSync {
         &self,
         py: Python<'py>,
         input: PySearchAndFilterForm,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        todo!()
-        /*let service = self.api_service.clone();
+    ) -> PyResult<Vec<PyResource>> {
+        let service = self.api_service.clone();
 
-            future_into_py(py, async move {
-                let result = service.resources.search(&input.into()).await.map_err(|e| {
-                    crate::datahub_err(e)
-                })?;
+        py.detach(|| {
+            let result = self
+                .runtime
+                .block_on(service.resources.search(&input.into()))
+                .map_err(|e| crate::datahub_err(e))?;
 
-                let py_ts: Vec<PyResource> = result.get_items().iter().map(|ts| PyResource { inner: ts.clone() }).collect();
-                Ok(py_ts)
-            })
-        */
+            let py_res: Vec<PyResource> = result
+                .get_items()
+                .iter()
+                .map(|r| PyResource { inner: r.clone() })
+                .collect();
+            Ok(py_res)
+        })
     }
 }

@@ -4,6 +4,7 @@ Mirrors `src/resources/tests.rs`. Exercises constructing `EdgeProxy`/`RelForm`
 and creating resources together with relations through the live API. Skipped if
 the backend is unreachable (the fixture takes care of that).
 """
+import time
 import uuid
 
 import datahub_sdk
@@ -11,6 +12,10 @@ import pytest
 from datahub_sdk import DataHubException, EdgeProxy, GraphResult, RelForm, Resource
 
 from fixtures import sync_client
+
+
+# The search index is eventually-consistent with writes; give it a moment.
+SEARCH_INDEX_DELAY = 3.0
 
 
 def _suffix() -> str:
@@ -95,6 +100,31 @@ def test_create_nodes_only(sync_client):
         assert result.nodes[0].external_id == a_ext
     finally:
         sync_client.resources.delete([a_ext])
+
+
+def test_search_resources(sync_client):
+    # Mirrors `src/resources/tests.rs::test_search_resources`: create a resource,
+    # then search with a query + limit and assert the matches are bounded and
+    # relevant.
+    suffix = _suffix()
+    ext_id = f"py_sdk_search_{suffix}"
+    name = f"py sdk search resource {suffix}"
+    resource = Resource(external_id=ext_id, name=name, is_root=True, labels=["ASSET"])
+
+    sync_client.resources.delete([ext_id])
+    sync_client.resources.create([resource])
+    try:
+        time.sleep(SEARCH_INDEX_DELAY)
+
+        form = datahub_sdk.SearchAndFilterForm(query=name, limit=5)
+        results = sync_client.resources.search(form)
+        assert isinstance(results, list)
+        assert len(results) <= 5
+        assert any(r.external_id == ext_id for r in results), (
+            f"search did not return the created resource {ext_id}"
+        )
+    finally:
+        sync_client.resources.delete([ext_id])
 
 
 def test_api_error_surfaces_status_code(sync_client):
