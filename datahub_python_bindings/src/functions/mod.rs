@@ -146,10 +146,10 @@ pub(crate) fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<JsonValue> {
     if value.is_none() {
         return Ok(JsonValue::Null);
     }
-    if let Ok(b) = value.downcast::<PyBool>() {
+    if let Ok(b) = value.cast::<PyBool>() {
         return Ok(JsonValue::Bool(b.is_true()));
     }
-    if let Ok(i) = value.downcast::<PyInt>() {
+    if let Ok(i) = value.cast::<PyInt>() {
         if let Ok(n) = i.extract::<i64>() {
             return Ok(JsonValue::from(n));
         }
@@ -157,7 +157,7 @@ pub(crate) fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<JsonValue> {
             return Ok(JsonValue::from(n));
         }
     }
-    if let Ok(f) = value.downcast::<PyFloat>() {
+    if let Ok(f) = value.cast::<PyFloat>() {
         let f: f64 = f.extract()?;
         return serde_json::Number::from_f64(f)
             .map(JsonValue::Number)
@@ -167,17 +167,17 @@ pub(crate) fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<JsonValue> {
                 )
             });
     }
-    if let Ok(s) = value.downcast::<PyString>() {
+    if let Ok(s) = value.cast::<PyString>() {
         return Ok(JsonValue::String(s.extract()?));
     }
-    if let Ok(list) = value.downcast::<PyList>() {
+    if let Ok(list) = value.cast::<PyList>() {
         let mut out = Vec::with_capacity(list.len());
         for item in list.iter() {
             out.push(py_to_json(&item)?);
         }
         return Ok(JsonValue::Array(out));
     }
-    if let Ok(dict) = value.downcast::<PyDict>() {
+    if let Ok(dict) = value.cast::<PyDict>() {
         let mut out = serde_json::Map::with_capacity(dict.len());
         for (k, v) in dict.iter() {
             let key: String = k.extract()?;
