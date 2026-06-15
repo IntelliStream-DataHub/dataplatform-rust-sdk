@@ -9,8 +9,7 @@ use crate::{
 };
 use chrono::{DateTime, FixedOffset};
 use dataplatform_rust_sdk::generic::{
-    DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId,
-    IdAndExtIdCollection, RetrieveFilter,
+    DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter,
 };
 use dataplatform_rust_sdk::{ApiService, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection};
 use pyo3::prelude::*;
@@ -25,14 +24,15 @@ pub struct PyTimeSeriesServiceAsync {
 
 #[pymethods]
 impl PyTimeSeriesServiceAsync {
-    fn list<'p>(&self, py: Python<'p>) -> PyResult<Bound<'p, PyAny>> {
+    #[pyo3(signature = (limit=None))]
+    fn list<'p>(&self, py: Python<'p>, limit: Option<u64>) -> PyResult<Bound<'p, PyAny>> {
         let service = self.api_service.clone();
         future_into_py(py, async move {
-            let result = service
-                .time_series
-                .list()
-                .await
-                .map_err(|e| crate::datahub_err(e))?;
+            let result = match limit {
+                Some(l) => service.time_series.list_with_limit(Some(l)).await,
+                None => service.time_series.list().await,
+            }
+            .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
@@ -73,7 +73,7 @@ impl PyTimeSeriesServiceAsync {
             .into_iter()
             .map(Into::into)
             .collect::<Vec<IdAndExtId>>();
-        let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
+        let wrapper = DataWrapper::from_vec(input_ids);
 
         future_into_py(py, async move {
             let result = service
@@ -100,7 +100,7 @@ impl PyTimeSeriesServiceAsync {
             .into_iter()
             .map(Into::into)
             .collect::<Vec<IdAndExtId>>();
-        let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
+        let wrapper = DataWrapper::from_vec(input_ids);
 
         future_into_py(py, async move {
             let result = service
@@ -274,7 +274,7 @@ impl PyTimeSeriesServiceAsync {
             .into_iter()
             .map(Into::into)
             .collect::<Vec<IdAndExtId>>();
-        let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
+        let wrapper = DataWrapper::from_vec(input_ids);
         future_into_py(py, async move {
             let result = service
                 .time_series

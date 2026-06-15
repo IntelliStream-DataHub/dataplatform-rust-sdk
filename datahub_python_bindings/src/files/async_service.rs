@@ -1,5 +1,5 @@
 use crate::files::{PyFileIdentifiable, PyFileUpload, PyINode};
-use dataplatform_rust_sdk::generic::{IdAndExtId, IdAndExtIdCollection};
+use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
 use dataplatform_rust_sdk::{ApiService, FileUpload};
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -8,7 +8,6 @@ use std::sync::Arc;
 #[pyclass(module = "datahub_sdk", name = "FilesServiceAsync")]
 pub struct PyFilesServiceAsync {
     pub api_service: Arc<ApiService>,
-    pub runtime: Arc<tokio::runtime::Runtime>,
 }
 
 #[pymethods]
@@ -28,12 +27,12 @@ impl PyFilesServiceAsync {
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
 
-            let py_ts: Vec<PyFileUpload> = result
+            let py_inodes: Vec<PyINode> = result
                 .get_items()
                 .iter()
-                .map(|fu| PyFileUpload::from(fu.clone()))
+                .map(|node| PyINode::from(node.clone()))
                 .collect();
-            Ok(py_ts)
+            Ok(py_inodes)
         })
     }
 
@@ -62,7 +61,7 @@ impl PyFilesServiceAsync {
     ) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         let input_ids: Vec<IdAndExtId> = input.into_iter().map(IdAndExtId::from).collect();
-        let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
+        let wrapper = DataWrapper::from_vec(input_ids);
         future_into_py(py, async move {
             service
                 .files

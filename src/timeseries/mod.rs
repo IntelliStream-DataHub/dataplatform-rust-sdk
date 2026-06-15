@@ -3,7 +3,7 @@ mod test;
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{
     ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection,
-    DeleteFilter, IdAndExtIdCollection, RelationForm, RetrieveFilter, SearchAndFilterForm,
+    DeleteFilter, IdAndExtId, RelationForm, RetrieveFilter, SearchAndFilterForm,
     SearchForm,
 };
 use crate::http::{process_response, ResponseError};
@@ -36,9 +36,10 @@ impl TimeSeriesService {
 
     pub async fn list_with_limit(
         &self,
-        query: Option<&LimitParam>,
+        limit: Option<u64>,
     ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        self.execute_get_request::<DataWrapper<TimeSeries>, LimitParam>(&self.base_url, query)
+        let query = [("limit", limit.unwrap_or(100))];
+        self.execute_get_request::<DataWrapper<TimeSeries>, _>(&self.base_url, Some(&query))
             .await
     }
 
@@ -73,7 +74,7 @@ impl TimeSeriesService {
 
     pub async fn delete(
         &self,
-        json: &IdAndExtIdCollection,
+        json: &DataWrapper<IdAndExtId>,
     ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let path = &format!("{}/delete", self.base_url);
         self.execute_post_request(path, json).await
@@ -90,7 +91,7 @@ impl TimeSeriesService {
 
     pub async fn by_ids(
         &self,
-        json: &IdAndExtIdCollection,
+        json: &DataWrapper<IdAndExtId>,
     ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let path = &format!("{}/byids", self.base_url);
         self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json)
@@ -282,7 +283,7 @@ impl TimeSeriesService {
 
     pub async fn retrieve_latest_datapoint(
         &self,
-        json: &IdAndExtIdCollection,
+        json: &DataWrapper<IdAndExtId>,
     ) -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError> {
         let path = &format!("{}/data/latest", self.base_url);
         self.execute_post_request::<DataWrapper<DatapointsCollection<Datapoint>>, _>(path, json)
@@ -417,25 +418,6 @@ impl TimeSeries {
     pub fn set_relations_from(&mut self, relations_from: Vec<RelationForm>) -> &mut TimeSeries {
         self.relations_from = relations_from;
         self
-    }
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct LimitParam {
-    limit: i64,
-}
-
-impl LimitParam {
-    pub fn new() -> Self {
-        LimitParam { limit: 100 }
-    }
-
-    pub fn set_limit(&mut self, limit: i64) {
-        self.limit = limit;
-    }
-
-    pub fn get_limit(&self) -> i64 {
-        self.limit
     }
 }
 

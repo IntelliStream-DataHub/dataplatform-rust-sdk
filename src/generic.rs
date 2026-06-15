@@ -269,9 +269,9 @@ impl RelationForm {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SearchAndFilterForm {
-    pub(crate) filter: Option<FilterForm>, // todo!() not implemented yet in java app
-    pub(crate) search: Option<SearchForm>,
-    pub(crate) limit: Option<u64>,
+    pub filter: Option<FilterForm>, // todo!() not implemented yet in java app
+    pub search: Option<SearchForm>,
+    pub limit: Option<u64>,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -303,9 +303,9 @@ impl SearchAndFilterForm {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SearchForm {
-    pub(crate) name: Option<String>,
-    pub(crate) description: Option<String>,
-    pub(crate) query: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub query: Option<String>,
 }
 
 impl SearchForm {
@@ -318,42 +318,6 @@ impl SearchForm {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct IdAndExtIdCollection {
-    items: Vec<IdAndExtId>,
-}
-
-impl IdAndExtIdCollection {
-    pub fn new() -> Self {
-        IdAndExtIdCollection { items: vec![] }
-    }
-
-    pub fn from_id_vec(ids: Vec<u64>) -> Self {
-        let mut items = vec![];
-        for id in ids {
-            items.push(IdAndExtId::from_id(id));
-        }
-        IdAndExtIdCollection { items }
-    }
-
-    pub fn from_external_id_vec(external_ids: Vec<&str>) -> Self {
-        let mut items = vec![];
-        for external_id in external_ids {
-            items.push(IdAndExtId::from_external_id(external_id));
-        }
-        IdAndExtIdCollection { items }
-    }
-    pub fn from_id_and_ext_id_vec(items: Vec<IdAndExtId>) -> Self {
-        IdAndExtIdCollection { items }
-    }
-    pub fn set_items(&mut self, items: Vec<IdAndExtId>) {
-        self.items = items;
-    }
-
-    pub fn add_item(&mut self, item: IdAndExtId) {
-        self.items.push(item);
-    }
-}
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DeleteFilter {
@@ -568,6 +532,7 @@ pub struct DataWrapper<T> {
     items: Vec<T>,
     #[serde(skip)]
     http_status_code: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error_body: Option<String>,
 }
 

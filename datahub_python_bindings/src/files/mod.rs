@@ -1,5 +1,5 @@
-mod async_service;
-mod sync_service;
+pub mod async_service;
+pub mod sync_service;
 
 use chrono::{DateTime, Utc};
 use dataplatform_rust_sdk::FileUpload;
@@ -339,4 +339,12 @@ impl From<PyFileIdentifiable> for IdAndExtId {
             },
         }
     }
+}
+
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyINode>()?;
+    m.add_class::<PyFileUpload>()?;
+    m.add_class::<sync_service::PyFilesServiceSync>()?;
+    m.add_class::<async_service::PyFilesServiceAsync>()?;
+    Ok(())
 }

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::create_api_service;
-    use crate::generic::IdAndExtIdCollection;
+    use crate::generic::{DataWrapper, IdAndExtId};
     #[tokio::test]
     async fn test_unit_requests() -> Result<(), Box<dyn std::error::Error>> {
         println!("test_unit_requests");
@@ -26,7 +26,7 @@ mod tests {
             }
         }
 
-        let id_collection = IdAndExtIdCollection::from_id_vec(vec![9, 23]);
+        let id_collection = DataWrapper::from_vec(vec![IdAndExtId::from_id(9), IdAndExtId::from_id(23)]);
         let result = api_service.units.by_ids(&id_collection).await;
         match result {
             Ok(unit_response) => {
@@ -40,7 +40,7 @@ mod tests {
         }
 
         // Test empty id collection
-        let id_collection = IdAndExtIdCollection::from_id_vec(vec![]);
+        let id_collection: DataWrapper<IdAndExtId> = DataWrapper::from_vec(vec![]);
         let result = api_service.units.by_ids(&id_collection).await;
         match result {
             Ok(unit_response) => {
@@ -51,8 +51,10 @@ mod tests {
             }
         }
 
-        let id_collection =
-            IdAndExtIdCollection::from_external_id_vec(vec!["energy_kw_hr", "concentration_ppm"]);
+        let id_collection = DataWrapper::from_vec(vec![
+            IdAndExtId::from_external_id("energy_kw_hr"),
+            IdAndExtId::from_external_id("concentration_ppm"),
+        ]);
         let result = api_service.units.by_ids(&id_collection).await;
         match result {
             Ok(unit_response) => {
@@ -64,7 +66,10 @@ mod tests {
         }
 
         // try units that doesnt exist:
-        let id_collection = IdAndExtIdCollection::from_external_id_vec(vec!["australia", "london"]);
+        let id_collection = DataWrapper::from_vec(vec![
+            IdAndExtId::from_external_id("australia"),
+            IdAndExtId::from_external_id("london"),
+        ]);
         let result = api_service.units.by_ids(&id_collection).await;
         match result {
             Ok(unit_response) => {
@@ -76,7 +81,7 @@ mod tests {
         }
 
         // test empty external id
-        let id_collection = IdAndExtIdCollection::from_external_id_vec(vec![]);
+        let id_collection: DataWrapper<IdAndExtId> = DataWrapper::from_vec(vec![]);
         let result = api_service.units.by_ids(&id_collection).await;
         match result {
             Ok(unit_response) => {

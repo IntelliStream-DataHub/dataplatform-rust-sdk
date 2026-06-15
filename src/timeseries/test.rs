@@ -9,18 +9,15 @@ mod tests {
     use maplit::hashmap;
     use reqwest::StatusCode;
     use crate::{create_api_service, ApiService};
-    use crate::generic::{DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, IdAndExtIdCollection, RetrieveFilter};
+    use crate::generic::{DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter};
     use crate::http::ResponseError;
-    use crate::timeseries::{LimitParam, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
+    use crate::timeseries::{TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
 
     #[tokio::test]
     async fn test_timeseries_requests() -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
 
-        let mut params = LimitParam::new();
-        params.set_limit(5);
-
-        let result = api_service.time_series.list_with_limit(Some(&params)).await;
+        let result = api_service.time_series.list_with_limit(Some(5)).await;
         match result {
             Ok(timeseries) => {
                 assert!(timeseries.length() <= 5);
@@ -29,19 +26,6 @@ mod tests {
             Err(e) => {
                 panic!("{:?}", e.get_message());
 
-            }
-        }
-
-        // Test negative number
-        params.set_limit(-5);
-        let result = api_service.time_series.list_with_limit(Some(&params)).await;
-        match result {
-            Ok(timeseries) => {
-                panic!("This test is supposed to fail: {:?}", timeseries);
-            },
-            Err(e) => {
-                assert_eq!(StatusCode::BAD_REQUEST, e.get_status());
-                println!("StatusCode::BAD_REQUEST == 400 is correct!");
             }
         }
         Ok(())
@@ -107,13 +91,11 @@ mod tests {
     }
 
     async fn delete_timeseries(id: u64, api_service: &ApiService) {
-        let id_collection = IdAndExtIdCollection::from_external_id_vec(
-            vec![
-                format!("rust_sdk_test_{id}_ts", id = id).as_str(),
-                format!("rust_sdk_test_{id}_ts_renamed", id = id).as_str(),
-                format!("rust_sdk_test_{id}_ts", id = id + 1).as_str()
-            ]
-        );
+        let id_collection = DataWrapper::from_vec(vec![
+            IdAndExtId::from_external_id(&format!("rust_sdk_test_{id}_ts", id = id)),
+            IdAndExtId::from_external_id(&format!("rust_sdk_test_{id}_ts_renamed", id = id)),
+            IdAndExtId::from_external_id(&format!("rust_sdk_test_{id}_ts", id = id + 1)),
+        ]);
         let result = api_service.time_series.delete(&id_collection).await;
         match result {
             Ok(timeseries) => {
@@ -224,7 +206,7 @@ mod tests {
 
         println!("ts2_id: {:?}", ts2_id);
 
-        let mut id_collection = IdAndExtIdCollection::from_id_vec(vec![ts2_id.unwrap()]);
+        let mut id_collection = DataWrapper::from_vec(vec![IdAndExtId::from_id(ts2_id.unwrap())]);
         id_collection.add_item(IdAndExtId { id: None, external_id: Some("rust_sdk_test_1400_ts".to_string()) });
         let result = api_service.time_series.by_ids(&id_collection).await;
 
@@ -346,9 +328,10 @@ mod tests {
             }
         }
 
-        let id_collection = IdAndExtIdCollection::from_external_id_vec(
-            vec![format!("rust_sdk_test_{id}_ts", id = unique_id).as_str()]
-        );
+        let id_collection = DataWrapper::from_vec(vec![IdAndExtId::from_external_id(&format!(
+            "rust_sdk_test_{id}_ts",
+            id = unique_id
+        ))]);
         let result = api_service.time_series.delete(&id_collection).await;
         match result {
             Ok(timeseries) => {
@@ -878,7 +861,7 @@ mod tests {
         let result = api_service.time_series.insert_datapoints(&mut data_request).await;
         validate_data_insertion(result);
 
-        let id_collection = IdAndExtIdCollection::from_external_id_vec(vec![&new_ts_ext_id]);
+        let id_collection = DataWrapper::from_vec(vec![IdAndExtId::from_external_id(&new_ts_ext_id)]);
         validate_latest_datapoint(&api_service, latest_datetime, &id_collection).await;
 
         // Create a new Data point collection with older values
@@ -915,9 +898,9 @@ mod tests {
     async fn validate_latest_datapoint(
         api_service: &ApiService,
         latest_datetime: DateTime<Utc>,
-        id_collection: &IdAndExtIdCollection
+        id_collection: &DataWrapper<IdAndExtId>
     ) {
-        let result = api_service.time_series.retrieve_latest_datapoint(&id_collection).await;
+        let result = api_service.time_series.retrieve_latest_datapoint(id_collection).await;
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);

@@ -11,6 +11,8 @@ mod functions;
 use crate::datasets::PyDataset;
 use crate::datasets::async_service::PyDatasetsServiceAsync;
 use crate::datasets::sync_service::PyDatasetsServiceSync;
+use crate::files::async_service::PyFilesServiceAsync;
+use crate::files::sync_service::PyFilesServiceSync;
 use crate::events::PyEvent;
 use crate::events::async_service::PyEventsServiceAsync;
 use crate::events::sync_service::PyEventsServiceSync;
@@ -138,9 +140,10 @@ impl PySyncClient {
     }
 
     #[getter]
-    fn files(&self) -> PyFileService {
-        PyFileService {
+    fn files(&self) -> PyFilesServiceSync {
+        PyFilesServiceSync {
             api_service: self.inner.clone(),
+            runtime: self.runtime.clone(),
         }
     }
 
@@ -245,8 +248,8 @@ impl PyAsyncClient {
     }
 
     #[getter]
-    fn files(&self) -> PyFileService {
-        PyFileService {
+    fn files(&self) -> PyFilesServiceAsync {
+        PyFilesServiceAsync {
             api_service: self.inner.clone(),
         }
     }
@@ -327,9 +330,27 @@ impl From<PySearchAndFilterForm> for SearchAndFilterForm {
         value.inner
     }
 }
+#[pymethods]
 impl PySearchAndFilterForm {
-    pub fn new(inner: SearchAndFilterForm) -> Self {
-        Self { inner }
+    #[new]
+    #[pyo3(signature = (name=None, query=None, description=None, limit=None))]
+    pub fn new(
+        name: Option<String>,
+        query: Option<String>,
+        description: Option<String>,
+        limit: Option<u64>,
+    ) -> Self {
+        Self {
+            inner: SearchAndFilterForm {
+                filter: None,
+                search: Some(SearchForm {
+                    name,
+                    description,
+                    query,
+                }),
+                limit,
+            },
+        }
     }
 }
 
@@ -562,28 +583,6 @@ impl PyFieldU64 {
     }
 }
 
-// --- Files ---
-#[pyclass(module = "datahub_sdk", name = "FileService")]
-struct PyFileService {
-    api_service: Arc<ApiService>,
-}
-
-#[pymethods]
-impl PyFileService {
-    fn list_root_directory<'p>(&self, py: Python<'p>) -> PyResult<Bound<'p, PyAny>> {
-        let service = self.api_service.clone();
-        future_into_py(py, async move {
-            let result = service
-                .files
-                .list_root_directory()
-                .await
-                .map_err(|e| crate::datahub_err(e))?;
-            // Mapping INode might be complex, simplified for now
-            Ok(format!("{:?}", result.get_items()))
-        })
-    }
-}
-
 // --- Resources ---
 
 #[pymodule]
@@ -595,16 +594,17 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyUnitServiceSync>()?;
     m.add_class::<PyUnitServiceAsync>()?;
     m.add_class::<PyUnit>()?;
-    m.add_class::<PyFileService>()?;
     m.add_class::<PyResource>()?;
     m.add_class::<PyFieldU64>()?;
     m.add_class::<PyListFieldU64>()?;
     m.add_class::<PyFieldStr>()?;
     m.add_class::<PyListFieldStr>()?;
     m.add_class::<PyMapField>()?;
+    m.add_class::<PySearchAndFilterForm>()?;
     timeseries::register(m)?;
     events::register(m)?;
     datasets::register(m)?;
+    files::register(m)?;
     subscriptions::register(m)?;
     functions::register(m)?;
     relations::register(m)?;

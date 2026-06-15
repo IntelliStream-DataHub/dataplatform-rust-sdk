@@ -1,7 +1,7 @@
 use crate::PyIdCollection;
 use crate::units::PyUnit;
 use dataplatform_rust_sdk::ApiService;
-use dataplatform_rust_sdk::generic::{IdAndExtId, IdAndExtIdCollection};
+use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -36,7 +36,7 @@ impl PyUnitServiceAsync {
             .iter()
             .map(|u| u.inner.clone())
             .collect::<Vec<IdAndExtId>>();
-        let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
+        let wrapper = DataWrapper::from_vec(input_ids);
 
         future_into_py(py, async move {
             let result = service

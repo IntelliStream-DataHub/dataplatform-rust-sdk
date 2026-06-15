@@ -1,6 +1,6 @@
 mod test;
 
-use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtIdCollection};
+use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtId};
 use crate::http::ResponseError;
 use crate::ApiService;
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ impl UnitsService {
 
     pub async fn by_ids(
         &self,
-        json: &IdAndExtIdCollection,
+        json: &DataWrapper<IdAndExtId>,
     ) -> Result<DataWrapper<Unit>, ResponseError> {
         let path = &format!("{}/byids", &self.base_url);
         self.execute_post_request(path, json).await

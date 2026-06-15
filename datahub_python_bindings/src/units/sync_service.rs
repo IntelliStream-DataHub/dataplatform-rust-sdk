@@ -1,7 +1,7 @@
 use crate::PyIdCollection;
 use crate::units::PyUnit;
 use dataplatform_rust_sdk::ApiService;
-use dataplatform_rust_sdk::generic::{IdAndExtId, IdAndExtIdCollection};
+use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use std::sync::Arc;
@@ -45,7 +45,7 @@ impl PyUnitServiceSync {
             .iter()
             .map(|u| u.inner.clone())
             .collect::<Vec<IdAndExtId>>();
-        let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
+        let wrapper = DataWrapper::from_vec(input_ids);
 
         py.detach(|| {
             let result = self
