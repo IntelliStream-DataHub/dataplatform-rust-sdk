@@ -1,7 +1,7 @@
 use crate::datasets::Dataset;
 use crate::events::Event;
 use crate::filters::{BasicEventFilter, EventFilter, TimeFilter};
-use crate::generic::{IdAndExtId, IdAndExtIdCollection};
+use crate::generic::IdAndExtId;
 use crate::{create_api_service, ApiService};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use maplit::hashmap;

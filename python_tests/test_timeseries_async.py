@@ -77,9 +77,9 @@ async def test_retrieve_latest_datapoint(async_client,inserted_data,test_data,ts
 @pytest.mark.parametrize(
     "timestamps,values,value_type",
     [
-        (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randn(100),dtype="float64"), "decimal"),
+        (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randn(100),dtype="float64"), "float"),
         (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randint(100),dtype="int64"), "bigint"),
-        (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randint(100),dtype="int64"), "decimal"),
+        (pd.date_range("2020-01-01",periods=100,tz="UTC"), pd.Series(np.random.randint(100),dtype="int64"), "float"),
     ]
 )
 async def test_insert(async_client,timestamps,values,value_type):
@@ -89,7 +89,7 @@ async def test_insert(async_client,timestamps,values,value_type):
     await async_client.timeseries.create([test_insert_ts])
     if value_type == "bigint":
         data = [datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
-    elif value_type == "decimal":
+    elif value_type == "float":
         data = [datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
 
     vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=test_insert_ts)

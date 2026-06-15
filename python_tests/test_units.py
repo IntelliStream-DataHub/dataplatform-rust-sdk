@@ -33,3 +33,20 @@ def test_by_external_ids(sync_client, some_unit):
     result = sync_client.units.by_external_ids(some_unit.external_id)
     assert len(result) >= 1
     assert any(u.external_id == some_unit.external_id for u in result)
+
+
+# Edge cases mirroring `src/unit/test.rs::test_unit_requests`: empty collections
+# and queries for ids/external_ids that don't exist must come back empty, not error.
+def test_by_ids_empty_collection(sync_client):
+    assert sync_client.units.by_ids([]) == []
+
+
+def test_by_ids_nonexistent_external_ids(sync_client):
+    result = sync_client.units.by_ids(
+        [dh.IdCollection(external_id="australia"), dh.IdCollection(external_id="london")]
+    )
+    assert result == []
+
+
+def test_by_external_ids_nonexistent(sync_client):
+    assert sync_client.units.by_external_ids("nonexistent_unit_xyz") == []
