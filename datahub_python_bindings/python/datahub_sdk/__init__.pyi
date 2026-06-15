@@ -110,7 +110,14 @@ class IdCollection:
     def external_id(self) -> str | None: ...
 
 
-class SearchAndFilterForm: ...
+class SearchAndFilterForm:
+    def __init__(
+        self,
+        name: str | None = None,
+        query: str | None = None,
+        description: str | None = None,
+        limit: int | None = None,
+    ) -> None: ...
 
 
 # ====================== Field update wrappers ======================
