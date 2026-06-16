@@ -25,6 +25,21 @@ def test_by_ids_returns_known_timeseries(sync_client, ts_float):
     assert fetched[0].external_id == ts_float.external_id
 
 
+# Mirrors `src/timeseries/test.rs::test_timeseries_requests`: list accepts a
+# limit. The Rust test sends a negative limit and expects HTTP 400; the Python
+# binding takes an unsigned limit, so a negative value is rejected client-side by
+# PyO3 (OverflowError) before any request is made.
+def test_list_with_limit(sync_client, ts_decimal):
+    listed = sync_client.timeseries.list(limit=5)
+    assert isinstance(listed, list)
+    assert len(listed) <= 5
+
+
+def test_list_negative_limit_rejected(sync_client):
+    with pytest.raises(OverflowError):
+        sync_client.timeseries.list(limit=-5)
+
+
 @pytest.mark.parametrize(
     "start, end",
     [

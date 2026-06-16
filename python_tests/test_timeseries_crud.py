@@ -459,3 +459,14 @@ def test_update_noop_preserves_existing_fields(sync_client, make_ts):
     assert updated.name == "keep me"
     assert updated.description == "keep this too"
     assert (updated.metadata or {}).get("a") == "1"
+
+
+def test_update_without_identifier_rejected():
+    # Maps `src/timeseries/test.rs::test_update_timeseries_without_id`, which asserts
+    # the backend returns BAD_REQUEST when an update carries neither id nor
+    # external_id. The Python binding enforces the same invariant earlier: a
+    # TimeSeriesUpdate requires a target identifier, and an IdCollection with
+    # neither id nor external_id is rejected client-side, so an identifier-less
+    # update can never be constructed (let alone reach the backend).
+    with pytest.raises(Exception):
+        datahub_sdk.IdCollection()
