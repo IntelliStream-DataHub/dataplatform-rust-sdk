@@ -123,37 +123,73 @@ impl PyResource {
     pub fn name(&self) -> &str {
         self.inner.name.as_str()
     }
+    #[setter]
+    pub fn set_name(&mut self, value: String) {
+        self.inner.name = value;
+    }
     #[getter]
     pub fn external_id(&self) -> &str {
         self.inner.external_id.as_str()
+    }
+    #[setter]
+    pub fn set_external_id(&mut self, value: String) {
+        self.inner.external_id = value;
     }
     #[getter]
     pub fn id(&self) -> Option<u64> {
         self.inner.id
     }
+    #[setter]
+    pub fn set_id(&mut self, value: Option<u64>) {
+        self.inner.id = value;
+    }
     #[getter]
     pub fn metadata(&self) -> Option<&HashMap<String, String>> {
         self.inner.metadata.as_ref()
+    }
+    #[setter]
+    pub fn set_metadata(&mut self, value: Option<HashMap<String, String>>) {
+        self.inner.metadata = value;
     }
     #[getter]
     pub fn description(&self) -> Option<&str> {
         self.inner.description.as_deref()
     }
+    #[setter]
+    pub fn set_description(&mut self, value: Option<String>) {
+        self.inner.description = value;
+    }
     #[getter]
     pub fn is_root(&self) -> bool {
         self.inner.is_root
+    }
+    #[setter]
+    pub fn set_is_root(&mut self, value: bool) {
+        self.inner.is_root = value;
     }
     #[getter]
     pub fn data_set_id(&self) -> Option<u64> {
         self.inner.data_set_id
     }
+    #[setter]
+    pub fn set_data_set_id(&mut self, value: Option<u64>) {
+        self.inner.data_set_id = value;
+    }
     #[getter]
     pub fn source(&self) -> Option<&str> {
         self.inner.source.as_deref()
     }
+    #[setter]
+    pub fn set_source(&mut self, value: Option<String>) {
+        self.inner.source = value;
+    }
     #[getter]
     pub fn labels(&self) -> Option<&Vec<String>> {
         self.inner.labels.as_ref()
+    }
+    #[setter]
+    pub fn set_labels(&mut self, value: Option<Vec<String>>) {
+        self.inner.labels = value;
     }
     #[getter]
     pub fn relations(&self) -> Option<Vec<PyEdgeProxy>> {
@@ -162,9 +198,17 @@ impl PyResource {
             .as_ref()
             .map(|v| v.iter().cloned().map(PyEdgeProxy::from).collect())
     }
+    #[setter]
+    pub fn set_relations(&mut self, value: Option<Vec<PyEdgeProxy>>) {
+        self.inner.relations = value.map(|v| v.into_iter().map(EdgeProxy::from).collect());
+    }
     #[getter]
     pub fn geolocation(&self) -> Option<&HashMap<String, f64>> {
         self.inner.geolocation.as_ref()
+    }
+    #[setter]
+    pub fn set_geolocation(&mut self, value: Option<HashMap<String, f64>>) {
+        self.inner.geolocation = value;
     }
     #[getter]
     pub fn created_time(&self) -> Option<DateTime<Utc>> {

@@ -3,6 +3,7 @@ mod tests {
     use crate::create_api_service;
     use crate::functions::Function;
     use crate::generic::IdAndExtId;
+    use crate::tests::cleanup::cleanup_functions;
     use serde_json::json;
     use uuid::Uuid;
 
@@ -21,6 +22,7 @@ mod tests {
             .with_config(json!({"alpha": 0.5}));
 
         let created = api.functions.create(&vec![fn_in]).await.unwrap();
+        let mut function_cleanup = cleanup_functions(vec![ext_id.clone()]);
         assert_eq!(created.get_items().len(), 1);
         assert_eq!(created.get_items()[0].external_id, ext_id);
         assert_eq!(created.get_items()[0].model_name, "forecast-ema");
@@ -43,5 +45,7 @@ mod tests {
             .delete(&vec![IdAndExtId::from_external_id(&ext_id)])
             .await
             .unwrap();
+
+        function_cleanup.disarm();
     }
 }

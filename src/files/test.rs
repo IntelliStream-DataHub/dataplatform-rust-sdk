@@ -2,6 +2,8 @@
 mod tests {
     use crate::files::FileUpload;
     use crate::generic::{DataWrapper, INode, IdAndExtId};
+    use crate::tests::cleanup::cleanup_files;
+
     use crate::{create_api_service, ApiService};
 
     #[tokio::test]
@@ -41,6 +43,13 @@ mod tests {
             do_file_upload(&api_service, f).await;
         }
 
+        // Ensure uploaded files are cleaned up even if a later assertion panics.
+        let mut file_cleanup = cleanup_files(vec![
+            "image_sola_jpg".to_string(),
+            "image_fly_jpg".to_string(),
+            "image_teigland_bomlo_jpg".to_string(),
+        ]);
+
         // Now test uploaded files
         let _ = api_service
             .files
@@ -55,6 +64,7 @@ mod tests {
 
         // Delete uploaded files
         delete(&api_service).await;
+        file_cleanup.disarm();
 
         Ok(())
     }

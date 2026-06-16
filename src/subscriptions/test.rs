@@ -2,6 +2,7 @@
 mod tests {
     use crate::generic::{DataWrapper, IdAndExtId};
     use crate::subscriptions::listen::build_ws_url;
+    use crate::tests::cleanup::{cleanup_subscriptions, cleanup_timeseries};
     use crate::subscriptions::{
         DataSort, EventAction, EventObject, Subscription, SubscriptionFilter, SubscriptionMessage,
         SubscriptionRetriever,
@@ -112,6 +113,8 @@ mod tests {
         ts_b.set_unit("Celsius").set_unit_external_id("temperature_deg_c");
         let ts_list = vec![ts_a, ts_b];
         api_service.time_series.create_from_list(&ts_list).await?;
+        // Arm a Drop-based guard so a panic in the body still deletes the supporting timeseries.
+        let mut ts_cleanup = cleanup_timeseries(vec![ts_a_ext.clone(), ts_b_ext.clone()]);
 
         // Run the body inside an async block so an early `?` or panic still lets cleanup run.
         let result: Result<(), Box<dyn std::error::Error>> = async {
@@ -123,6 +126,8 @@ mod tests {
 
             // 2. Create the subscription.
             let created = api_service.subscriptions.create(&sub).await?;
+            // Arm a Drop-based guard so a panic in the body still deletes the subscription.
+            let mut sub_cleanup = cleanup_subscriptions(vec![sub_ext.clone()]);
             assert_eq!(created.length(), 1, "create must echo back exactly 1 item");
             let created_item = &created.get_items()[0];
             assert_eq!(created_item.external_id, sub_ext);
@@ -161,6 +166,8 @@ mod tests {
 
             // 5. Delete the subscription. Backend returns 204 No Content → empty DataWrapper.
             delete_subscriptions(&api_service, &[IdAndExtId::from_external_id(&sub_ext)]).await;
+            // Explicit delete succeeded — disarm the guard so it doesn't re-delete.
+            sub_cleanup.disarm();
 
             // 6. Verify the subscription is gone from the filtered list.
             let after_delete = api_service
@@ -188,6 +195,8 @@ mod tests {
             .delete(&vec![IdAndExtId::from_external_id(&sub_ext)])
             .await;
         delete_timeseries(&api_service, ts_ids).await;
+        // Explicit timeseries delete ran — disarm the guard so it doesn't re-delete.
+        ts_cleanup.disarm();
 
         result
     }
@@ -281,6 +290,8 @@ mod tests {
         let mut ts = TimeSeries::new(&ts_ext, "Sub Listen TS");
         ts.set_unit("Celsius").set_unit_external_id("temperature_deg_c");
         api_service.time_series.create_from_list(&vec![ts]).await?;
+        // Arm a Drop-based guard so a panic in the body still deletes the supporting timeseries.
+        let mut ts_cleanup = cleanup_timeseries(vec![ts_ext.clone()]);
 
         let sub = Subscription::new(
             sub_ext.clone(),
@@ -288,6 +299,8 @@ mod tests {
             vec![IdAndExtId::from_external_id(&ts_ext)],
         );
         api_service.subscriptions.create(&sub).await?;
+        // Arm a Drop-based guard so a panic in the body still deletes the subscription.
+        let mut sub_cleanup = cleanup_subscriptions(vec![sub_ext.clone()]);
 
         // Run the body inside an async block so an early `?` or panic still lets cleanup run.
         let result: Result<(), Box<dyn std::error::Error>> = async {
@@ -334,9 +347,13 @@ mod tests {
             eprintln!("subscription cleanup failed: {:?}", e.get_message());
         }
         let ts_coll = DataWrapper::from_vec(vec![IdAndExtId::from_external_id(&ts_ext)]);
+        sub_cleanup.disarm();
+
         if let Err(e) = api_service.time_series.delete(&ts_coll).await {
             eprintln!("timeseries cleanup failed: {:?}", e.get_message());
         }
+        // Explicit timeseries delete ran — disarm the guard so it doesn't re-delete.
+        ts_cleanup.disarm();
 
         result
     }

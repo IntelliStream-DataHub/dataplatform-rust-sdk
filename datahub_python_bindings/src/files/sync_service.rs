@@ -17,7 +17,7 @@ impl PyFilesServiceSync {
         &self,
         py: Python<'py>,
         file_upload: PyFileUpload,
-    ) -> PyResult<PyFileUpload> {
+    ) -> PyResult<Vec<PyINode>> {
         let upload: FileUpload = file_upload.into();
         //let payload = DataWrapper::from_vec(events);
         let service = self.api_service.clone();
@@ -26,9 +26,13 @@ impl PyFilesServiceSync {
                 .runtime
                 .block_on(service.files.upload_file(upload))
                 .map_err(|e| crate::datahub_err(e))?;
-            let res = result.get_items().first().unwrap().clone().into();
 
-            Ok(res)
+            let py_inodes: Vec<PyINode> = result
+                .get_items()
+                .iter()
+                .map(|node| PyINode::from(node.clone()))
+                .collect();
+            Ok(py_inodes)
         })
     }
 
