@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::generic::{IdAndExtId, IdAndExtIdCollection};
+    use crate::generic::{DataWrapper, IdAndExtId};
     use crate::subscriptions::listen::build_ws_url;
     use crate::tests::cleanup::{cleanup_subscriptions, cleanup_timeseries};
     use crate::subscriptions::{
@@ -85,9 +85,10 @@ mod tests {
         if ids.is_empty() {
             return;
         }
-        let mut coll = IdAndExtIdCollection::new();
-        coll.set_items(ids);
-        let _ = api_service.time_series.delete(&coll).await;
+        let _ = api_service
+            .time_series
+            .delete(&DataWrapper::from_vec(ids))
+            .await;
     }
 
     #[tokio::test]
@@ -345,10 +346,9 @@ mod tests {
         {
             eprintln!("subscription cleanup failed: {:?}", e.get_message());
         }
-        // Explicit subscription delete ran — disarm the guard so it doesn't re-delete.
+        let ts_coll = DataWrapper::from_vec(vec![IdAndExtId::from_external_id(&ts_ext)]);
         sub_cleanup.disarm();
-        let mut ts_coll = IdAndExtIdCollection::new();
-        ts_coll.set_items(vec![IdAndExtId::from_external_id(&ts_ext)]);
+
         if let Err(e) = api_service.time_series.delete(&ts_coll).await {
             eprintln!("timeseries cleanup failed: {:?}", e.get_message());
         }

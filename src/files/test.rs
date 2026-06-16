@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
     use crate::files::FileUpload;
-    use crate::generic::{DataWrapper, INode, IdAndExtIdCollection};
+    use crate::generic::{DataWrapper, INode, IdAndExtId};
     use crate::tests::cleanup::cleanup_files;
+
     use crate::{create_api_service, ApiService};
 
     #[tokio::test]
@@ -128,16 +129,16 @@ mod tests {
     }
 
     async fn delete(api_service: &ApiService) {
-        let id_collection = IdAndExtIdCollection::from_external_id_vec(vec![
-            "datahub_folder_foo",
-            "datahub_folder_bar",
-            "random_values_csv",
-            "datahub_folder_images",
-            "image_sola_jpg",
-            "datahub_folder_insects",
-            "image_fly_jpg",
-            "datahub_folder_norway",
-            "image_teigland_bomlo_jpg",
+        let id_collection = DataWrapper::from_vec(vec![
+            IdAndExtId::from_external_id("datahub_folder_foo"),
+            IdAndExtId::from_external_id("datahub_folder_bar"),
+            IdAndExtId::from_external_id("random_values_csv"),
+            IdAndExtId::from_external_id("datahub_folder_images"),
+            IdAndExtId::from_external_id("image_sola_jpg"),
+            IdAndExtId::from_external_id("datahub_folder_insects"),
+            IdAndExtId::from_external_id("image_fly_jpg"),
+            IdAndExtId::from_external_id("datahub_folder_norway"),
+            IdAndExtId::from_external_id("image_teigland_bomlo_jpg"),
         ]);
         println!("{:?}", id_collection);
         let result = api_service.files.delete(&id_collection).await;

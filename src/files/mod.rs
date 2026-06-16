@@ -2,7 +2,7 @@ mod test;
 
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::events::Event;
-use crate::generic::{ApiServiceProvider, DataWrapper, INode, IdAndExtIdCollection};
+use crate::generic::{ApiServiceProvider, DataWrapper, INode, IdAndExtId};
 use crate::http::ResponseError;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
@@ -33,7 +33,7 @@ impl FileService {
     pub async fn upload_file(
         &self,
         file_upload: FileUpload,
-    ) -> Result<DataWrapper<FileUpload>, ResponseError> {
+    ) -> Result<DataWrapper<INode>, ResponseError> {
         let multipart_form = file_upload.get_form().await;
         self.execute_file_upload_request(self.base_url.as_str(), multipart_form)
             .await
@@ -57,7 +57,7 @@ impl FileService {
 
     pub async fn delete(
         &self,
-        id_collection: &IdAndExtIdCollection,
+        id_collection: &DataWrapper<IdAndExtId>,
     ) -> Result<DataWrapper<Event>, ResponseError> {
         let full_path = format!("{}/delete", self.base_url.as_str());
         self.execute_post_request(full_path.as_str(), id_collection)

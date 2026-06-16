@@ -2,7 +2,7 @@ use crate::datasets::{DatasetIdentifiable, PyDataset};
 use crate::{DatahubIdentity, Identifiable, PyIdCollection, PySearchAndFilterForm};
 use dataplatform_rust_sdk::ApiService;
 use dataplatform_rust_sdk::datasets::Dataset;
-use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId, IdAndExtIdCollection};
+use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;

@@ -1,7 +1,7 @@
 use crate::events::{EventIdentifyable, PyEvent, PyEventFilter};
 use crate::{PyIdCollection, PySearchAndFilterForm};
 use dataplatform_rust_sdk::filters::EventFilter;
-use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId, IdAndExtIdCollection};
+use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
 use dataplatform_rust_sdk::{
     ApiService, Event, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection,
 };

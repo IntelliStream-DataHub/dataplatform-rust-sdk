@@ -4,7 +4,7 @@ use crate::timeseries::datapoints::{
 };
 use crate::{DatahubIdentity, Identifiable};
 use crate::{PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm};
-use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId, IdAndExtIdCollection};
+use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
 use dataplatform_rust_sdk::{ApiService, TimeSeriesUpdateCollection};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -17,14 +17,18 @@ pub struct PyTimeSeriesServiceSync {
 
 #[pymethods]
 impl PyTimeSeriesServiceSync {
-    fn list(&self, py: Python<'_>) -> PyResult<Vec<PyTimeSeries>> {
+    #[pyo3(signature = (limit=None))]
+    fn list(&self, py: Python<'_>, limit: Option<u64>) -> PyResult<Vec<PyTimeSeries>> {
         let service = self.api_service.clone();
 
         py.detach(|| {
-            let result = self
-                .runtime
-                .block_on(service.time_series.list())
-                .map_err(|e| crate::datahub_err(e))?;
+            let result = match limit {
+                Some(l) => self
+                    .runtime
+                    .block_on(service.time_series.list_with_limit(Some(l))),
+                None => self.runtime.block_on(service.time_series.list()),
+            }
+            .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyTimeSeries> = result
                 .get_items()
@@ -66,7 +70,7 @@ impl PyTimeSeriesServiceSync {
             .into_iter()
             .map(Into::into)
             .collect::<Vec<IdAndExtId>>();
-        let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
+        let wrapper = DataWrapper::from_vec(input_ids);
 
         py.detach(|| {
             let result = self
@@ -88,7 +92,7 @@ impl PyTimeSeriesServiceSync {
             .into_iter()
             .map(Into::into)
             .collect::<Vec<IdAndExtId>>();
-        let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
+        let wrapper = DataWrapper::from_vec(input_ids);
 
         py.detach(|| {
             let result = self
@@ -238,7 +242,7 @@ impl PyTimeSeriesServiceSync {
             .into_iter()
             .map(Into::into)
             .collect::<Vec<IdAndExtId>>();
-        let wrapper = IdAndExtIdCollection::from_id_and_ext_id_vec(input_ids);
+        let wrapper = DataWrapper::from_vec(input_ids);
         let result = py.detach(|| {
             self.runtime
                 .block_on(service.time_series.retrieve_latest_datapoint(&wrapper))

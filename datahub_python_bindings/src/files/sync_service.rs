@@ -1,10 +1,7 @@
 use crate::files::{PyFileIdentifiable, PyFileUpload, PyINode};
 
-use crate::{Identifiable, PyIdCollection};
-use dataplatform_rust_sdk::generic::{INode, IdAndExtId};
-use dataplatform_rust_sdk::{
-    ApiService, FileUpload, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection,
-};
+use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
+use dataplatform_rust_sdk::{ApiService, FileUpload};
 use pyo3::{PyResult, Python, pyclass, pymethods};
 use std::sync::Arc;
 
@@ -59,11 +56,12 @@ impl PyFilesServiceSync {
     fn delete<'py>(&self, py: Python<'py>, input: Vec<PyFileIdentifiable>) -> PyResult<()> {
         let service = self.api_service.clone();
         let input_ids: Vec<IdAndExtId> = input.into_iter().map(|u| IdAndExtId::from(u)).collect();
+        let wrapper = DataWrapper::from_vec(input_ids);
 
         py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.events.delete(&input_ids))
+                .block_on(service.files.delete(&wrapper))
                 .map_err(|e| crate::datahub_err(e))?;
 
             Ok(())
