@@ -77,29 +77,57 @@ impl PyDataset {
     pub fn external_id(&self) -> &str {
         &self.inner.external_id
     }
+    #[setter]
+    pub fn set_external_id(&mut self, value: String) {
+        self.inner.external_id = value;
+    }
     #[getter]
     pub fn name(&self) -> &str {
         &self.inner.name
+    }
+    #[setter]
+    pub fn set_name(&mut self, value: String) {
+        self.inner.name = value;
     }
     #[getter]
     pub fn id(&self) -> Option<u64> {
         self.inner.id
     }
+    #[setter]
+    pub fn set_id(&mut self, value: Option<u64>) {
+        self.inner.id = value;
+    }
     #[getter]
     pub fn description(&self) -> Option<&str> {
         self.inner.description.as_deref()
+    }
+    #[setter]
+    pub fn set_description(&mut self, value: Option<String>) {
+        self.inner.description = value;
     }
     #[getter]
     pub fn policies(&self) -> Option<&Vec<String>> {
         self.inner.policies.as_ref()
     }
+    #[setter]
+    pub fn set_policies(&mut self, value: Option<Vec<String>>) {
+        self.inner.policies = value;
+    }
     #[getter]
     pub fn metadata(&self) -> &HashMap<String, String> {
         &self.inner.metadata
     }
+    #[setter]
+    pub fn set_metadata(&mut self, value: HashMap<String, String>) {
+        self.inner.metadata = value;
+    }
     #[getter]
     pub fn connected_data_sets(&self) -> &Vec<u64> {
         self.inner.connected_data_sets.as_ref()
+    }
+    #[setter]
+    pub fn set_connected_data_sets(&mut self, value: Vec<u64>) {
+        self.inner.connected_data_sets = value;
     }
 }
 

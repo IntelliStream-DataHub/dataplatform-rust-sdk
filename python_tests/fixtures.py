@@ -19,11 +19,11 @@ def sync_client():
 
 
 @pytest.fixture(scope="module")
-def ts_decimal(sync_client):
+def ts_float(sync_client):
     ts = datahub_sdk.TimeSeries(
-        external_id=f"test_decimal_{datetime.now().isoformat()}",
-        name="test_decimal",
-        value_type="decimal",
+        external_id=f"test_float_{datetime.now().isoformat()}",
+        name="test_float",
+        value_type="float",
         unit ="a.u")
     sync_client.timeseries.delete([ts])
     created_ts = sync_client.timeseries.create([ts])
@@ -64,14 +64,14 @@ def test_data():
     return pd.Series(walk, index=dates, name="Random Walk")
 
 @pytest.fixture(scope="module")
-def inserted_data(sync_client,test_data,ts_decimal):
-    inserted_data = sync_client.timeseries.insert_from_lists(timestamps= test_data.index,values=test_data.values,ts=ts_decimal)
+def inserted_data(sync_client,test_data,ts_float):
+    inserted_data = sync_client.timeseries.insert_from_lists(timestamps= test_data.index,values=test_data.values,ts=ts_float)
     sleep(0.5)
     yield inserted_data
 
 
 @pytest.fixture(scope="function")
-def fresh_inserted_data(sync_client,test_data,ts_decimal):
-    inserted_data = sync_client.timeseries.insert_from_lists(timestamps= test_data.index,values=test_data.values,ts=ts_decimal)
+def fresh_inserted_data(sync_client,test_data,ts_float):
+    inserted_data = sync_client.timeseries.insert_from_lists(timestamps= test_data.index,values=test_data.values,ts=ts_float)
     sleep(0.5)
     yield inserted_data

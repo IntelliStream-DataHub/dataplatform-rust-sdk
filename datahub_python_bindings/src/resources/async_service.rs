@@ -93,18 +93,26 @@ impl PyResourcesServiceAsync {
             Ok(py_ts)
         })
     }
-    fn s<'py>(&self, py: Python<'py>, input: PySearchAndFilterForm) -> PyResult<Bound<'py, PyAny>> {
-        todo!()
-        /*let service = self.api_service.clone();
+    fn search<'py>(
+        &self,
+        py: Python<'py>,
+        input: PySearchAndFilterForm,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.api_service.clone();
 
-            future_into_py(py, async move {
-                let result = service.resources.search(&input.into()).await.map_err(|e| {
-                    crate::datahub_err(e)
-                })?;
+        future_into_py(py, async move {
+            let result = service
+                .resources
+                .search(&input.into())
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
 
-                let py_ts: Vec<PyResource> = result.get_items().iter().map(|ts| PyResource { inner: ts.clone() }).collect();
-                Ok(py_ts)
-            })
-        */
+            let py_res: Vec<PyResource> = result
+                .get_items()
+                .iter()
+                .map(|r| PyResource { inner: r.clone() })
+                .collect();
+            Ok(py_res)
+        })
     }
 }

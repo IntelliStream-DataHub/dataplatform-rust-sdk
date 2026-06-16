@@ -13,16 +13,16 @@ def test_sync_client(sync_client):
     assert sync_client is not None
 
 
-def test_list_returns_known_timeseries(sync_client, ts_decimal):
+def test_list_returns_known_timeseries(sync_client, ts_float):
     listed = sync_client.timeseries.list()
     assert isinstance(listed, list)
-    assert any(t.external_id == ts_decimal.external_id for t in listed)
+    assert any(t.external_id == ts_float.external_id for t in listed)
 
 
-def test_by_ids_returns_known_timeseries(sync_client, ts_decimal):
-    fetched = sync_client.timeseries.by_ids([ts_decimal])
+def test_by_ids_returns_known_timeseries(sync_client, ts_float):
+    fetched = sync_client.timeseries.by_ids([ts_float])
     assert len(fetched) == 1
-    assert fetched[0].external_id == ts_decimal.external_id
+    assert fetched[0].external_id == ts_float.external_id
 
 
 # Mirrors `src/timeseries/test.rs::test_timeseries_requests`: list accepts a
@@ -49,8 +49,8 @@ def test_list_negative_limit_rejected(sync_client):
         (pd.Timestamp('2022-01-01', tz='UTC'), pd.Timestamp('2025-01-1', tz='UTC')),
     ]
 )
-def test_retrieve_datapoints(sync_client,start,end,inserted_data,ts_decimal,test_data):
-    datapoints_filter = datahub_sdk.RetrieveFilter(start=start,end=end,ts= ts_decimal)
+def test_retrieve_datapoints(sync_client,start,end,inserted_data,ts_float,test_data):
+    datapoints_filter = datahub_sdk.RetrieveFilter(start=start,end=end,ts= ts_float)
     datapoints =  sync_client.timeseries.retrieve_datapoints(datapoints_filter)
     datapoints = datapoints[0].as_dict()
     s = pd.Series(datapoints["values"], index=datapoints["timestamps"])
@@ -75,17 +75,17 @@ def test_create_timeseries_invalid_value_type(sync_client):
 
     ]
 )
-def test_delete_datapoints(sync_client,fresh_inserted_data,ts_decimal,start,end,test_data):
+def test_delete_datapoints(sync_client,fresh_inserted_data,ts_float,start,end,test_data):
     #start = pd.Timestamp('2023-04-01', tz='UTC')
     #send = pd.Timestamp('2023-04-03', tz='UTC')
-    delete_target = datahub_sdk.DeleteFilter(ts=ts_decimal, inclusive_begin=start,exclusive_end=end)
+    delete_target = datahub_sdk.DeleteFilter(ts=ts_float, inclusive_begin=start,exclusive_end=end)
     sync_client.timeseries.delete_datapoints([delete_target])
     # asyncio.sleep(20)
     """ # commented out because it takes a while to delete datapoints making test flaky
      fix could be to create special test query with final
     datapoints_filter = datahub_sdk.RetrieveFilter(start=pd.Timestamp("2023-01-01",tz='UTC'),
                                                      end=pd.Timestamp("2023-05-01",tz='UTC'),
-                                                     ts= ts_decimal)
+                                                     ts= ts_float)
     datapoints =  sync_client.timeseries.retrieve_datapoints(datapoints_filter)
     datapoints = datapoints[0].get_datapoints()
     s = pd.Series(datapoints["values"], index=datapoints["timestamps"])
@@ -96,8 +96,8 @@ def test_delete_datapoints(sync_client,fresh_inserted_data,ts_decimal,start,end,
     assert np.allclose(s, remaining)
     """
 
-def test_retrieve_latest_datapoint(sync_client,inserted_data,test_data,ts_decimal):
-    latest_datapoint =  sync_client.timeseries.retrieve_latest_datapoints(input=[ts_decimal])
+def test_retrieve_latest_datapoint(sync_client,inserted_data,test_data,ts_float):
+    latest_datapoint =  sync_client.timeseries.retrieve_latest_datapoints(input=[ts_float])
     latest_datapoint = latest_datapoint[0].as_dict()
     ts,val = test_data.tail(1).index[0], test_data.tail(1).values[0]
     assert latest_datapoint["values"][0] == val
