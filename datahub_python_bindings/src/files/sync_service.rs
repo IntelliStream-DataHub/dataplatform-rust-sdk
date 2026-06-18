@@ -56,12 +56,11 @@ impl PyFilesServiceSync {
     fn delete<'py>(&self, py: Python<'py>, input: Vec<PyFileIdentifiable>) -> PyResult<()> {
         let service = self.api_service.clone();
         let input_ids: Vec<IdAndExtId> = input.into_iter().map(|u| IdAndExtId::from(u)).collect();
-        let wrapper = DataWrapper::from_vec(input_ids);
 
         py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.files.delete(&wrapper))
+                .block_on(service.files.delete(&DataWrapper::from_vec(input_ids)))
                 .map_err(|e| crate::datahub_err(e))?;
 
             Ok(())

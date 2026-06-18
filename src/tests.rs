@@ -21,7 +21,7 @@ pub mod cleanup {
     //! runtime hangs or fails silently. A runtime-local client sidesteps that.
 
     use crate::create_api_service;
-    use crate::generic::{IdAndExtId, IdAndExtIdCollection};
+    use crate::generic::{DataWrapper, IdAndExtId};
     use std::future::Future;
     use std::pin::Pin;
 
@@ -187,9 +187,11 @@ pub mod cleanup {
                     return;
                 }
                 let api = create_api_service();
-                let coll = IdAndExtIdCollection::from_external_id_vec(
-                    external_ids.iter().map(|e| e.as_str()).collect(),
-                );
+                let idcoll: Vec<IdAndExtId> = external_ids
+                    .iter()
+                    .map(|e| IdAndExtId::from_external_id(e))
+                    .collect();
+                let coll = DataWrapper::from_vec(idcoll);
                 if let Err(e) = api.time_series.delete(&coll).await {
                     eprintln!(
                         "CleanupGuard: timeseries delete failed during teardown: {}",
@@ -208,9 +210,11 @@ pub mod cleanup {
                     return;
                 }
                 let api = create_api_service();
-                let coll = IdAndExtIdCollection::from_external_id_vec(
-                    external_ids.iter().map(|e| e.as_str()).collect(),
-                );
+                let idcoll: Vec<IdAndExtId> = external_ids
+                    .iter()
+                    .map(|e| IdAndExtId::from_external_id(e))
+                    .collect();
+                let coll = DataWrapper::from_vec(idcoll);
                 if let Err(e) = api.files.delete(&coll).await {
                     eprintln!(
                         "CleanupGuard: file delete failed during teardown: {}",
