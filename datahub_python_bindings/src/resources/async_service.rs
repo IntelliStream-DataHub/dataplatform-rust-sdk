@@ -85,8 +85,7 @@ impl PyResourcesServiceAsync {
                 .map_err(|e| crate::datahub_err(e))?;
 
             let py_ts: Vec<PyResource> = result
-                .nodes()
-                .unwrap()
+                .nodes().unwrap_or_default()
                 .into_iter()
                 .map(|res| PyResource { inner: res.clone() })
                 .collect();

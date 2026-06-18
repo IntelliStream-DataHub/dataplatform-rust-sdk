@@ -28,9 +28,9 @@ from python_tests.fixtures import *  # noqa: F401,F403
 # Lightweight — runs by default against the 100-point ``inserted_data`` fixture
 # --------------------------------------------------------------------------- #
 
-def test_datapoints_aggregates_daily(sync_client, inserted_data, ts_decimal):
+def test_datapoints_aggregates_daily(sync_client, inserted_data, ts_float):
     rf = datahub_sdk.RetrieveFilter(
-        ts=ts_decimal,
+        ts=ts_float,
         start=pd.Timestamp("2023-01-01", tz="UTC"),
         end=pd.Timestamp("2023-04-30", tz="UTC"),
         aggregates=["avg", "min", "max"],
@@ -47,14 +47,14 @@ def test_datapoints_aggregates_daily(sync_client, inserted_data, ts_decimal):
         assert dp.min <= dp.average <= dp.max
 
 
-def test_datapoints_limit_and_cursor_exposed(sync_client, inserted_data, ts_decimal):
+def test_datapoints_limit_and_cursor_exposed(sync_client, inserted_data, ts_float):
     # The cursor/next_cursor surface only paginates when a result set exceeds the
     # server page size, which the 100-point fixture never reaches (real cursor
     # traversal is covered by ``test_datapoints_heavy``). At this scale we verify
     # that ``limit`` caps the result and that a complete small page exposes no
     # further cursor.
     rf = datahub_sdk.RetrieveFilter(
-        ts=ts_decimal,
+        ts=ts_float,
         start=pd.Timestamp("2023-01-01", tz="UTC"),
         end=pd.Timestamp("2023-05-01", tz="UTC"),
         limit=10,
@@ -64,7 +64,7 @@ def test_datapoints_limit_and_cursor_exposed(sync_client, inserted_data, ts_deci
 
     # Retrieving the whole series fits in one page -> no continuation cursor.
     rf = datahub_sdk.RetrieveFilter(
-        ts=ts_decimal,
+        ts=ts_float,
         start=pd.Timestamp("2023-01-01", tz="UTC"),
         end=pd.Timestamp("2023-05-01", tz="UTC"),
     )

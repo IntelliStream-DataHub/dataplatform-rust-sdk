@@ -18,10 +18,10 @@ pub trait GraphNode: Clone + Serialize {
 #[serde(rename_all = "camelCase")]
 pub struct GraphDataWrapper<T: GraphNode, R = EdgeProxy> {
     #[serde(alias = "items")]
-    nodes: Option<Vec<T>>,
-    relations: Option<Vec<R>>,
-    error_body: Option<String>,
-    http_status_code: Option<u16>,
+    pub nodes: Option<Vec<T>>,
+    pub relations: Option<Vec<R>>,
+    pub error_body: Option<String>,
+    pub http_status_code: Option<u16>,
 }
 
 impl<T: GraphNode, R> GraphDataWrapper<T, R> {
