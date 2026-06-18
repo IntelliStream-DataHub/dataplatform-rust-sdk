@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from time import sleep
 
@@ -6,15 +7,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
+# The .env lives at the project root, one directory above python_tests/.
+ENV_FILE = os.path.join(os.path.dirname(__file__), "..", ".env")
+
 @pytest.fixture(scope="module")
 def async_client():
     # Create an AsyncClient instance from your env
-    client = datahub_sdk.AsyncDataHubClient.from_envfile("/home/jgjesdal/RustroverProjects/dataplatform-rust-sdk/.env")
+    client = datahub_sdk.AsyncDataHubClient.from_envfile(ENV_FILE)
     yield client
 
 @pytest.fixture(scope="module")
 def sync_client():
-    client = datahub_sdk.DataHubClient.from_envfile("/home/jgjesdal/RustroverProjects/dataplatform-rust-sdk/.env")
+    client = datahub_sdk.DataHubClient.from_envfile(ENV_FILE)
     yield client
 
 
