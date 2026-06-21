@@ -5,3 +5,8 @@ Cargo.lock
 CLAUDE.local.md
 /datahub_python_bindings/target
 /datahub_python_bindings/python/datahub_sdk/datahub_sdk.abi3.so
+
+# Python virtualenv and caches
+/.venv
+__pycache__/
+.pytest_cache/

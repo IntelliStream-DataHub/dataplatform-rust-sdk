@@ -5,7 +5,6 @@ from time import sleep
 import datahub_sdk
 import pandas as pd
 import pytest
-from pygments.styles.dracula import yellow
 from pytest_asyncio import fixture
 
 from fixtures import sync_client
