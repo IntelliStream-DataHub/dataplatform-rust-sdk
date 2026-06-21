@@ -203,19 +203,43 @@ mod tests {
 
     #[test]
     fn test_build_ws_url_http_to_ws() {
-        let url = build_ws_url("http://localhost:8081/subscriptions", "sub_ext_id").unwrap();
-        assert_eq!(url, "ws://localhost:8081/subscriptions/listen/sub_ext_id");
+        let url = build_ws_url("http://localhost:8081", &["sub_ext_id"]).unwrap();
+        assert_eq!(
+            url,
+            "ws://localhost:8081/timeseries/datapoints/subscription/listen/sub_ext_id"
+        );
     }
 
     #[test]
     fn test_build_ws_url_https_to_wss() {
-        let url = build_ws_url("https://api.example.com/subscriptions", "my_sub").unwrap();
-        assert_eq!(url, "wss://api.example.com/subscriptions/listen/my_sub");
+        let url = build_ws_url("https://api.example.com", &["my_sub"]).unwrap();
+        assert_eq!(
+            url,
+            "wss://api.example.com/timeseries/datapoints/subscription/listen/my_sub"
+        );
+    }
+
+    #[test]
+    fn test_build_ws_url_multiple_ids() {
+        let url = build_ws_url("http://localhost:8081", &["a", "b", "c"]).unwrap();
+        assert_eq!(
+            url,
+            "ws://localhost:8081/timeseries/datapoints/subscription/listen/a/b/c"
+        );
+    }
+
+    #[test]
+    fn test_build_ws_url_empty_ids_is_pure_dynamic() {
+        let url = build_ws_url("http://localhost:8081", &[] as &[&str]).unwrap();
+        assert_eq!(
+            url,
+            "ws://localhost:8081/timeseries/datapoints/subscription/listen"
+        );
     }
 
     #[test]
     fn test_build_ws_url_rejects_unknown_scheme() {
-        assert!(build_ws_url("ftp://example.com/subscriptions", "x").is_err());
+        assert!(build_ws_url("ftp://example.com", &["x"]).is_err());
     }
 
     // Deserialize a realistic server frame — SubscriptionWebSocketHandler::sendBatch always
@@ -223,10 +247,14 @@ mod tests {
     // payload. If this parses, the wire contract lines up with the backend.
     #[test]
     fn test_server_frame_deserialize() {
+        use crate::subscriptions::listen::{decode_text_frame, DecodedFrame};
+        // SubscriptionWebSocketHandler::sendBatch wraps each batch as
+        // { "subscriptionExternalId": "<id>", "messages": [{ messageId, payload }] }.
         let wire = serde_json::json!({
+            "subscriptionExternalId": "heater_2012_sub",
             "messages": [
                 {
-                    "messageId": "CAEQABgAIAA",
+                    "messageId": "aGVhdGVyXzIwMTJfc3Vi.CAEQABgAIAA",
                     "payload": {
                         "eventAction": "CREATE",
                         "eventObject": "DATAPOINTS",
@@ -249,10 +277,15 @@ mod tests {
             ]
         });
 
-        // Batch wrapper is private — deserialize one element at a time via SubscriptionMessage.
-        let arr = wire["messages"].as_array().unwrap();
-        let msg: SubscriptionMessage = serde_json::from_value(arr[0].clone()).unwrap();
-        assert_eq!(msg.message_id, "CAEQABgAIAA");
+        let messages = match decode_text_frame(&wire.to_string()).unwrap() {
+            DecodedFrame::Messages(m) => m,
+            _ => panic!("expected a batch of messages"),
+        };
+        assert_eq!(messages.len(), 1);
+        let msg = &messages[0];
+        // The frame-level subscription id is stamped onto each message.
+        assert_eq!(msg.subscription_external_id, "heater_2012_sub");
+        assert_eq!(msg.message_id, "aGVhdGVyXzIwMTJfc3Vi.CAEQABgAIAA");
         assert_eq!(msg.payload.event_action, EventAction::Create);
         assert_eq!(msg.payload.event_object, EventObject::Datapoints);
         assert_eq!(msg.payload.tenant_id.as_deref(), Some("tenant-1"));
@@ -262,6 +295,23 @@ mod tests {
         assert_eq!(coll.external_id.as_deref(), Some("heater_2012_temp"));
         assert_eq!(coll.datapoints.len(), 2);
         assert_eq!(coll.datapoints[0].value, "21.5");
+    }
+
+    #[test]
+    fn test_server_error_frame_decodes() {
+        use crate::subscriptions::listen::{decode_text_frame, DecodedFrame};
+        let wire = serde_json::json!({
+            "error": true,
+            "subscriptionExternalId": "typo_sub",
+            "reason": "not-found"
+        });
+        match decode_text_frame(&wire.to_string()).unwrap() {
+            DecodedFrame::SubscriptionError { external_id, reason } => {
+                assert_eq!(external_id, "typo_sub");
+                assert_eq!(reason, "not-found");
+            }
+            _ => panic!("expected a subscription error"),
+        }
     }
 
     #[test]
@@ -305,7 +355,7 @@ mod tests {
         // Run the body inside an async block so an early `?` or panic still lets cleanup run.
         let result: Result<(), Box<dyn std::error::Error>> = async {
             // Open listener before writing datapoints so we catch the fan-out.
-            let mut listener = api_service.subscriptions.listen(&sub_ext).await?;
+            let mut listener = api_service.subscriptions.listen(&[sub_ext.as_str()]).await?;
 
             // Write a datapoint to the subscribed timeseries. The consumer fans it out to the
             // subscription topic; we expect it on the listener.
@@ -365,7 +415,7 @@ mod tests {
     #[allow(dead_code)]
     async fn _listener_is_send() {
         let api_service = create_api_service();
-        let listener = api_service.subscriptions.listen("x").await.unwrap();
+        let listener = api_service.subscriptions.listen(&["x"]).await.unwrap();
         _require_send(&listener);
     }
 }

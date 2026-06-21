@@ -94,6 +94,54 @@ impl PySubscriptionListener {
         })
     }
 
+    fn subscribe(&self, py: Python<'_>, external_ids: Vec<String>) -> PyResult<()> {
+        let listener = self.listener.clone();
+        let runtime = self.runtime.clone();
+        py.detach(|| {
+            runtime.block_on(async move {
+                let mut guard = listener.lock().await;
+                let l = guard
+                    .as_mut()
+                    .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                l.subscribe(&external_ids)
+                    .await
+                    .map_err(|e| PyException::new_err(e.to_string()))
+            })
+        })
+    }
+
+    fn unsubscribe(&self, py: Python<'_>, external_ids: Vec<String>) -> PyResult<()> {
+        let listener = self.listener.clone();
+        let runtime = self.runtime.clone();
+        py.detach(|| {
+            runtime.block_on(async move {
+                let mut guard = listener.lock().await;
+                let l = guard
+                    .as_mut()
+                    .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                l.unsubscribe(&external_ids)
+                    .await
+                    .map_err(|e| PyException::new_err(e.to_string()))
+            })
+        })
+    }
+
+    fn set_subscriptions(&self, py: Python<'_>, external_ids: Vec<String>) -> PyResult<()> {
+        let listener = self.listener.clone();
+        let runtime = self.runtime.clone();
+        py.detach(|| {
+            runtime.block_on(async move {
+                let mut guard = listener.lock().await;
+                let l = guard
+                    .as_mut()
+                    .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                l.set_subscriptions(&external_ids)
+                    .await
+                    .map_err(|e| PyException::new_err(e.to_string()))
+            })
+        })
+    }
+
     fn close(&self, py: Python<'_>) -> PyResult<()> {
         let listener = self.listener.clone();
         let runtime = self.runtime.clone();
@@ -189,6 +237,57 @@ impl PySubscriptionListenerAsync {
                 .as_mut()
                 .ok_or_else(|| PyException::new_err("listener is closed"))?;
             l.nack(&message_ids)
+                .await
+                .map_err(|e| PyException::new_err(e.to_string()))
+        })
+    }
+
+    fn subscribe<'py>(
+        &self,
+        py: Python<'py>,
+        external_ids: Vec<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let listener = self.listener.clone();
+        future_into_py(py, async move {
+            let mut guard = listener.lock().await;
+            let l = guard
+                .as_mut()
+                .ok_or_else(|| PyException::new_err("listener is closed"))?;
+            l.subscribe(&external_ids)
+                .await
+                .map_err(|e| PyException::new_err(e.to_string()))
+        })
+    }
+
+    fn unsubscribe<'py>(
+        &self,
+        py: Python<'py>,
+        external_ids: Vec<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let listener = self.listener.clone();
+        future_into_py(py, async move {
+            let mut guard = listener.lock().await;
+            let l = guard
+                .as_mut()
+                .ok_or_else(|| PyException::new_err("listener is closed"))?;
+            l.unsubscribe(&external_ids)
+                .await
+                .map_err(|e| PyException::new_err(e.to_string()))
+        })
+    }
+
+    fn set_subscriptions<'py>(
+        &self,
+        py: Python<'py>,
+        external_ids: Vec<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let listener = self.listener.clone();
+        future_into_py(py, async move {
+            let mut guard = listener.lock().await;
+            let l = guard
+                .as_mut()
+                .ok_or_else(|| PyException::new_err("listener is closed"))?;
+            l.set_subscriptions(&external_ids)
                 .await
                 .map_err(|e| PyException::new_err(e.to_string()))
         })

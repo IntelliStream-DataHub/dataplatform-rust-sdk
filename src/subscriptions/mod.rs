@@ -16,14 +16,17 @@ use serde::{Deserialize, Serialize};
 pub struct SubscriptionsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
+    // The raw host base (without the `/subscriptions` REST suffix), used to build the WebSocket
+    // listen URL which lives under `/timeseries/datapoints/subscription/listen`.
+    host_base_url: String,
 }
 
 impl SubscriptionsService {
     pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
-        let base_url = format!("{}/subscriptions", base_url);
         SubscriptionsService {
             api_service,
-            base_url,
+            base_url: format!("{}/subscriptions", base_url),
+            host_base_url: base_url.clone(),
         }
     }
 
@@ -53,18 +56,20 @@ impl SubscriptionsService {
         self.execute_post_request(path, &json.into()).await
     }
 
-    /// Open a WebSocket listener for the named subscription's fan-out topic. Returns a
-    /// [`SubscriptionListener`] the caller drives with `next` / `ack` / `nack` / `close`.
-    /// The handshake uses the bearer token currently cached in the API service.
-    pub async fn listen(
+    /// Open a WebSocket listener that multiplexes the named subscriptions' fan-out topics. The
+    /// `subscription_external_ids` seed the initial set (may be empty — add them later with
+    /// [`SubscriptionListener::subscribe`]). Returns a [`SubscriptionListener`] the caller drives
+    /// with `next` / `ack` / `nack` / `close`. The handshake uses the bearer token currently
+    /// cached in the API service.
+    pub async fn listen<S: AsRef<str>>(
         &self,
-        subscription_external_id: &str,
+        subscription_external_ids: &[S],
     ) -> Result<SubscriptionListener, ListenError> {
         let token = self
             .get_token()
             .await
             .map_err(|e| ListenError::Request(format!("failed to get api token: {}", e.get_message())))?;
-        let ws_url = listen::build_ws_url(&self.base_url, subscription_external_id)?;
+        let ws_url = listen::build_ws_url(&self.host_base_url, subscription_external_ids)?;
         SubscriptionListener::connect(&ws_url, &token).await
     }
 }

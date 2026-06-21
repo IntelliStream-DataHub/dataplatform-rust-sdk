@@ -73,19 +73,20 @@ impl PySubscriptionsServiceSync {
         })
     }
 
-    /// Open a WebSocket listener for the named subscription. Returns a SubscriptionListener
-    /// you can iterate or call .next_message() / .ack() / .close() on.
+    /// Open a WebSocket listener multiplexing the named subscriptions. The ids seed the initial
+    /// set (may be empty — add more with .subscribe()). Returns a SubscriptionListener you can
+    /// iterate or call .next_message() / .ack() / .subscribe() / .close() on.
     fn listen(
         &self,
         py: Python<'_>,
-        subscription_external_id: String,
+        subscription_external_ids: Vec<String>,
     ) -> PyResult<PySubscriptionListener> {
         let service = self.api_service.clone();
         let runtime = self.runtime.clone();
         py.detach(|| {
             let listener = self
                 .runtime
-                .block_on(service.subscriptions.listen(&subscription_external_id))
+                .block_on(service.subscriptions.listen(&subscription_external_ids))
                 .map_err(|e| PyException::new_err(e.to_string()))?;
             Ok(PySubscriptionListener {
                 listener: shared_listener(listener),

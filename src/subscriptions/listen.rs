@@ -20,12 +20,18 @@ pub enum ListenError {
     Deserialize(String),
     #[error("failed to serialize client frame: {0}")]
     Serialize(#[from] serde_json::Error),
+    #[error("subscription '{external_id}' error: {reason}")]
+    Subscription { external_id: String, reason: String },
 }
 
 /// One message delivered by the backend. Carries the opaque `message_id` the client must
-/// echo back via [`SubscriptionListener::ack`] / [`SubscriptionListener::nack`].
+/// echo back via [`SubscriptionListener::ack`] / [`SubscriptionListener::nack`], and the
+/// `subscription_external_id` it was delivered for (set from the frame — useful when one
+/// listener multiplexes several subscriptions).
 #[derive(Debug, Deserialize, Clone)]
 pub struct SubscriptionMessage {
+    #[serde(rename = "subscriptionExternalId", default)]
+    pub subscription_external_id: String,
     #[serde(rename = "messageId")]
     pub message_id: String,
     pub payload: DataWrapperMessage,
@@ -91,16 +97,83 @@ pub struct WsDatapoint {
     pub value: String,
 }
 
+/// One message element inside a batch frame. The frame-level `subscriptionExternalId` is applied
+/// to each element when decoded into a [`SubscriptionMessage`].
 #[derive(Debug, Deserialize)]
-struct WsBatch {
-    messages: Vec<SubscriptionMessage>,
+struct RawMessage {
+    #[serde(rename = "messageId")]
+    message_id: String,
+    payload: DataWrapperMessage,
 }
 
-/// Live WebSocket listener for a subscription's fan-out topic.
+#[derive(Debug, Deserialize)]
+struct WsBatch {
+    #[serde(rename = "subscriptionExternalId", default)]
+    subscription_external_id: Option<String>,
+    messages: Vec<RawMessage>,
+}
+
+/// Error frame the server sends when a requested subscription can't be attached (e.g. unknown id).
+#[derive(Debug, Deserialize)]
+struct WsError {
+    #[allow(dead_code)]
+    error: bool,
+    #[serde(rename = "subscriptionExternalId", default)]
+    subscription_external_id: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// A server text frame is either a batch of messages or a subscription error. Untagged: a frame
+/// with `messages` parses as `Batch`; one with `error` parses as `Error`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ServerFrame {
+    Batch(WsBatch),
+    Error(WsError),
+}
+
+/// Outcome of decoding one server text frame.
+pub(crate) enum DecodedFrame {
+    Messages(Vec<SubscriptionMessage>),
+    SubscriptionError { external_id: String, reason: String },
+}
+
+/// Decode a server text frame into either its messages (with the frame's subscription id stamped
+/// onto each) or a subscription error.
+pub(crate) fn decode_text_frame(text: &str) -> Result<DecodedFrame, ListenError> {
+    let parsed: ServerFrame =
+        serde_json::from_str(text).map_err(|e| ListenError::Deserialize(e.to_string()))?;
+    Ok(match parsed {
+        ServerFrame::Batch(batch) => {
+            let sub_id = batch.subscription_external_id.unwrap_or_default();
+            DecodedFrame::Messages(
+                batch
+                    .messages
+                    .into_iter()
+                    .map(|m| SubscriptionMessage {
+                        subscription_external_id: sub_id.clone(),
+                        message_id: m.message_id,
+                        payload: m.payload,
+                    })
+                    .collect(),
+            )
+        }
+        ServerFrame::Error(err) => DecodedFrame::SubscriptionError {
+            external_id: err.subscription_external_id.unwrap_or_default(),
+            reason: err.reason.unwrap_or_else(|| "unknown".to_string()),
+        },
+    })
+}
+
+/// Live WebSocket listener multiplexing one or more subscriptions' fan-out topics.
 ///
 /// Drive it by calling [`SubscriptionListener::next`] in a loop; ack processed messages with
 /// [`SubscriptionListener::ack`]; anything left unacked at close is redelivered by Pulsar on
-/// the next listener to connect with the same subscription external id.
+/// the next listener to connect with the same subscription external id. Add or drop subscriptions
+/// at runtime with [`SubscriptionListener::subscribe`] / [`SubscriptionListener::unsubscribe`] /
+/// [`SubscriptionListener::set_subscriptions`]. Each [`SubscriptionMessage`] carries the
+/// `subscription_external_id` it belongs to.
 ///
 /// The server pings every 15s and closes idle sessions after ~45s. `next` transparently
 /// handles incoming pings, but only while it is being polled — call it often enough that a
@@ -144,15 +217,20 @@ impl SubscriptionListener {
                 Some(Err(e)) => return Some(Err(ListenError::WebSocket(e.to_string()))),
             };
             match frame {
-                Message::Text(text) => {
-                    let batch: WsBatch = match serde_json::from_str(&text) {
-                        Ok(b) => b,
-                        Err(e) => return Some(Err(ListenError::Deserialize(e.to_string()))),
-                    };
-                    for m in batch.messages {
-                        self.buffered.push_back(m);
+                Message::Text(text) => match decode_text_frame(&text) {
+                    Ok(DecodedFrame::Messages(messages)) => {
+                        for m in messages {
+                            self.buffered.push_back(m);
+                        }
                     }
-                }
+                    // A subscription-level error (e.g. unknown id) is surfaced to the caller but
+                    // does NOT close the socket — keep calling `next` to receive from the other
+                    // subscriptions on this connection.
+                    Ok(DecodedFrame::SubscriptionError { external_id, reason }) => {
+                        return Some(Err(ListenError::Subscription { external_id, reason }));
+                    }
+                    Err(e) => return Some(Err(e)),
+                },
                 Message::Close(_) => return None,
                 // Ping / Pong / Binary / raw Frame — tungstenite queues a pong for pings and
                 // flushes it on the next write. Loop and keep reading.
@@ -171,6 +249,27 @@ impl SubscriptionListener {
         self.send_action("nack", message_ids).await
     }
 
+    /// Add subscriptions to the live set without reconnecting.
+    pub async fn subscribe<S: AsRef<str>>(&mut self, external_ids: &[S]) -> Result<(), ListenError> {
+        self.send_interest("subscribe", external_ids).await
+    }
+
+    /// Remove subscriptions from the live set.
+    pub async fn unsubscribe<S: AsRef<str>>(
+        &mut self,
+        external_ids: &[S],
+    ) -> Result<(), ListenError> {
+        self.send_interest("unsubscribe", external_ids).await
+    }
+
+    /// Replace the whole live set of subscriptions.
+    pub async fn set_subscriptions<S: AsRef<str>>(
+        &mut self,
+        external_ids: &[S],
+    ) -> Result<(), ListenError> {
+        self.send_interest("set", external_ids).await
+    }
+
     async fn send_action<S: AsRef<str>>(
         &mut self,
         action: &str,
@@ -180,6 +279,22 @@ impl SubscriptionListener {
         let frame = serde_json::to_string(&serde_json::json!({
             "action": action,
             "messageIds": ids,
+        }))?;
+        self.ws
+            .send(Message::Text(frame.into()))
+            .await
+            .map_err(|e| ListenError::WebSocket(e.to_string()))
+    }
+
+    async fn send_interest<S: AsRef<str>>(
+        &mut self,
+        action: &str,
+        external_ids: &[S],
+    ) -> Result<(), ListenError> {
+        let ids: Vec<&str> = external_ids.iter().map(|s| s.as_ref()).collect();
+        let frame = serde_json::to_string(&serde_json::json!({
+            "action": action,
+            "externalIds": ids,
         }))?;
         self.ws
             .send(Message::Text(frame.into()))
@@ -199,18 +314,31 @@ impl SubscriptionListener {
     }
 }
 
-/// Convert the REST base URL (`http(s)://…/subscriptions`) to the WebSocket listen URL
-/// (`ws(s)://…/subscriptions/listen/<external_id>`).
-pub(crate) fn build_ws_url(rest_base_url: &str, external_id: &str) -> Result<String, ListenError> {
-    let ws_base = if let Some(rest) = rest_base_url.strip_prefix("https://") {
+/// Convert the host base URL (`http(s)://<host>`) to the WebSocket listen URL
+/// (`ws(s)://<host>/timeseries/datapoints/subscription/listen[/<id>/<id>...]`). Each external id
+/// becomes a path segment that seeds the initial subscription set; pass an empty slice to connect
+/// with none and subscribe dynamically.
+pub(crate) fn build_ws_url<S: AsRef<str>>(
+    host_base_url: &str,
+    external_ids: &[S],
+) -> Result<String, ListenError> {
+    let ws_base = if let Some(rest) = host_base_url.strip_prefix("https://") {
         format!("wss://{}", rest)
-    } else if let Some(rest) = rest_base_url.strip_prefix("http://") {
+    } else if let Some(rest) = host_base_url.strip_prefix("http://") {
         format!("ws://{}", rest)
     } else {
         return Err(ListenError::Request(format!(
             "base_url must start with http:// or https://, got {}",
-            rest_base_url
+            host_base_url
         )));
     };
-    Ok(format!("{}/listen/{}", ws_base, external_id))
+    let mut url = format!(
+        "{}/timeseries/datapoints/subscription/listen",
+        ws_base.trim_end_matches('/')
+    );
+    for id in external_ids {
+        url.push('/');
+        url.push_str(id.as_ref());
+    }
+    Ok(url)
 }

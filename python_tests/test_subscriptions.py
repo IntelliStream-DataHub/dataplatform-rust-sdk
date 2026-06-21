@@ -153,7 +153,7 @@ def test_listen_end_to_end(sync_client):
     received = None
     try:
         # Open the listener before writing — otherwise the fan-out fires before we connect.
-        listener = sync_client.subscriptions.listen(sub_ext)
+        listener = sync_client.subscriptions.listen([sub_ext])
 
         # Write one datapoint to the bound timeseries.
         ts_obj = sync_client.timeseries.by_ids([ts_ext])[0]
@@ -215,7 +215,7 @@ def test_listen_context_manager_closes_cleanly(sync_client):
     sync_client.subscriptions.create([sub])
 
     try:
-        with sync_client.subscriptions.listen(sub_ext) as listener:
+        with sync_client.subscriptions.listen([sub_ext]) as listener:
             assert listener is not None
         # After __exit__, calling close() again should be a no-op (the inner Option is None).
         # The wrapper exposes close() on the Python object so this is safe to invoke.
