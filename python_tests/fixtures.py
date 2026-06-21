@@ -28,8 +28,12 @@ def ts_float(sync_client):
     sync_client.timeseries.delete([ts])
     created_ts = sync_client.timeseries.create([ts])
 
-    return created_ts[0]
-    pd.Timestamp('2023-01-01', tz='UTC')
+    yield created_ts[0]
+    # Teardown: delete the series (and its datapoints) created for the module.
+    try:
+        sync_client.timeseries.delete([created_ts[0]])
+    except Exception:
+        pass
 @pytest.fixture(scope="module")
 def ts_bigint(sync_client):
     ts = datahub_sdk.TimeSeries(
