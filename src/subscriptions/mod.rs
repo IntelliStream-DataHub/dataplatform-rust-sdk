@@ -65,12 +65,14 @@ impl SubscriptionsService {
         &self,
         subscription_external_ids: &[S],
     ) -> Result<SubscriptionListener, ListenError> {
-        let token = self
-            .get_token()
+        // The listener fetches its own token and builds the URL (and re-does both on reconnect), so
+        // it just needs a handle to the api service, the host base, and the initial interest set.
+        let interest: Vec<String> = subscription_external_ids
+            .iter()
+            .map(|s| s.as_ref().to_string())
+            .collect();
+        SubscriptionListener::connect(self.api_service.clone(), self.host_base_url.clone(), interest)
             .await
-            .map_err(|e| ListenError::Request(format!("failed to get api token: {}", e.get_message())))?;
-        let ws_url = listen::build_ws_url(&self.host_base_url, subscription_external_ids)?;
-        SubscriptionListener::connect(&ws_url, &token).await
     }
 }
 
