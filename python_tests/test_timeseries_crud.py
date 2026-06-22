@@ -91,18 +91,25 @@ def test_create_delete_roundtrip(sync_client, kwargs):
     ts = datahub_sdk.TimeSeries(external_id=ext_id, **kwargs)
     sync_client.timeseries.delete([ts])
 
-    created = sync_client.timeseries.create([ts])
-    assert len(created) == 1
-    assert created[0].external_id == ext_id
-    assert created[0].id is not None, "server should assign a numeric id"
+    try:
+        created = sync_client.timeseries.create([ts])
+        assert len(created) == 1
+        assert created[0].external_id == ext_id
+        assert created[0].id is not None, "server should assign a numeric id"
 
-    fetched = sync_client.timeseries.by_ids([ext_id])
-    assert any(t.external_id == ext_id for t in fetched)
+        fetched = sync_client.timeseries.by_ids([ext_id])
+        assert any(t.external_id == ext_id for t in fetched)
 
-    sync_client.timeseries.delete([created[0]])
+        sync_client.timeseries.delete([created[0]])
 
-    listed = sync_client.timeseries.list()
-    assert all(t.external_id != ext_id for t in listed), "series should be gone after delete"
+        listed = sync_client.timeseries.list()
+        assert all(t.external_id != ext_id for t in listed), "series should be gone after delete"
+    finally:
+        # Best-effort cleanup if an assertion failed before the explicit delete.
+        try:
+            sync_client.timeseries.delete([ext_id])
+        except Exception:
+            pass
 
 
 def test_create_batch_multiple(sync_client):
@@ -139,10 +146,17 @@ def test_delete_by_external_id_string(sync_client):
     ts = datahub_sdk.TimeSeries(external_id=ext_id, value_type="float", unit="a.u")
     sync_client.timeseries.delete([ts])
     sync_client.timeseries.create([ts])
-    # delete by raw external-id string rather than the entity object
-    sync_client.timeseries.delete([ext_id])
-    listed = sync_client.timeseries.list()
-    assert all(t.external_id != ext_id for t in listed)
+    try:
+        # delete by raw external-id string rather than the entity object
+        sync_client.timeseries.delete([ext_id])
+        listed = sync_client.timeseries.list()
+        assert all(t.external_id != ext_id for t in listed)
+    finally:
+        # Best-effort cleanup if the assertion failed before the series was gone.
+        try:
+            sync_client.timeseries.delete([ext_id])
+        except Exception:
+            pass
 
 
 # --------------------------------------------------------------------------- #
