@@ -201,7 +201,6 @@ impl PyTimeSeriesUpdate {
         security_categories=None,
         data_set_id=None,
         relations_from=None,
-        value_type=None,
     ))]
     pub fn __init__(
         ts: Identifiable, // todo make TimeseriesIdentifyable
@@ -214,7 +213,6 @@ impl PyTimeSeriesUpdate {
         security_categories: Option<PyListFieldU64>,
         data_set_id: Option<PyFieldU64>,
         relations_from: Option<PyListFieldU64>,
-        value_type: Option<ValueType>,
     ) -> PyResult<Self> {
         let id_collection = ts.id_collection();
         let update = TimeSeriesUpdateFields {
@@ -227,7 +225,6 @@ impl PyTimeSeriesUpdate {
             security_categories: security_categories.map(|s| s.0).unwrap_or_default(),
             data_set_id: data_set_id.map(|s| s.0).unwrap_or_default(),
             relations_from: relations_from.map(|s| s.0).unwrap_or_default(),
-            value_type: Field::new(value_type.map(|s| s.to_string()), false),
         };
         Ok(Self {
             inner: TimeSeriesUpdate {
@@ -280,10 +277,6 @@ impl PyTimeSeriesUpdate {
     #[getter]
     fn relations_from(&self) -> PyListFieldU64 {
         self.inner.update.relations_from.clone().into()
-    }
-    #[getter]
-    fn value_type(&self) -> Option<&String> {
-        self.inner.update.value_type.set.as_ref()
     }
 }
 

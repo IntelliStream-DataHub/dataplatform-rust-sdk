@@ -259,7 +259,6 @@ class TimeSeriesUpdate:
         security_categories: ListFieldU64 | None = None,
         data_set_id: FieldU64 | None = None,
         relations_from: ListFieldU64 | None = None,
-        value_type: ValueType | None = None,
     ) -> None: ...
     @property
     def target_external_id(self) -> str | None: ...
@@ -283,8 +282,6 @@ class TimeSeriesUpdate:
     def data_set_id(self) -> FieldU64: ...
     @property
     def relations_from(self) -> ListFieldU64: ...
-    @property
-    def value_type(self) -> str | None: ...
 
 
 class DeleteFilter:

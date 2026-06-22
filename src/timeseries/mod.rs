@@ -437,8 +437,8 @@ pub struct TimeSeriesUpdateFields {
     pub data_set_id: Field<u64>,
     #[serde(rename = "relationsFrom")]
     pub relations_from: ListField<u64>,
-    #[serde(rename = "valueType")]
-    pub value_type: Field<String>,
+    // NB: value_type is intentionally not updatable — the backend timeseries update
+    // form has no `valueType` field (re-typing a series is unsupported).
 }
 
 impl TimeSeriesUpdateFields {
@@ -453,7 +453,6 @@ impl TimeSeriesUpdateFields {
             security_categories: ListField::default(),
             data_set_id: Field::default(),
             relations_from: ListField::default(),
-            value_type: Field::default(),
         }
     }
 }

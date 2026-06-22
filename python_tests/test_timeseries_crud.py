@@ -7,7 +7,6 @@ modality the field-wrapper types allow:
   * FieldStr / FieldU64 scalar fields  -> set-value  and  set_null
   * MapField  (metadata)               -> add (merge), set (replace), remove (by key)
   * ListFieldU64 (security_categories) -> add, set (replace), remove (by value)
-  * value_type re-typing
   * targeting an update by created-object / external-id string / numeric id
   * multi-field updates, batch updates, and no-op updates
 
@@ -357,33 +356,9 @@ def test_update_data_set_id_set_and_null(sync_client, make_ts):
         sync_client.datasets.delete([created_ds])
 
 
-# --------------------------------------------------------------------------- #
-# UPDATE — value_type re-typing
-#
-# The SDK exposes value_type as an updatable field, but the backend silently
-# ignores it: a series created as "text" and updated to "bigint" comes back
-# unchanged as "text" (re-typing would invalidate already-stored datapoints).
-# xfail-strict=False documents the gap and surfaces an xpass if the backend ever
-# starts honouring it.
-# --------------------------------------------------------------------------- #
-
-@pytest.mark.xfail(
-    reason="backend silently ignores value_type changes on update "
-    "(a series' type is immutable after creation)",
-    strict=False,
-)
-@pytest.mark.parametrize("from_type, to_type", [
-    ("bigint", "float"),
-    ("float", "text"),
-    ("text", "bigint"),
-])
-def test_update_value_type(sync_client, make_ts, from_type, to_type):
-    ts = make_ts(value_type=from_type)
-
-    # value_type accepts the plain string form (same as the TimeSeries ctor).
-    update = datahub_sdk.TimeSeriesUpdate(ts, value_type=to_type)
-    updated = sync_client.timeseries.update([update])[0]
-    assert updated.value_type == to_type
+# NOTE: value_type is intentionally NOT an updatable field — the backend timeseries
+# update form (`TimeseriesFields`) has no `valueType`, so it has been dropped from
+# `TimeSeriesUpdate` in the SDK. (Re-typing a series is unsupported.)
 
 
 # --------------------------------------------------------------------------- #
