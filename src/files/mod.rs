@@ -63,6 +63,34 @@ impl FileService {
         self.execute_post_request(full_path.as_str(), id_collection)
             .await
     }
+
+    /// Download a file's raw bytes by `id` or `externalId`. Maps to
+    /// `GET /files/download/{id}`, which streams `application/octet-stream` rather
+    /// than a JSON `DataWrapper`, so this returns the bytes directly.
+    pub async fn download(&self, id: &str) -> Result<Vec<u8>, ResponseError> {
+        let token = self.get_token().await?;
+        let url = format!("{}/download/{}", self.base_url.as_str(), id);
+        let response = self
+            .get_api_service()
+            .http_client
+            .get(&url)
+            // The client defaults to `Accept: application/json`, but the download
+            // endpoint only produces octet-stream — override it or the server 406s.
+            .header(reqwest::header::ACCEPT, "application/octet-stream")
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(ResponseError::from_err)?;
+
+        let status = response.status();
+        if !(200..300).contains(&status.as_u16()) {
+            let message = response.text().await.unwrap_or_default();
+            return Err(ResponseError { status, message });
+        }
+
+        let bytes = response.bytes().await.map_err(ResponseError::from_err)?;
+        Ok(bytes.to_vec())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
