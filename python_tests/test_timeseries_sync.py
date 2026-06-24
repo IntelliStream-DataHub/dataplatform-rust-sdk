@@ -126,6 +126,8 @@ def test_insert(sync_client,timestamps,values,value_type):
 
         vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=test_insert_ts)
         inserted_datapoints = sync_client.timeseries.insert_datapoints(input=[vals])
+        # A successful insert is acknowledged with 204 No Content, so the body carries no items.
+        assert inserted_datapoints == []
         retrieved_datapoints = sync_client.timeseries.retrieve_datapoints(datahub_sdk.RetrieveFilter(
             start=pd.Timestamp("2019-01-01",tz="UTC"),
             end=pd.Timestamp("2025-01-01",tz="UTC"),
@@ -137,6 +139,20 @@ def test_insert(sync_client,timestamps,values,value_type):
             sync_client.timeseries.delete([created])
         except Exception:
             pass
+
+def test_insert_datapoints_missing_timeseries_returns_not_found(sync_client):
+    nonexistent = datahub_sdk.TimeSeries(
+        external_id="nonexistent_ts_for_404_test",
+        value_type="float",
+        unit="a.u",
+    )
+    dp = datahub_sdk.DatapointString.from_float(pd.Timestamp("2025-01-01", tz="UTC"), 42.0)
+    vals = datahub_sdk.DatapointsCollectionString(datapoints=[dp], ts=nonexistent)
+    with pytest.raises(datahub_sdk.DataHubException) as exc_info:
+        sync_client.timeseries.insert_datapoints(input=[vals])
+    assert exc_info.value.status_code == 404
+    assert "Could not find following timeseries" in exc_info.value.message
+
 
 def test_invalid_retrieve_latest_datapoint(sync_client):
     with pytest.raises(IndexError):

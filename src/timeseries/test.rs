@@ -438,7 +438,7 @@ mod tests {
         let result = api_service.time_series.insert_datapoints(&mut data_request).await;
         match result {
             Ok(r) => {
-                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
+                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::NO_CONTENT.as_u16());
             },
             Err(e) => {
                 eprintln!("error with timeseries datapoints create");
@@ -462,7 +462,7 @@ mod tests {
         //let result = api_service.time_series.insert_datapoints(&mut data_request).await;
         /*match result {
             Ok(r) => {
-                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
+                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::NO_CONTENT.as_u16());
             },
             Err(e) => {
                 eprintln!("error with timeseries datapoints create");
@@ -913,10 +913,36 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn test_insert_datapoints_missing_timeseries_returns_not_found() -> Result<(), Box<dyn std::error::Error>> {
+        let api_service = create_api_service();
+
+        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+        let mut dp_collection = DatapointsCollection::from_external_id("rust_sdk_test_nonexistent_8888_ts");
+        dp_collection.datapoints = vec![
+            DatapointString::from_datetime(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap(), "42.0"),
+        ];
+        data_request.add_item(dp_collection);
+
+        let result = api_service.time_series.insert_datapoints(&mut data_request).await;
+        match result {
+            Ok(_) => panic!("Expected 404 Not Found for non-existent timeseries"),
+            Err(e) => {
+                assert_eq!(e.get_status(), StatusCode::NOT_FOUND);
+                let msg = e.get_message();
+                assert!(
+                    msg.contains("Could not find following timeseries"),
+                    "unexpected error body: {msg}"
+                );
+            }
+        }
+        Ok(())
+    }
+
     fn validate_data_insertion(result: Result<DataWrapper<String>, ResponseError>) {
         match result {
             Ok(r) => {
-                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
+                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::NO_CONTENT.as_u16());
             },
             Err(e) => {
                 eprintln!("error with timeseries datapoints create");
