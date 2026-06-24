@@ -438,7 +438,7 @@ mod tests {
         let result = api_service.time_series.insert_datapoints(&mut data_request).await;
         match result {
             Ok(r) => {
-                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
+                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::NO_CONTENT.as_u16());
             },
             Err(e) => {
                 eprintln!("error with timeseries datapoints create");
@@ -462,7 +462,7 @@ mod tests {
         //let result = api_service.time_series.insert_datapoints(&mut data_request).await;
         /*match result {
             Ok(r) => {
-                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
+                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::NO_CONTENT.as_u16());
             },
             Err(e) => {
                 eprintln!("error with timeseries datapoints create");
@@ -916,7 +916,7 @@ mod tests {
     fn validate_data_insertion(result: Result<DataWrapper<String>, ResponseError>) {
         match result {
             Ok(r) => {
-                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::CREATED.as_u16());
+                assert_eq!(r.get_http_status_code().unwrap(), StatusCode::NO_CONTENT.as_u16());
             },
             Err(e) => {
                 eprintln!("error with timeseries datapoints create");

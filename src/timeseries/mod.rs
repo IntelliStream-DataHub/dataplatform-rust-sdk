@@ -242,7 +242,8 @@ impl TimeSeriesService {
                 .execute_post_request::<DataWrapper<String>, _>(path, request_body)
                 .map(|result| match result {
                     Ok(ref r) => {
-                        assert_eq!(r.get_http_status_code().unwrap(), 201);
+                        // The backend acknowledges a successful insert with 204 No Content.
+                        assert_eq!(r.get_http_status_code().unwrap(), 204);
                         println!("Successfully inserted datapoints.");
                     }
                     Err(e) => {

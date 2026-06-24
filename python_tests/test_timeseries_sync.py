@@ -126,6 +126,8 @@ def test_insert(sync_client,timestamps,values,value_type):
 
         vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=test_insert_ts)
         inserted_datapoints = sync_client.timeseries.insert_datapoints(input=[vals])
+        # A successful insert is acknowledged with 204 No Content, so the body carries no items.
+        assert inserted_datapoints == []
         retrieved_datapoints = sync_client.timeseries.retrieve_datapoints(datahub_sdk.RetrieveFilter(
             start=pd.Timestamp("2019-01-01",tz="UTC"),
             end=pd.Timestamp("2025-01-01",tz="UTC"),
