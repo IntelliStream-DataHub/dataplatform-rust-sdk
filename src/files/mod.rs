@@ -6,12 +6,11 @@ use crate::generic::{ApiServiceProvider, DataWrapper, INode, IdAndExtId};
 use crate::http::ResponseError;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
-use reqwest::multipart::{Form, Part};
 use reqwest::Body;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Weak;
 use tokio::fs::File;
 use tokio_util::codec::{BytesCodec, FramedRead};
@@ -34,8 +33,11 @@ impl FileService {
         &self,
         file_upload: FileUpload,
     ) -> Result<DataWrapper<INode>, ResponseError> {
-        let multipart_form = file_upload.get_form().await;
-        self.execute_file_upload_request(self.base_url.as_str(), multipart_form)
+        // The backend takes the file content as the raw PUT body; all metadata travels in
+        // `X-Datahub-*` headers (see `FileController.upload`).
+        let body = file_upload.get_body().await;
+        let headers = file_upload.upload_headers();
+        self.execute_file_upload_request(self.base_url.as_str(), body, headers)
             .await
     }
 
@@ -149,63 +151,96 @@ impl FileUpload {
         }
     }
 
-    pub async fn get_form(&self) -> Form {
-        let full_path = PathBuf::from(&self.file_path);
-        let file = File::open(&full_path).await.unwrap_or_else(|e| {
-            panic!("Failed to open file '{}': {}", full_path.display(), e);
+    /// Opens the file and returns its contents as a streaming request body. The file content is
+    /// the raw PUT body of the new `/files` upload endpoint.
+    pub async fn get_body(&self) -> Body {
+        let file = File::open(&self.file_path).await.unwrap_or_else(|e| {
+            panic!("Failed to open file '{}': {}", self.file_path, e);
         });
-
         let stream = FramedRead::new(file, BytesCodec::new());
-        let file_part = Part::stream(Body::wrap_stream(stream))
-            .file_name(self.name.clone())
-            .mime_str("application/octet-stream")
-            .unwrap_or_else(|e| {
-                // Handle error for mime_str as well
-                panic!("Failed to set MIME type or filename for file part: {}", e);
-            });
+        Body::wrap_stream(stream)
+    }
 
-        let mut form = Form::new();
-        form = form.text("externalId", self.external_id.clone());
-        if let Some(source) = &self.source {
-            form = form.text("source", source.clone());
-        }
-        if let Some(path) = &self.destination_path {
-            form = form.text("path", path.clone());
-        }
+    /// Builds the `X-Datahub-*` and `Content-Type` headers the upload endpoint reads before it
+    /// touches the body. Every value is percent-encoded the way the server decodes it (the path
+    /// segment-by-segment, everything else with `URLDecoder.decode` — including the external id,
+    /// which the server then slug-sanitizes). `metadata` and `relatedResources` go as
+    /// percent-encoded JSON, and the two source dates as percent-encoded ISO-8601 (RFC 3339). An
+    /// omitted/octet-stream content type makes the server auto-detect the MIME type.
+    pub fn upload_headers(&self) -> Vec<(&'static str, String)> {
+        let mut headers = vec![
+            ("X-Datahub-Path", self.encoded_full_path()),
+            (
+                "X-Datahub-External-Id",
+                encode_uri_component(&self.external_id),
+            ),
+        ];
         if let Some(description) = &self.description {
-            form = form.text("description", description.clone());
+            headers.push(("X-Datahub-Description", encode_uri_component(description)));
         }
         if let Some(data_set_id) = &self.data_set_id {
-            form = form.text("dataSetId", data_set_id.to_string());
+            headers.push(("X-Datahub-Dataset-Id", data_set_id.to_string()));
         }
-        if let Some(mime_type) = &self.mime_type {
-            form = form.text("mimeType", mime_type.clone());
+        if let Some(source) = &self.source {
+            headers.push(("X-Datahub-Source", encode_uri_component(source)));
         }
-
-        if let Some(source_date_created) = &self.source_date_created {
-            form = form.text("sourceDateCreated", source_date_created.to_rfc3339());
+        if let Some(created) = &self.source_date_created {
+            headers.push((
+                "X-Datahub-Source-Date-Created",
+                encode_uri_component(&created.to_rfc3339()),
+            ));
         }
-        if let Some(source_last_updated) = &self.source_last_updated {
-            form = form.text("sourceLastUpdated", source_last_updated.to_rfc3339());
+        if let Some(updated) = &self.source_last_updated {
+            headers.push((
+                "X-Datahub-Source-Last-Updated",
+                encode_uri_component(&updated.to_rfc3339()),
+            ));
         }
-
         if let Some(metadata) = &self.metadata {
-            // Serialize metadata to JSON string
-            form = form.text(
-                "metadata",
-                serde_json::to_string(metadata).unwrap_or_default(),
-            );
+            // The server expects a JSON object; percent-encode it so the braces/quotes survive
+            // the header and its URLDecoder.decode round-trips back to valid JSON.
+            let json = serde_json::to_string(metadata).unwrap_or_else(|_| "{}".to_string());
+            headers.push(("X-Datahub-Metadata", encode_uri_component(&json)));
         }
         if let Some(related_resources) = &self.related_resources {
-            let resources_str: Vec<String> =
-                related_resources.iter().map(|&id| id.to_string()).collect();
-            form = form.text("relatedResources", resources_str.join(","));
+            // The server expects a JSON array of ids.
+            let json = serde_json::to_string(related_resources).unwrap_or_else(|_| "[]".to_string());
+            headers.push(("X-Datahub-Related-Resources", encode_uri_component(&json)));
         }
+        let content_type = self
+            .mime_type
+            .clone()
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        headers.push(("Content-Type", content_type));
+        headers
+    }
 
-        // Add the file part last
-        form = form.part("file", file_part);
+    /// The full destination path (folder + filename) the server splits on its last `/`. Defaults
+    /// the folder to the root when no destination path was set.
+    fn full_path(&self) -> String {
+        let folder = self
+            .destination_path
+            .as_deref()
+            .unwrap_or("/")
+            .trim_end_matches('/');
+        if folder.is_empty() {
+            format!("/{}", self.name)
+        } else if folder.starts_with('/') {
+            format!("{}/{}", folder, self.name)
+        } else {
+            format!("/{}/{}", folder, self.name)
+        }
+    }
 
-        form
+    /// Percent-encodes each `/`-separated segment of [`full_path`](Self::full_path) so non-ASCII
+    /// characters and spaces survive the header while the path separators stay literal — matching
+    /// the server's per-segment `URLDecoder.decode`.
+    fn encoded_full_path(&self) -> String {
+        self.full_path()
+            .split('/')
+            .map(encode_uri_component)
+            .collect::<Vec<_>>()
+            .join("/")
     }
 
     pub fn set_external_id(&mut self, external_id: String) {
@@ -239,4 +274,20 @@ impl FileUpload {
     pub fn set_mime_type(&mut self, mime_type: String) {
         self.mime_type = Some(mime_type);
     }
+}
+
+/// Percent-encodes a string the way JavaScript's `encodeURIComponent` does for the unreserved
+/// set, emitting `%XX` (uppercase, UTF-8 bytes) for everything outside `[A-Za-z0-9-_.~]`. The
+/// server decodes these header values with `URLDecoder.decode`, which round-trips this encoding.
+fn encode_uri_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &byte in s.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{:02X}", byte)),
+        }
+    }
+    out
 }

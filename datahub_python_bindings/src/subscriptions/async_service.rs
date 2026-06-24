@@ -87,13 +87,13 @@ impl PySubscriptionsServiceAsync {
     fn listen<'py>(
         &self,
         py: Python<'py>,
-        subscription_external_id: String,
+        subscription_external_ids: Vec<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         future_into_py(py, async move {
             let listener = service
                 .subscriptions
-                .listen(&subscription_external_id)
+                .listen(&subscription_external_ids)
                 .await
                 .map_err(|e| PyException::new_err(e.to_string()))?;
             Ok(PySubscriptionListenerAsync {

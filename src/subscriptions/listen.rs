@@ -8,6 +8,10 @@ use tokio_tungstenite::tungstenite::http;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
+use crate::ApiService;
+use std::sync::Weak;
+use std::time::Duration;
+
 #[derive(Debug, Error)]
 pub enum ListenError {
     #[error("failed to build request: {0}")]
@@ -20,12 +24,18 @@ pub enum ListenError {
     Deserialize(String),
     #[error("failed to serialize client frame: {0}")]
     Serialize(#[from] serde_json::Error),
+    #[error("subscription '{external_id}' error: {reason}")]
+    Subscription { external_id: String, reason: String },
 }
 
 /// One message delivered by the backend. Carries the opaque `message_id` the client must
-/// echo back via [`SubscriptionListener::ack`] / [`SubscriptionListener::nack`].
+/// echo back via [`SubscriptionListener::ack`] / [`SubscriptionListener::nack`], and the
+/// `subscription_external_id` it was delivered for (set from the frame — useful when one
+/// listener multiplexes several subscriptions).
 #[derive(Debug, Deserialize, Clone)]
 pub struct SubscriptionMessage {
+    #[serde(rename = "subscriptionExternalId", default)]
+    pub subscription_external_id: String,
     #[serde(rename = "messageId")]
     pub message_id: String,
     pub payload: DataWrapperMessage,
@@ -91,32 +101,138 @@ pub struct WsDatapoint {
     pub value: String,
 }
 
+/// One message element inside a batch frame. The frame-level `subscriptionExternalId` is applied
+/// to each element when decoded into a [`SubscriptionMessage`].
 #[derive(Debug, Deserialize)]
-struct WsBatch {
-    messages: Vec<SubscriptionMessage>,
+struct RawMessage {
+    #[serde(rename = "messageId")]
+    message_id: String,
+    payload: DataWrapperMessage,
 }
 
-/// Live WebSocket listener for a subscription's fan-out topic.
+#[derive(Debug, Deserialize)]
+struct WsBatch {
+    #[serde(rename = "subscriptionExternalId", default)]
+    subscription_external_id: Option<String>,
+    messages: Vec<RawMessage>,
+}
+
+/// Error frame the server sends when a requested subscription can't be attached (e.g. unknown id).
+#[derive(Debug, Deserialize)]
+struct WsError {
+    #[allow(dead_code)]
+    error: bool,
+    #[serde(rename = "subscriptionExternalId", default)]
+    subscription_external_id: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// A server text frame is either a batch of messages or a subscription error. Untagged: a frame
+/// with `messages` parses as `Batch`; one with `error` parses as `Error`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ServerFrame {
+    Batch(WsBatch),
+    Error(WsError),
+}
+
+/// Outcome of decoding one server text frame.
+pub(crate) enum DecodedFrame {
+    Messages(Vec<SubscriptionMessage>),
+    SubscriptionError { external_id: String, reason: String },
+}
+
+/// Decode a server text frame into either its messages (with the frame's subscription id stamped
+/// onto each) or a subscription error.
+pub(crate) fn decode_text_frame(text: &str) -> Result<DecodedFrame, ListenError> {
+    let parsed: ServerFrame =
+        serde_json::from_str(text).map_err(|e| ListenError::Deserialize(e.to_string()))?;
+    Ok(match parsed {
+        ServerFrame::Batch(batch) => {
+            let sub_id = batch.subscription_external_id.unwrap_or_default();
+            DecodedFrame::Messages(
+                batch
+                    .messages
+                    .into_iter()
+                    .map(|m| SubscriptionMessage {
+                        subscription_external_id: sub_id.clone(),
+                        message_id: m.message_id,
+                        payload: m.payload,
+                    })
+                    .collect(),
+            )
+        }
+        ServerFrame::Error(err) => DecodedFrame::SubscriptionError {
+            external_id: err.subscription_external_id.unwrap_or_default(),
+            reason: err.reason.unwrap_or_else(|| "unknown".to_string()),
+        },
+    })
+}
+
+/// Live WebSocket listener multiplexing one or more subscriptions' fan-out topics.
 ///
 /// Drive it by calling [`SubscriptionListener::next`] in a loop; ack processed messages with
 /// [`SubscriptionListener::ack`]; anything left unacked at close is redelivered by Pulsar on
-/// the next listener to connect with the same subscription external id.
+/// the next listener to connect with the same subscription external id. Add or drop subscriptions
+/// at runtime with [`SubscriptionListener::subscribe`] / [`SubscriptionListener::unsubscribe`] /
+/// [`SubscriptionListener::set_subscriptions`]. Each [`SubscriptionMessage`] carries the
+/// `subscription_external_id` it belongs to.
 ///
 /// The server pings every 15s and closes idle sessions after ~45s. `next` transparently
 /// handles incoming pings, but only while it is being polled — call it often enough that a
 /// pong can be flushed back. Heavy per-message work should run on another task with messages
 /// fanned out through a channel.
+///
+/// If the connection drops (network blip, server restart, idle-close), `next` re-establishes it —
+/// fetching a fresh token and replaying the current interest set, with exponential backoff — so a
+/// transient outage is invisible to the caller. Pulsar redelivers anything left unacked.
 pub struct SubscriptionListener {
     ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
     buffered: VecDeque<SubscriptionMessage>,
+    // Context for transparent reconnects: a fresh token is fetched and the URL is rebuilt from the
+    // current interest set on each attempt, so a dropped connection (network blip, server restart)
+    // is re-established and the same subscriptions resume — without the caller noticing.
+    api_service: Weak<ApiService>,
+    host_base_url: String,
+    interest: Vec<String>,
 }
 
+// Reconnect backoff: a brief blip recovers in well under a second; a longer outage backs off to 30s
+// and gives up after RECONNECT_MAX_RETRIES attempts, surfacing the error so the caller regains
+// control (it may call `next` again to keep trying, or `close`).
+const RECONNECT_INITIAL_BACKOFF: Duration = Duration::from_millis(500);
+const RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(30);
+const RECONNECT_MAX_RETRIES: u32 = 8;
+
 impl SubscriptionListener {
-    pub(crate) async fn connect(ws_url: &str, bearer_token: &str) -> Result<Self, ListenError> {
+    pub(crate) async fn connect(
+        api_service: Weak<ApiService>,
+        host_base_url: String,
+        interest: Vec<String>,
+    ) -> Result<Self, ListenError> {
+        let ws = Self::open(&api_service, &host_base_url, &interest).await?;
+        Ok(SubscriptionListener {
+            ws,
+            buffered: VecDeque::new(),
+            api_service,
+            host_base_url,
+            interest,
+        })
+    }
+
+    /// Fetch a fresh token, build the listen URL from the current interest set, and open the socket.
+    async fn open(
+        api_service: &Weak<ApiService>,
+        host_base_url: &str,
+        interest: &[String],
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, ListenError> {
+        let token = Self::fetch_token(api_service).await?;
+        let ws_url = build_ws_url(host_base_url, interest)?;
         let mut request = ws_url
             .into_client_request()
             .map_err(|e| ListenError::Request(e.to_string()))?;
-        let header_value: http::HeaderValue = format!("Bearer {}", bearer_token)
+        let header_value: http::HeaderValue = format!("Bearer {}", token)
             .parse()
             .map_err(|e: http::header::InvalidHeaderValue| ListenError::Request(e.to_string()))?;
         request.headers_mut().insert("Authorization", header_value);
@@ -124,36 +240,78 @@ impl SubscriptionListener {
         let (ws, _response) = connect_async(request)
             .await
             .map_err(|e| ListenError::Handshake(e.to_string()))?;
-
-        Ok(SubscriptionListener {
-            ws,
-            buffered: VecDeque::new(),
-        })
+        Ok(ws)
     }
 
-    /// Wait for the next message. Returns `None` when the connection has been closed cleanly
-    /// by either side; returns `Some(Err(_))` for transport or deserialization errors.
+    async fn fetch_token(api_service: &Weak<ApiService>) -> Result<String, ListenError> {
+        let service = api_service
+            .upgrade()
+            .ok_or_else(|| ListenError::Request("api service has been dropped".to_string()))?;
+        service
+            .config
+            .get_api_token()
+            .await
+            .map_err(|e| ListenError::Request(format!("failed to get api token: {}", e)))
+    }
+
+    /// Re-establish a dropped connection, replaying the current interest set. Retries with
+    /// exponential backoff up to RECONNECT_MAX_RETRIES, then returns the last error.
+    async fn reconnect(&mut self) -> Result<(), ListenError> {
+        let mut delay = RECONNECT_INITIAL_BACKOFF;
+        let mut last_err = ListenError::WebSocket("connection lost".to_string());
+        for _ in 0..RECONNECT_MAX_RETRIES {
+            tokio::time::sleep(delay).await;
+            match Self::open(&self.api_service, &self.host_base_url, &self.interest).await {
+                Ok(ws) => {
+                    self.ws = ws;
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_err = e;
+                    delay = (delay * 2).min(RECONNECT_MAX_BACKOFF);
+                }
+            }
+        }
+        Err(last_err)
+    }
+
+    /// Wait for the next message. Transparently reconnects (fresh token, current interest set, with
+    /// backoff) when the connection drops, so brief outages and server restarts are invisible to the
+    /// caller. Returns `Some(Err(_))` only when a reconnect ultimately fails or a frame can't be
+    /// decoded — calling `next` again after that resumes the reconnect attempts.
     pub async fn next(&mut self) -> Option<Result<SubscriptionMessage, ListenError>> {
         loop {
             if let Some(msg) = self.buffered.pop_front() {
                 return Some(Ok(msg));
             }
             let frame = match self.ws.next().await {
-                None => return None,
                 Some(Ok(f)) => f,
-                Some(Err(e)) => return Some(Err(ListenError::WebSocket(e.to_string()))),
+                // Stream ended or a transport error — the connection is gone; re-establish it.
+                None | Some(Err(_)) => match self.reconnect().await {
+                    Ok(()) => continue,
+                    Err(e) => return Some(Err(e)),
+                },
             };
             match frame {
-                Message::Text(text) => {
-                    let batch: WsBatch = match serde_json::from_str(&text) {
-                        Ok(b) => b,
-                        Err(e) => return Some(Err(ListenError::Deserialize(e.to_string()))),
-                    };
-                    for m in batch.messages {
-                        self.buffered.push_back(m);
+                Message::Text(text) => match decode_text_frame(&text) {
+                    Ok(DecodedFrame::Messages(messages)) => {
+                        for m in messages {
+                            self.buffered.push_back(m);
+                        }
                     }
-                }
-                Message::Close(_) => return None,
+                    // A subscription-level error (e.g. unknown id) is surfaced to the caller but
+                    // does NOT close the socket — keep calling `next` to receive from the other
+                    // subscriptions on this connection.
+                    Ok(DecodedFrame::SubscriptionError { external_id, reason }) => {
+                        return Some(Err(ListenError::Subscription { external_id, reason }));
+                    }
+                    Err(e) => return Some(Err(e)),
+                },
+                // Peer initiated close (e.g. idle timeout) — reconnect rather than ending the stream.
+                Message::Close(_) => match self.reconnect().await {
+                    Ok(()) => continue,
+                    Err(e) => return Some(Err(e)),
+                },
                 // Ping / Pong / Binary / raw Frame — tungstenite queues a pong for pings and
                 // flushes it on the next write. Loop and keep reading.
                 _ => continue,
@@ -171,6 +329,37 @@ impl SubscriptionListener {
         self.send_action("nack", message_ids).await
     }
 
+    /// Add subscriptions to the live set without reconnecting. The interest set is also updated so a
+    /// later reconnect replays it.
+    pub async fn subscribe<S: AsRef<str>>(&mut self, external_ids: &[S]) -> Result<(), ListenError> {
+        for id in external_ids {
+            let id = id.as_ref().to_string();
+            if !self.interest.contains(&id) {
+                self.interest.push(id);
+            }
+        }
+        self.send_interest("subscribe", external_ids).await
+    }
+
+    /// Remove subscriptions from the live set.
+    pub async fn unsubscribe<S: AsRef<str>>(
+        &mut self,
+        external_ids: &[S],
+    ) -> Result<(), ListenError> {
+        let removing: Vec<String> = external_ids.iter().map(|s| s.as_ref().to_string()).collect();
+        self.interest.retain(|id| !removing.contains(id));
+        self.send_interest("unsubscribe", external_ids).await
+    }
+
+    /// Replace the whole live set of subscriptions.
+    pub async fn set_subscriptions<S: AsRef<str>>(
+        &mut self,
+        external_ids: &[S],
+    ) -> Result<(), ListenError> {
+        self.interest = external_ids.iter().map(|s| s.as_ref().to_string()).collect();
+        self.send_interest("set", external_ids).await
+    }
+
     async fn send_action<S: AsRef<str>>(
         &mut self,
         action: &str,
@@ -180,6 +369,22 @@ impl SubscriptionListener {
         let frame = serde_json::to_string(&serde_json::json!({
             "action": action,
             "messageIds": ids,
+        }))?;
+        self.ws
+            .send(Message::Text(frame.into()))
+            .await
+            .map_err(|e| ListenError::WebSocket(e.to_string()))
+    }
+
+    async fn send_interest<S: AsRef<str>>(
+        &mut self,
+        action: &str,
+        external_ids: &[S],
+    ) -> Result<(), ListenError> {
+        let ids: Vec<&str> = external_ids.iter().map(|s| s.as_ref()).collect();
+        let frame = serde_json::to_string(&serde_json::json!({
+            "action": action,
+            "externalIds": ids,
         }))?;
         self.ws
             .send(Message::Text(frame.into()))
@@ -199,18 +404,31 @@ impl SubscriptionListener {
     }
 }
 
-/// Convert the REST base URL (`http(s)://…/subscriptions`) to the WebSocket listen URL
-/// (`ws(s)://…/subscriptions/listen/<external_id>`).
-pub(crate) fn build_ws_url(rest_base_url: &str, external_id: &str) -> Result<String, ListenError> {
-    let ws_base = if let Some(rest) = rest_base_url.strip_prefix("https://") {
+/// Convert the host base URL (`http(s)://<host>`) to the WebSocket listen URL
+/// (`ws(s)://<host>/timeseries/datapoints/subscription/listen[/<id>/<id>...]`). Each external id
+/// becomes a path segment that seeds the initial subscription set; pass an empty slice to connect
+/// with none and subscribe dynamically.
+pub(crate) fn build_ws_url<S: AsRef<str>>(
+    host_base_url: &str,
+    external_ids: &[S],
+) -> Result<String, ListenError> {
+    let ws_base = if let Some(rest) = host_base_url.strip_prefix("https://") {
         format!("wss://{}", rest)
-    } else if let Some(rest) = rest_base_url.strip_prefix("http://") {
+    } else if let Some(rest) = host_base_url.strip_prefix("http://") {
         format!("ws://{}", rest)
     } else {
         return Err(ListenError::Request(format!(
             "base_url must start with http:// or https://, got {}",
-            rest_base_url
+            host_base_url
         )));
     };
-    Ok(format!("{}/listen/{}", ws_base, external_id))
+    let mut url = format!(
+        "{}/timeseries/datapoints/subscription/listen",
+        ws_base.trim_end_matches('/')
+    );
+    for id in external_ids {
+        url.push('/');
+        url.push_str(id.as_ref());
+    }
+    Ok(url)
 }

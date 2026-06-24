@@ -452,6 +452,12 @@ impl From<SubscriptionMessage> for PySubscriptionMessage {
 
 #[pymethods]
 impl PySubscriptionMessage {
+    /// The subscription this message was delivered for (useful when one listener multiplexes
+    /// several subscriptions).
+    #[getter]
+    fn subscription_external_id(&self) -> &str {
+        &self.inner.subscription_external_id
+    }
     #[getter]
     fn message_id(&self) -> &str {
         &self.inner.message_id

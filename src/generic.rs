@@ -6,7 +6,6 @@ use crate::unit::UnitsService;
 use crate::ApiService;
 use chrono::{DateTime, TimeZone, Utc};
 use oauth2::http;
-use reqwest::multipart::Form;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -710,37 +709,33 @@ pub trait ApiServiceProvider {
         }
     }
 
+    /// Uploads a file with a raw `PUT`: the file content is the request body and all metadata
+    /// travels in headers (`X-Datahub-Path`, `X-Datahub-External-Id`, `X-Datahub-Dataset-Id`,
+    /// `X-Datahub-Description`, `Content-Type`). The server validates and authorises the upload
+    /// from the headers before it reads a single body byte.
     async fn execute_file_upload_request<T: DeserializeOwned + DataWrapperDeserialization>(
         &self,
         path: &str,
-        multipart_form: Form,
+        body: reqwest::Body,
+        headers: Vec<(&str, String)>,
     ) -> Result<T, ResponseError> {
         let token = self.get_token().await?;
 
-        let response = self
+        let mut request = self
             .get_api_service()
             .http_client
             .put(path)
-            .multipart(multipart_form)
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(|err| {
-                eprintln!("HTTP file upload request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
-        if response.status() == 201 {
-            // Return deserialized `T` with an empty body and the HTTP status code
-            T::deserialize_and_set_status("", response.status().as_u16()).map_err(|err| {
-                eprintln!("Failed to create object from empty response: {}", err);
-                ResponseError {
-                    status: response.status(),
-                    message: err.to_string(),
-                }
-            })
-        } else {
-            process_response::<T>(response, path).await
+            .body(body)
+            .bearer_auth(token);
+        for (name, value) in headers {
+            request = request.header(name, value);
         }
+
+        let response = request.send().await.map_err(|err| {
+            eprintln!("HTTP file upload request failed: {}", err);
+            ResponseError::from_err(err)
+        })?;
+        process_response::<T>(response, path).await
     }
 }
 

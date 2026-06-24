@@ -128,7 +128,7 @@ def test_datapoints_heavy(sync_client):
         )
 
         # Wait for ClickHouse to ingest the insert.
-        sleep(60)
+        sleep(90)
 
         # --- raw retrieval (100k limit), values bounded to [160, 200] ---------
         start = pd.Timestamp("2025-01-01", tz="UTC")
@@ -155,7 +155,7 @@ def test_datapoints_heavy(sync_client):
         assert len(dps) == 3600
 
         # Wait again for the merge before aggregate queries.
-        sleep(60)
+        sleep(90)
 
         # --- daily aggregates -------------------------------------------------
         rf = datahub_sdk.RetrieveFilter(
@@ -187,7 +187,7 @@ def test_datapoints_heavy(sync_client):
             ts=created, inclusive_begin=delete_after
         )
         sync_client.timeseries.delete_datapoints([delete_filter])
-        sleep(60)
+        sleep(90)
 
         rf = datahub_sdk.RetrieveFilter(
             ts=created,
