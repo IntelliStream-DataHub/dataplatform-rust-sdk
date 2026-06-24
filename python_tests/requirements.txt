@@ -1,0 +1,16 @@
+# Dependencies for building and running the Python tests.
+# Install into an active virtual environment with:
+#     pip install -r python_tests/requirements.txt
+
+# Builds and installs the datahub_sdk PyO3 bindings into the venv.
+# Pinned to match the build-system requirement in datahub_python_bindings/pyproject.toml.
+maturin>=1.0,<2.0
+
+# Test runner. pytest-asyncio backs the @pytest.mark.asyncio async tests.
+pytest
+pytest-asyncio
+
+# Used by the time-series fixtures and tests.
+numpy
+pandas
+polars

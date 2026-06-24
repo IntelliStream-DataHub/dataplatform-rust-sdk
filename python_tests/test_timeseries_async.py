@@ -86,19 +86,26 @@ async def test_insert(async_client,timestamps,values,value_type):
     test_insert_ts = datahub_sdk.TimeSeries(name="test insert",value_type=value_type,unit="a.u")
     await async_client.timeseries.delete([test_insert_ts])
 
-    await async_client.timeseries.create([test_insert_ts])
-    if value_type == "bigint":
-        data = [datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
-    elif value_type == "float":
-        data = [datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
+    created = (await async_client.timeseries.create([test_insert_ts]))[0]
+    try:
+        if value_type == "bigint":
+            data = [datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
+        elif value_type == "float":
+            data = [datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
 
-    vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=test_insert_ts)
-    inserted_datapoints = await async_client.timeseries.insert_datapoints(input=[vals])
-    retrieved_datapoints = await async_client.timeseries.retrieve_datapoints(datahub_sdk.RetrieveFilter(
-        start=pd.Timestamp("2019-01-01",tz="UTC"),
-        end=pd.Timestamp("2025-01-01",tz="UTC"),
-        ts=test_insert_ts))
-    assert retrieved_datapoints
+        vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=test_insert_ts)
+        inserted_datapoints = await async_client.timeseries.insert_datapoints(input=[vals])
+        retrieved_datapoints = await async_client.timeseries.retrieve_datapoints(datahub_sdk.RetrieveFilter(
+            start=pd.Timestamp("2019-01-01",tz="UTC"),
+            end=pd.Timestamp("2025-01-01",tz="UTC"),
+            ts=test_insert_ts))
+        assert retrieved_datapoints
+    finally:
+        # Delete the series (and its datapoints) created by this test.
+        try:
+            await async_client.timeseries.delete([created])
+        except Exception:
+            pass
 
 
 
