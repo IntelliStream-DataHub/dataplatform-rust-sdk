@@ -110,6 +110,19 @@ async def test_insert(async_client,timestamps,values,value_type):
             pass
 
 
+@pytest.mark.asyncio
+async def test_insert_datapoints_missing_timeseries_returns_not_found(async_client):
+    nonexistent = datahub_sdk.TimeSeries(
+        external_id="nonexistent_ts_for_404_test",
+        value_type="float",
+        unit="a.u",
+    )
+    dp = datahub_sdk.DatapointString.from_float(pd.Timestamp("2025-01-01", tz="UTC"), 42.0)
+    vals = datahub_sdk.DatapointsCollectionString(datapoints=[dp], ts=nonexistent)
+    with pytest.raises(datahub_sdk.DataHubException) as exc_info:
+        await async_client.timeseries.insert_datapoints(input=[vals])
+    assert exc_info.value.status_code == 404
+    assert "Could not find following timeseries" in exc_info.value.message
 
 
 
