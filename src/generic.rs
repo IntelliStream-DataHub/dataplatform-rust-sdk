@@ -21,6 +21,7 @@ pub struct IdAndExtId {
     // todo Implement this as an enum, would allow for better validation
     // and make it impossible to not provide any id
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "externalId")]
@@ -173,6 +174,7 @@ impl DatapointEpoch {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatapointsCollection<T> {
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     #[serde(rename = "externalId")]
     pub external_id: Option<String>,
@@ -243,6 +245,7 @@ impl<T> DatapointsCollection<T> {
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RelationForm {
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     pub external_id: Option<String>,
     pub relationship_type: String,
@@ -320,6 +323,7 @@ impl SearchForm {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DeleteFilter {
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     #[serde(rename = "externalId")]
     pub external_id: Option<String>,
@@ -375,6 +379,7 @@ pub struct RetrieveFilter {
     pub aggregates: Option<Vec<String>>,
     pub granularity: Option<String>,
     pub cursor: Option<String>,
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     pub external_id: Option<String>,
 }
@@ -844,6 +849,7 @@ impl DataWrapperDeserialization for String {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct INode {
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     pub name: String,
     pub description: Option<String>,
@@ -865,10 +871,12 @@ pub struct INode {
     #[serde(rename = "lastUpdated")]
     pub last_updated: DateTime<Utc>,
     #[serde(rename = "parentId")]
+    #[serde(default, with = "crate::serde_helper::opt_string_id_i64")]
     pub parent_id: Option<i64>,
     #[serde(rename = "parentExternalId")]
     pub parent_external_id: Option<String>,
     #[serde(rename = "dataSetId")]
+    #[serde(default, with = "crate::serde_helper::opt_string_id_i64")]
     pub data_set_id: Option<i64>,
     pub metadata: Option<HashMap<String, String>>,
     #[serde(rename = "relatedResources")]

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 #[serde(rename_all = "camelCase")]
 pub struct BasicEventFilter {
     //#[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     //#[serde(skip_serializing_if = "Option::is_none")]
     pub external_id_prefix: Option<String>,

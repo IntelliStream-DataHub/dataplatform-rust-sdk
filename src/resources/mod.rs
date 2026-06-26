@@ -108,12 +108,14 @@ impl ResourceService {
 pub struct Resource {
     // used to be a serde skip if zero here. don't understand why
     // todo implement a smooth way to convert "datahub entities" to id-collections
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     pub external_id: String,
     pub name: String,
     pub metadata: Option<HashMap<String, String>>,
     pub description: Option<String>,
     pub is_root: bool,
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub data_set_id: Option<u64>,
     pub source: Option<String>,
     pub labels: Option<Vec<String>>,

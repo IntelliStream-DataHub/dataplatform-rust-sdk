@@ -43,6 +43,7 @@ impl UnitsService {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Unit {
+    #[serde(default, with = "crate::serde_helper::string_id")]
     pub id: u64,
     pub external_id: String,
     pub name: String,

@@ -80,6 +80,7 @@ impl SubscriptionsService {
 #[serde(rename_all = "camelCase")]
 pub struct Subscription {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     pub external_id: String,
     pub name: String,

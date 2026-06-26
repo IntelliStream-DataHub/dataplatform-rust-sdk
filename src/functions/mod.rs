@@ -112,6 +112,7 @@ impl FunctionsService {
 #[serde(rename_all = "camelCase")]
 pub struct Function {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     pub external_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]

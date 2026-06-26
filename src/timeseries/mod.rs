@@ -294,6 +294,7 @@ impl TimeSeriesService {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeries {
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     #[serde(rename = "externalId")]
     pub external_id: String,
@@ -306,6 +307,7 @@ pub struct TimeSeries {
     #[serde(rename = "securityCategories")]
     pub security_categories: Option<Vec<u64>>,
     #[serde(rename = "dataSetId")]
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub data_set_id: Option<u64>,
     #[serde(rename = "valueType")]
     pub value_type: String,
@@ -461,6 +463,7 @@ impl TimeSeriesUpdateFields {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeriesUpdate {
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     #[serde(rename = "externalId")]
     pub external_id: Option<String>,
