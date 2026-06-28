@@ -230,3 +230,49 @@ async fn test_create_with_empty_relations() -> Result<(), ResponseError> {
     resource_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
     Ok(())
 }
+
+/// Pure deserialization test (no backend): a fetch-related response where two sensors
+/// are both `PART_OF` the cooling system proves the shared-subsystem reasoning.
+#[test]
+fn fetch_related_deserializes_shared_subsystem() {
+    let body = r#"{
+        "nodes": [
+            {"id":"1","externalId":"cooling_system","name":"Cooling system","isRoot":false},
+            {"id":"2","externalId":"sensor_a","name":"Sensor A","isRoot":false},
+            {"id":"3","externalId":"sensor_b","name":"Sensor B","isRoot":false}
+        ],
+        "edges": [
+            {"id":"10","start":2,"end":1,"type":"PART_OF"},
+            {"id":"11","start":3,"end":1,"type":"PART_OF"}
+        ],
+        "labels": [
+            {"id":"1","name":"SYSTEM"}
+        ]
+    }"#;
+
+    let network: ResourceNetwork = serde_json::from_str(body).unwrap();
+
+    assert_eq!(network.nodes().len(), 3);
+    assert_eq!(network.edges().len(), 2);
+    assert_eq!(network.labels().len(), 1);
+
+    // string ids coerced to u64
+    let cooling_id = network
+        .nodes()
+        .iter()
+        .find(|n| n.external_id == "cooling_system")
+        .and_then(|n| n.id)
+        .unwrap();
+    assert_eq!(cooling_id, 1);
+
+    // both sensors' edges point at the same node — their shared subsystem
+    let targets: std::collections::HashSet<u64> =
+        network.edges().iter().filter_map(|e| e.end).collect();
+    assert_eq!(targets, std::collections::HashSet::from([cooling_id]));
+
+    // and the edge type round-trips from the wire `type` field
+    assert!(network
+        .edges()
+        .iter()
+        .all(|e| e.relationship_type.as_deref() == Some("PART_OF")));
+}
