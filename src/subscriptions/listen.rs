@@ -82,6 +82,7 @@ pub struct DataCollectionString {
     #[serde(default)]
     pub datapoints: Vec<WsDatapoint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,

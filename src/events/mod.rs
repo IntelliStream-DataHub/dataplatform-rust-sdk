@@ -81,6 +81,7 @@ pub struct Event {
     pub r#type: Option<String>,
     pub sub_type: Option<String>,
     pub status: Option<String>,
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub data_set_id: Option<u64>,
     #[serde(skip_serializing)]
     pub created_time: Option<DateTime<Utc>>,

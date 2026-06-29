@@ -78,6 +78,7 @@ pub struct FileUpload {
     pub description: Option<String>,
     pub source: Option<String>,
     #[serde(rename = "dataSetId")]
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub data_set_id: Option<u64>,
     #[serde(rename = "mimeType")]
     pub mime_type: Option<String>,

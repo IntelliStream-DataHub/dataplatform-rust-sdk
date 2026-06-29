@@ -93,6 +93,7 @@ impl DatasetsService {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Dataset {
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     //@NotNull
     //@Size(min= 3, max = 256)

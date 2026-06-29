@@ -14,6 +14,7 @@ use std::collections::HashMap;
 #[serde(rename_all = "camelCase")]
 pub struct EdgeProxy {
     #[serde(default)]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     #[serde(default)]
     pub start: Option<u64>,
@@ -24,6 +25,7 @@ pub struct EdgeProxy {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
     pub relationship_type_id: Option<u64>,
     #[serde(default)]
     pub metadata: HashMap<String, String>,
@@ -37,21 +39,26 @@ pub struct EdgeProxy {
 #[serde(rename_all = "camelCase")]
 pub struct RelForm {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_external_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub to_external_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
     pub from_id: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
     pub to_id: Option<u64>,
     pub relationship_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
     pub relationship_type_id: Option<u64>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
     pub data_set_id: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
