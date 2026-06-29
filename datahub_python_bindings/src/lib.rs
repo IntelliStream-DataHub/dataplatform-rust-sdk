@@ -595,6 +595,8 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyUnitServiceAsync>()?;
     m.add_class::<PyUnit>()?;
     m.add_class::<PyResource>()?;
+    m.add_class::<crate::resources::PyResourceNetwork>()?;
+    m.add_class::<crate::resources::PyLabel>()?;
     m.add_class::<PyFieldU64>()?;
     m.add_class::<PyListFieldU64>()?;
     m.add_class::<PyFieldStr>()?;

@@ -3,7 +3,8 @@ mod tests;
 
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{
-    ApiServiceProvider, DataWrapper, IdAndExtId, Identifiable, RelationForm, SearchAndFilterForm,
+    ApiServiceProvider, DataWrapper, DataWrapperDeserialization, IdAndExtId, Identifiable,
+    RelationForm, SearchAndFilterForm,
 };
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::{process_response, ResponseError};
@@ -75,6 +76,23 @@ impl ResourceService {
     ) -> Result<DataWrapper<Resource>, ResponseError> {
         let url = &format!("{}/search", self.base_url);
         self.execute_post_request::<DataWrapper<Resource>, _>(&url, &payload)
+            .await
+    }
+
+    /// Walk the graph outward from a starting resource and return the connected
+    /// sub-graph: the [`ResourceNetwork`] of nodes, the edges between them, and their
+    /// labels. Mirrors `POST /resources/fetch-related`. Traversal is undirected and
+    /// bounded by [`RelatedResourcesForm::depth`] (default `-1` = the whole connected
+    /// component), optionally filtered to specific relationship types.
+    ///
+    /// Use it to reason about how things relate — e.g. whether two alarmed sensors
+    /// share a common subsystem — which a flat [`by_ids`](Self::by_ids) read cannot answer.
+    pub async fn fetch_related(
+        &self,
+        form: &RelatedResourcesForm,
+    ) -> Result<ResourceNetwork, ResponseError> {
+        let url = &format!("{}/fetch-related", self.base_url);
+        self.execute_post_request::<ResourceNetwork, _>(&url, &form)
             .await
     }
     pub async fn update<I>(&self, input: &I) -> Result<DataWrapper<Resource>, ResponseError>
@@ -181,4 +199,111 @@ pub struct ResourceUpdateFields {
     metadata: MapField,
     source: Field<String>,
     labels: ListField<String>,
+}
+
+/// Request body for [`ResourceService::fetch_related`] (`POST /resources/fetch-related`).
+/// Identify the start node by `id` or `external_id`; `depth` bounds the traversal
+/// (`-1` = the whole connected component), `relationship_types` filters which edge
+/// types to follow (empty = all), and `limit` caps the returned node count.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedResourcesForm {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
+    pub id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    pub depth: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_types: Option<Vec<String>>,
+    pub limit: i32,
+    #[serde(default)]
+    pub excluded_labels: Vec<String>,
+}
+
+impl RelatedResourcesForm {
+    /// Start from the resource with this external id, with the server defaults
+    /// (`depth = -1` = whole component, `limit = 5000`).
+    pub fn from_external_id(external_id: &str) -> Self {
+        Self {
+            id: None,
+            external_id: Some(external_id.to_string()),
+            depth: -1,
+            relationship_types: None,
+            limit: 5000,
+            excluded_labels: vec![],
+        }
+    }
+
+    /// Start from the resource with this numeric id, with the server defaults.
+    pub fn from_id(id: u64) -> Self {
+        Self {
+            id: Some(id),
+            external_id: None,
+            depth: -1,
+            relationship_types: None,
+            limit: 5000,
+            excluded_labels: vec![],
+        }
+    }
+
+    /// Bound the traversal to `depth` hops.
+    pub fn with_depth(mut self, depth: i32) -> Self {
+        self.depth = depth;
+        self
+    }
+
+    /// Only follow these relationship types (e.g. `["PART_OF"]`).
+    pub fn with_relationship_types(mut self, types: Vec<String>) -> Self {
+        self.relationship_types = Some(types);
+        self
+    }
+}
+
+/// A graph label as returned in a [`ResourceNetwork`].
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Label {
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
+    pub id: Option<u64>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// The result of a graph traversal ([`ResourceService::fetch_related`]): the connected
+/// sub-graph reachable from a starting resource. `nodes` are the resources, `edges` the
+/// relationships between them (directional `start` -> `end`, though traversal is
+/// undirected), and `labels` the label catalogue for those nodes.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceNetwork {
+    #[serde(default)]
+    pub nodes: Vec<Resource>,
+    #[serde(default)]
+    pub edges: Vec<EdgeProxy>,
+    #[serde(default)]
+    pub labels: Vec<Label>,
+}
+
+impl ResourceNetwork {
+    pub fn nodes(&self) -> &Vec<Resource> {
+        &self.nodes
+    }
+    pub fn edges(&self) -> &Vec<EdgeProxy> {
+        &self.edges
+    }
+    pub fn labels(&self) -> &Vec<Label> {
+        &self.labels
+    }
+}
+
+impl DataWrapperDeserialization for ResourceNetwork {
+    fn deserialize_and_set_status(body: &str, _status_code: u16) -> Result<Self, serde_json::Error> {
+        if body.is_empty() {
+            return Ok(ResourceNetwork::default());
+        }
+        serde_json::from_str(body)
+    }
 }

@@ -1,8 +1,9 @@
 use crate::relations::{PyGraphResult, PyRelForm};
-use crate::resources::ResourceIdentifiable;
+use crate::resources::{PyResourceNetwork, ResourceIdentifiable};
 use crate::{PyResource, PySearchAndFilterForm};
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::relations::RelForm;
+use dataplatform_rust_sdk::resources::RelatedResourcesForm;
 use dataplatform_rust_sdk::{ApiService, Resource};
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -112,6 +113,36 @@ impl PyResourcesServiceAsync {
                 .map(|r| PyResource { inner: r.clone() })
                 .collect();
             Ok(py_res)
+        })
+    }
+
+    /// Walk the graph from a starting resource and return the connected sub-graph.
+    #[pyo3(signature = (external_id=None, id=None, depth=-1, relationship_types=None, limit=5000))]
+    fn fetch_related<'py>(
+        &self,
+        py: Python<'py>,
+        external_id: Option<String>,
+        id: Option<u64>,
+        depth: i32,
+        relationship_types: Option<Vec<String>>,
+        limit: i32,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let form = RelatedResourcesForm {
+            id,
+            external_id,
+            depth,
+            relationship_types,
+            limit,
+            excluded_labels: vec![],
+        };
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .resources
+                .fetch_related(&form)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(PyResourceNetwork::from_network(result))
         })
     }
 }

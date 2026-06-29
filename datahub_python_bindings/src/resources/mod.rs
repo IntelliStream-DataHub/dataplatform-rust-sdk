@@ -219,3 +219,72 @@ impl PyResource {
         self.inner.last_updated_time
     }
 }
+
+/// A graph label inside a [`PyResourceNetwork`].
+#[pyclass(module = "datahub_sdk", name = "Label")]
+#[derive(Clone)]
+pub struct PyLabel {
+    pub inner: dataplatform_rust_sdk::resources::Label,
+}
+
+impl From<dataplatform_rust_sdk::resources::Label> for PyLabel {
+    fn from(inner: dataplatform_rust_sdk::resources::Label) -> Self {
+        Self { inner }
+    }
+}
+
+#[pymethods]
+impl PyLabel {
+    #[getter]
+    fn id(&self) -> Option<u64> {
+        self.inner.id
+    }
+    #[getter]
+    fn name(&self) -> Option<&str> {
+        self.inner.name.as_deref()
+    }
+    #[getter]
+    fn description(&self) -> Option<&str> {
+        self.inner.description.as_deref()
+    }
+}
+
+/// Result of a graph traversal (`resources.fetch_related(...)`): the connected
+/// sub-graph of `nodes`, the `edges` between them, and their `labels`.
+#[pyclass(module = "datahub_sdk", name = "ResourceNetwork")]
+#[derive(Clone)]
+pub struct PyResourceNetwork {
+    pub nodes: Vec<PyResource>,
+    pub edges: Vec<PyEdgeProxy>,
+    pub labels: Vec<PyLabel>,
+}
+
+impl PyResourceNetwork {
+    pub fn from_network(network: dataplatform_rust_sdk::resources::ResourceNetwork) -> Self {
+        Self {
+            nodes: network
+                .nodes
+                .into_iter()
+                .map(|r| PyResource { inner: r })
+                .collect(),
+            edges: network.edges.into_iter().map(PyEdgeProxy::from).collect(),
+            labels: network.labels.into_iter().map(PyLabel::from).collect(),
+        }
+    }
+}
+
+#[pymethods]
+impl PyResourceNetwork {
+    #[getter]
+    fn nodes(&self) -> Vec<PyResource> {
+        self.nodes.clone()
+    }
+    #[getter]
+    fn edges(&self) -> Vec<PyEdgeProxy> {
+        self.edges.clone()
+    }
+    #[getter]
+    fn labels(&self) -> Vec<PyLabel> {
+        self.labels.clone()
+    }
+}
