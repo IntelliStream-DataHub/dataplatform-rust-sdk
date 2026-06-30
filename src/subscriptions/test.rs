@@ -323,11 +323,10 @@ mod tests {
         assert_eq!(back, serde_json::json!("RESOURCE_AND_RELATION"));
     }
 
-    // End-to-end: requires backend consumer running so datapoints written via the REST API are
-    // fanned out over Pulsar to the subscription topic. Ignored by default. Run with:
-    //   cargo test subscriptions::test::tests::test_subscription_listen_end_to_end -- --ignored --nocapture
+    // End-to-end: requires the backend consumer running so datapoints written via the REST API are
+    // fanned out over Pulsar to the subscription topic. See it live with:
+    //   cargo test subscriptions::test::tests::test_subscription_listen_end_to_end -- --nocapture
     #[tokio::test]
-    #[ignore]
     async fn test_subscription_listen_end_to_end() -> Result<(), Box<dyn std::error::Error>> {
         use chrono::Utc;
         use std::time::Duration;
