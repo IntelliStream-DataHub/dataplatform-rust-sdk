@@ -1,12 +1,12 @@
 //! Integration tests for durable buffering and event UUID v7 ids.
 //!
-//! The offline tests run under a plain `cargo test` (they point the client at an unreachable port,
-//! so ingestion buffers to disk). The `#[ignore]` tests need a live backend and a `.env`
-//! (`BASE_URL` + `TOKEN` or the OAuth2 set); run them with:
-//!   `cargo test --test-threads=1 -- --ignored buffering`
+//! The offline tests point the client at an unreachable port, so ingestion buffers to disk without a
+//! backend. The live tests need a `.env` (`BASE_URL` + `TOKEN` or the OAuth2 set) and a reachable
+//! backend, like the rest of this crate's integration tests.
 
 use crate::datahub::DataHubApi;
 use crate::events::Event;
+use crate::generic::{DataWrapper, IdAndExtId};
 use crate::{create_api_service, ApiService, TimeSeries};
 use chrono::Utc;
 use std::path::PathBuf;
@@ -116,10 +116,9 @@ async fn event_without_event_time_is_rejected() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// --- Live tests (require a backend; run with `-- --ignored`) ------------------------------------
+// --- Live tests (require a backend + .env) ------------------------------------------------------
 
 #[tokio::test]
-#[ignore]
 async fn live_datapoint_buffering_roundtrip() {
     let dir = temp_dir();
     let mut config = DataHubApi::from_envfile(None).expect("BASE_URL + auth in .env");
@@ -146,11 +145,14 @@ async fn live_datapoint_buffering_roundtrip() {
     // Backend is reachable, so the live send (and any backlog) should go through, not buffer.
     assert!(matches!(r.get_http_status_code(), Some(204) | Some(200)));
     assert_eq!(service.time_series.buffered_count(), 0, "spool should be empty after a live flush");
+
+    // teardown: delete the series (and its datapoints) so re-runs start clean
+    let cleanup = DataWrapper::from_vec(vec![IdAndExtId::from_external_id("rust_buffer_test_series")]);
+    let _ = service.time_series.delete(&cleanup).await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
-#[ignore]
 async fn live_event_gets_uuid_v7_id() {
     let service = create_api_service();
     let mut ev = Event::new("rust_uuid_v7_event".to_string());
