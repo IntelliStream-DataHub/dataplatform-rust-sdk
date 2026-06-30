@@ -11,6 +11,27 @@ config from the repo-root `.env` file.
 
 ---
 
+## Quick start
+
+From the repo root, run the wrapper script — it creates the venv, installs the test
+dependencies, **rebuilds the bindings** (`maturin develop`), and runs pytest:
+
+```bash
+./run_python_tests.sh                              # set up + run the whole suite
+./run_python_tests.sh -k timeseries                # extra args are forwarded to pytest
+./run_python_tests.sh python_tests/test_units.py   # run a single file or ::test
+./run_python_tests.sh --help                       # all flags (--release, --no-build, ...)
+```
+
+The script always runs `maturin develop` before the tests, so a stale `.so` can't
+masquerade as a source bug — the tests always reflect your current Rust code. You still
+need a reachable backend and a valid `.env` (see [Backend config](#backend-config)).
+
+The rest of this document explains the same steps manually, for when you want to run them
+piecemeal or debug the setup.
+
+---
+
 ## Prerequisites
 
 - **Rust toolchain** (`cargo`) — needed to compile the bindings.
@@ -123,6 +144,15 @@ python -m pytest python_tests -v                                 # verbose: one 
 
 ## Quick start (copy-paste)
 
+The wrapper script does all of this for you:
+
+```bash
+cd /home/olav/projects/git/dataplatform-rust-sdk
+./run_python_tests.sh
+```
+
+Or run the equivalent steps by hand:
+
 ```bash
 cd /home/olav/projects/git/dataplatform-rust-sdk
 python3 -m venv .venv
@@ -151,6 +181,7 @@ python -m pytest python_tests
 - **Auth (401) or connection errors** — check `BASE_URL` and `TOKEN` (or the OAuth2
   variables) in `.env`, and confirm the backend is running and reachable.
 - **Stale behavior after editing Rust code** — re-run `maturin develop`; the tests use the
-  compiled module, not the `.rs` sources.
+  compiled module, not the `.rs` sources. `./run_python_tests.sh` does this automatically
+  on every run, so prefer it over invoking `pytest` directly.
 - **Tests that create/delete backend state are race-sensitive** — they `sleep` between
   operations and can be flaky under load; re-run or run a single file in isolation.
