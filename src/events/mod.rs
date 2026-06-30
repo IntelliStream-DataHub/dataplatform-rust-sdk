@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests;
 
-use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
+use crate::buffer::DurableSpool;
+use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubApi};
 use crate::filters::EventFilter;
 use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId};
 use crate::http::ResponseError;
@@ -9,12 +10,14 @@ use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Weak;
+use std::sync::{Mutex, Weak};
 use uuid::Uuid;
 
 pub struct EventsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
+    // Durable spool for event ingestion (lazily opened on first buffered send; None if buffering off).
+    spool: Mutex<Option<DurableSpool>>,
 }
 
 impl EventsService {
@@ -23,6 +26,7 @@ impl EventsService {
         EventsService {
             api_service,
             base_url,
+            spool: Mutex::new(None),
         }
     }
 
@@ -30,10 +34,126 @@ impl EventsService {
     where
         for<'a> &'a I: Into<DataWrapper<Event>>,
     {
-        let dw = data.into();
-        let path = &format!("{}/create", self.base_url);
-        self.execute_post_request::<DataWrapper<Event>, _>(path, &dw)
+        let mut dw = data.into();
+        // Stamp a stable, time-ordered UUID v7 on each event that lacks an id, before the first send.
+        // The server honors a client-supplied id, so a retry (e.g. from the durable buffer) carries the
+        // same id and the events ReplacingMergeTree (ORDER BY id) collapses the duplicate instead of
+        // creating a new row. v7 is time-ordered, which keeps that id sort key well clustered.
+        for event in dw.get_items_mut() {
+            if event.id.is_none() {
+                event.id = Some(Uuid::now_v7());
+            }
+        }
+        let path = format!("{}/create", self.base_url);
+
+        let svc = self.get_api_service();
+        if !svc.config.buffering_enabled() {
+            return self
+                .execute_post_request::<DataWrapper<Event>, _>(&path, &dw)
+                .await;
+        }
+        self.ensure_spool(&svc.config);
+        drop(svc); // don't hold the ApiService Arc across awaits
+
+        let now = Utc::now().timestamp_millis();
+        // Flush any on-disk backlog first; if it's still stuck, buffer the new events too.
+        if !self.drain_spool(&path, now).await {
+            self.append_to_spool(dw.get_items(), now);
+            return Ok(buffered_wrapper());
+        }
+        match self
+            .execute_post_request::<DataWrapper<Event>, _>(&path, &dw)
             .await
+        {
+            Ok(r) => Ok(r),
+            Err(e) if e.is_transient() => {
+                self.append_to_spool(dw.get_items(), now);
+                Ok(buffered_wrapper())
+            }
+            Err(e) => Err(e), // terminal error: surface it
+        }
+    }
+
+    /// Records currently held in the durable event spool (0 when buffering is off).
+    pub fn buffered_count(&self) -> u64 {
+        self.spool.lock().unwrap().as_ref().map_or(0, |s| s.size())
+    }
+
+    fn ensure_spool(&self, config: &DataHubApi) {
+        let mut guard = self.spool.lock().unwrap();
+        if guard.is_none() {
+            let dir = config.buffer_directory().join("events");
+            if let Ok(spool) = DurableSpool::open(
+                dir,
+                config.effective_buffer_retention_ms(),
+                config.effective_buffer_max_bytes(),
+            ) {
+                *guard = Some(spool);
+            }
+        }
+    }
+
+    fn append_to_spool(&self, events: &[Event], now: i64) {
+        let records: Vec<(i64, String)> = events
+            .iter()
+            .filter_map(|e| {
+                let ts = e.event_time.map(|t| t.timestamp_millis()).unwrap_or(now);
+                serde_json::to_string(e).ok().map(|json| (ts, json))
+            })
+            .collect();
+        if let Some(spool) = self.spool.lock().unwrap().as_mut() {
+            let _ = spool.append(&records, now);
+        }
+    }
+
+    /// Drain the spool to the server, oldest segment first. Returns false if the server is still down
+    /// (a transient failure), leaving the rest buffered; terminal failures drop the offending segment.
+    async fn drain_spool(&self, path: &str, now: i64) -> bool {
+        if let Some(spool) = self.spool.lock().unwrap().as_mut() {
+            let _ = spool.roll(now);
+        }
+        loop {
+            let seq = self
+                .spool
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|s| s.oldest_sealed_seq());
+            let Some(seq) = seq else {
+                return true;
+            };
+            let lines = self
+                .spool
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|s| s.read_segment(seq, now).unwrap_or_default())
+                .unwrap_or_default();
+            if lines.is_empty() {
+                if let Some(s) = self.spool.lock().unwrap().as_mut() {
+                    let _ = s.delete_segment(seq);
+                }
+                continue;
+            }
+            let events: Vec<Event> = lines
+                .iter()
+                .filter_map(|l| serde_json::from_str(l).ok())
+                .collect();
+            let mut batch = DataWrapper::new();
+            batch.set_items(events);
+            match self
+                .execute_post_request::<DataWrapper<Event>, _>(path, &batch)
+                .await
+            {
+                Err(e) if e.is_transient() => return false, // server still down: keep the rest
+                _ => {
+                    // success or terminal error: drop the segment (terminal would never succeed)
+                    if let Some(s) = self.spool.lock().unwrap().as_mut() {
+                        let _ = s.delete_segment(seq);
+                    }
+                }
+            }
+        }
     }
 
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<Event>, ResponseError>
@@ -69,6 +189,14 @@ impl EventsService {
     pub fn update(&self) -> Result<(), ResponseError> {
         unimplemented!()
     }
+}
+
+/// A result for a buffered (not-yet-confirmed) ingest: HTTP 202 with no items. Callers can detect
+/// buffering via `get_http_status_code() == Some(202)` and `buffered_count()`.
+fn buffered_wrapper() -> DataWrapper<Event> {
+    let mut w = DataWrapper::new();
+    w.set_http_status_code(202);
+    w
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

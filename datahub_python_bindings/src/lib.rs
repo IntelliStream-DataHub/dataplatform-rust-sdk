@@ -64,6 +64,44 @@ pub(crate) fn datahub_err(e: ResponseError) -> PyErr {
     })
 }
 
+/// Build a `DataHubApi` from explicit vars and apply optional durable-buffering settings. Setting any
+/// of `buffer_retention_secs` / `buffer_max_bytes` (or `enable_buffering=True`) turns buffering on;
+/// unset bounds fall back to the defaults (6h / 5 GiB).
+fn build_buffered_config(
+    base_url: String,
+    token: Option<String>,
+    token_url: Option<String>,
+    client_id: Option<String>,
+    client_secret: Option<String>,
+    project_name: Option<String>,
+    enable_buffering: bool,
+    buffer_retention_secs: Option<i64>,
+    buffer_max_bytes: Option<u64>,
+    buffer_dir: Option<String>,
+) -> DataHubApi {
+    let mut config = DataHubApi::from_vars(
+        base_url,
+        token,
+        token_url,
+        client_id,
+        client_secret,
+        project_name,
+    );
+    if let Some(secs) = buffer_retention_secs {
+        config.set_buffer_retention_secs(secs);
+    }
+    if let Some(bytes) = buffer_max_bytes {
+        config.set_buffer_max_bytes(bytes);
+    }
+    if let Some(dir) = buffer_dir {
+        config.set_buffer_dir(dir);
+    }
+    if enable_buffering {
+        config.enable_buffering();
+    }
+    config
+}
+
 #[pyclass(module = "datahub_sdk", name = "DataHubClient")]
 pub struct PySyncClient {
     inner: Arc<ApiService>,
@@ -79,6 +117,10 @@ impl PySyncClient {
         client_id=None,
         client_secret=None,
         project_name=None,
+        enable_buffering=false,
+        buffer_retention_secs=None,
+        buffer_max_bytes=None,
+        buffer_dir=None,
     ))]
     fn new(
         base_url: String,
@@ -87,15 +129,23 @@ impl PySyncClient {
         client_id: Option<String>,
         client_secret: Option<String>,
         project_name: Option<String>,
+        enable_buffering: bool,
+        buffer_retention_secs: Option<i64>,
+        buffer_max_bytes: Option<u64>,
+        buffer_dir: Option<String>,
     ) -> Self {
         PySyncClient {
-            inner: ApiService::new(DataHubApi::from_vars(
+            inner: ApiService::new(build_buffered_config(
                 base_url,
                 token,
                 token_url,
                 client_id,
                 client_secret,
                 project_name,
+                enable_buffering,
+                buffer_retention_secs,
+                buffer_max_bytes,
+                buffer_dir,
             )),
             runtime: Arc::new(tokio::runtime::Runtime::new().unwrap()),
         }
@@ -194,6 +244,10 @@ impl PyAsyncClient {
         client_id=None,
         client_secret=None,
         project_name=None,
+        enable_buffering=false,
+        buffer_retention_secs=None,
+        buffer_max_bytes=None,
+        buffer_dir=None,
     ))]
     fn new(
         base_url: String,
@@ -202,15 +256,23 @@ impl PyAsyncClient {
         client_id: Option<String>,
         client_secret: Option<String>,
         project_name: Option<String>,
+        enable_buffering: bool,
+        buffer_retention_secs: Option<i64>,
+        buffer_max_bytes: Option<u64>,
+        buffer_dir: Option<String>,
     ) -> Self {
         Self {
-            inner: ApiService::new(DataHubApi::from_vars(
+            inner: ApiService::new(build_buffered_config(
                 base_url,
                 token,
                 token_url,
                 client_id,
                 client_secret,
                 project_name,
+                enable_buffering,
+                buffer_retention_secs,
+                buffer_max_bytes,
+                buffer_dir,
             )),
         }
     }

@@ -47,7 +47,18 @@ class DataHubClient:
         client_id: str | None = None,
         client_secret: str | None = None,
         project_name: str | None = None,
-    ) -> None: ...
+        enable_buffering: bool = False,
+        buffer_retention_secs: int | None = None,
+        buffer_max_bytes: int | None = None,
+        buffer_dir: str | None = None,
+    ) -> None:
+        """Durable ingest buffering (off by default): when the API is unreachable, datapoint and
+        event ingestion spools to disk and is flushed on a later call. Enable it with
+        `enable_buffering=True` or by setting `buffer_retention_secs` / `buffer_max_bytes`
+        (unset bounds default to 6h / 5 GiB). `buffer_dir` defaults to `.datahub-spool`.
+        `from_env`/`from_envfile` read ENABLE_BUFFERING / BUFFER_RETENTION_SECS /
+        BUFFER_MAX_BYTES / BUFFER_DIR from the environment instead."""
+        ...
     @classmethod
     def from_env(cls) -> DataHubClient: ...
     @classmethod
@@ -79,7 +90,13 @@ class AsyncDataHubClient:
         client_id: str | None = None,
         client_secret: str | None = None,
         project_name: str | None = None,
-    ) -> None: ...
+        enable_buffering: bool = False,
+        buffer_retention_secs: int | None = None,
+        buffer_max_bytes: int | None = None,
+        buffer_dir: str | None = None,
+    ) -> None:
+        """See `DataHubClient.__init__` for the durable-buffering parameters."""
+        ...
     @classmethod
     def from_env(cls) -> AsyncDataHubClient: ...
     @classmethod

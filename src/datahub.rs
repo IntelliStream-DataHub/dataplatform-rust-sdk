@@ -10,10 +10,17 @@ use oauth2::{
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::{default, env};
 use tokio::sync::RwLock;
+
+/// Default durable-buffer time window applied when buffering is enabled without an explicit value.
+pub const DEFAULT_BUFFER_RETENTION_MS: i64 = 6 * 3600 * 1000; // 6 hours
+/// Default durable-buffer size cap (5 GiB) applied when buffering is enabled without an explicit value.
+pub const DEFAULT_BUFFER_MAX_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+/// Default directory for the on-disk ingest spools.
+pub const DEFAULT_BUFFER_DIR: &str = ".datahub-spool";
 
 #[derive(Default, Deserialize, Debug, Clone)]
 pub struct OAuthConfig {
@@ -54,6 +61,12 @@ pub struct DataHubApi {
         >,
     >,
     pub(crate) http_client: reqwest::Client,
+    // Durable ingest buffering (off unless requested). Either bound may be unset; when buffering is
+    // on, an unset bound falls back to its default (6h / 5 GiB).
+    pub(crate) buffering_requested: bool,
+    pub(crate) buffer_retention_ms: Option<i64>,
+    pub(crate) buffer_max_bytes: Option<u64>,
+    pub(crate) buffer_dir: Option<PathBuf>,
 }
 impl AuthState {
     pub fn is_expired(&self) -> bool {
@@ -126,6 +139,10 @@ impl DataHubApi {
             oauth2_client: client,
             http_client: reqwest::Client::new(),
             auth_state,
+            buffering_requested: false,
+            buffer_retention_ms: None,
+            buffer_max_bytes: None,
+            buffer_dir: None,
         }
     }
 
@@ -158,13 +175,82 @@ impl DataHubApi {
             // if token is not passed, token and expire_time will be None
             Arc::new(RwLock::new(AuthState::default()))
         };
+        // Durable buffering env config (all optional): ENABLE_BUFFERING, BUFFER_RETENTION_SECS,
+        // BUFFER_MAX_BYTES, BUFFER_DIR. Setting any retention/size bound also enables buffering.
+        let buffering_requested = map
+            .get("ENABLE_BUFFERING")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        let buffer_retention_ms = map
+            .get("BUFFER_RETENTION_SECS")
+            .and_then(|v| v.parse::<i64>().ok())
+            .map(|secs| secs * 1000);
+        let buffer_max_bytes = map.get("BUFFER_MAX_BYTES").and_then(|v| v.parse::<u64>().ok());
+        let buffer_dir = map.get("BUFFER_DIR").map(PathBuf::from);
+
         Ok(Self {
             config: Arc::new(oauthconfig),
             base_url: baseurl.to_string(),
             oauth2_client: client,
             http_client: reqwest::Client::new(),
             auth_state,
+            buffering_requested,
+            buffer_retention_ms,
+            buffer_max_bytes,
+            buffer_dir,
         })
+    }
+
+    /// Enable durable ingest buffering with default bounds (6h window, 5 GiB cap). Off by default.
+    pub fn enable_buffering(&mut self) -> &mut Self {
+        self.buffering_requested = true;
+        self
+    }
+
+    /// Set the buffer time window (seconds); also enables buffering.
+    pub fn set_buffer_retention_secs(&mut self, secs: i64) -> &mut Self {
+        self.buffer_retention_ms = Some(secs * 1000);
+        self.buffering_requested = true;
+        self
+    }
+
+    /// Set the buffer size cap in bytes (per spool stream); also enables buffering.
+    pub fn set_buffer_max_bytes(&mut self, bytes: u64) -> &mut Self {
+        self.buffer_max_bytes = Some(bytes);
+        self.buffering_requested = true;
+        self
+    }
+
+    /// Set the directory for the on-disk spools (default `.datahub-spool`).
+    pub fn set_buffer_dir<P: Into<PathBuf>>(&mut self, dir: P) -> &mut Self {
+        self.buffer_dir = Some(dir.into());
+        self
+    }
+
+    /// Whether durable ingest buffering is enabled (a bound was set or it was explicitly enabled).
+    pub fn buffering_enabled(&self) -> bool {
+        self.buffering_requested
+            || self.buffer_retention_ms.is_some()
+            || self.buffer_max_bytes.is_some()
+    }
+
+    /// Effective time window (applies the default when enabled but unset), else `None`.
+    pub(crate) fn effective_buffer_retention_ms(&self) -> Option<i64> {
+        self.buffering_enabled()
+            .then(|| self.buffer_retention_ms.unwrap_or(DEFAULT_BUFFER_RETENTION_MS))
+    }
+
+    /// Effective size cap (applies the default when enabled but unset), else `None`.
+    pub(crate) fn effective_buffer_max_bytes(&self) -> Option<u64> {
+        self.buffering_enabled()
+            .then(|| self.buffer_max_bytes.unwrap_or(DEFAULT_BUFFER_MAX_BYTES))
+    }
+
+    /// Directory the on-disk spools live in.
+    pub(crate) fn buffer_directory(&self) -> PathBuf {
+        self.buffer_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_BUFFER_DIR))
     }
 
     async fn refresh_token(
