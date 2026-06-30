@@ -20,14 +20,21 @@ impl ResponseError {
     }
 
     pub fn from_err(error: Error) -> Self {
-        if error.status().is_some() {
+        if let Some(status) = error.status() {
             return ResponseError {
-                status: error.status().unwrap(),
+                status,
                 message: error.to_string(),
             };
         }
+        // No HTTP status means a transport-level failure (connect/timeout/dropped request). Map those
+        // to a retryable 503 so durable buffering retries them rather than treating them as terminal.
+        let status = if error.is_connect() || error.is_timeout() || error.is_request() {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else {
+            StatusCode::BAD_REQUEST
+        };
         ResponseError {
-            status: StatusCode::BAD_REQUEST,
+            status,
             message: error.to_string(),
         }
     }
@@ -38,6 +45,13 @@ impl ResponseError {
 
     pub fn get_status(&self) -> StatusCode {
         self.status
+    }
+
+    /// Whether this error is worth buffering and retrying (transport failure, timeout, 429 or 5xx)
+    /// rather than surfacing (a terminal 4xx).
+    pub fn is_transient(&self) -> bool {
+        let code = self.status.as_u16();
+        code == 0 || code == 408 || code == 429 || (500..600).contains(&code)
     }
 }
 impl fmt::Display for ResponseError {

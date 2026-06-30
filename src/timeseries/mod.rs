@@ -1,5 +1,7 @@
 mod test;
 
+use crate::buffer::DurableSpool;
+use crate::datahub::DataHubApi;
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{
     ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection,
@@ -14,11 +16,24 @@ use futures::{future::join_all, FutureExt};
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
-use std::sync::Weak;
+use std::sync::{Mutex, Weak};
+
+/// A single spooled datapoint (flattened from a `DatapointsCollection`), used by durable buffering.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct SpoolDatapoint {
+    #[serde(default, with = "crate::serde_helper::opt_string_id", skip_serializing_if = "Option::is_none")]
+    id: Option<u64>,
+    #[serde(rename = "externalId", skip_serializing_if = "Option::is_none")]
+    external_id: Option<String>,
+    timestamp: String,
+    value: String,
+}
 
 pub struct TimeSeriesService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
+    // Durable spool for datapoint ingestion (lazily opened on first buffered send; None if off).
+    spool: Mutex<Option<DurableSpool>>,
 }
 
 impl TimeSeriesService {
@@ -27,6 +42,7 @@ impl TimeSeriesService {
         TimeSeriesService {
             api_service,
             base_url,
+            spool: Mutex::new(None),
         }
     }
 
@@ -164,7 +180,134 @@ impl TimeSeriesService {
         self.insert_datapoints(&mut data_request).await
     }
 
+    /// Insert datapoints. With durable buffering enabled on the client this flushes any on-disk
+    /// backlog first, sends in <=100k-datapoint chunks, and spools to disk on a transient failure
+    /// (e.g. the server is unreachable); otherwise it behaves exactly as before. Retries are safe:
+    /// datapoints dedup on `(series, timestamp)` in the backend's ReplacingMergeTree.
     pub async fn insert_datapoints(
+        &self,
+        json: &mut DataWrapper<DatapointsCollection<DatapointString>>,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        let svc = self.get_api_service();
+        if !svc.config.buffering_enabled() {
+            drop(svc);
+            return self.insert_datapoints_unbuffered(json).await;
+        }
+        self.ensure_spool(&svc.config);
+        drop(svc); // don't hold the ApiService Arc across awaits
+
+        let path = format!("{}/data", self.base_url);
+        let now = Utc::now().timestamp_millis();
+        let new_dps = flatten_collections(json.get_items());
+
+        if !self.drain_spool(&path, now).await {
+            self.append_to_spool(&new_dps, now);
+            return Ok(buffered_string_wrapper());
+        }
+        match self.post_datapoint_chunks(&path, &new_dps).await {
+            Ok(()) => {
+                let mut w = DataWrapper::new();
+                w.set_http_status_code(204);
+                Ok(w)
+            }
+            Err(e) if e.is_transient() => {
+                self.append_to_spool(&new_dps, now);
+                Ok(buffered_string_wrapper())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Records currently held in the durable datapoint spool (0 when buffering is off).
+    pub fn buffered_count(&self) -> u64 {
+        self.spool.lock().unwrap().as_ref().map_or(0, |s| s.size())
+    }
+
+    fn ensure_spool(&self, config: &DataHubApi) {
+        let mut guard = self.spool.lock().unwrap();
+        if guard.is_none() {
+            let dir = config.buffer_directory().join("datapoints");
+            if let Ok(spool) = DurableSpool::open(
+                dir,
+                config.effective_buffer_retention_ms(),
+                config.effective_buffer_max_bytes(),
+            ) {
+                *guard = Some(spool);
+            }
+        }
+    }
+
+    fn append_to_spool(&self, dps: &[SpoolDatapoint], now: i64) {
+        let records: Vec<(i64, String)> = dps
+            .iter()
+            .filter_map(|dp| {
+                let ts = dp.timestamp.parse::<i64>().unwrap_or(now);
+                serde_json::to_string(dp).ok().map(|json| (ts, json))
+            })
+            .collect();
+        if let Some(spool) = self.spool.lock().unwrap().as_mut() {
+            let _ = spool.append(&records, now);
+        }
+    }
+
+    async fn post_datapoint_chunks(
+        &self,
+        path: &str,
+        dps: &[SpoolDatapoint],
+    ) -> Result<(), ResponseError> {
+        for chunk in dps.chunks(100_000) {
+            let dw = regroup_datapoints(chunk);
+            self.execute_post_request::<DataWrapper<String>, _>(path, &dw)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Drain the datapoint spool, oldest segment first. Returns false on a transient failure (server
+    /// still down), leaving the rest buffered; terminal failures drop the offending segment.
+    async fn drain_spool(&self, path: &str, now: i64) -> bool {
+        if let Some(spool) = self.spool.lock().unwrap().as_mut() {
+            let _ = spool.roll(now);
+        }
+        loop {
+            let seq = self
+                .spool
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|s| s.oldest_sealed_seq());
+            let Some(seq) = seq else {
+                return true;
+            };
+            let lines = self
+                .spool
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|s| s.read_segment(seq, now).unwrap_or_default())
+                .unwrap_or_default();
+            if lines.is_empty() {
+                if let Some(s) = self.spool.lock().unwrap().as_mut() {
+                    let _ = s.delete_segment(seq);
+                }
+                continue;
+            }
+            let dps: Vec<SpoolDatapoint> = lines
+                .iter()
+                .filter_map(|l| serde_json::from_str(l).ok())
+                .collect();
+            match self.post_datapoint_chunks(path, &dps).await {
+                Err(e) if e.is_transient() => return false,
+                _ => {
+                    if let Some(s) = self.spool.lock().unwrap().as_mut() {
+                        let _ = s.delete_segment(seq);
+                    }
+                }
+            }
+        }
+    }
+
+    async fn insert_datapoints_unbuffered(
         &self,
         json: &mut DataWrapper<DatapointsCollection<DatapointString>>,
     ) -> Result<DataWrapper<String>, ResponseError> {
@@ -290,6 +433,60 @@ impl TimeSeriesService {
         self.execute_post_request::<DataWrapper<DatapointsCollection<Datapoint>>, _>(path, json)
             .await
     }
+}
+
+/// Flatten datapoint collections into individual spool records (one timestamp each, for retention).
+fn flatten_collections(
+    collections: &[DatapointsCollection<DatapointString>],
+) -> Vec<SpoolDatapoint> {
+    let mut out = Vec::new();
+    for c in collections {
+        for dp in &c.datapoints {
+            out.push(SpoolDatapoint {
+                id: c.id,
+                external_id: c.external_id.clone(),
+                timestamp: dp.timestamp.clone(),
+                value: dp.value.clone(),
+            });
+        }
+    }
+    out
+}
+
+/// Regroup flattened datapoints back into collections (by id or external id) for a single request.
+fn regroup_datapoints(
+    dps: &[SpoolDatapoint],
+) -> DataWrapper<DatapointsCollection<DatapointString>> {
+    let mut groups: HashMap<String, DatapointsCollection<DatapointString>> = HashMap::new();
+    for dp in dps {
+        let key = match (&dp.id, &dp.external_id) {
+            (Some(id), _) => format!("id:{}", id),
+            (None, Some(ext)) => format!("ext:{}", ext),
+            (None, None) => "none".to_string(),
+        };
+        let coll = groups.entry(key).or_insert_with(|| DatapointsCollection {
+            id: dp.id,
+            external_id: dp.external_id.clone(),
+            datapoints: vec![],
+            next_cursor: None,
+            unit: None,
+            unit_external_id: None,
+        });
+        coll.datapoints.push(DatapointString {
+            timestamp: dp.timestamp.clone(),
+            value: dp.value.clone(),
+        });
+    }
+    let mut dw = DataWrapper::new();
+    dw.set_items(groups.into_values().collect());
+    dw
+}
+
+/// A result for a buffered (not-yet-confirmed) datapoint insert: HTTP 202 with no items.
+fn buffered_string_wrapper() -> DataWrapper<String> {
+    let mut w = DataWrapper::new();
+    w.set_http_status_code(202);
+    w
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

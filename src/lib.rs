@@ -12,6 +12,9 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE};
 pub use unit::{Unit, UnitsService};
 pub use crate::subscriptions::SubscriptionsService;
 
+pub mod buffer;
+#[cfg(test)]
+mod buffer_integration;
 pub mod datahub;
 pub mod datasets;
 pub mod errors;
