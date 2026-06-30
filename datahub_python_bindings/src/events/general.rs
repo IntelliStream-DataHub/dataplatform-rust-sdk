@@ -49,8 +49,10 @@ impl PyEvent {
         Self { inner: ev }
     }
     #[getter]
-    pub fn id(&self) -> Option<String> {
-        self.inner.get_id().map(ToString::to_string)
+    pub fn id(&self) -> Option<Uuid> {
+        // The Rust SDK already holds a Uuid (serde parses the wire string); pyo3's `uuid` feature
+        // converts it to a Python `uuid.UUID` so callers get a real UUID, matching the type stub.
+        self.inner.get_id().copied()
     }
 
     #[getter]

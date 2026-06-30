@@ -11,6 +11,7 @@ Run via the repo's wrapper so the bindings are rebuilt first:
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import UUID
 
 import datahub_sdk
 import pytest
@@ -84,5 +85,5 @@ def test_live_event_gets_uuid_v7():
         [datahub_sdk.Event(external_id="py_uuid_v7_event", event_time=datetime.now(timezone.utc))]
     )
     assert len(created) == 1
-    assert created[0].id is not None
+    assert isinstance(created[0].id, UUID)  # binding returns a real uuid.UUID
     assert created[0].id.version == 7
