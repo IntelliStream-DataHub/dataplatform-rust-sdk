@@ -31,7 +31,7 @@ mod tests {
         assert_eq!(json["externalId"], "sub_ext_id");
         assert_eq!(json["name"], "Display Name");
         let ts = &json["timeseries"];
-        assert_eq!(ts[0]["id"], 29);
+        assert_eq!(ts[0]["id"], "29"); // ids serialize as JSON strings on the wire
         assert_eq!(ts[1]["externalId"], "heater_2012_temp");
 
         // Simulate a server response (id + timestamps populated, camelCase).
