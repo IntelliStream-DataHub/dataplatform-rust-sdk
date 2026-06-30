@@ -35,6 +35,20 @@ impl EventsService {
         for<'a> &'a I: Into<DataWrapper<Event>>,
     {
         let mut dw = data.into();
+        // event_time is when the event actually occurred (typically recorded by the source system or
+        // sensor). The SDK will not default it to "now": that is usually wrong, and the server already
+        // records the ingestion time separately as created_time. Reject events without it.
+        for event in dw.get_items() {
+            if event.event_time.is_none() {
+                return Err(ResponseError::bad_request(format!(
+                    "event '{}' is missing event_time. Set the time the event occurred (from your \
+                     source system or sensor) via set_event_time(...); the SDK won't default it to \
+                     the current time because that is usually incorrect. The server records the \
+                     ingestion time separately as created_time.",
+                    event.external_id
+                )));
+            }
+        }
         // Stamp a stable, time-ordered UUID v7 on each event that lacks an id, before the first send.
         // The server honors a client-supplied id, so a retry (e.g. from the durable buffer) carries the
         // same id and the events ReplacingMergeTree (ORDER BY id) collapses the duplicate instead of

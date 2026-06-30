@@ -76,7 +76,8 @@ async fn buffered_event_is_stamped_with_uuid_v7() {
     let dir = temp_dir();
     let service = unreachable_buffered_service(&dir);
 
-    let ev = Event::new("rust_uuid_v7_event".to_string());
+    let mut ev = Event::new("rust_uuid_v7_event".to_string());
+    ev.set_event_time(Utc::now()); // event_time is required (the SDK won't default it)
     let _ = service.events.create(&ev).await.expect("create should buffer");
 
     // The active segment is plain `<ts>\t<json>` NDJSON; find the stamped id and check its version.
@@ -95,6 +96,23 @@ async fn buffered_event_is_stamped_with_uuid_v7() {
         "expected a time-ordered UUID v7 id, got {}",
         uuid
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn event_without_event_time_is_rejected() {
+    let dir = temp_dir();
+    let service = unreachable_buffered_service(&dir);
+
+    // No event_time set: the SDK rejects it (before any send) rather than defaulting to now().
+    let ev = Event::new("rust_no_time_event".to_string());
+    let err = service
+        .events
+        .create(&ev)
+        .await
+        .expect_err("missing event_time should be rejected");
+    assert_eq!(err.get_status().as_u16(), 400);
+    assert!(err.get_message().contains("event_time"), "{}", err.get_message());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -135,7 +153,8 @@ async fn live_datapoint_buffering_roundtrip() {
 #[ignore]
 async fn live_event_gets_uuid_v7_id() {
     let service = create_api_service();
-    let ev = Event::new("rust_uuid_v7_event".to_string());
+    let mut ev = Event::new("rust_uuid_v7_event".to_string());
+    ev.set_event_time(Utc::now()); // event_time is required (the SDK won't default it)
     let result = service.events.create(&ev).await.expect("create event");
     let created = result.get_items().first().expect("one event returned");
     let id = created.id.expect("event has an id");
