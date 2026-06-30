@@ -33,7 +33,10 @@ def test_event_buffers_to_disk_with_uuid_v7(tmp_path):
     client = _unreachable_buffered_client(tmp_path)
 
     # Server unreachable -> create() buffers instead of raising, and confirms no items.
-    result = client.events.create([datahub_sdk.Event(external_id="py_buffer_event")])
+    # event_time is required (the SDK rejects events without it instead of defaulting to now()).
+    result = client.events.create(
+        [datahub_sdk.Event(external_id="py_buffer_event", event_time=datetime.now(timezone.utc))]
+    )
     assert result == []
 
     events_dir = tmp_path / "events"
@@ -48,6 +51,15 @@ def test_event_buffers_to_disk_with_uuid_v7(tmp_path):
     uuid = content[idx + 6 : idx + 6 + 36]
     # In `xxxxxxxx-xxxx-Vxxx-...`, the version nibble V is at index 14.
     assert uuid[14] == "7", f"expected a time-ordered UUID v7 id, got {uuid}"
+
+
+def test_event_without_event_time_is_rejected(tmp_path):
+    client = _unreachable_buffered_client(tmp_path)
+    # event_time is when the event occurred; the SDK rejects events without it (no now() default).
+    with pytest.raises(datahub_sdk.DataHubException) as exc:
+        client.events.create([datahub_sdk.Event(external_id="py_no_time_event")])
+    assert exc.value.status_code == 400
+    assert "event_time" in exc.value.message
 
 
 def test_datapoints_buffer_to_disk(tmp_path):
@@ -68,7 +80,9 @@ def test_datapoints_buffer_to_disk(tmp_path):
 )
 def test_live_event_gets_uuid_v7():
     client = datahub_sdk.DataHubClient.from_envfile(ENV_FILE)
-    created = client.events.create([datahub_sdk.Event(external_id="py_uuid_v7_event")])
+    created = client.events.create(
+        [datahub_sdk.Event(external_id="py_uuid_v7_event", event_time=datetime.now(timezone.utc))]
+    )
     assert len(created) == 1
     assert created[0].id is not None
     assert created[0].id.version == 7

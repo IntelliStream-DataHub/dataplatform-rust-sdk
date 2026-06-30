@@ -13,8 +13,17 @@ pub struct ResponseError {
 
 impl ResponseError {
     pub fn from(message: String) -> Self {
+        // 0 is not a valid HTTP status; use 400 so this never panics.
         ResponseError {
-            status: StatusCode::from_u16(0).unwrap(),
+            status: StatusCode::BAD_REQUEST,
+            message,
+        }
+    }
+
+    /// A client-side validation error (HTTP 400) surfaced before any request is sent.
+    pub fn bad_request(message: String) -> Self {
+        ResponseError {
+            status: StatusCode::BAD_REQUEST,
             message,
         }
     }
