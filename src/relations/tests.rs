@@ -17,9 +17,10 @@ fn edge_proxy_serializes_type_field_with_wire_name() {
     assert_eq!(v.get("type").and_then(Value::as_str), Some("FLOWS_TO"));
     assert!(v.get("relationshipType").is_none());
     assert!(v.get("edgeType").is_none());
+    // Ids serialize as JSON strings on the wire (the field stays u64 in Rust).
     assert_eq!(
-        v.get("relationshipTypeId").and_then(Value::as_u64),
-        Some(12)
+        v.get("relationshipTypeId").and_then(Value::as_str),
+        Some("12")
     );
 }
 
@@ -68,8 +69,8 @@ fn rel_form_by_external_ids_omits_id_fields() {
 fn rel_form_by_ids_omits_external_id_fields() {
     let rel = RelForm::by_ids(42, 43, "FLOWS_TO");
     let v: Value = serde_json::to_value(&rel).unwrap();
-    assert_eq!(v.get("fromId").and_then(Value::as_u64), Some(42));
-    assert_eq!(v.get("toId").and_then(Value::as_u64), Some(43));
+    assert_eq!(v.get("fromId").and_then(Value::as_str), Some("42"));
+    assert_eq!(v.get("toId").and_then(Value::as_str), Some("43"));
     assert!(v.get("fromExternalId").is_none());
     assert!(v.get("toExternalId").is_none());
 }
