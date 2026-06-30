@@ -127,9 +127,15 @@ async fn live_datapoint_buffering_roundtrip() {
         .set_buffer_retention_secs(3600);
     let service = ApiService::new(config);
 
+    let id_collection =
+        DataWrapper::from_vec(vec![IdAndExtId::from_external_id("rust_buffer_test_series")]);
+
     let mut ts = TimeSeries::new("rust_buffer_test_series", "Rust buffer test");
     ts.set_value_type("float");
-    let _ = service.time_series.create_one(&ts).await; // ignore "already exists"
+    ts.set_unit("a.u"); // unit is required by the server (@NotBlank)
+    // Start clean (drop any leftover from a prior run), then create the series fresh.
+    let _ = service.time_series.delete(&id_collection).await;
+    service.time_series.create_one(&ts).await.expect("create series");
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     let r = service
@@ -147,8 +153,7 @@ async fn live_datapoint_buffering_roundtrip() {
     assert_eq!(service.time_series.buffered_count(), 0, "spool should be empty after a live flush");
 
     // teardown: delete the series (and its datapoints) so re-runs start clean
-    let cleanup = DataWrapper::from_vec(vec![IdAndExtId::from_external_id("rust_buffer_test_series")]);
-    let _ = service.time_series.delete(&cleanup).await;
+    let _ = service.time_series.delete(&id_collection).await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
