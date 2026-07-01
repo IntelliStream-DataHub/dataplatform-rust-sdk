@@ -9,6 +9,7 @@ mod tests {
     };
     use crate::timeseries::TimeSeries;
     use crate::{create_api_service, ApiService};
+    use reqwest::StatusCode;
     use uuid::Uuid;
 
     // Serde round-trip: verify the Subscription JSON layout matches the backend's camelCase contract.
@@ -199,6 +200,74 @@ mod tests {
         ts_cleanup.disarm();
 
         result
+    }
+
+    // Regression test for the subscription-bound timeseries delete path.
+    //
+    // Deleting a timeseries that is still referenced by a subscription must surface a *terminal*
+    // 400 naming the blocking subscription — not an opaque 500. The backend guard
+    // (ResourceService.checkForSubscriptions) throws ResourceDeleteException; the fix that maps
+    // it to 400 lives in datahub-platform on branch
+    // `bugfix-500-on-subscription-bound-timeseries-delete`.
+    //
+    // #[ignore]d until that backend fix ships: against an unpatched backend this delete returns an
+    // empty 500 (which the SDK may also buffer/retry as a 5xx), so the assertions below would fail.
+    // Un-ignore once the backend change is deployed. Run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn test_delete_timeseries_bound_to_subscription_returns_400(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let api_service = create_api_service();
+        let suffix = Uuid::new_v4().simple().to_string();
+        let ts_ext = format!("sub_guard_ts_{}", &suffix[..8]);
+        let sub_ext = format!("sub_guard_{}", &suffix[..8]);
+
+        // Create the timeseries the subscription will bind to (unit is required by the server).
+        let mut ts = TimeSeries::new(&ts_ext, "Sub Guard TS");
+        ts.set_value_type("float");
+        ts.set_unit("a.u");
+        api_service.time_series.create_one(&ts).await?;
+        // Arm cleanup so a panic still tears the timeseries down.
+        let mut ts_cleanup = cleanup_timeseries(vec![ts_ext.clone()]);
+
+        // Bind a subscription to it.
+        let sub = Subscription::new(
+            sub_ext.clone(),
+            format!("Sub Guard {}", &suffix[..8]),
+            vec![IdAndExtId::from_external_id(&ts_ext)],
+        );
+        api_service.subscriptions.create(&sub).await?;
+        let mut sub_cleanup = cleanup_subscriptions(vec![sub_ext.clone()]);
+
+        // Deleting the bound timeseries must be refused with a terminal 400, not a 500.
+        let ts_ids = DataWrapper::from_vec(vec![IdAndExtId::from_external_id(&ts_ext)]);
+        match api_service.time_series.delete(&ts_ids).await {
+            Ok(_) => panic!(
+                "expected the delete to be refused while a subscription references the timeseries"
+            ),
+            Err(e) => {
+                assert_eq!(
+                    e.get_status(),
+                    StatusCode::BAD_REQUEST,
+                    "expected 400, got {}: {}",
+                    e.get_status(),
+                    e.get_message()
+                );
+                assert!(
+                    e.get_message().to_lowercase().contains("subscription"),
+                    "error should name the blocking subscription, got: {}",
+                    e.get_message()
+                );
+            }
+        }
+
+        // Cleanup: remove the subscription first (which unblocks the delete), then the timeseries.
+        delete_subscriptions(&api_service, &[IdAndExtId::from_external_id(&sub_ext)]).await;
+        sub_cleanup.disarm();
+        delete_timeseries(&api_service, vec![IdAndExtId::from_external_id(&ts_ext)]).await;
+        ts_cleanup.disarm();
+
+        Ok(())
     }
 
     #[test]
