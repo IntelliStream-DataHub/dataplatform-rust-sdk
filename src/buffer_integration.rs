@@ -7,6 +7,7 @@
 use crate::datahub::DataHubApi;
 use crate::events::Event;
 use crate::generic::{DataWrapper, IdAndExtId};
+use crate::tests::cleanup::{cleanup_events, cleanup_timeseries};
 use crate::{create_api_service, ApiService, TimeSeries};
 use chrono::Utc;
 use std::path::PathBuf;
@@ -136,6 +137,9 @@ async fn live_datapoint_buffering_roundtrip() {
     // Start clean (drop any leftover from a prior run), then create the series fresh.
     let _ = service.time_series.delete(&id_collection).await;
     service.time_series.create_one(&ts).await.expect("create series");
+    // Arm a Drop-based guard so a panic in the assertions below still deletes the
+    // series (otherwise a buffered/failed insert would leave an empty timeseries).
+    let mut ts_cleanup = cleanup_timeseries(vec!["rust_buffer_test_series".to_string()]);
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     let r = service
@@ -154,6 +158,7 @@ async fn live_datapoint_buffering_roundtrip() {
 
     // teardown: delete the series (and its datapoints) so re-runs start clean
     let _ = service.time_series.delete(&id_collection).await;
+    ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -162,8 +167,19 @@ async fn live_event_gets_uuid_v7_id() {
     let service = create_api_service();
     let mut ev = Event::new("rust_uuid_v7_event".to_string());
     ev.set_event_time(Utc::now()); // event_time is required (the SDK won't default it)
+
+    // Events get a fresh uuid per create, so same-external_id inserts pile up
+    // instead of overwriting. Arm cleanup before create (so a panic still tears
+    // the event down) and delete explicitly on the happy path.
+    let mut ev_cleanup = cleanup_events(vec!["rust_uuid_v7_event".to_string()]);
+
     let result = service.events.create(&ev).await.expect("create event");
     let created = result.get_items().first().expect("one event returned");
     let id = created.id.expect("event has an id");
     assert_eq!(id.get_version_num(), 7, "expected a v7 uuid, got {}", id);
+
+    // teardown: delete by external id, which removes every copy so re-runs don't accumulate.
+    let ids = vec![IdAndExtId::from_external_id("rust_uuid_v7_event")];
+    let _ = service.events.delete(&ids).await;
+    ev_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 }
