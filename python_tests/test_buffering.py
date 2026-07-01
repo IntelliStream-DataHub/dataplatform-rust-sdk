@@ -81,9 +81,18 @@ def test_datapoints_buffer_to_disk(tmp_path):
 )
 def test_live_event_gets_uuid_v7():
     client = datahub_sdk.DataHubClient.from_envfile(ENV_FILE)
-    created = client.events.create(
-        [datahub_sdk.Event(external_id="py_uuid_v7_event", event_time=datetime.now(timezone.utc))]
-    )
-    assert len(created) == 1
-    assert isinstance(created[0].id, UUID)  # binding returns a real uuid.UUID
-    assert created[0].id.version == 7
+    try:
+        created = client.events.create(
+            [datahub_sdk.Event(external_id="py_uuid_v7_event", event_time=datetime.now(timezone.utc))]
+        )
+        assert len(created) == 1
+        assert isinstance(created[0].id, UUID)  # binding returns a real uuid.UUID
+        assert created[0].id.version == 7
+    finally:
+        # Events get a fresh uuid per create, so same-external_id inserts pile up
+        # instead of overwriting. Delete by external id to remove every copy so
+        # re-runs don't accumulate orphaned events.
+        try:
+            client.events.delete(["py_uuid_v7_event"])
+        except Exception:
+            pass
