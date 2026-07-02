@@ -3,6 +3,10 @@ name = "dataplatform-rust-sdk"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Synchronous client (dataplatform_rust_sdk::blocking), same split as reqwest::blocking.
+blocking = []
+
 [dependencies]
 maplit = "1"
 tokio = { version = "1", features = ["full"] }

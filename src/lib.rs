@@ -12,6 +12,8 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE};
 pub use unit::{Unit, UnitsService};
 pub use crate::subscriptions::SubscriptionsService;
 
+#[cfg(feature = "blocking")]
+pub mod blocking;
 pub mod buffer;
 #[cfg(test)]
 mod buffer_integration;
