@@ -55,7 +55,7 @@ class DataHubClient:
         """Durable ingest buffering (off by default): when the API is unreachable, datapoint and
         event ingestion spools to disk and is flushed on a later call. Enable it with
         `enable_buffering=True` or by setting `buffer_retention_secs` / `buffer_max_bytes`
-        (unset bounds default to 6h / 5 GiB). `buffer_dir` defaults to `.datahub-spool`.
+        (unset bounds default to 72h / 5 GiB). `buffer_dir` defaults to `.datahub-spool`.
         `from_env`/`from_envfile` read ENABLE_BUFFERING / BUFFER_RETENTION_SECS /
         BUFFER_MAX_BYTES / BUFFER_DIR from the environment instead."""
         ...

@@ -66,7 +66,7 @@ pub(crate) fn datahub_err(e: ResponseError) -> PyErr {
 
 /// Build a `DataHubApi` from explicit vars and apply optional durable-buffering settings. Setting any
 /// of `buffer_retention_secs` / `buffer_max_bytes` (or `enable_buffering=True`) turns buffering on;
-/// unset bounds fall back to the defaults (6h / 5 GiB).
+/// unset bounds fall back to the defaults (72h / 5 GiB).
 fn build_buffered_config(
     base_url: String,
     token: Option<String>,
