@@ -62,6 +62,27 @@ pub struct ApiService {
     pub(crate) http_client: Client,
 }
 
+/// Drive a future to completion on a self-contained, single-threaded Tokio runtime.
+///
+/// The SDK is async inside, but binaries that only talk to DataHub shouldn't have to
+/// depend on Tokio themselves. Wrap your async entry point in this instead:
+///
+/// ```no_run
+/// fn main() {
+///     dataplatform_rust_sdk::block_on(async {
+///         let api = dataplatform_rust_sdk::create_api_service();
+///         // .await SDK calls here
+///     });
+/// }
+/// ```
+pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build the SDK's internal Tokio runtime")
+        .block_on(future)
+}
+
 pub fn create_api_service() -> Arc<ApiService> {
     dotenv().ok(); // Reads the .env file
     let dataplatform_api: DataHubApi /* Type */ = DataHubApi::create_default();
