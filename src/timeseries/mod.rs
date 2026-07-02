@@ -210,7 +210,7 @@ impl TimeSeriesService {
                 w.set_http_status_code(204);
                 Ok(w)
             }
-            Err(e) if e.is_transient() => {
+            Err(e) if e.is_bufferable() => {
                 self.append_to_spool(&new_dps, now);
                 Ok(buffered_string_wrapper())
             }
@@ -297,7 +297,7 @@ impl TimeSeriesService {
                 .filter_map(|l| serde_json::from_str(l).ok())
                 .collect();
             match self.post_datapoint_chunks(path, &dps).await {
-                Err(e) if e.is_transient() => return false,
+                Err(e) if e.is_bufferable() => return false,
                 _ => {
                     if let Some(s) = self.spool.lock().unwrap().as_mut() {
                         let _ = s.delete_segment(seq);

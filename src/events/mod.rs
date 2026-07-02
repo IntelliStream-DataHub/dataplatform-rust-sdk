@@ -80,7 +80,7 @@ impl EventsService {
             .await
         {
             Ok(r) => Ok(r),
-            Err(e) if e.is_transient() => {
+            Err(e) if e.is_bufferable() => {
                 self.append_to_spool(dw.get_items(), now);
                 Ok(buffered_wrapper())
             }
@@ -159,7 +159,7 @@ impl EventsService {
                 .execute_post_request::<DataWrapper<Event>, _>(path, &batch)
                 .await
             {
-                Err(e) if e.is_transient() => return false, // server still down: keep the rest
+                Err(e) if e.is_bufferable() => return false, // server down or auth not yet restored: keep the rest
                 _ => {
                     // success or terminal error: drop the segment (terminal would never succeed)
                     if let Some(s) = self.spool.lock().unwrap().as_mut() {
