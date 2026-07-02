@@ -186,6 +186,20 @@ pub struct DatapointsCollection<T> {
     pub unit_external_id: Option<String>,
 }
 
+// Manual impl: derived Default would demand T: Default, which the fields don't need.
+impl<T> Default for DatapointsCollection<T> {
+    fn default() -> Self {
+        DatapointsCollection {
+            id: None,
+            external_id: None,
+            datapoints: vec![],
+            next_cursor: None,
+            unit: None,
+            unit_external_id: None,
+        }
+    }
+}
+
 impl<T> DatapointsCollection<T> {
     pub fn from_id(id: u64) -> Self {
         DatapointsCollection {
@@ -370,7 +384,7 @@ impl DeleteFilter {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RetrieveFilter {
     pub start: Option<DateTime<Utc>>,
@@ -478,6 +492,16 @@ impl From<&IdAndExtId> for DataWrapper<IdAndExtId> {
 }
 impl From<Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
     fn from(value: Vec<IdAndExtId>) -> Self {
+        DataWrapper {
+            items: value,
+            http_status_code: None,
+            error_body: None,
+        }
+    }
+}
+
+impl From<Vec<RetrieveFilter>> for DataWrapper<RetrieveFilter> {
+    fn from(value: Vec<RetrieveFilter>) -> Self {
         DataWrapper {
             items: value,
             http_status_code: None,
