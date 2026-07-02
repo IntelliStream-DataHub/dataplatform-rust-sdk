@@ -16,7 +16,7 @@ use std::{default, env};
 use tokio::sync::RwLock;
 
 /// Default durable-buffer time window applied when buffering is enabled without an explicit value.
-pub const DEFAULT_BUFFER_RETENTION_MS: i64 = 6 * 3600 * 1000; // 6 hours
+pub const DEFAULT_BUFFER_RETENTION_MS: i64 = 72 * 3600 * 1000; // 72 hours
 /// Default durable-buffer size cap (5 GiB) applied when buffering is enabled without an explicit value.
 pub const DEFAULT_BUFFER_MAX_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 /// Default directory for the on-disk ingest spools.
@@ -62,7 +62,7 @@ pub struct DataHubApi {
     >,
     pub(crate) http_client: reqwest::Client,
     // Durable ingest buffering (off unless requested). Either bound may be unset; when buffering is
-    // on, an unset bound falls back to its default (6h / 5 GiB).
+    // on, an unset bound falls back to its default (72h / 5 GiB).
     pub(crate) buffering_requested: bool,
     pub(crate) buffer_retention_ms: Option<i64>,
     pub(crate) buffer_max_bytes: Option<u64>,
@@ -201,7 +201,7 @@ impl DataHubApi {
         })
     }
 
-    /// Enable durable ingest buffering with default bounds (6h window, 5 GiB cap). Off by default.
+    /// Enable durable ingest buffering with default bounds (72h window, 5 GiB cap). Off by default.
     pub fn enable_buffering(&mut self) -> &mut Self {
         self.buffering_requested = true;
         self
