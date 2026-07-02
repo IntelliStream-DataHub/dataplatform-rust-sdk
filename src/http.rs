@@ -56,11 +56,27 @@ impl ResponseError {
         self.status
     }
 
-    /// Whether this error is worth buffering and retrying (transport failure, timeout, 429 or 5xx)
-    /// rather than surfacing (a terminal 4xx).
+    /// A transient failure worth a quick retry: transport failure (status 0), request timeout (408),
+    /// rate limiting (429), or a server error (5xx).
     pub fn is_transient(&self) -> bool {
         let code = self.status.as_u16();
         code == 0 || code == 408 || code == 429 || (500..600).contains(&code)
+    }
+
+    /// An authentication/authorization failure: 401 Unauthorized or 403 Forbidden. Recoverable by
+    /// fixing the credential out-of-band (e.g. refreshing an expired/rotated token), so ingestion
+    /// buffers these rather than dropping the data.
+    pub fn is_auth_failure(&self) -> bool {
+        let code = self.status.as_u16();
+        code == 401 || code == 403
+    }
+
+    /// Whether this error is worth buffering and retrying rather than surfacing as terminal. True for
+    /// transient failures ([`is_transient`](Self::is_transient)) and auth failures
+    /// ([`is_auth_failure`](Self::is_auth_failure)); a genuine terminal 4xx (e.g. 400 Bad Request) is
+    /// surfaced so the caller can fix the request. Mirrors the Java SDK's `IngestResult.isBufferable`.
+    pub fn is_bufferable(&self) -> bool {
+        self.is_transient() || self.is_auth_failure()
     }
 }
 impl fmt::Display for ResponseError {
@@ -108,5 +124,50 @@ where
                 .await
                 .unwrap_or_else(|_| "Failed to read response body".to_string()),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ResponseError;
+    use oauth2::http::StatusCode;
+
+    fn err(code: u16) -> ResponseError {
+        ResponseError {
+            status: StatusCode::from_u16(code).unwrap(),
+            message: String::new(),
+        }
+    }
+
+    #[test]
+    fn auth_failures_are_bufferable_but_not_transient() {
+        // 401/403 are recoverable by fixing the credential out-of-band, so they buffer (matching the
+        // Java SDK), but they are not "transient" blips.
+        for code in [401u16, 403] {
+            assert!(err(code).is_auth_failure(), "{code} should be an auth failure");
+            assert!(err(code).is_bufferable(), "{code} should buffer");
+            assert!(!err(code).is_transient(), "{code} is not transient");
+        }
+    }
+
+    #[test]
+    fn transient_failures_are_bufferable() {
+        // (status 0 — the SDK's transport-failure sentinel — can't be built via StatusCode, so it's
+        // not exercised here; it's covered by the `code == 0` arm in is_transient.)
+        for code in [408u16, 429, 500, 503] {
+            assert!(err(code).is_transient(), "{code} should be transient");
+            assert!(err(code).is_bufferable(), "{code} should buffer");
+            assert!(!err(code).is_auth_failure(), "{code} is not an auth failure");
+        }
+    }
+
+    #[test]
+    fn terminal_client_errors_are_not_bufferable() {
+        // A genuine bad request must surface so the caller fixes it, not spool forever.
+        for code in [400u16, 404, 409, 422] {
+            assert!(!err(code).is_bufferable(), "{code} should be terminal");
+            assert!(!err(code).is_transient());
+            assert!(!err(code).is_auth_failure());
+        }
     }
 }
