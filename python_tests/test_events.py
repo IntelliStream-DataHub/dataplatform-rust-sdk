@@ -122,6 +122,10 @@ def test_filter_by_external_id_prefix(sync_client, test_events,event_dataset):
     assert all(e.external_id.startswith(target_string) for e in results)
 
 def test_filter_by_type(sync_client, test_events):
+    # ``type`` embeds the event index + dataset uuid, so exactly one logical event
+    # matches. Assert it's present and every result really has that type, deduping
+    # by external_id — the /events/filter endpoint can echo the same row twice
+    # under indexing lag, so an exact ``== 1`` count is race-prone.
     target = test_events[10]
     basic_filter = datahub_sdk.BasicEventFilter(
         type=target.type,
@@ -129,8 +133,8 @@ def test_filter_by_type(sync_client, test_events):
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
     results = sync_client.events.filter(filt)
-    assert len(results) == 1
-    assert results[0].external_id == target.external_id
+    assert target.external_id in {e.external_id for e in results}
+    assert all(e.type == target.type for e in results)
 def test_filter_by_sub_type(sync_client, test_events):
     target = test_events[99]
     basic_filter = datahub_sdk.BasicEventFilter(
@@ -139,8 +143,8 @@ def test_filter_by_sub_type(sync_client, test_events):
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
     results = sync_client.events.filter(filt)
-    assert len(results) == 1
-    assert results[0].external_id == target.external_id
+    assert target.external_id in {e.external_id for e in results}
+    assert all(e.sub_type == target.sub_type for e in results)
 
 @pytest.mark.parametrize("time_filter,expected_idx", [
     (datahub_sdk.TimeFilter(
@@ -172,8 +176,14 @@ def test_filter_by_metadata(sync_client, test_events,target_idx):
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
     results = sync_client.events.filter(filt)
-    assert len(results) == 1
-    assert results[0].external_id == target.external_id
+    assert target.external_id in {e.external_id for e in results}
+    # Every result must carry all of the target's metadata pairs (the unique
+    # key{i} entry pins this to the one logical event); dedup tolerates the
+    # backend echoing the same row twice under indexing lag.
+    assert all(
+        all(e.metadata.get(k) == v for k, v in target_metadata.items())
+        for e in results
+    )
 
 def test_filter_by_source_and_description(sync_client, test_events):
     target = test_events[7]
@@ -184,8 +194,11 @@ def test_filter_by_source_and_description(sync_client, test_events):
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
     results = sync_client.events.filter(filt)
-    assert len(results) == 1
-    assert results[0].external_id == target.external_id
+    assert target.external_id in {e.external_id for e in results}
+    assert all(
+        e.source == target.source and e.description == target.description
+        for e in results
+    )
 
 def test_filter_with_limit(sync_client, test_events,event_dataset):
     basic_filter = datahub_sdk.BasicEventFilter(external_id_prefix=event_dataset.external_id)

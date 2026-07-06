@@ -13,7 +13,7 @@ import datahub_sdk
 import pandas as pd
 import pytest
 
-from fixtures import sync_client
+from fixtures import make_ts, sync_client
 
 
 def _suffix() -> str:
@@ -21,32 +21,12 @@ def _suffix() -> str:
 
 
 @pytest.fixture(scope="function")
-def subscription_timeseries(sync_client):
-    """Two timeseries the subscription will be bound to. Cleaned up after the test."""
-    suffix = _suffix()
-    ts_a_ext = f"sub_test_ts_a_{suffix}"
-    ts_b_ext = f"sub_test_ts_b_{suffix}"
-    ts_a = datahub_sdk.TimeSeries(
-        external_id=ts_a_ext,
-        name="Sub Test TS A",
-        value_type="float",
-        unit="Celsius",
-        unit_external_id="temperature_deg_c",
-    )
-    ts_b = datahub_sdk.TimeSeries(
-        external_id=ts_b_ext,
-        name="Sub Test TS B",
-        value_type="float",
-        unit="Celsius",
-        unit_external_id="temperature_deg_c",
-    )
-    sync_client.timeseries.create([ts_a, ts_b])
-    yield ts_a_ext, ts_b_ext
-    # Best-effort cleanup. delete() raises if both already gone in some races; swallow.
-    try:
-        sync_client.timeseries.delete([ts_a, ts_b])
-    except Exception:
-        pass
+def subscription_timeseries(make_ts):
+    """Two timeseries the subscription will be bound to. ``make_ts`` deletes them
+    when the test ends."""
+    ts_a = make_ts(name="Sub Test TS A", unit="Celsius", unit_external_id="temperature_deg_c")
+    ts_b = make_ts(name="Sub Test TS B", unit="Celsius", unit_external_id="temperature_deg_c")
+    return ts_a.external_id, ts_b.external_id
 
 
 def test_create_list_delete(sync_client, subscription_timeseries):
