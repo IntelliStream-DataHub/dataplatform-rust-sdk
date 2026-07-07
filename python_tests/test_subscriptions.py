@@ -6,18 +6,13 @@ behind RUN_LISTEN_TESTS=1 (matching the Rust `#[ignore]`).
 """
 import os
 import time
-import uuid
 from datetime import datetime, timezone
 
 import datahub_sdk
 import pandas as pd
 import pytest
 
-from fixtures import make_ts, sync_client
-
-
-def _suffix() -> str:
-    return uuid.uuid4().hex[:8]
+from fixtures import make_ts, sync_client, unique_id
 
 
 @pytest.fixture(scope="function")
@@ -31,7 +26,7 @@ def subscription_timeseries(make_ts):
 
 def test_create_list_delete(sync_client, subscription_timeseries):
     ts_a_ext, ts_b_ext = subscription_timeseries
-    sub_ext = f"sub_test_{_suffix()}"
+    sub_ext = unique_id("sub")
 
     sub = datahub_sdk.Subscription(
         external_id=sub_ext,
@@ -110,9 +105,8 @@ listen_enabled = os.environ.get("RUN_LISTEN_TESTS") == "1"
 
 @pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
 def test_listen_end_to_end(sync_client):
-    suffix = _suffix()
-    ts_ext = f"sub_listen_ts_{suffix}"
-    sub_ext = f"sub_listen_{suffix}"
+    ts_ext = unique_id("listen_ts")
+    sub_ext = unique_id("listen")
 
     ts = datahub_sdk.TimeSeries(
         external_id=ts_ext,
@@ -176,9 +170,8 @@ def test_listen_end_to_end(sync_client):
 
 @pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
 def test_listen_context_manager_closes_cleanly(sync_client):
-    suffix = _suffix()
-    ts_ext = f"sub_ctx_ts_{suffix}"
-    sub_ext = f"sub_ctx_{suffix}"
+    ts_ext = unique_id("ctx_ts")
+    sub_ext = unique_id("ctx")
 
     ts = datahub_sdk.TimeSeries(
         external_id=ts_ext,

@@ -5,7 +5,6 @@ created series by name, by free-text query, and by description. Searches hit a
 backend search index that lags writes, so we sleep briefly before querying.
 """
 import time
-import uuid
 
 import pytest
 
@@ -18,7 +17,7 @@ SEARCH_INDEX_DELAY = 3.0
 
 
 def _uid(prefix="search"):
-    return f"pytest_{prefix}_{uuid.uuid4().hex[:12]}"
+    return unique_id(prefix)
 
 
 @pytest.mark.parametrize("field", ["name", "query", "description"])

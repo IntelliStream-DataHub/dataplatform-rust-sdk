@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime, timedelta
 from time import sleep
 
@@ -7,11 +6,14 @@ import pandas as pd
 import pytest
 from pytest_asyncio import fixture
 
-from fixtures import sync_client
+from fixtures import sync_client, unique_id
 
 @pytest.fixture(scope="module")
 def event_dataset(sync_client):
-    dataset_name= f"event_test_dataset_{uuid.uuid4().hex}"
+    # Prefix with TEST_PREFIX (via unique_id) so the conftest janitor's event
+    # sweep can reclaim these + all derived events if a run is killed before
+    # teardown. The events below inherit this prefix through their external ids.
+    dataset_name = unique_id("event_dataset")
     sync_client.datasets.delete([datahub_sdk.Dataset(external_id=dataset_name)])
     event_dataset = sync_client.datasets.create([datahub_sdk.Dataset(external_id=dataset_name)])[0]
     yield event_dataset

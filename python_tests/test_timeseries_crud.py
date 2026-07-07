@@ -15,8 +15,6 @@ These are integration tests; they hit the live backend configured in ``.env`` an
 clean up after themselves via the ``make_ts`` fixture.
 """
 
-import uuid
-
 import pytest
 
 import datahub_sdk
@@ -24,7 +22,7 @@ from python_tests.fixtures import *  # noqa: F401,F403  (sync_client fixture)
 
 
 def _uid(prefix="crud"):
-    return f"pytest_{prefix}_{uuid.uuid4().hex[:12]}"
+    return unique_id(prefix)
 
 
 # ``make_ts`` is provided by fixtures.py (imported via ``*`` above).
