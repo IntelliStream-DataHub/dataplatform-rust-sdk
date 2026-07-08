@@ -4,7 +4,7 @@ mod tests;
 use crate::buffer::DurableSpool;
 use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubApi};
 use crate::filters::EventFilter;
-use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId};
+use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper};
 use crate::http::ResponseError;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
@@ -172,7 +172,7 @@ impl EventsService {
 
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<Event>, ResponseError>
     where
-        for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
+        for<'a> &'a I: Into<DataWrapper<EventIdCollection>>,
     {
         let path = &format!("{}/delete", self.base_url);
         self.execute_post_request(path, &json.into()).await
@@ -185,7 +185,7 @@ impl EventsService {
 
     pub async fn by_ids<I>(&self, id_collection: &I) -> Result<DataWrapper<Event>, ResponseError>
     where
-        for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
+        for<'a> &'a I: Into<DataWrapper<EventIdCollection>>,
     {
         let path = &format!("{}/byids", self.base_url);
         self.execute_post_request::<DataWrapper<Event>, _>(path, &id_collection.into())
@@ -294,6 +294,12 @@ impl Event {
         self.id.as_ref()
     }
 
+    /// Selector for this event's server id, for use with `EventsService::delete` / `by_ids`.
+    /// Returns `None` before the event has been stamped with a UUID (i.e. before its first send).
+    pub fn id_selector(&self) -> Option<EventIdCollection> {
+        self.id.map(EventIdCollection::from_uuid)
+    }
+
     pub fn get_external_id(&self) -> &str {
         &self.external_id.as_str()
     }
@@ -393,5 +399,49 @@ impl Event {
 
     pub fn get_last_updated_time(&self) -> Option<&DateTime<Utc>> {
         self.last_updated_time.as_ref()
+    }
+}
+
+/// Event-specific id selector, a UUID-keyed cousin of [`crate::generic::IdAndExtId`]. Events are
+/// identified by a client-generated UUID v7 (see `EventsService::create`), so `delete` and `by_ids`
+/// take this rather than the numeric `IdAndExtId` used by the other services. Provide either the
+/// event's `id` (UUID) or its `external_id`.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct EventIdCollection {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "externalId")]
+    pub external_id: Option<String>,
+}
+
+impl EventIdCollection {
+    pub fn from_uuid(id: Uuid) -> Self {
+        EventIdCollection { id: Some(id), external_id: None }
+    }
+
+    pub fn from_external_id(external_id: &str) -> Self {
+        EventIdCollection { id: None, external_id: Some(external_id.to_string()) }
+    }
+}
+
+impl From<EventIdCollection> for DataWrapper<EventIdCollection> {
+    fn from(value: EventIdCollection) -> Self {
+        DataWrapper::from_vec(vec![value])
+    }
+}
+impl From<&EventIdCollection> for DataWrapper<EventIdCollection> {
+    fn from(value: &EventIdCollection) -> Self {
+        DataWrapper::from_vec(vec![value.clone()])
+    }
+}
+impl From<Vec<EventIdCollection>> for DataWrapper<EventIdCollection> {
+    fn from(value: Vec<EventIdCollection>) -> Self {
+        DataWrapper::from_vec(value)
+    }
+}
+impl From<&Vec<EventIdCollection>> for DataWrapper<EventIdCollection> {
+    fn from(value: &Vec<EventIdCollection>) -> Self {
+        DataWrapper::from_vec(value.clone())
     }
 }

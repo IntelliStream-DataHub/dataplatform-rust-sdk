@@ -29,7 +29,7 @@ use tokio::runtime::Runtime;
 
 use crate::datahub::DataHubApi;
 use crate::datasets::{Dataset, DatasetFilter, DatasetSearch};
-use crate::events::Event;
+use crate::events::{Event, EventIdCollection};
 use crate::files::FileUpload;
 use crate::filters::EventFilter;
 use crate::functions::Function;
@@ -218,8 +218,8 @@ impl EventsService {
 
     delegate_into! { events =>
         fn create(data: Into<DataWrapper<Event>>) -> Result<DataWrapper<Event>, ResponseError>;
-        fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Event>, ResponseError>;
-        fn by_ids(id_collection: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Event>, ResponseError>;
+        fn delete(json: Into<DataWrapper<EventIdCollection>>) -> Result<DataWrapper<Event>, ResponseError>;
+        fn by_ids(id_collection: Into<DataWrapper<EventIdCollection>>) -> Result<DataWrapper<Event>, ResponseError>;
     }
 
     /// Already synchronous on the async service; passed through directly.
