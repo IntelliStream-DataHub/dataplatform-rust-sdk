@@ -118,7 +118,9 @@ struct WsBatch {
     messages: Vec<RawMessage>,
 }
 
-/// Error frame the server sends when a requested subscription can't be attached (e.g. unknown id).
+/// Error frame the server sends when a requested subscription can't be attached — e.g. `not-found`
+/// (no such subscription for the tenant) or `forbidden` (the caller lacks read access to the
+/// subscription's dataset). The connection is not closed; the other subscriptions keep delivering.
 #[derive(Debug, Deserialize)]
 struct WsError {
     #[allow(dead_code)]

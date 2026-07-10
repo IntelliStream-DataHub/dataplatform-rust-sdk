@@ -383,6 +383,26 @@ mod tests {
         }
     }
 
+    // A "forbidden" refusal (the caller lacks read access to the subscription's dataset) decodes the
+    // same way as any other subscription error, so it surfaces to the caller as
+    // ListenError::Subscription rather than being silently dropped.
+    #[test]
+    fn test_forbidden_error_frame_decodes() {
+        use crate::subscriptions::listen::{decode_text_frame, DecodedFrame};
+        let wire = serde_json::json!({
+            "error": true,
+            "subscriptionExternalId": "secret_sub",
+            "reason": "forbidden"
+        });
+        match decode_text_frame(&wire.to_string()).unwrap() {
+            DecodedFrame::SubscriptionError { external_id, reason } => {
+                assert_eq!(external_id, "secret_sub");
+                assert_eq!(reason, "forbidden");
+            }
+            _ => panic!("expected a subscription error"),
+        }
+    }
+
     #[test]
     fn test_event_object_resource_and_relation_snake() {
         // The odd enum — the Java side uses UPPER_SNAKE for this variant, others are single-word UPPER.

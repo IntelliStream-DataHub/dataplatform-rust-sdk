@@ -97,6 +97,20 @@ def test_create_list_delete(sync_client, subscription_timeseries):
             pass
 
 
+def test_create_over_missing_timeseries_raises(sync_client):
+    """The backend refuses a subscription over a timeseries that doesn't exist, and the SDK surfaces
+    that refusal to the caller as an exception — the same exception surface a dataset-ACL 403 uses.
+    (A genuine 403 needs a token without dataset read access, which this single-token harness can't
+    mint; the create-side refusal path is exercised here.)"""
+    sub = datahub_sdk.Subscription(
+        external_id=f"sub_missing_ts_{_suffix()}",
+        name="Sub Over Missing TS",
+        timeseries=[f"nonexistent_ts_{_suffix()}"],
+    )
+    with pytest.raises(Exception):
+        sync_client.subscriptions.create([sub])
+
+
 def test_list_rejects_retriever_and_kwargs_together(sync_client):
     retriever = datahub_sdk.SubscriptionRetriever()
     with pytest.raises(ValueError):
@@ -222,3 +236,91 @@ def test_listen_context_manager_closes_cleanly(sync_client):
     finally:
         sync_client.subscriptions.delete([sub_ext])
         sync_client.timeseries.delete([ts])
+
+
+@pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
+def test_listen_refused_subscription_surfaces_as_error(sync_client):
+    """A subscription the server refuses is raised to the caller as an exception, not swallowed.
+
+    Here we trigger it with an unknown subscription id ('not-found'); a subscription whose dataset
+    the caller cannot read ('forbidden', the WebSocket dataset ACL) travels the identical error-frame
+    path. Either way the connection stays open and the refusal surfaces instead of looking like an
+    indefinitely silent stream.
+    """
+    bogus_sub = f"sub_missing_{_suffix()}"
+    listener = sync_client.subscriptions.listen([bogus_sub])
+    try:
+        with pytest.raises(Exception) as excinfo:
+            # The server sends the error frame on attach, so the first iteration raises.
+            for _ in listener:
+                break
+        message = str(excinfo.value)
+        assert "not-found" in message or "forbidden" in message, message
+    finally:
+        try:
+            listener.close()
+        except Exception:
+            pass
+
+
+@pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
+def test_listen_partial_refusal_keeps_valid_subscription(sync_client):
+    """A refused subscription on a multiplexed connection surfaces as an error but does NOT tear the
+    socket down — the valid subscription on the same connection keeps delivering. This is the core
+    guarantee of the WebSocket dataset ACL: a 'forbidden' subscription (identical error-frame path to
+    the 'not-found' used here) is skipped, not fatal to the whole connection.
+    """
+    suffix = _suffix()
+    ts_ext = f"sub_mix_ts_{suffix}"
+    sub_ext = f"sub_mix_{suffix}"
+    bogus_ext = f"sub_mix_missing_{suffix}"
+
+    ts = datahub_sdk.TimeSeries(
+        external_id=ts_ext, name="Sub Mix TS", value_type="float", unit="a.u"
+    )
+    sync_client.timeseries.create([ts])
+    sub = datahub_sdk.Subscription(
+        external_id=sub_ext, name=f"Sub Mix {suffix}", timeseries=[ts_ext]
+    )
+    sync_client.subscriptions.create([sub])
+
+    saw_error = False
+    saw_message = False
+    try:
+        # Multiplex a valid subscription and a bogus one over a single socket.
+        listener = sync_client.subscriptions.listen([sub_ext, bogus_ext])
+
+        # Write a datapoint to the valid subscription's timeseries so the fan-out delivers it.
+        ts_obj = sync_client.timeseries.by_ids([ts_ext])[0]
+        sync_client.timeseries.insert_from_lists(
+            timestamps=[pd.Timestamp.utcnow()], values=[7.0], ts=ts_obj
+        )
+
+        deadline = time.time() + 20
+        while time.time() < deadline and not (saw_error and saw_message):
+            try:
+                msg = listener.next_message()
+                if msg is None:
+                    break
+                if msg.subscription_external_id == sub_ext:
+                    saw_message = True
+                    listener.ack([msg.message_id])
+            except Exception as e:
+                text = str(e)
+                if "not-found" in text or "forbidden" in text:
+                    saw_error = True  # the bogus subscription was refused — keep polling the valid one
+                else:
+                    raise
+        listener.close()
+    finally:
+        try:
+            sync_client.subscriptions.delete([sub_ext])
+        except Exception:
+            pass
+        try:
+            sync_client.timeseries.delete([ts])
+        except Exception:
+            pass
+
+    assert saw_error, "the refused subscription must surface an error frame"
+    assert saw_message, "the valid subscription must keep delivering despite the refusal"
