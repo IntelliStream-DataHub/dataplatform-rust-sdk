@@ -195,3 +195,63 @@ def test_listen_context_manager_closes_cleanly(sync_client):
     finally:
         sync_client.subscriptions.delete([sub_ext])
         sync_client.timeseries.delete([ts])
+
+
+@pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
+def test_listen_fans_out_all_bound_timeseries(sync_client):
+    """One subscription bound to several timeseries must fan out datapoints from ALL of them.
+
+    A regression guard for the per-instance Pulsar producer-name change: the fan-out producer is
+    what republishes each datapoint per interested subscription, so this verifies the whole
+    ingest -> fan-out -> delivery path still works across multiple timeseries on one subscription.
+    Each timeseries gets a distinct value so we can confirm every one was delivered without relying
+    on per-item external ids.
+    """
+    suffix = _suffix()
+    ts_exts = [f"sub_fan_ts_{i}_{suffix}" for i in range(3)]
+    sub_ext = f"sub_fan_{suffix}"
+
+    ts_objs = [
+        datahub_sdk.TimeSeries(external_id=ext, name=f"Fan TS {i}", value_type="float", unit="a.u")
+        for i, ext in enumerate(ts_exts)
+    ]
+    sync_client.timeseries.create(ts_objs)
+    sub = datahub_sdk.Subscription(
+        external_id=sub_ext, name=f"Fan Sub {suffix}", timeseries=ts_exts
+    )
+    sync_client.subscriptions.create([sub])
+
+    expected_values = {float(i) for i in range(len(ts_exts))}  # 0.0, 1.0, 2.0 — one per timeseries
+    delivered_values = set()
+    try:
+        listener = sync_client.subscriptions.listen([sub_ext])
+        # Ingest one distinctly-valued datapoint to each bound timeseries.
+        created = sync_client.timeseries.by_ids(ts_exts)
+        for i, ts_obj in enumerate(created):
+            sync_client.timeseries.insert_from_lists(
+                timestamps=[pd.Timestamp.utcnow()], values=[float(i)], ts=ts_obj
+            )
+
+        deadline = time.time() + 30
+        while time.time() < deadline and not expected_values.issubset(delivered_values):
+            msg = listener.next_message()
+            if msg is None:
+                break
+            for item in msg.payload.items:
+                for dp in item.datapoints:
+                    delivered_values.add(dp.as_float())
+            listener.ack([msg.message_id])
+        listener.close()
+    finally:
+        try:
+            sync_client.subscriptions.delete([sub_ext])
+        except Exception:
+            pass
+        try:
+            sync_client.timeseries.delete(ts_objs)
+        except Exception:
+            pass
+
+    assert expected_values.issubset(delivered_values), (
+        f"not all bound timeseries fanned out; got {delivered_values}, expected {expected_values}"
+    )
