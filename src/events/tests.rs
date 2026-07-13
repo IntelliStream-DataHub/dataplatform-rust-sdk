@@ -1,5 +1,5 @@
 use crate::datasets::Dataset;
-use crate::events::Event;
+use crate::events::{Event, EventIdCollection};
 use crate::filters::{BasicEventFilter, EventFilter, TimeFilter};
 use crate::generic::IdAndExtId;
 use crate::tests::cleanup::{cleanup_events, cleanup_resources};
@@ -8,7 +8,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use maplit::hashmap;
 use std::collections::HashMap;
 
-async fn delete_events(api_service: &ApiService, events: Vec<IdAndExtId>) -> Result<(), Box<dyn std::error::Error>> {
+async fn delete_events(api_service: &ApiService, events: Vec<EventIdCollection>) -> Result<(), Box<dyn std::error::Error>> {
     let delete_result = api_service.events.delete(&events).await;
     match delete_result {
         Ok(events) => {
@@ -152,8 +152,8 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
 
     let event_external_id_collection = test_events
         .iter()
-        .map(|e| IdAndExtId::from_external_id(&e.external_id))
-        .collect::<Vec<IdAndExtId>>();
+        .map(|e| EventIdCollection::from_external_id(&e.external_id))
+        .collect::<Vec<EventIdCollection>>();
 
     api_service.events.delete(&event_external_id_collection).await;
 
@@ -376,4 +376,63 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     api_service.datasets.delete(&ds_ext_id_collection).await.ok();
     dataset_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
     Ok(())
+}
+
+/// Pure serde round-trips for the UUID-based event id and its selector. These need no backend and
+/// pin down that a UUID survives serialize→deserialize and lands on the wire as a JSON string in
+/// exactly the places the server reads it (`Event.id`, `EventIdCollection`, `BasicEventFilter.id`).
+mod uuid_serde {
+    use crate::events::{Event, EventIdCollection};
+    use crate::generic::DataWrapper;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    #[test]
+    fn event_id_round_trips_as_a_uuid_string() {
+        let mut ev = Event::new("evt_roundtrip".to_string());
+        ev.set_event_time(Utc::now());
+        let id = Uuid::now_v7();
+        ev.id = Some(id);
+
+        let json = serde_json::to_string(&ev).unwrap();
+        assert!(
+            json.contains(&format!("\"id\":\"{}\"", id)),
+            "event id should serialize as a JSON string, got {json}"
+        );
+
+        let back: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, Some(id));
+        assert_eq!(back, ev);
+    }
+
+    #[test]
+    fn event_with_absent_id_deserializes_to_none() {
+        // A payload that omits `id` entirely (e.g. a list projection) must not fail to parse.
+        let json = r#"{"externalId":"evt_no_id","relatedResourceIds":[],"relatedResourceExternalIds":[]}"#;
+        let ev: Event = serde_json::from_str(json).unwrap();
+        assert_eq!(ev.id, None);
+        assert_eq!(ev.external_id, "evt_no_id");
+    }
+
+    #[test]
+    fn event_id_collection_serializes_uuid_and_external_id() {
+        let id = Uuid::now_v7();
+        assert_eq!(
+            serde_json::to_string(&EventIdCollection::from_uuid(id)).unwrap(),
+            format!("{{\"id\":\"{}\"}}", id),
+        );
+        assert_eq!(
+            serde_json::to_string(&EventIdCollection::from_external_id("evt_x")).unwrap(),
+            r#"{"externalId":"evt_x"}"#,
+        );
+    }
+
+    #[test]
+    fn event_id_collection_vec_wraps_into_items() {
+        let id = Uuid::now_v7();
+        let wrapper: DataWrapper<EventIdCollection> =
+            (&vec![EventIdCollection::from_uuid(id)]).into();
+        let json = serde_json::to_string(&wrapper).unwrap();
+        assert_eq!(json, format!("{{\"items\":[{{\"id\":\"{}\"}}]}}", id));
+    }
 }

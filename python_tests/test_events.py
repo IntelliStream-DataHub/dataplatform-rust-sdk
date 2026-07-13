@@ -194,3 +194,74 @@ def test_filter_with_limit(sync_client, test_events,event_dataset):
 
     results = sync_client.events.filter(filt)
     assert len(results) == 5
+
+
+# ---------------------------------------------------------------------------
+# UUID event ids: events are keyed by a client-generated UUID v7, and that id
+# must be usable to get / delete / filter the event (not just its external_id).
+# Ingestion is eventually consistent, so id lookups poll rather than sleep once.
+# ---------------------------------------------------------------------------
+
+def _poll(fn, ok, tries=20, delay=0.5):
+    """Call fn() until ok(result) is true or we run out of tries; return the last result."""
+    result = fn()
+    for _ in range(tries - 1):
+        if ok(result):
+            return result
+        sleep(delay)
+        result = fn()
+    return result
+
+
+@pytest.fixture(scope="function")
+def single_event(sync_client, event_dataset):
+    external_id = f"{event_dataset.external_id}_uuid_event_{uuid.uuid4().hex}"
+    ev = datahub_sdk.Event(
+        external_id=external_id,
+        data_set_id=event_dataset.id,
+        event_time=pd.Timestamp("2025-01-01", tz="UTC"),
+    )
+    created = sync_client.events.create([ev])[0]
+    yield created
+    # Teardown by external id removes every copy, regardless of what the test deleted.
+    sync_client.events.delete([external_id])
+
+
+def test_created_event_has_uuid_v7_id(single_event):
+    # The server echoes back the client-supplied id; it should be a v7 UUID.
+    assert isinstance(single_event.id, uuid.UUID)
+    assert single_event.id.version == 7
+
+
+def test_by_ids_with_uuid_collection(sync_client, single_event):
+    selector = datahub_sdk.EventIdCollection(id=single_event.id)
+    fetched = _poll(lambda: sync_client.events.by_ids([selector]), lambda r: len(r) == 1)
+    assert len(fetched) == 1
+    assert fetched[0].id == single_event.id
+    assert fetched[0].external_id == single_event.external_id
+
+
+def test_by_ids_with_bare_uuid(sync_client, single_event):
+    # A bare uuid.UUID is also accepted as an event identifier.
+    fetched = _poll(lambda: sync_client.events.by_ids([single_event.id]), lambda r: len(r) == 1)
+    assert len(fetched) == 1
+    assert fetched[0].id == single_event.id
+
+
+def test_delete_by_uuid(sync_client, single_event):
+    # Confirm the event is queryable (read-after-write), then delete it by its UUID.
+    _poll(lambda: sync_client.events.by_ids([single_event.id]), lambda r: len(r) == 1)
+    sync_client.events.delete([datahub_sdk.EventIdCollection(id=single_event.id)])
+    remaining = _poll(lambda: sync_client.events.by_ids([single_event.id]), lambda r: r == [])
+    assert remaining == []
+
+
+# NB: there is deliberately no filter-by-uuid test. The backend types the event filter's `id`
+# field as a Long, so it cannot filter events by their UUID id (the request is rejected
+# server-side). Use `by_ids` (see test_by_ids_with_uuid_collection) to fetch an event by its UUID.
+
+
+def test_event_id_collection_requires_an_identifier():
+    # Constructing with neither an id nor an external_id is a usage error.
+    with pytest.raises(ValueError):
+        datahub_sdk.EventIdCollection()

@@ -6,7 +6,7 @@ use crate::timeseries::datapoints::{
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
 use chrono::{DateTime, Utc};
 use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter, TimeFilter};
-use dataplatform_rust_sdk::generic::IdAndExtId;
+use dataplatform_rust_sdk::events::EventIdCollection;
 use dataplatform_rust_sdk::{Event, TimeSeries};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -207,6 +207,9 @@ impl PyTimeFilter {
         }
     }
 }
+/// Event id selector exposed to Python. Events are keyed by a client-generated UUID v7, so this
+/// carries the `id` (UUID) and/or the `external_id`. Construct with either or both:
+/// `EventIdCollection(id=my_uuid)` or `EventIdCollection(external_id="...")`.
 #[pyclass(
     module = "datahub_sdk",
     name = "EventIdCollection",
@@ -215,17 +218,27 @@ impl PyTimeFilter {
 #[derive(Clone)]
 pub struct PyEventIdCollection {
     pub id: Option<Uuid>,
-    pub external_id: String,
+    pub external_id: Option<String>,
 }
+#[pymethods]
 impl PyEventIdCollection {
-    pub fn new(id: Option<Uuid>, external_id: String) -> Self {
-        Self { id, external_id }
+    #[new]
+    #[pyo3(signature = (id = None, external_id = None))]
+    fn new(id: Option<Uuid>, external_id: Option<String>) -> PyResult<Self> {
+        if id.is_none() && external_id.is_none() {
+            return Err(PyErr::new::<PyValueError, _>(
+                "EventIdCollection needs an id (UUID) or an external_id",
+            ));
+        }
+        Ok(Self { id, external_id })
     }
-    pub fn id(&self) -> Option<&Uuid> {
-        self.id.as_ref()
+    #[getter]
+    fn id(&self) -> Option<Uuid> {
+        self.id
     }
-    pub fn external_id(&self) -> &str {
-        &self.external_id
+    #[getter]
+    fn external_id(&self) -> Option<String> {
+        self.external_id.clone()
     }
 }
 
@@ -233,25 +246,12 @@ impl PyEventIdCollection {
 pub enum EventIdentifyable {
     Event(PyEvent),
     EventId(PyEventIdCollection),
+    // A bare `uuid.UUID` selects an event by its id; a bare `str` selects by external id. UUID is
+    // tried before the string catch-all so a UUID doesn't get swallowed as an external id.
+    Uuid(Uuid),
     ExternalId(String),
 }
 
-impl EventIdentifyable {
-    pub fn id(&self) -> Option<&Uuid> {
-        match self {
-            EventIdentifyable::EventId(id) => id.id(),
-            EventIdentifyable::Event(event) => event.uuid(),
-            EventIdentifyable::ExternalId(_) => None,
-        }
-    }
-    pub fn external_id(&self) -> &str {
-        match self {
-            EventIdentifyable::EventId(id) => id.external_id(),
-            EventIdentifyable::Event(event) => event.external_id(),
-            EventIdentifyable::ExternalId(id) => id,
-        }
-    }
-}
 impl From<PyEvent> for EventIdentifyable {
     fn from(event: PyEvent) -> Self {
         EventIdentifyable::Event(event)
@@ -262,21 +262,24 @@ impl From<PyEventIdCollection> for EventIdentifyable {
         EventIdentifyable::EventId(event)
     }
 }
-impl From<EventIdentifyable> for IdAndExtId {
+// Convert to the Rust event selector, *preserving the UUID*. The previous impl dropped the id and
+// always sent the external id, so delete/by_ids by UUID silently didn't work. Prefer the id when we
+// have one; fall back to the external id otherwise.
+impl From<EventIdentifyable> for EventIdCollection {
     fn from(value: EventIdentifyable) -> Self {
         match value {
-            EventIdentifyable::EventId(id) => Self {
-                id: None,
-                external_id: Some(id.external_id),
+            EventIdentifyable::EventId(c) => EventIdCollection {
+                id: c.id,
+                external_id: c.external_id,
             },
-            EventIdentifyable::Event(event) => Self {
-                id: None,
-                external_id: Some(event.external_id().to_string()),
+            EventIdentifyable::Event(event) => match event.uuid().copied() {
+                Some(id) => EventIdCollection::from_uuid(id),
+                None => EventIdCollection::from_external_id(event.external_id()),
             },
-            EventIdentifyable::ExternalId(id) => Self {
-                id: None,
-                external_id: Some(id.to_string()),
-            },
+            EventIdentifyable::Uuid(id) => EventIdCollection::from_uuid(id),
+            EventIdentifyable::ExternalId(external_id) => {
+                EventIdCollection::from_external_id(&external_id)
+            }
         }
     }
 }

@@ -2,7 +2,8 @@ use crate::events::{EventIdentifyable, PyEvent, PyEventFilter};
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
 use crate::timeseries::{PyTimeSeries, PyTimeSeriesUpdate};
 use crate::{PyIdCollection, PySearchAndFilterForm};
-use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
+use dataplatform_rust_sdk::events::EventIdCollection;
+use dataplatform_rust_sdk::generic::DataWrapper;
 use dataplatform_rust_sdk::{
     ApiService, Event, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection,
 };
@@ -45,8 +46,8 @@ impl PyEventsServiceAsync {
         let service = self.api_service.clone();
         let input_ids = input
             .iter()
-            .map(|u| IdAndExtId::from(u.clone()))
-            .collect::<Vec<IdAndExtId>>();
+            .map(|u| EventIdCollection::from(u.clone()))
+            .collect::<Vec<EventIdCollection>>();
 
         future_into_py(py, async move {
             let result = service
@@ -71,8 +72,8 @@ impl PyEventsServiceAsync {
         let service = self.api_service.clone();
         let input_ids = input
             .iter()
-            .map(|u| IdAndExtId::from(u.clone()))
-            .collect::<Vec<IdAndExtId>>();
+            .map(|u| EventIdCollection::from(u.clone()))
+            .collect::<Vec<EventIdCollection>>();
 
         future_into_py(py, async move {
             let result = service
