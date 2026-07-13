@@ -15,8 +15,6 @@ These are integration tests; they hit the live backend configured in ``.env`` an
 clean up after themselves via the ``make_ts`` fixture.
 """
 
-import uuid
-
 import pytest
 
 import datahub_sdk
@@ -24,36 +22,10 @@ from python_tests.fixtures import *  # noqa: F401,F403  (sync_client fixture)
 
 
 def _uid(prefix="crud"):
-    return f"pytest_{prefix}_{uuid.uuid4().hex[:12]}"
+    return unique_id(prefix)
 
 
-@pytest.fixture
-def make_ts(sync_client):
-    """Factory that creates timeseries and deletes them at teardown.
-
-    Defaults give a valid, minimally-populated float series; pass keyword
-    overrides for any TimeSeries constructor argument.
-    """
-    created = []
-
-    def _make(**kwargs):
-        kwargs.setdefault("external_id", _uid("ts"))
-        kwargs.setdefault("value_type", "float")
-        kwargs.setdefault("unit", "a.u")
-        ts = datahub_sdk.TimeSeries(**kwargs)
-        # ensure a clean slate in case a previous failed run leaked the ext id
-        sync_client.timeseries.delete([ts])
-        result = sync_client.timeseries.create([ts])[0]
-        created.append(result)
-        return result
-
-    yield _make
-
-    for ts in created:
-        try:
-            sync_client.timeseries.delete([ts])
-        except Exception:
-            pass
+# ``make_ts`` is provided by fixtures.py (imported via ``*`` above).
 
 
 def _refetch(sync_client, ts):
