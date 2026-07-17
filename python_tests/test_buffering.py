@@ -34,7 +34,6 @@ def test_event_buffers_to_disk_with_uuid_v7(tmp_path):
     client = _unreachable_buffered_client(tmp_path)
 
     # Server unreachable -> create() buffers instead of raising, and confirms no items.
-    # event_time is required (the SDK rejects events without it instead of defaulting to now()).
     result = client.events.create(
         [datahub_sdk.Event(external_id="py_buffer_event", event_time=datetime.now(timezone.utc))]
     )
@@ -54,13 +53,18 @@ def test_event_buffers_to_disk_with_uuid_v7(tmp_path):
     assert uuid[14] == "7", f"expected a time-ordered UUID v7 id, got {uuid}"
 
 
-def test_event_without_event_time_is_rejected(tmp_path):
-    client = _unreachable_buffered_client(tmp_path)
-    # event_time is when the event occurred; the SDK rejects events without it (no now() default).
-    with pytest.raises(datahub_sdk.DataHubException) as exc:
-        client.events.create([datahub_sdk.Event(external_id="py_no_time_event")])
-    assert exc.value.status_code == 400
-    assert "event_time" in exc.value.message
+def test_event_without_event_time_is_rejected():
+    # event_time is when the event occurred; there is no now() default. An Event without one is
+    # unrepresentable, so this fails at construction rather than at send. Rust callers get a compile
+    # error; Python is the only surface where this needs a test.
+    with pytest.raises(TypeError):
+        datahub_sdk.Event(external_id="py_no_time_event")
+
+    ev = datahub_sdk.Event(
+        external_id="py_no_time_event", event_time=datetime.now(timezone.utc)
+    )
+    with pytest.raises(TypeError):
+        ev.event_time = None
 
 
 def test_datapoints_buffer_to_disk(tmp_path):
