@@ -5,21 +5,16 @@ and creating resources together with relations through the live API. Skipped if
 the backend is unreachable (the fixture takes care of that).
 """
 import time
-import uuid
 
 import datahub_sdk
 import pytest
 from datahub_sdk import DataHubException, EdgeProxy, GraphResult, RelForm, Resource
 
-from fixtures import sync_client
+from fixtures import sync_client, unique_id
 
 
 # The search index is eventually-consistent with writes; give it a moment.
 SEARCH_INDEX_DELAY = 3.0
-
-
-def _suffix() -> str:
-    return uuid.uuid4().hex[:8]
 
 
 def _cleanup_edge(sync_client, from_ext: str, to_ext: str) -> None:
@@ -60,9 +55,8 @@ def test_rel_form_constructors():
 
 
 def test_create_with_flows_to_relation(sync_client):
-    suffix = _suffix()
-    a_ext = f"py_sdk_rel_a_{suffix}"
-    b_ext = f"py_sdk_rel_b_{suffix}"
+    a_ext = unique_id("rel_a")
+    b_ext = unique_id("rel_b")
     ra = Resource(external_id=a_ext, name="Py SDK Rel A", is_root=True, labels=["ASSET"])
     rb = Resource(external_id=b_ext, name="Py SDK Rel B", labels=["ASSET"])
     rel = RelForm.by_external_ids(a_ext, b_ext, "flows_to")
@@ -86,8 +80,7 @@ def test_create_with_flows_to_relation(sync_client):
 
 
 def test_create_nodes_only(sync_client):
-    suffix = _suffix()
-    a_ext = f"py_sdk_node_{suffix}"
+    a_ext = unique_id("node")
     ra = Resource(external_id=a_ext, name="Py SDK Node", is_root=True, labels=["ASSET"])
 
     sync_client.resources.delete([a_ext])
@@ -106,9 +99,11 @@ def test_search_resources(sync_client):
     # Mirrors `src/resources/tests.rs::test_search_resources`: create a resource,
     # then search with a query + limit and assert the matches are bounded and
     # relevant.
-    suffix = _suffix()
-    ext_id = f"py_sdk_search_{suffix}"
-    name = f"py sdk search resource {suffix}"
+    ext_id = unique_id("search")
+    # The search query rejects underscores, so build the (searched) name from the
+    # bare hex tail of ext_id rather than the full underscore-bearing external id.
+    token = ext_id.rsplit("_", 1)[-1]
+    name = f"py sdk search resource {token}"
     resource = Resource(external_id=ext_id, name=name, is_root=True, labels=["ASSET"])
 
     sync_client.resources.delete([ext_id])
@@ -130,7 +125,7 @@ def test_search_resources(sync_client):
 def test_api_error_surfaces_status_code(sync_client):
     # A resource without labels is rejected by the backend with HTTP 400. The
     # error must reach Python as a DataHubException exposing that status code.
-    bad = Resource(external_id=f"py_sdk_badreq_{_suffix()}", name="Bad Request")
+    bad = Resource(external_id=unique_id("badreq"), name="Bad Request")
     with pytest.raises(DataHubException) as exc_info:
         sync_client.resources.create([bad])
     assert exc_info.value.status_code == 400

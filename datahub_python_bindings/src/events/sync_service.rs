@@ -1,7 +1,8 @@
 use crate::events::{EventIdentifyable, PyEvent, PyEventFilter};
 use crate::{PyIdCollection, PySearchAndFilterForm};
+use dataplatform_rust_sdk::events::EventIdCollection;
 use dataplatform_rust_sdk::filters::EventFilter;
-use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
+use dataplatform_rust_sdk::generic::DataWrapper;
 use dataplatform_rust_sdk::{
     ApiService, Event, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection,
 };
@@ -43,8 +44,8 @@ impl PyEventsServiceSync {
         input: Vec<EventIdentifyable>,
     ) -> PyResult<Vec<PyEvent>> {
         let service = self.api_service.clone();
-        let input_ids: Vec<IdAndExtId> =
-            input.iter().map(|u| IdAndExtId::from(u.clone())).collect();
+        let input_ids: Vec<EventIdCollection> =
+            input.iter().map(|u| EventIdCollection::from(u.clone())).collect();
 
         py.detach(|| {
             let result = self
@@ -62,8 +63,8 @@ impl PyEventsServiceSync {
     }
     fn delete<'py>(&self, py: Python<'py>, input: Vec<EventIdentifyable>) -> PyResult<()> {
         let service = self.api_service.clone();
-        let input_ids: Vec<IdAndExtId> =
-            input.iter().map(|u| IdAndExtId::from(u.clone())).collect();
+        let input_ids: Vec<EventIdCollection> =
+            input.iter().map(|u| EventIdCollection::from(u.clone())).collect();
 
         py.detach(|| {
             let result = self

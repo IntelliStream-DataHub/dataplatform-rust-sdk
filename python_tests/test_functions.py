@@ -3,20 +3,14 @@
 Mirrors `src/functions/test.rs`. Round-trips a function through the live API. Skipped if
 the backend is unreachable (the fixture takes care of that).
 """
-import uuid
-
 import datahub_sdk
 import pytest
 
-from fixtures import sync_client
-
-
-def _suffix() -> str:
-    return uuid.uuid4().hex[:8]
+from fixtures import sync_client, unique_id
 
 
 def test_create_list_by_external_id_delete(sync_client):
-    ext_id = f"py_test_fn_{_suffix()}"
+    ext_id = unique_id("fn")
     fn = datahub_sdk.Function(
         external_id=ext_id,
         model_name="forecast-ema",
@@ -56,4 +50,4 @@ def test_create_list_by_external_id_delete(sync_client):
 
 def test_by_external_id_raises_when_missing(sync_client):
     with pytest.raises(Exception):
-        sync_client.functions.by_external_id(f"does_not_exist_{_suffix()}")
+        sync_client.functions.by_external_id(unique_id("does_not_exist"))

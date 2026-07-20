@@ -4,23 +4,17 @@ The async mirror of `test_resources.py`: exercises `create`/`by_ids`/`delete`/
 `search` on `AsyncDataHubClient.resources` against the live API. Skipped if the
 backend is unreachable (the fixture takes care of that).
 """
-import uuid
-
 import asyncio
 
 import datahub_sdk
 import pytest
 from datahub_sdk import DataHubException, GraphResult, RelForm, Resource
 
-from fixtures import async_client
+from fixtures import async_client, unique_id
 
 
 # The search index is eventually-consistent with writes; give it a moment.
 SEARCH_INDEX_DELAY = 3.0
-
-
-def _suffix() -> str:
-    return uuid.uuid4().hex[:8]
 
 
 async def _cleanup_edge(async_client, from_ext: str, to_ext: str) -> None:
@@ -36,9 +30,8 @@ async def _cleanup_edge(async_client, from_ext: str, to_ext: str) -> None:
 
 @pytest.mark.asyncio
 async def test_create_with_flows_to_relation(async_client):
-    suffix = _suffix()
-    a_ext = f"py_sdk_async_rel_a_{suffix}"
-    b_ext = f"py_sdk_async_rel_b_{suffix}"
+    a_ext = unique_id("async_rel_a")
+    b_ext = unique_id("async_rel_b")
     ra = Resource(external_id=a_ext, name="Py SDK Async Rel A", is_root=True, labels=["ASSET"])
     rb = Resource(external_id=b_ext, name="Py SDK Async Rel B", labels=["ASSET"])
     rel = RelForm.by_external_ids(a_ext, b_ext, "flows_to")
@@ -63,8 +56,7 @@ async def test_create_with_flows_to_relation(async_client):
 
 @pytest.mark.asyncio
 async def test_create_nodes_only(async_client):
-    suffix = _suffix()
-    a_ext = f"py_sdk_async_node_{suffix}"
+    a_ext = unique_id("async_node")
     ra = Resource(external_id=a_ext, name="Py SDK Async Node", is_root=True, labels=["ASSET"])
 
     await async_client.resources.delete([a_ext])
@@ -81,8 +73,7 @@ async def test_create_nodes_only(async_client):
 
 @pytest.mark.asyncio
 async def test_by_ids_round_trips_created_resource(async_client):
-    suffix = _suffix()
-    ext_id = f"py_sdk_async_byids_{suffix}"
+    ext_id = unique_id("async_byids")
     resource = Resource(external_id=ext_id, name="Py SDK Async ByIds", is_root=True, labels=["ASSET"])
 
     await async_client.resources.delete([ext_id])
@@ -102,9 +93,11 @@ async def test_search_resources(async_client):
     # Async mirror of `test_resources.py::test_search_resources`: create a
     # resource, then search with a query + limit and assert the matches are
     # bounded and relevant.
-    suffix = _suffix()
-    ext_id = f"py_sdk_async_search_{suffix}"
-    name = f"py sdk async search resource {suffix}"
+    ext_id = unique_id("async_search")
+    # The search query rejects underscores, so build the (searched) name from the
+    # bare hex tail of ext_id rather than the full underscore-bearing external id.
+    token = ext_id.rsplit("_", 1)[-1]
+    name = f"py sdk async search resource {token}"
     resource = Resource(external_id=ext_id, name=name, is_root=True, labels=["ASSET"])
 
     await async_client.resources.delete([ext_id])
@@ -127,7 +120,7 @@ async def test_search_resources(async_client):
 async def test_api_error_surfaces_status_code(async_client):
     # A resource without labels is rejected by the backend with HTTP 400. The
     # error must reach Python as a DataHubException exposing that status code.
-    bad = Resource(external_id=f"py_sdk_async_badreq_{_suffix()}", name="Bad Request")
+    bad = Resource(external_id=unique_id("async_badreq"), name="Bad Request")
     with pytest.raises(DataHubException) as exc_info:
         await async_client.resources.create([bad])
     assert exc_info.value.status_code == 400

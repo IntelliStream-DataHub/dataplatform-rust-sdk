@@ -6,52 +6,27 @@ behind RUN_LISTEN_TESTS=1 (matching the Rust `#[ignore]`).
 """
 import os
 import time
-import uuid
 from datetime import datetime, timezone
 
 import datahub_sdk
 import pandas as pd
 import pytest
 
-from fixtures import sync_client
-
-
-def _suffix() -> str:
-    return uuid.uuid4().hex[:8]
+from fixtures import make_ts, sync_client, unique_id
 
 
 @pytest.fixture(scope="function")
-def subscription_timeseries(sync_client):
-    """Two timeseries the subscription will be bound to. Cleaned up after the test."""
-    suffix = _suffix()
-    ts_a_ext = f"sub_test_ts_a_{suffix}"
-    ts_b_ext = f"sub_test_ts_b_{suffix}"
-    ts_a = datahub_sdk.TimeSeries(
-        external_id=ts_a_ext,
-        name="Sub Test TS A",
-        value_type="float",
-        unit="Celsius",
-        unit_external_id="temperature_deg_c",
-    )
-    ts_b = datahub_sdk.TimeSeries(
-        external_id=ts_b_ext,
-        name="Sub Test TS B",
-        value_type="float",
-        unit="Celsius",
-        unit_external_id="temperature_deg_c",
-    )
-    sync_client.timeseries.create([ts_a, ts_b])
-    yield ts_a_ext, ts_b_ext
-    # Best-effort cleanup. delete() raises if both already gone in some races; swallow.
-    try:
-        sync_client.timeseries.delete([ts_a, ts_b])
-    except Exception:
-        pass
+def subscription_timeseries(make_ts):
+    """Two timeseries the subscription will be bound to. ``make_ts`` deletes them
+    when the test ends."""
+    ts_a = make_ts(name="Sub Test TS A", unit="Celsius", unit_external_id="temperature_deg_c")
+    ts_b = make_ts(name="Sub Test TS B", unit="Celsius", unit_external_id="temperature_deg_c")
+    return ts_a.external_id, ts_b.external_id
 
 
 def test_create_list_delete(sync_client, subscription_timeseries):
     ts_a_ext, ts_b_ext = subscription_timeseries
-    sub_ext = f"sub_test_{_suffix()}"
+    sub_ext = unique_id("sub")
 
     sub = datahub_sdk.Subscription(
         external_id=sub_ext,
@@ -103,9 +78,9 @@ def test_create_over_missing_timeseries_raises(sync_client):
     (A genuine 403 needs a token without dataset read access, which this single-token harness can't
     mint; the create-side refusal path is exercised here.)"""
     sub = datahub_sdk.Subscription(
-        external_id=f"sub_missing_ts_{_suffix()}",
+        external_id=unique_id("sub_missing_ts"),
         name="Sub Over Missing TS",
-        timeseries=[f"nonexistent_ts_{_suffix()}"],
+        timeseries=[unique_id("nonexistent_ts")],
     )
     with pytest.raises(Exception):
         sync_client.subscriptions.create([sub])
@@ -144,9 +119,8 @@ listen_enabled = os.environ.get("RUN_LISTEN_TESTS") == "1"
 
 @pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
 def test_listen_end_to_end(sync_client):
-    suffix = _suffix()
-    ts_ext = f"sub_listen_ts_{suffix}"
-    sub_ext = f"sub_listen_{suffix}"
+    ts_ext = unique_id("listen_ts")
+    sub_ext = unique_id("listen")
 
     ts = datahub_sdk.TimeSeries(
         external_id=ts_ext,
@@ -159,7 +133,7 @@ def test_listen_end_to_end(sync_client):
 
     sub = datahub_sdk.Subscription(
         external_id=sub_ext,
-        name=f"Sub Listen {suffix}",
+        name=f"Sub Listen {sub_ext}",
         timeseries=[ts_ext],
     )
     sync_client.subscriptions.create([sub])
@@ -210,9 +184,8 @@ def test_listen_end_to_end(sync_client):
 
 @pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
 def test_listen_context_manager_closes_cleanly(sync_client):
-    suffix = _suffix()
-    ts_ext = f"sub_ctx_ts_{suffix}"
-    sub_ext = f"sub_ctx_{suffix}"
+    ts_ext = unique_id("ctx_ts")
+    sub_ext = unique_id("ctx")
 
     ts = datahub_sdk.TimeSeries(
         external_id=ts_ext,
@@ -223,7 +196,7 @@ def test_listen_context_manager_closes_cleanly(sync_client):
     sync_client.timeseries.create([ts])
     sub = datahub_sdk.Subscription(
         external_id=sub_ext,
-        name=f"Sub Ctx {suffix}",
+        name=f"Sub Ctx {sub_ext}",
         timeseries=[ts_ext],
     )
     sync_client.subscriptions.create([sub])
@@ -239,6 +212,66 @@ def test_listen_context_manager_closes_cleanly(sync_client):
 
 
 @pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
+def test_listen_fans_out_all_bound_timeseries(sync_client):
+    """One subscription bound to several timeseries must fan out datapoints from ALL of them.
+
+    A regression guard for the per-instance Pulsar producer-name change: the fan-out producer is
+    what republishes each datapoint per interested subscription, so this verifies the whole
+    ingest -> fan-out -> delivery path still works across multiple timeseries on one subscription.
+    Each timeseries gets a distinct value so we can confirm every one was delivered without relying
+    on per-item external ids.
+    """
+    suffix = unique_id("fan")
+    ts_exts = [f"sub_fan_ts_{i}_{suffix}" for i in range(3)]
+    sub_ext = f"sub_fan_{suffix}"
+
+    ts_objs = [
+        datahub_sdk.TimeSeries(external_id=ext, name=f"Fan TS {i}", value_type="float", unit="a.u")
+        for i, ext in enumerate(ts_exts)
+    ]
+    sync_client.timeseries.create(ts_objs)
+    sub = datahub_sdk.Subscription(
+        external_id=sub_ext, name=f"Fan Sub {suffix}", timeseries=ts_exts
+    )
+    sync_client.subscriptions.create([sub])
+
+    expected_values = {float(i) for i in range(len(ts_exts))}  # 0.0, 1.0, 2.0 — one per timeseries
+    delivered_values = set()
+    try:
+        listener = sync_client.subscriptions.listen([sub_ext])
+        # Ingest one distinctly-valued datapoint to each bound timeseries.
+        created = sync_client.timeseries.by_ids(ts_exts)
+        for i, ts_obj in enumerate(created):
+            sync_client.timeseries.insert_from_lists(
+                timestamps=[pd.Timestamp.utcnow()], values=[float(i)], ts=ts_obj
+            )
+
+        deadline = time.time() + 30
+        while time.time() < deadline and not expected_values.issubset(delivered_values):
+            msg = listener.next_message()
+            if msg is None:
+                break
+            for item in msg.payload.items:
+                for dp in item.datapoints:
+                    delivered_values.add(dp.as_float())
+            listener.ack([msg.message_id])
+        listener.close()
+    finally:
+        try:
+            sync_client.subscriptions.delete([sub_ext])
+        except Exception:
+            pass
+        try:
+            sync_client.timeseries.delete(ts_objs)
+        except Exception:
+            pass
+
+    assert expected_values.issubset(delivered_values), (
+        f"not all bound timeseries fanned out; got {delivered_values}, expected {expected_values}"
+    )
+
+
+@pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
 def test_listen_refused_subscription_surfaces_as_error(sync_client):
     """A subscription the server refuses is raised to the caller as an exception, not swallowed.
 
@@ -247,7 +280,7 @@ def test_listen_refused_subscription_surfaces_as_error(sync_client):
     path. Either way the connection stays open and the refusal surfaces instead of looking like an
     indefinitely silent stream.
     """
-    bogus_sub = f"sub_missing_{_suffix()}"
+    bogus_sub = unique_id("sub_missing")
     listener = sync_client.subscriptions.listen([bogus_sub])
     try:
         with pytest.raises(Exception) as excinfo:
@@ -270,17 +303,16 @@ def test_listen_partial_refusal_keeps_valid_subscription(sync_client):
     guarantee of the WebSocket dataset ACL: a 'forbidden' subscription (identical error-frame path to
     the 'not-found' used here) is skipped, not fatal to the whole connection.
     """
-    suffix = _suffix()
-    ts_ext = f"sub_mix_ts_{suffix}"
-    sub_ext = f"sub_mix_{suffix}"
-    bogus_ext = f"sub_mix_missing_{suffix}"
+    ts_ext = unique_id("sub_mix_ts")
+    sub_ext = unique_id("sub_mix")
+    bogus_ext = unique_id("sub_mix_missing")
 
     ts = datahub_sdk.TimeSeries(
         external_id=ts_ext, name="Sub Mix TS", value_type="float", unit="a.u"
     )
     sync_client.timeseries.create([ts])
     sub = datahub_sdk.Subscription(
-        external_id=sub_ext, name=f"Sub Mix {suffix}", timeseries=[ts_ext]
+        external_id=sub_ext, name=f"Sub Mix {sub_ext}", timeseries=[ts_ext]
     )
     sync_client.subscriptions.create([sub])
 

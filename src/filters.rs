@@ -6,6 +6,9 @@ use std::collections::HashMap;
 #[serde(rename_all = "camelCase")]
 pub struct BasicEventFilter {
     //#[serde(skip_serializing_if = "Option::is_none")]
+    // NB: the backend types this filter field as a Long, so it cannot filter by an event's UUID id
+    // (that request is rejected server-side). Use `EventsService::by_ids` to look up an event by its
+    // UUID. This field is retained for API compatibility.
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     //#[serde(skip_serializing_if = "Option::is_none")]
