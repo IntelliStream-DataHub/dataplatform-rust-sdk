@@ -1,19 +1,33 @@
-"""Timezone acceptance for datetime inputs across the Python bindings.
+"""Timezone handling for datetime inputs across the Python bindings.
 
-These are pure in-process tests (no backend / no .env): they only construct SDK
-objects and read the normalized value back, exercising the
-`datahub_python_bindings/src/datetime.rs` helper that every datetime input now goes
-through. Any timezone-aware datetime — UTC, a fixed offset, or a `ZoneInfo` named zone —
-must be accepted and normalized to the same UTC instant; naive datetimes must be rejected.
+Two groups live here:
+
+* In-process tests (the bulk, no backend / no .env) construct SDK objects and read the
+  normalized value back, exercising the `datahub_python_bindings/src/datetime.rs` helper
+  every datetime input goes through. Any timezone-aware datetime — UTC, a fixed offset, or
+  a `ZoneInfo` named zone — must be accepted and normalized to the same UTC instant; naive
+  datetimes (and non-datetime types) must be rejected.
+* Backend round-trip tests (near the bottom, marked with the `sync_client` fixture)
+  confirm a non-UTC offset survives the full write -> read (and delete) cycle: it must land
+  as the correct absolute UTC instant, not its naive wall-clock reading.
 """
 
 from datetime import datetime, timedelta, timezone
+from time import sleep
 from zoneinfo import ZoneInfo
 
 import datahub_sdk
 import numpy as np
 import pandas as pd
 import pytest
+
+from fixtures import (  # noqa: F401  (fixtures are used by name via pytest injection)
+    make_dataset,
+    make_events,
+    make_ts,
+    sync_client,
+    unique_id,
+)
 
 # All of these denote the same instant: 2025-01-01 12:00:00 UTC. The list spans stdlib
 # datetimes and pandas Timestamps (a datetime subclass), across UTC / fixed-offset / named
@@ -115,3 +129,118 @@ def test_numpy_datetime64_converted_via_pandas_is_accepted():
     dt = pd.Timestamp(np.datetime64("2025-01-01T12:00")).tz_localize("UTC")
     ev = datahub_sdk.Event(external_id="tz_evt", event_time=dt)
     assert ev.event_time == UTC_NOON
+
+
+# --------------------------------------------------------------------------- #
+# Backend round-trips (require a live backend / .env).
+#
+# The tests above prove the bindings normalize any input to the right UTC instant before
+# sending. These prove that instant survives the backend write -> read (and delete) cycle.
+# 2025-06-01 is summer time, so Europe/Oslo and a literal +02:00 are both UTC+2.
+# --------------------------------------------------------------------------- #
+
+UTC = timezone.utc
+OSLO = ZoneInfo("Europe/Oslo")
+PLUS2 = timezone(timedelta(hours=2))
+MINUS5 = timezone(timedelta(hours=-5))
+
+
+def _retrieve_with_retry(sync_client, ts, start, end, attempts=15, delay=1.0):
+    """Poll retrieve_datapoints until points appear (ClickHouse ingest lag)."""
+    for _ in range(attempts):
+        dps = sync_client.timeseries.retrieve_datapoints(
+            datahub_sdk.RetrieveFilter(ts=ts, start=start, end=end, limit=1000)
+        )[0].get_datapoints()
+        if dps:
+            return dps
+        sleep(delay)
+    return []
+
+
+def test_datapoint_non_utc_offset_survives_roundtrip(sync_client, make_ts):
+    ts = make_ts(name="tz roundtrip")
+
+    # (input stamped in a non-UTC zone, value, the UTC instant it denotes)
+    cases = [
+        (datetime(2025, 6, 1, 12, 0, tzinfo=PLUS2), 10.0, datetime(2025, 6, 1, 10, 0, tzinfo=UTC)),
+        (datetime(2025, 6, 1, 9, 0, tzinfo=MINUS5), 14.0, datetime(2025, 6, 1, 14, 0, tzinfo=UTC)),
+        (datetime(2025, 6, 1, 18, 0, tzinfo=OSLO), 16.0, datetime(2025, 6, 1, 16, 0, tzinfo=UTC)),
+    ]
+    timestamps = [c[0] for c in cases]
+    values = [c[1] for c in cases]
+
+    sync_client.timeseries.insert_from_lists(timestamps=timestamps, values=values, ts=ts)
+
+    dps = _retrieve_with_retry(
+        sync_client, ts,
+        start=datetime(2025, 6, 1, tzinfo=UTC),
+        end=datetime(2025, 6, 2, tzinfo=UTC),
+    )
+    assert dps, "no datapoints came back after insert"
+
+    got = {dp.timestamp: dp.value for dp in dps}
+    for input_dt, value, expected_utc in cases:
+        # datetime equality/hashing is by absolute instant for aware datetimes, so a
+        # correctly-stored point keys on its UTC instant regardless of the input zone.
+        assert expected_utc in got, (
+            f"input {input_dt.isoformat()} should store as {expected_utc.isoformat()}; "
+            f"got instants {sorted(t.isoformat() for t in got)}"
+        )
+        assert got[expected_utc] == value
+
+
+def test_event_non_utc_offset_survives_roundtrip(sync_client, make_dataset, make_events):
+    ds = make_dataset()
+    event_time = datetime(2025, 6, 1, 18, 0, tzinfo=OSLO)  # summer = +02:00 -> 16:00Z
+    expected_utc = datetime(2025, 6, 1, 16, 0, tzinfo=UTC)
+
+    ev = datahub_sdk.Event(
+        external_id=unique_id("tz_evt"),
+        event_time=event_time,
+        data_set_id=ds.id,
+    )
+    make_events([ev])
+    sleep(1)
+
+    fetched = sync_client.events.by_ids([ev])
+    assert fetched, "event not found after create"
+    assert fetched[0].event_time == expected_utc
+
+
+def test_delete_datapoints_non_utc_boundary(sync_client, make_ts):
+    ts = make_ts(name="tz delete boundary")
+
+    # Delete boundary given in +02:00: 2025-06-01T12:00:00+02:00 == 10:00:00Z.
+    boundary = datetime(2025, 6, 1, 12, 0, tzinfo=PLUS2)
+    before = datetime(2025, 6, 1, 9, 0, tzinfo=UTC)   # 09:00Z, strictly before boundary
+    after = datetime(2025, 6, 1, 11, 0, tzinfo=UTC)   # 11:00Z, at/after boundary
+
+    sync_client.timeseries.insert_from_lists(
+        timestamps=[before, after], values=[1.0, 2.0], ts=ts
+    )
+    inserted = _retrieve_with_retry(
+        sync_client, ts,
+        start=datetime(2025, 6, 1, tzinfo=UTC),
+        end=datetime(2025, 6, 2, tzinfo=UTC),
+    )
+    assert len(inserted) == 2, "both points should exist before the delete"
+
+    sync_client.timeseries.delete_datapoints(
+        [datahub_sdk.DeleteFilter(ts=ts, inclusive_begin=boundary)]
+    )
+    sleep(90)  # ClickHouse delete latency
+
+    remaining = {
+        dp.timestamp
+        for dp in sync_client.timeseries.retrieve_datapoints(
+            datahub_sdk.RetrieveFilter(
+                ts=ts,
+                start=datetime(2025, 6, 1, tzinfo=UTC),
+                end=datetime(2025, 6, 2, tzinfo=UTC),
+                limit=1000,
+            )
+        )[0].get_datapoints()
+    }
+    # inclusive_begin resolves to 10:00Z, so the 11:00Z point is deleted and 09:00Z stays.
+    assert before in remaining
+    assert after not in remaining
