@@ -11,15 +11,23 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import datahub_sdk
+import numpy as np
+import pandas as pd
 import pytest
 
-# All of these denote the same instant: 2025-01-01 12:00:00 UTC.
+# All of these denote the same instant: 2025-01-01 12:00:00 UTC. The list spans stdlib
+# datetimes and pandas Timestamps (a datetime subclass), across UTC / fixed-offset / named
+# zones, so every input path is exercised with real data-science timestamp types.
 UTC_NOON = datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc)
 EQUIVALENT_AWARE = [
     UTC_NOON,  # tzinfo == timezone.utc
     datetime(2025, 1, 1, 14, 0, tzinfo=timezone(timedelta(hours=2))),  # fixed +02:00
     datetime(2025, 1, 1, 13, 0, tzinfo=ZoneInfo("Europe/Oslo")),  # named zone, winter = +01:00
     datetime(2025, 1, 1, 7, 0, tzinfo=ZoneInfo("America/New_York")),  # named zone, winter = -05:00
+    pd.Timestamp("2025-01-01 12:00", tz="UTC"),
+    pd.Timestamp("2025-01-01 14:00+02:00"),  # fixed offset
+    pd.Timestamp("2025-01-01 13:00", tz="Europe/Oslo"),  # named zone
+    pd.date_range("2025-01-01 12:00", periods=1, tz="UTC")[0],  # DatetimeIndex element
 ]
 
 
@@ -78,3 +86,32 @@ def test_retrieve_filter_accepts_any_timezone(dt):
     rf = datahub_sdk.RetrieveFilter("some_external_id", start=dt, end=dt)
     assert rf.start == UTC_NOON
     assert rf.end == UTC_NOON
+
+
+# --- rejections: types that carry no unambiguous instant --------------------- #
+
+
+def test_naive_pandas_timestamp_is_rejected():
+    # pandas Timestamp subclasses datetime, so a naive one hits the same naive guard.
+    with pytest.raises(TypeError):
+        datahub_sdk.Event(external_id="tz_evt", event_time=pd.Timestamp("2025-01-01 12:00"))
+
+
+def test_pandas_nat_is_rejected():
+    with pytest.raises(TypeError):
+        datahub_sdk.Event(external_id="tz_evt", event_time=pd.NaT)
+
+
+def test_numpy_datetime64_is_rejected_with_helpful_error():
+    # numpy datetime64 is not a datetime and has no timezone; it must be rejected with a
+    # message that points at the fix, not an opaque AttributeError.
+    with pytest.raises(TypeError) as exc:
+        datahub_sdk.Event(external_id="tz_evt", event_time=np.datetime64("2025-01-01T12:00"))
+    assert "datetime64" in str(exc.value) or "pd.Timestamp" in str(exc.value)
+
+
+def test_numpy_datetime64_converted_via_pandas_is_accepted():
+    # The documented workaround round-trips to the right instant.
+    dt = pd.Timestamp(np.datetime64("2025-01-01T12:00")).tz_localize("UTC")
+    ev = datahub_sdk.Event(external_id="tz_evt", event_time=dt)
+    assert ev.event_time == UTC_NOON
