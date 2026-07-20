@@ -29,6 +29,11 @@ from fixtures import (  # noqa: F401  (fixtures are used by name via pytest inje
     unique_id,
 )
 
+UTC = timezone.utc
+OSLO = ZoneInfo("Europe/Oslo")  # DST-aware: +01:00 in winter (CET), +02:00 in summer (CEST)
+PLUS2 = timezone(timedelta(hours=2))
+MINUS5 = timezone(timedelta(hours=-5))
+
 # All of these denote the same instant: 2025-01-01 12:00:00 UTC. The list spans stdlib
 # datetimes and pandas Timestamps (a datetime subclass), across UTC / fixed-offset / named
 # zones, so every input path is exercised with real data-science timestamp types.
@@ -131,6 +136,28 @@ def test_numpy_datetime64_converted_via_pandas_is_accepted():
     assert ev.event_time == UTC_NOON
 
 
+# --- daylight saving time (a named zone's offset depends on the date) -------- #
+
+
+def test_dst_named_zone_resolves_offset_by_date():
+    # The SAME wall-clock time in Europe/Oslo maps to DIFFERENT UTC instants in winter vs
+    # summer (+01:00 vs +02:00). A fixed offset can't do this — it proves the zone's DST
+    # rules are applied, i.e. the offset is resolved per-date, not frozen.
+    winter = datetime(2025, 1, 15, 12, 0, tzinfo=OSLO)  # +01:00 -> 11:00Z
+    summer = datetime(2025, 7, 15, 12, 0, tzinfo=OSLO)  # +02:00 -> 10:00Z
+    assert datahub_sdk.Event(external_id="w", event_time=winter).event_time == datetime(2025, 1, 15, 11, 0, tzinfo=UTC)
+    assert datahub_sdk.Event(external_id="s", event_time=summer).event_time == datetime(2025, 7, 15, 10, 0, tzinfo=UTC)
+
+
+def test_dst_fall_back_ambiguous_hour_respects_fold():
+    # On 2025-10-26 Oslo falls back 03:00->02:00, so 02:30 local occurs twice. PEP 495
+    # `fold` disambiguates: fold=0 is the first pass (still +02:00), fold=1 the second (+01:00).
+    first = datetime(2025, 10, 26, 2, 30, tzinfo=OSLO, fold=0)   # +02:00 -> 00:30Z
+    second = datetime(2025, 10, 26, 2, 30, tzinfo=OSLO, fold=1)  # +01:00 -> 01:30Z
+    assert datahub_sdk.Event(external_id="f0", event_time=first).event_time == datetime(2025, 10, 26, 0, 30, tzinfo=UTC)
+    assert datahub_sdk.Event(external_id="f1", event_time=second).event_time == datetime(2025, 10, 26, 1, 30, tzinfo=UTC)
+
+
 # --------------------------------------------------------------------------- #
 # Backend round-trips (require a live backend / .env).
 #
@@ -138,11 +165,6 @@ def test_numpy_datetime64_converted_via_pandas_is_accepted():
 # sending. These prove that instant survives the backend write -> read (and delete) cycle.
 # 2025-06-01 is summer time, so Europe/Oslo and a literal +02:00 are both UTC+2.
 # --------------------------------------------------------------------------- #
-
-UTC = timezone.utc
-OSLO = ZoneInfo("Europe/Oslo")
-PLUS2 = timezone(timedelta(hours=2))
-MINUS5 = timezone(timedelta(hours=-5))
 
 
 def _retrieve_with_retry(sync_client, ts, start, end, attempts=15, delay=1.0):
@@ -153,6 +175,16 @@ def _retrieve_with_retry(sync_client, ts, start, end, attempts=15, delay=1.0):
         )[0].get_datapoints()
         if dps:
             return dps
+        sleep(delay)
+    return []
+
+
+def _by_ids_with_retry(sync_client, event, attempts=15, delay=1.0):
+    """Poll events.by_ids until the freshly-created event is visible (index lag)."""
+    for _ in range(attempts):
+        fetched = sync_client.events.by_ids([event])
+        if fetched:
+            return fetched
         sleep(delay)
     return []
 
@@ -200,11 +232,33 @@ def test_event_non_utc_offset_survives_roundtrip(sync_client, make_dataset, make
         data_set_id=ds.id,
     )
     make_events([ev])
-    sleep(1)
 
-    fetched = sync_client.events.by_ids([ev])
+    fetched = _by_ids_with_retry(sync_client, ev)
     assert fetched, "event not found after create"
     assert fetched[0].event_time == expected_utc
+
+
+def test_dst_offset_survives_roundtrip(sync_client, make_ts):
+    # Same wall-clock time in a DST zone, winter vs summer, must land as two DISTINCT UTC
+    # instants after the backend cycle (11:00Z vs 10:00Z) — the zone's DST rules, not a
+    # single frozen offset, applied end to end.
+    ts = make_ts(name="tz dst roundtrip")
+    winter = datetime(2025, 1, 15, 12, 0, tzinfo=OSLO)  # +01:00 -> 11:00Z
+    summer = datetime(2025, 7, 15, 12, 0, tzinfo=OSLO)  # +02:00 -> 10:00Z
+
+    sync_client.timeseries.insert_from_lists(
+        timestamps=[winter, summer], values=[1.0, 2.0], ts=ts
+    )
+    dps = _retrieve_with_retry(
+        sync_client, ts,
+        start=datetime(2025, 1, 1, tzinfo=UTC),
+        end=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    assert dps, "no datapoints came back after insert"
+
+    got = {dp.timestamp: dp.value for dp in dps}
+    assert got.get(datetime(2025, 1, 15, 11, 0, tzinfo=UTC)) == 1.0
+    assert got.get(datetime(2025, 7, 15, 10, 0, tzinfo=UTC)) == 2.0
 
 
 def test_delete_datapoints_non_utc_boundary(sync_client, make_ts):
