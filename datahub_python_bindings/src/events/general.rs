@@ -1,6 +1,7 @@
 use crate::PyEvent;
+use crate::datetime::opt_py_datetime_to_utc;
 use chrono::{DateTime, Utc};
-use pyo3::pymethods;
+use pyo3::prelude::*;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -31,8 +32,8 @@ impl PyEvent {
         related_resource_ids: Option<Vec<u64>>,
         related_resource_external_ids: Option<Vec<String>>,
         source: Option<String>,
-        event_time: Option<DateTime<Utc>>,
-    ) -> Self {
+        event_time: Option<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
         let mut ev = dataplatform_rust_sdk::Event::new(external_id);
         ev.metadata = metadata;
         ev.description = description;
@@ -45,8 +46,8 @@ impl PyEvent {
         ev.related_resource_ids = related_resource_ids.unwrap_or_default();
         ev.related_resource_external_ids = related_resource_external_ids.unwrap_or_default();
         ev.source = source;
-        ev.event_time = event_time;
-        Self { inner: ev }
+        ev.event_time = opt_py_datetime_to_utc(event_time.as_ref())?;
+        Ok(Self { inner: ev })
     }
     #[getter]
     pub fn id(&self) -> Option<Uuid> {
@@ -148,7 +149,8 @@ impl PyEvent {
         self.inner.get_event_time()
     }
     #[setter]
-    pub fn set_event_time(&mut self, value: Option<DateTime<Utc>>) {
-        self.inner.event_time = value;
+    pub fn set_event_time(&mut self, value: Option<Bound<'_, PyAny>>) -> PyResult<()> {
+        self.inner.event_time = opt_py_datetime_to_utc(value.as_ref())?;
+        Ok(())
     }
 }
