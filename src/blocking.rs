@@ -27,7 +27,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use tokio::runtime::Runtime;
 
-use crate::datahub::DataHubApi;
+use crate::datahub::DataHubConfig;
 use crate::datasets::{Dataset, DatasetFilter, DatasetSearch};
 use crate::events::{Event, EventIdCollection};
 use crate::files::FileUpload;
@@ -102,7 +102,7 @@ pub fn create_api_service() -> ApiService {
 
 impl ApiService {
     /// The blocking counterpart of [`crate::ApiService::new`].
-    pub fn new(config: DataHubApi) -> ApiService {
+    pub fn new(config: DataHubConfig) -> ApiService {
         Self::wrap(crate::ApiService::new(config))
     }
 

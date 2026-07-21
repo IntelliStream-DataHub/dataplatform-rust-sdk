@@ -2,7 +2,7 @@
 mod tests;
 
 use crate::buffer::DurableSpool;
-use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubApi};
+use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubConfig};
 use crate::filters::EventFilter;
 use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper};
 use crate::http::ResponseError;
@@ -79,7 +79,7 @@ impl EventsService {
         self.spool.lock().unwrap().as_ref().map_or(0, |s| s.size())
     }
 
-    fn ensure_spool(&self, config: &DataHubApi) {
+    fn ensure_spool(&self, config: &DataHubConfig) {
         let mut guard = self.spool.lock().unwrap();
         if guard.is_none() {
             let dir = config.buffer_directory().join("events");

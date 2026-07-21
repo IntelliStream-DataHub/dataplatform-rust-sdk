@@ -1,7 +1,7 @@
 mod test;
 
 use crate::buffer::DurableSpool;
-use crate::datahub::DataHubApi;
+use crate::datahub::DataHubConfig;
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{
     ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection,
@@ -223,7 +223,7 @@ impl TimeSeriesService {
         self.spool.lock().unwrap().as_ref().map_or(0, |s| s.size())
     }
 
-    fn ensure_spool(&self, config: &DataHubApi) {
+    fn ensure_spool(&self, config: &DataHubConfig) {
         let mut guard = self.spool.lock().unwrap();
         if guard.is_none() {
             let dir = config.buffer_directory().join("datapoints");
