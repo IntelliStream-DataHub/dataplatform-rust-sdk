@@ -31,7 +31,7 @@ use crate::functions::sync_service::PyFunctionsServiceSync;
 use crate::units::async_service::PyUnitServiceAsync;
 use crate::units::sync_service::PyUnitServiceSync;
 use dataplatform_rust_sdk::ApiService;
-use dataplatform_rust_sdk::datahub::DataHubApi;
+use dataplatform_rust_sdk::datahub::DataHubConfig;
 use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
 use dataplatform_rust_sdk::generic::*;
 use dataplatform_rust_sdk::http::ResponseError;
@@ -78,8 +78,8 @@ fn build_buffered_config(
     buffer_retention_secs: Option<i64>,
     buffer_max_bytes: Option<u64>,
     buffer_dir: Option<String>,
-) -> DataHubApi {
-    let mut config = DataHubApi::from_vars(
+) -> DataHubConfig {
+    let mut config = DataHubConfig::from_vars(
         base_url,
         token,
         token_url,
@@ -153,14 +153,14 @@ impl PySyncClient {
     #[classmethod]
     fn from_env(py: Py<PyType>) -> PyResult<Self> {
         Ok(Self {
-            inner: ApiService::new(DataHubApi::from_env().unwrap()),
+            inner: ApiService::new(DataHubConfig::from_env().unwrap()),
             runtime: Arc::new(tokio::runtime::Runtime::new().unwrap()),
         })
     }
     #[classmethod]
     fn from_envfile(py: Py<PyType>, path: Option<&str>) -> PyResult<Self> {
         Ok(Self {
-            inner: ApiService::new(DataHubApi::from_envfile(path).unwrap()),
+            inner: ApiService::new(DataHubConfig::from_envfile(path).unwrap()),
             runtime: Arc::new(tokio::runtime::Runtime::new().unwrap()),
         })
     }
@@ -279,13 +279,13 @@ impl PyAsyncClient {
     #[classmethod]
     fn from_env(py: Py<PyType>) -> PyResult<Self> {
         Ok(Self {
-            inner: ApiService::new(DataHubApi::from_env().unwrap()),
+            inner: ApiService::new(DataHubConfig::from_env().unwrap()),
         })
     }
     #[classmethod]
     fn from_envfile(py: Py<PyType>, path: Option<&str>) -> PyResult<Self> {
         Ok(Self {
-            inner: ApiService::new(DataHubApi::from_envfile(path).unwrap()),
+            inner: ApiService::new(DataHubConfig::from_envfile(path).unwrap()),
         })
     }
     #[getter]

@@ -42,7 +42,7 @@ struct AuthState {
     pub expire_time: Option<DateTime<Utc>>,
 }
 #[derive(Debug, Clone)]
-pub struct DataHubApi {
+pub struct DataHubConfig {
     pub(crate) config: Arc<OAuthConfig>,
     pub(crate) auth_state: Arc<RwLock<AuthState>>,
     pub(crate) base_url: String,
@@ -78,7 +78,7 @@ impl AuthState {
     }
 }
 
-impl DataHubApi {
+impl DataHubConfig {
     pub fn from_envfile(path: Option<&str>) -> Result<Self, DataHubError> {
         if let Some(path) = path {
             // Load a specific .env file
@@ -93,9 +93,9 @@ impl DataHubApi {
         let env_vars = env::vars().collect::<HashMap<String, String>>();
         Self::from_map(env_vars)
     }
-    pub fn create_default() -> DataHubApi {
+    pub fn create_default() -> DataHubConfig {
         //let token = env::var("TOKEN").expect("TOKEN environment variable not set");
-        DataHubApi::from_env().unwrap()
+        DataHubConfig::from_env().unwrap()
     }
 
     pub fn from_vars(
@@ -105,7 +105,7 @@ impl DataHubApi {
         client_id: Option<String>,
         client_secret: Option<String>,
         project_name: Option<String>,
-    ) -> DataHubApi {
+    ) -> DataHubConfig {
         let oauthconfig = OAuthConfig {
             client_id,
             client_secret,

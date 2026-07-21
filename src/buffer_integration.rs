@@ -4,7 +4,7 @@
 //! backend. The live tests need a `.env` (`BASE_URL` + `TOKEN` or the OAuth2 set) and a reachable
 //! backend, like the rest of this crate's integration tests.
 
-use crate::datahub::DataHubApi;
+use crate::datahub::DataHubConfig;
 use crate::events::{Event, EventIdCollection};
 use crate::generic::{DataWrapper, IdAndExtId};
 use crate::tests::cleanup::{cleanup_events, cleanup_timeseries};
@@ -44,7 +44,7 @@ fn temp_dir() -> PathBuf {
 
 /// A client whose base URL refuses connections, with durable buffering pointed at `dir`.
 fn unreachable_buffered_service(dir: &PathBuf) -> Arc<ApiService> {
-    let mut config = DataHubApi::from_vars(
+    let mut config = DataHubConfig::from_vars(
         "http://127.0.0.1:9".to_string(),
         Some("dummy-token".to_string()),
         None,
@@ -137,7 +137,7 @@ async fn event_without_event_time_is_rejected() {
 #[tokio::test]
 async fn live_datapoint_buffering_roundtrip() {
     let dir = temp_dir();
-    let mut config = DataHubApi::from_envfile(None).expect("BASE_URL + auth in .env");
+    let mut config = DataHubConfig::from_envfile(None).expect("BASE_URL + auth in .env");
     config
         .set_buffer_dir(dir.clone())
         .set_buffer_retention_secs(3600);

@@ -3,7 +3,7 @@ use reqwest::Client;
 use reqwest::ClientBuilder;
 use std::sync::{Arc, Weak};
 
-use crate::datahub::DataHubApi;
+use crate::datahub::DataHubConfig;
 pub use crate::events::EventsService;
 pub use crate::files::{FileService, FileUpload};
 pub use crate::resources::ResourceService;
@@ -52,7 +52,7 @@ use crate::functions::FunctionsService;
 //pub use filters::Filter;
 
 pub struct ApiService {
-    config: Box<DataHubApi>,
+    config: Box<DataHubConfig>,
     pub time_series: TimeSeriesService,
     pub units: UnitsService,
     pub events: EventsService,
@@ -87,7 +87,7 @@ pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
 
 pub fn create_api_service() -> Arc<ApiService> {
     dotenv().ok(); // Reads the .env file
-    let dataplatform_api: DataHubApi /* Type */ = DataHubApi::create_default();
+    let dataplatform_api: DataHubConfig /* Type */ = DataHubConfig::create_default();
     let mut headers = HeaderMap::new();
 
     headers.insert(
@@ -121,7 +121,7 @@ pub fn create_api_service() -> Arc<ApiService> {
     api_service
 }
 impl ApiService {
-    pub fn new(config: DataHubApi) -> Arc<ApiService> {
+    pub fn new(config: DataHubConfig) -> Arc<ApiService> {
         let mut headers = HeaderMap::new();
 
         headers.insert(
@@ -156,7 +156,7 @@ impl ApiService {
         api_service
     }
     pub fn api_service_from_env() -> Arc<ApiService> {
-        let dataplatform_api: DataHubApi /* Type */ = DataHubApi::from_env().unwrap();
+        let dataplatform_api: DataHubConfig /* Type */ = DataHubConfig::from_env().unwrap();
         let mut headers = HeaderMap::new();
 
         headers.insert(
