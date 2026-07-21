@@ -1,10 +1,10 @@
 use crate::PyIdCollection;
+use crate::datetime::opt_py_datetime_to_utc;
 use crate::timeseries::datapoints::{
     PyDatapointString, PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
     PyRetrieveFilter,
 };
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
-use chrono::{DateTime, Utc};
 use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter, TimeFilter};
 use dataplatform_rust_sdk::events::EventIdCollection;
 use dataplatform_rust_sdk::{Event, TimeSeries};
@@ -178,7 +178,12 @@ impl From<PyTimeFilter> for TimeFilter {
 impl PyTimeFilter {
     #[new]
     #[pyo3(signature=(start=None,end=None))]
-    fn new(start: Option<DateTime<Utc>>, end: Option<DateTime<Utc>>) -> Result<Self, PyErr> {
+    fn new(
+        start: Option<Bound<'_, PyAny>>,
+        end: Option<Bound<'_, PyAny>>,
+    ) -> Result<Self, PyErr> {
+        let start = opt_py_datetime_to_utc(start.as_ref())?;
+        let end = opt_py_datetime_to_utc(end.as_ref())?;
         // Returning Option because if both are None, we can't create a filter
         match (start, end) {
             (Some(start), Some(end)) => {

@@ -7,7 +7,7 @@ use crate::timeseries::{
 use crate::{
     DatahubIdentity, Identifiable, PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm,
 };
-use chrono::{DateTime, FixedOffset};
+use crate::datetime::py_datetime_to_utc;
 use dataplatform_rust_sdk::generic::{
     DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter,
 };
@@ -186,7 +186,7 @@ impl PyTimeSeriesServiceAsync {
     fn insert_from_lists<'py>(
         &self,
         py: Python<'py>,
-        timestamps: Vec<DateTime<FixedOffset>>,
+        timestamps: Vec<Bound<'py, PyAny>>,
         values: Vec<f64>,
         ts: Identifiable,
     ) -> PyResult<Bound<'py, PyAny>> {
@@ -194,11 +194,13 @@ impl PyTimeSeriesServiceAsync {
         let datapoints: Vec<DatapointString> = timestamps
             .into_iter()
             .zip(values.into_iter())
-            .map(|(timestamp, value)| DatapointString {
-                timestamp: timestamp.timestamp_millis().to_string(),
-                value: value.to_string(),
+            .map(|(timestamp, value)| {
+                Ok(DatapointString {
+                    timestamp: py_datetime_to_utc(&timestamp)?.timestamp_millis().to_string(),
+                    value: value.to_string(),
+                })
             })
-            .collect();
+            .collect::<PyResult<Vec<_>>>()?;
         let inner: DatapointsCollection<DatapointString> = DatapointsCollection {
             datapoints,
             next_cursor: None,
