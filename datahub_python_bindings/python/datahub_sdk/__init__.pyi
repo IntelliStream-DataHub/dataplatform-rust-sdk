@@ -462,6 +462,7 @@ class Event:
     def __init__(
         self,
         external_id: str,
+        event_time: datetime.datetime,
         type: str | None = None,
         sub_type: str | None = None,
         description: str | None = None,
@@ -471,7 +472,6 @@ class Event:
         data_set_id: int | None = None,
         related_resource_ids: list[int] | None = None,
         related_resource_external_ids: list[str] | None = None,
-        event_time: datetime.datetime | None = None,
         id: UUID | None = None,
     ) -> None: ...
     @property
@@ -517,9 +517,9 @@ class Event:
     @related_resource_external_ids.setter
     def related_resource_external_ids(self, value: list[str]) -> None: ...
     @property
-    def event_time(self) -> datetime.datetime | None: ...
+    def event_time(self) -> datetime.datetime: ...
     @event_time.setter
-    def event_time(self, value: datetime.datetime | None) -> None: ...
+    def event_time(self, value: datetime.datetime) -> None: ...
     @property
     def created_time(self) -> datetime.datetime | None: ...
     @property

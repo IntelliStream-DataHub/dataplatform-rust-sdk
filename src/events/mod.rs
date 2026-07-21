@@ -35,20 +35,6 @@ impl EventsService {
         for<'a> &'a I: Into<DataWrapper<Event>>,
     {
         let mut dw = data.into();
-        // event_time is when the event actually occurred (typically recorded by the source system or
-        // sensor). The SDK will not default it to "now": that is usually wrong, and the server already
-        // records the ingestion time separately as created_time. Reject events without it.
-        for event in dw.get_items() {
-            if event.event_time.is_none() {
-                return Err(ResponseError::bad_request(format!(
-                    "event '{}' is missing event_time. Set the time the event occurred (from your \
-                     source system or sensor) via set_event_time(...); the SDK won't default it to \
-                     the current time because that is usually incorrect. The server records the \
-                     ingestion time separately as created_time.",
-                    event.external_id
-                )));
-            }
-        }
         // Stamp a stable, time-ordered UUID v7 on each event that lacks an id, before the first send.
         // The server honors a client-supplied id, so a retry (e.g. from the durable buffer) carries the
         // same id and the events ReplacingMergeTree (ORDER BY id) collapses the duplicate instead of
@@ -111,7 +97,7 @@ impl EventsService {
         let records: Vec<(i64, String)> = events
             .iter()
             .filter_map(|e| {
-                let ts = e.event_time.map(|t| t.timestamp_millis()).unwrap_or(now);
+                let ts = e.event_time.timestamp_millis();
                 serde_json::to_string(e).ok().map(|json| (ts, json))
             })
             .collect();
@@ -232,7 +218,7 @@ pub struct Event {
     pub related_resource_ids: Vec<u64>,
     pub related_resource_external_ids: Vec<String>,
     pub source: Option<String>,
-    pub event_time: Option<DateTime<Utc>>,
+    pub event_time: DateTime<Utc>,
 }
 impl DataHubEntity for Event {
     fn ext_id(&self) -> &String {
@@ -241,7 +227,10 @@ impl DataHubEntity for Event {
 }
 
 impl Event {
-    pub fn new(external_id: String) -> Self {
+    /// `event_time` is when the event actually occurred, as recorded by the source system or sensor.
+    /// It is required: there is no sensible default, and "now" is usually wrong — the server records
+    /// the ingestion time separately as `created_time`.
+    pub fn new(external_id: String, event_time: DateTime<Utc>) -> Self {
         Event {
             id: None,
             external_id,
@@ -256,7 +245,7 @@ impl Event {
             related_resource_ids: vec![],
             related_resource_external_ids: vec![],
             source: None,
-            event_time: None,
+            event_time,
         }
     }
 
@@ -364,12 +353,12 @@ impl Event {
         self.status = Some(status.to_string());
     }
 
-    pub fn get_event_time(&self) -> Option<&DateTime<Utc>> {
-        self.event_time.as_ref()
+    pub fn get_event_time(&self) -> &DateTime<Utc> {
+        &self.event_time
     }
 
     pub fn set_event_time(&mut self, event_time: DateTime<Utc>) {
-        self.event_time = Some(event_time);
+        self.event_time = event_time;
     }
 
     pub fn get_related_resource_ids(&self) -> &Vec<u64> {

@@ -133,7 +133,8 @@ class TestTimeSeries:
 # --------------------------------------------------------------------------- #
 class TestEvent:
     def test_minimal_constructor_and_defaults(self):
-        ev = dh.Event("ev1")
+        event_time = datetime.datetime(2023, 6, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        ev = dh.Event("ev1", event_time)
         assert ev.external_id == "ev1"
         assert ev.id is None
         assert ev.type is None
@@ -143,7 +144,8 @@ class TestEvent:
         assert ev.source is None
         assert ev.metadata is None
         assert ev.data_set_id is None
-        assert ev.event_time is None
+        # event_time has no default: it is required by the constructor
+        assert ev.event_time == event_time
         # list-valued fields default to empty lists, not None
         assert ev.related_resource_ids == []
         assert ev.related_resource_external_ids == []
@@ -181,7 +183,7 @@ class TestEvent:
 
     def test_setters_update_every_field(self):
         event_time = datetime.datetime(2024, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc)
-        ev = dh.Event("ev1")
+        ev = dh.Event("ev1", datetime.datetime(2023, 6, 1, tzinfo=datetime.timezone.utc))
         ev.external_id = "ev2"
         ev.type = "alarm"
         ev.sub_type = "high"
@@ -207,15 +209,16 @@ class TestEvent:
         assert ev.event_time == event_time
 
     def test_optional_setters_accept_none(self):
-        ev = dh.Event("ev1", type="alarm", metadata={"k": "v"}, data_set_id=1)
+        event_time = datetime.datetime(2023, 6, 1, tzinfo=datetime.timezone.utc)
+        ev = dh.Event("ev1", event_time, type="alarm", metadata={"k": "v"}, data_set_id=1)
         ev.type = None
         ev.metadata = None
         ev.data_set_id = None
-        ev.event_time = None
         assert ev.type is None
         assert ev.metadata is None
         assert ev.data_set_id is None
-        assert ev.event_time is None
+        # event_time is not optional: it has no None to fall back to
+        assert ev.event_time == event_time
 
 
 # --------------------------------------------------------------------------- #
