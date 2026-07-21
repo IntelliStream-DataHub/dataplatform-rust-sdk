@@ -60,12 +60,14 @@ The API wraps collections in `{ "items": [...] }`. `DataWrapper<T>` mirrors that
 
 ### Auth (`src/datahub.rs`)
 
-`DataHubApi` holds `Arc<tokio::sync::RwLock<AuthState>>`. `get_api_token()` reads the cached token; if missing or expired, `refresh_token()` uses the OAuth2 refresh token when present, otherwise does a client-credentials exchange. A `TOKEN` passed via env is stored with `expire_time: None` (never considered expired by the `is_expired` check — a user-supplied token is assumed to be managed externally). OAuth2 client is `None` unless `CLIENT_ID`, `CLIENT_SECRET`, and `TOKEN_URI` are all present — only the client-credentials and refresh-token flows are supported, so `AUTH_URI` and `REDIRECT_URI` are not consumed.
+`DataHubConfig` holds `Arc<tokio::sync::RwLock<AuthState>>`. `get_api_token()` reads the cached token; if missing or expired, `refresh_token()` uses the OAuth2 refresh token when present, otherwise does a client-credentials exchange — or, when an assertion source is configured, the RFC 7523 `jwt-bearer` exchange (`exchange_jwt_bearer`). A `TOKEN` passed via env is stored with `expire_time: None` (never considered expired by the `is_expired` check — a user-supplied token is assumed to be managed externally). OAuth2 client is `None` unless `CLIENT_ID`, `CLIENT_SECRET`, and `TOKEN_URI` are all present — only the client-credentials, refresh-token and `jwt-bearer` flows are supported, so `AUTH_URI` and `REDIRECT_URI` are not consumed.
+
+`SCOPE` and `AUDIENCE` are appended to the token request only when set. The `ASSERTION*` variables select `jwt-bearer`: either a ready-made `ASSERTION`, or `ASSERTION_CLIENT_ID`/`ASSERTION_CLIENT_SECRET`/`ASSERTION_TOKEN_URI` for the SDK to fetch one (narrowed by `ASSERTION_SCOPE`/`ASSERTION_AUDIENCE`). The `oauth2` crate has no `jwt-bearer` builder, so that path posts the form directly via `post_token_form` and deserializes into `BasicTokenResponse`. The assertion is never cached — providers commonly reject a replayed one.
 
 ### Errors
 
 Two error types, used in different layers:
-- `DataHubError` (`src/errors.rs`) — config/auth/setup errors from `DataHubApi`
+- `DataHubError` (`src/errors.rs`) — config/auth/setup errors from `DataHubConfig`
 - `ResponseError` (`src/http.rs`) — HTTP errors surfaced to callers of service methods; carries `StatusCode` + message
 
 `get_token()` in `ApiServiceProvider` converts `DataHubError` → `ResponseError(401)` so service methods can return a single error type.

@@ -1,4 +1,5 @@
 use super::*;
+use crate::datetime::py_datetime_to_utc;
 use crate::timeseries::datapoints::{
     PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
 };
@@ -167,7 +168,7 @@ impl PyTimeSeriesServiceSync {
     fn insert_from_lists<'py>(
         &self,
         py: Python<'py>,
-        timestamps: Vec<DateTime<chrono::Utc>>,
+        timestamps: Vec<Bound<'py, PyAny>>,
         values: Vec<f64>,
         ts: Identifiable,
     ) -> PyResult<Vec<String>> {
@@ -175,11 +176,13 @@ impl PyTimeSeriesServiceSync {
         let datapoints: Vec<DatapointString> = timestamps
             .into_iter()
             .zip(values.into_iter())
-            .map(|(timestamp, value)| DatapointString {
-                timestamp: timestamp.timestamp_millis().to_string(),
-                value: value.to_string(),
+            .map(|(timestamp, value)| {
+                Ok(DatapointString {
+                    timestamp: py_datetime_to_utc(&timestamp)?.timestamp_millis().to_string(),
+                    value: value.to_string(),
+                })
             })
-            .collect();
+            .collect::<PyResult<Vec<_>>>()?;
         let inner: DatapointsCollection<DatapointString> = DatapointsCollection {
             datapoints,
             next_cursor: None,

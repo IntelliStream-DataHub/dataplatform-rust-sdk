@@ -1,4 +1,4 @@
-use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubApi};
+use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubConfig};
 #[cfg(test)]
 use maplit::hashmap;
 
@@ -345,6 +345,6 @@ async fn test_create_api_with_token() {
         "TOKEN".to_string() => "testtoken".to_string(),
         "BASE_URL".to_string() => "http://localhost:8081".to_string()
     };
-    let api = DataHubApi::from_map(map).unwrap();
+    let api = DataHubConfig::from_map(map).unwrap();
     assert_eq!(api.get_api_token().await.unwrap(), "testtoken".to_string());
 }

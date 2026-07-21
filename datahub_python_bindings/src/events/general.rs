@@ -1,6 +1,7 @@
 use crate::PyEvent;
+use crate::datetime::py_datetime_to_utc;
 use chrono::{DateTime, Utc};
-use pyo3::pymethods;
+use pyo3::prelude::*;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -9,6 +10,7 @@ impl PyEvent {
     #[new]
     #[pyo3(signature=(
     external_id,
+    event_time,
     metadata=None,
     description=None,
     r#type=None,
@@ -18,10 +20,10 @@ impl PyEvent {
     related_resource_ids=None,
     related_resource_external_ids=None,
     source=None,
-    event_time=None,
     ))]
     pub fn __init__(
         external_id: String,
+        event_time: Bound<'_, PyAny>,
         metadata: Option<HashMap<String, String>>,
         description: Option<String>,
         r#type: Option<String>,
@@ -31,22 +33,18 @@ impl PyEvent {
         related_resource_ids: Option<Vec<u64>>,
         related_resource_external_ids: Option<Vec<String>>,
         source: Option<String>,
-        event_time: Option<DateTime<Utc>>,
-    ) -> Self {
-        let mut ev = dataplatform_rust_sdk::Event::new(external_id);
+    ) -> PyResult<Self> {
+        let mut ev = dataplatform_rust_sdk::Event::new(external_id, py_datetime_to_utc(&event_time)?);
         ev.metadata = metadata;
         ev.description = description;
         ev.r#type = r#type;
         ev.sub_type = sub_type;
         ev.status = status;
         ev.data_set_id = data_set_id;
-
-        ev.data_set_id = data_set_id;
         ev.related_resource_ids = related_resource_ids.unwrap_or_default();
         ev.related_resource_external_ids = related_resource_external_ids.unwrap_or_default();
         ev.source = source;
-        ev.event_time = event_time;
-        Self { inner: ev }
+        Ok(Self { inner: ev })
     }
     #[getter]
     pub fn id(&self) -> Option<Uuid> {
@@ -144,11 +142,12 @@ impl PyEvent {
         self.inner.source = value;
     }
     #[getter]
-    pub fn event_time(&self) -> Option<&DateTime<Utc>> {
+    pub fn event_time(&self) -> &DateTime<Utc> {
         self.inner.get_event_time()
     }
     #[setter]
-    pub fn set_event_time(&mut self, value: Option<DateTime<Utc>>) {
-        self.inner.event_time = value;
+    pub fn set_event_time(&mut self, value: Bound<'_, PyAny>) -> PyResult<()> {
+        self.inner.event_time = py_datetime_to_utc(&value)?;
+        Ok(())
     }
 }

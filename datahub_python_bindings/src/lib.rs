@@ -1,4 +1,5 @@
 mod datasets;
+mod datetime;
 mod events;
 mod files;
 mod relations;
@@ -31,7 +32,7 @@ use crate::functions::sync_service::PyFunctionsServiceSync;
 use crate::units::async_service::PyUnitServiceAsync;
 use crate::units::sync_service::PyUnitServiceSync;
 use dataplatform_rust_sdk::ApiService;
-use dataplatform_rust_sdk::datahub::DataHubApi;
+use dataplatform_rust_sdk::datahub::DataHubConfig;
 use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
 use dataplatform_rust_sdk::generic::*;
 use dataplatform_rust_sdk::http::ResponseError;
@@ -64,7 +65,7 @@ pub(crate) fn datahub_err(e: ResponseError) -> PyErr {
     })
 }
 
-/// Build a `DataHubApi` from explicit vars and apply optional durable-buffering settings. Setting any
+/// Build a `DataHubConfig` from explicit vars and apply optional durable-buffering settings. Setting any
 /// of `buffer_retention_secs` / `buffer_max_bytes` (or `enable_buffering=True`) turns buffering on;
 /// unset bounds fall back to the defaults (72h / 5 GiB).
 ///
@@ -91,8 +92,8 @@ fn build_buffered_config(
     assertion_client_secret: Option<String>,
     assertion_scope: Option<String>,
     assertion_audience: Option<String>,
-) -> DataHubApi {
-    let mut config = DataHubApi::from_vars(
+) -> DataHubConfig {
+    let mut config = DataHubConfig::from_vars(
         base_url,
         token,
         token_url,
@@ -211,14 +212,14 @@ impl PySyncClient {
     #[classmethod]
     fn from_env(py: Py<PyType>) -> PyResult<Self> {
         Ok(Self {
-            inner: ApiService::new(DataHubApi::from_env().unwrap()),
+            inner: ApiService::new(DataHubConfig::from_env().unwrap()),
             runtime: Arc::new(tokio::runtime::Runtime::new().unwrap()),
         })
     }
     #[classmethod]
     fn from_envfile(py: Py<PyType>, path: Option<&str>) -> PyResult<Self> {
         Ok(Self {
-            inner: ApiService::new(DataHubApi::from_envfile(path).unwrap()),
+            inner: ApiService::new(DataHubConfig::from_envfile(path).unwrap()),
             runtime: Arc::new(tokio::runtime::Runtime::new().unwrap()),
         })
     }
@@ -362,13 +363,13 @@ impl PyAsyncClient {
     #[classmethod]
     fn from_env(py: Py<PyType>) -> PyResult<Self> {
         Ok(Self {
-            inner: ApiService::new(DataHubApi::from_env().unwrap()),
+            inner: ApiService::new(DataHubConfig::from_env().unwrap()),
         })
     }
     #[classmethod]
     fn from_envfile(py: Py<PyType>, path: Option<&str>) -> PyResult<Self> {
         Ok(Self {
-            inner: ApiService::new(DataHubApi::from_envfile(path).unwrap()),
+            inner: ApiService::new(DataHubConfig::from_envfile(path).unwrap()),
         })
     }
     #[getter]

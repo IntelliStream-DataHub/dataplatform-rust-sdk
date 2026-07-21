@@ -1,3 +1,4 @@
+use crate::datetime::opt_py_datetime_to_utc;
 use crate::events::EventIdentifyable;
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
 use crate::timeseries::datapoints::{
@@ -9,7 +10,7 @@ use crate::{
     DatahubIdentity, Identifiable, PyFieldStr, PyFieldU64, PyIdCollection, PyListFieldU64,
     PyMapField,
 };
-use chrono::{DateTime, FixedOffset, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
 use dataplatform_rust_sdk::generic::{
     Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RelationForm,
@@ -315,18 +316,18 @@ impl PyDeleteFilter {
     #[pyo3(signature=(ts, inclusive_begin=None, exclusive_end=None))]
     pub fn new(
         ts: Identifiable,
-        inclusive_begin: Option<DateTime<FixedOffset>>,
-        exclusive_end: Option<DateTime<FixedOffset>>,
-    ) -> Self {
+        inclusive_begin: Option<Bound<'_, PyAny>>,
+        exclusive_end: Option<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
         let id_collection = ts.id_collection();
-        Self {
+        Ok(Self {
             inner: DeleteFilter {
                 id: id_collection.id,
                 external_id: id_collection.external_id,
-                inclusive_begin: inclusive_begin.map(|d| d.with_timezone(&Utc)),
-                exclusive_end: exclusive_end.map(|d| d.with_timezone(&Utc)),
+                inclusive_begin: opt_py_datetime_to_utc(inclusive_begin.as_ref())?,
+                exclusive_end: opt_py_datetime_to_utc(exclusive_end.as_ref())?,
             },
-        }
+        })
     }
     #[getter]
     pub fn target_id(&self) -> Option<u64> {

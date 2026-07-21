@@ -38,7 +38,7 @@ fn create_test_events(dataset_id: u64) -> Vec<Event> {
         let external_id = format!("pump_event_alarm_{:?}", id);
         external_ids.push(external_id.clone());
 
-        let mut new_event = Event::new(external_id.clone());
+        let mut new_event = Event::new(external_id.clone(), event_time);
 
         new_event.metadata = Option::from(HashMap::from([
             ("bytes".to_string(), (id * 3482 + 15).to_string()),
@@ -48,7 +48,6 @@ fn create_test_events(dataset_id: u64) -> Vec<Event> {
             ),
         ]));
         new_event.set_data_set_id(dataset_id);
-        new_event.event_time = Option::from(event_time);
         new_event.r#type = Option::from("pump".to_string());
         if i % 3 == 0 {
             new_event.sub_type = Option::from("info".to_string());
@@ -248,7 +247,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     let expected_events_post_max_time_filter = &expected_events_post_sub_type_filter
         .iter()
         .cloned()
-        .filter(|eve| eve.event_time.as_ref().unwrap().lt(&max_time))
+        .filter(|eve| eve.event_time.lt(&max_time))
         .collect::<Vec<Event>>();
     assert!(equal_external_ids(
         res_filter_before_max_time.get_items(),
@@ -269,7 +268,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     let expected_events_min_time_filter = &test_events
         .iter()
         .cloned()
-        .filter(|eve| eve.event_time.as_ref().unwrap().gt(&min_time))
+        .filter(|eve| eve.event_time.gt(&min_time))
         .collect::<Vec<Event>>();
     assert!(equal_external_ids(
         res_filter_after_min_time.get_items(),
@@ -294,7 +293,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     let expected_events_time_range_filter = &test_events
         .iter()
         .cloned()
-        .filter(|eve| (time_range.0..time_range.1).contains(eve.event_time.as_ref().unwrap()))
+        .filter(|eve| (time_range.0..time_range.1).contains(&eve.event_time))
         .collect::<Vec<Event>>();
     println!("{:?}", expected_events_time_range_filter.len());
     println!("{:?}", expected_events_time_range_filter);
@@ -302,7 +301,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
         "{:?}",
         expected_events_time_range_filter
             .iter()
-            .all(|eve| (time_range.0..time_range.1).contains(eve.event_time.as_ref().unwrap()))
+            .all(|eve| (time_range.0..time_range.1).contains(&eve.event_time))
     );
     assert!(equal_external_ids(
         res_filter_in_time_range.get_items(),

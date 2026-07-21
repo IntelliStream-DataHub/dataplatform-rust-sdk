@@ -1,5 +1,6 @@
+use crate::datetime::{opt_py_datetime_to_utc, py_datetime_to_utc};
 use crate::timeseries::PyTimeseriesIdentifiable;
-use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use dataplatform_rust_sdk::generic::{
     Datapoint, DatapointString, DatapointsCollection, IdAndExtId, Identifiable, RetrieveFilter,
 };
@@ -101,10 +102,10 @@ impl From<PyDatapointString> for DatapointString {
 #[pymethods]
 impl PyDatapointString {
     #[new]
-    pub fn new(ts: DateTime<Utc>, value: &str) -> Self {
-        Self {
-            inner: DatapointString::from_datetime(ts, value),
-        }
+    pub fn new(ts: &Bound<'_, PyAny>, value: &str) -> PyResult<Self> {
+        Ok(Self {
+            inner: DatapointString::from_datetime(py_datetime_to_utc(ts)?, value),
+        })
     }
     #[getter]
     pub fn timestamp(&self) -> &String {
@@ -123,16 +124,20 @@ impl PyDatapointString {
         self.inner.value = value.to_string();
     }
     #[classmethod]
-    pub fn from_int(_cls: &Bound<'_, PyType>, ts: DateTime<Utc>, value: i64) -> Self {
-        Self {
-            inner: DatapointString::from_datetime(ts, &value.to_string()),
-        }
+    pub fn from_int(_cls: &Bound<'_, PyType>, ts: &Bound<'_, PyAny>, value: i64) -> PyResult<Self> {
+        Ok(Self {
+            inner: DatapointString::from_datetime(py_datetime_to_utc(ts)?, &value.to_string()),
+        })
     }
     #[classmethod]
-    pub fn from_float(_cls: &Bound<'_, PyType>, ts: DateTime<Utc>, value: f64) -> Self {
-        Self {
-            inner: DatapointString::from_datetime(ts, &value.to_string()),
-        }
+    pub fn from_float(
+        _cls: &Bound<'_, PyType>,
+        ts: &Bound<'_, PyAny>,
+        value: f64,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: DatapointString::from_datetime(py_datetime_to_utc(ts)?, &value.to_string()),
+        })
     }
 }
 
@@ -166,17 +171,17 @@ impl PyRetrieveFilter {
 ))]
     pub fn new(
         ts: PyTimeseriesIdentifiable,
-        start: Option<DateTime<FixedOffset>>,
-        end: Option<DateTime<FixedOffset>>,
+        start: Option<Bound<'_, PyAny>>,
+        end: Option<Bound<'_, PyAny>>,
         limit: Option<u64>,
         aggregates: Option<Vec<String>>,
         granularity: Option<String>,
         cursor: Option<String>,
-    ) -> Self {
-        let start = start.map(|dt| dt.with_timezone(&Utc));
-        let end = end.map(|dt| dt.with_timezone(&Utc));
+    ) -> PyResult<Self> {
+        let start = opt_py_datetime_to_utc(start.as_ref())?;
+        let end = opt_py_datetime_to_utc(end.as_ref())?;
         let id_coll: IdAndExtId = ts.into();
-        Self {
+        Ok(Self {
             inner: RetrieveFilter {
                 start,
                 end,
@@ -187,7 +192,7 @@ impl PyRetrieveFilter {
                 id: id_coll.id,
                 external_id: id_coll.external_id.clone(),
             },
-        }
+        })
     }
     #[getter]
     pub fn start(&self) -> Option<DateTime<chrono::Utc>> {
@@ -235,23 +240,23 @@ impl From<PyDatapoint> for Datapoint {
 impl PyDatapoint {
     #[new]
     pub fn new(
-        timestamp: DateTime<FixedOffset>,
+        timestamp: &Bound<'_, PyAny>,
         value: Option<f64>,
         min: Option<f64>,
         max: Option<f64>,
         average: Option<f64>,
         sum: Option<f64>,
-    ) -> Self {
-        Self {
+    ) -> PyResult<Self> {
+        Ok(Self {
             inner: Datapoint {
-                timestamp: timestamp.with_timezone(&Utc),
+                timestamp: py_datetime_to_utc(timestamp)?,
                 value,
                 min,
                 max,
                 average,
                 sum,
             },
-        }
+        })
     }
     #[getter]
     pub fn timestamp(&self) -> DateTime<Utc> {

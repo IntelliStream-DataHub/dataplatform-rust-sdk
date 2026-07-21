@@ -1,6 +1,7 @@
 pub mod async_service;
 pub mod sync_service;
 
+use crate::datetime::opt_py_datetime_to_utc;
 use chrono::{DateTime, Utc};
 use dataplatform_rust_sdk::FileUpload;
 use dataplatform_rust_sdk::generic::{INode, IdAndExtId};
@@ -59,8 +60,8 @@ impl PyINode {
         source: Option<String>,
         r#type: Option<String>,
         mime_type: Option<String>,
-        source_date_created: Option<DateTime<Utc>>,
-        source_last_updated: Option<DateTime<Utc>>,
+        source_date_created: Option<Bound<'_, PyAny>>,
+        source_last_updated: Option<Bound<'_, PyAny>>,
         parent_id: Option<i64>,
         parent_external_id: Option<String>,
         data_set_id: Option<i64>,
@@ -68,6 +69,8 @@ impl PyINode {
         related_resources: Option<Vec<i64>>,
         security_categories: Option<Vec<i32>>,
     ) -> PyResult<Self> {
+        let source_date_created = opt_py_datetime_to_utc(source_date_created.as_ref())?;
+        let source_last_updated = opt_py_datetime_to_utc(source_last_updated.as_ref())?;
         Ok(Self {
             inner: INode {
                 id,
