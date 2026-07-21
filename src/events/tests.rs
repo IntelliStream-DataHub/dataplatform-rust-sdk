@@ -388,8 +388,7 @@ mod uuid_serde {
 
     #[test]
     fn event_id_round_trips_as_a_uuid_string() {
-        let mut ev = Event::new("evt_roundtrip".to_string());
-        ev.set_event_time(Utc::now());
+        let mut ev = Event::new("evt_roundtrip".to_string(), Utc::now());
         let id = Uuid::now_v7();
         ev.id = Some(id);
 
@@ -407,7 +406,7 @@ mod uuid_serde {
     #[test]
     fn event_with_absent_id_deserializes_to_none() {
         // A payload that omits `id` entirely (e.g. a list projection) must not fail to parse.
-        let json = r#"{"externalId":"evt_no_id","relatedResourceIds":[],"relatedResourceExternalIds":[]}"#;
+        let json = r#"{"externalId":"evt_no_id","eventTime":"2025-01-01T00:00:00Z","relatedResourceIds":[],"relatedResourceExternalIds":[]}"#;
         let ev: Event = serde_json::from_str(json).unwrap();
         assert_eq!(ev.id, None);
         assert_eq!(ev.external_id, "evt_no_id");
