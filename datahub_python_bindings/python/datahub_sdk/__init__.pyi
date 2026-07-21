@@ -51,13 +51,35 @@ class DataHubClient:
         buffer_retention_secs: int | None = None,
         buffer_max_bytes: int | None = None,
         buffer_dir: str | None = None,
+        scope: str | None = None,
+        audience: str | None = None,
+        assertion: str | None = None,
+        assertion_token_url: str | None = None,
+        assertion_client_id: str | None = None,
+        assertion_client_secret: str | None = None,
+        assertion_scope: str | None = None,
+        assertion_audience: str | None = None,
     ) -> None:
         """Durable ingest buffering (off by default): when the API is unreachable, datapoint and
         event ingestion spools to disk and is flushed on a later call. Enable it with
         `enable_buffering=True` or by setting `buffer_retention_secs` / `buffer_max_bytes`
         (unset bounds default to 72h / 5 GiB). `buffer_dir` defaults to `.datahub-spool`.
         `from_env`/`from_envfile` read ENABLE_BUFFERING / BUFFER_RETENTION_SECS /
-        BUFFER_MAX_BYTES / BUFFER_DIR from the environment instead."""
+        BUFFER_MAX_BYTES / BUFFER_DIR from the environment instead.
+
+        `scope` and `audience` (env: SCOPE / AUDIENCE) are added to the token request only when
+        set — Keycloak needs neither, Entra ID requires `api://<app-id-uri>/.default`, Auth0
+        requires an audience.
+
+        Setting an assertion source switches the token request to the RFC 7523 `jwt-bearer`
+        grant, which exchanges a JWT issued by one provider for a token from another — how an
+        Entra ID service principal reaches a Keycloak-backed API. Either pass a ready-made
+        `assertion` (env: ASSERTION), or all three of `assertion_client_id` /
+        `assertion_client_secret` / `assertion_token_url` (env: ASSERTION_CLIENT_ID /
+        ASSERTION_CLIENT_SECRET / ASSERTION_TOKEN_URI) to have the SDK fetch one, narrowed by
+        `assertion_scope` / `assertion_audience` (env: ASSERTION_SCOPE / ASSERTION_AUDIENCE).
+        `client_id` / `client_secret` / `token_url` then describe the client performing the
+        exchange. The assertion is re-fetched per exchange rather than cached."""
         ...
     @classmethod
     def from_env(cls) -> DataHubClient: ...
@@ -94,6 +116,14 @@ class AsyncDataHubClient:
         buffer_retention_secs: int | None = None,
         buffer_max_bytes: int | None = None,
         buffer_dir: str | None = None,
+        scope: str | None = None,
+        audience: str | None = None,
+        assertion: str | None = None,
+        assertion_token_url: str | None = None,
+        assertion_client_id: str | None = None,
+        assertion_client_secret: str | None = None,
+        assertion_scope: str | None = None,
+        assertion_audience: str | None = None,
     ) -> None:
         """See `DataHubClient.__init__` for the durable-buffering parameters."""
         ...

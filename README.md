@@ -45,6 +45,21 @@ environment:
 - Either `TOKEN` (bearer token used as-is, never considered expired), **or** the OAuth2
   client-credentials set: `CLIENT_ID`, `CLIENT_SECRET`, `TOKEN_URI`
 - `PROJECT_NAME` — optional
+- `SCOPE`, `AUDIENCE` — optional, sent with the token request only when set. Keycloak needs
+  neither; Entra ID requires `SCOPE=api://<app-id-uri>/.default`, Auth0 requires `AUDIENCE`.
+
+Setting an assertion source switches the request at `TOKEN_URI` to the RFC 7523 `jwt-bearer`
+grant, exchanging a JWT from one issuer for a token from another — how an Entra ID service
+principal reaches a Keycloak-backed API. `CLIENT_ID`/`CLIENT_SECRET`/`TOKEN_URI` then describe
+the client performing the exchange:
+
+- `ASSERTION` — a ready-made JWT. Never refreshed; prefer the credentials below.
+- `ASSERTION_CLIENT_ID`, `ASSERTION_CLIENT_SECRET`, `ASSERTION_TOKEN_URI` — fetch the assertion
+  with client credentials from another provider (all three required).
+- `ASSERTION_SCOPE`, `ASSERTION_AUDIENCE` — narrow the assertion request.
+
+The same options are available on the builder as `set_scope`, `set_audience`, `set_assertion`,
+`set_assertion_credentials`, `set_assertion_scope` and `set_assertion_audience`.
 
 ## Durable ingest buffering
 
