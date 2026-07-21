@@ -481,7 +481,5 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEventObject>()?;
     m.add_class::<listener::PySubscriptionListener>()?;
     m.add_class::<listener::PySubscriptionListenerAsync>()?;
-    m.add_class::<sync_service::PySubscriptionsServiceSync>()?;
-    m.add_class::<async_service::PySubscriptionsServiceAsync>()?;
     Ok(())
 }

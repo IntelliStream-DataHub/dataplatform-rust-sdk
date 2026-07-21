@@ -1,6 +1,6 @@
 use crate::PyIdCollection;
 use crate::timeseries::datapoints::{
-    PyDatapointString, PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
+    PyDatapointInput, PyDatapointsResult, PyDatapointsBatch,
     PyRetrieveFilter,
 };
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};

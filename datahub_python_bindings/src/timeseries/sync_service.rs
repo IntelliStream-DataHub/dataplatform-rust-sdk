@@ -1,6 +1,6 @@
 use super::*;
 use crate::timeseries::datapoints::{
-    PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
+    PyDatapointsResult, PyDatapointsBatch,
 };
 use crate::{DatahubIdentity, Identifiable};
 use crate::{PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm};
@@ -150,7 +150,7 @@ impl PyTimeSeriesServiceSync {
     fn insert_datapoints<'py>(
         &self,
         py: Python<'py>,
-        input: Vec<PyDatapointsCollectionString>,
+        input: Vec<PyDatapointsBatch>,
     ) -> PyResult<Vec<String>> {
         let service = self.api_service.clone();
         let vec: Vec<DatapointsCollection<DatapointString>> =
@@ -203,7 +203,7 @@ impl PyTimeSeriesServiceSync {
         &self,
         py: Python<'py>,
         input: PyRetrieveFilter,
-    ) -> PyResult<Vec<PyDatapointsCollectionDatapoints>> {
+    ) -> PyResult<Vec<PyDatapointsResult>> {
         let service = self.api_service.clone();
         let wrapper = DataWrapper::<RetrieveFilter>::from_vec(vec![input.into()]);
         py.detach(|| {
@@ -211,10 +211,10 @@ impl PyTimeSeriesServiceSync {
                 .runtime
                 .block_on(service.time_series.retrieve_datapoints(&wrapper))
                 .map_err(|e| crate::datahub_err(e))?;
-            let result: Vec<PyDatapointsCollectionDatapoints> = result
+            let result: Vec<PyDatapointsResult> = result
                 .get_items()
                 .into_iter()
-                .map(|ts| PyDatapointsCollectionDatapoints { inner: ts.clone() })
+                .map(|ts| PyDatapointsResult { inner: ts.clone() })
                 .collect();
             Ok(result)
         })
@@ -236,7 +236,7 @@ impl PyTimeSeriesServiceSync {
         &self,
         py: Python<'py>,
         input: Vec<PyTimeseriesIdentifiable>,
-    ) -> PyResult<Vec<PyDatapointsCollectionDatapoints>> {
+    ) -> PyResult<Vec<PyDatapointsResult>> {
         let service = self.api_service.clone();
         let input_ids = input
             .into_iter()
@@ -250,10 +250,10 @@ impl PyTimeSeriesServiceSync {
 
         let result = result.map_err(|e| crate::datahub_err(e))?;
 
-        let res: Vec<PyDatapointsCollectionDatapoints> = result
+        let res: Vec<PyDatapointsResult> = result
             .get_items()
             .into_iter()
-            .map(|ts| PyDatapointsCollectionDatapoints::from(ts.clone()))
+            .map(|ts| PyDatapointsResult::from(ts.clone()))
             .collect();
         Ok(res)
     }

@@ -1,5 +1,5 @@
 use crate::timeseries::datapoints::{
-    PyDatapoint, PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
+    PyDatapoint, PyDatapointsResult, PyDatapointsBatch,
 };
 use crate::timeseries::{
     PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate, PyTimeseriesIdentifiable,
@@ -167,7 +167,7 @@ impl PyTimeSeriesServiceAsync {
     fn insert_datapoints<'py>(
         &self,
         py: Python<'py>,
-        input: Vec<PyDatapointsCollectionString>,
+        input: Vec<PyDatapointsBatch>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         let vec: Vec<DatapointsCollection<DatapointString>> =
@@ -233,10 +233,10 @@ impl PyTimeSeriesServiceAsync {
                 .retrieve_datapoints(&wrapper)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            let result: Vec<PyDatapointsCollectionDatapoints> = result
+            let result: Vec<PyDatapointsResult> = result
                 .get_items()
                 .into_iter()
-                .map(|ts| PyDatapointsCollectionDatapoints { inner: ts.clone() })
+                .map(|ts| PyDatapointsResult { inner: ts.clone() })
                 .collect();
             Ok(result)
         })
@@ -281,10 +281,10 @@ impl PyTimeSeriesServiceAsync {
                 .retrieve_latest_datapoint(&wrapper)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            let res: Vec<PyDatapointsCollectionDatapoints> = result
+            let res: Vec<PyDatapointsResult> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyDatapointsCollectionDatapoints::from(ts.clone()))
+                .map(|ts| PyDatapointsResult::from(ts.clone()))
                 .collect();
             Ok(res)
         })

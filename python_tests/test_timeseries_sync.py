@@ -118,11 +118,11 @@ def test_insert(sync_client,make_ts,timestamps,values,value_type):
     created = make_ts(name="test insert", value_type=value_type)
 
     if value_type == "bigint":
-        data = [datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
+        data = [datahub_sdk.DatapointInput.from_int(ind,val) for ind,val in zip(timestamps,values)]
     elif value_type == "float":
-        data = [datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
+        data = [datahub_sdk.DatapointInput.from_float(ind,val) for ind,val in zip(timestamps,values)]
 
-    vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=created)
+    vals=datahub_sdk.DatapointsBatch(datapoints=data,ts=created)
     inserted_datapoints = sync_client.timeseries.insert_datapoints(input=[vals])
     # A successful insert is acknowledged with 204 No Content, so the body carries no items.
     assert inserted_datapoints == []
@@ -138,8 +138,8 @@ def test_insert_datapoints_missing_timeseries_returns_not_found(sync_client):
         value_type="float",
         unit="a.u",
     )
-    dp = datahub_sdk.DatapointString.from_float(pd.Timestamp("2025-01-01", tz="UTC"), 42.0)
-    vals = datahub_sdk.DatapointsCollectionString(datapoints=[dp], ts=nonexistent)
+    dp = datahub_sdk.DatapointInput.from_float(pd.Timestamp("2025-01-01", tz="UTC"), 42.0)
+    vals = datahub_sdk.DatapointsBatch(datapoints=[dp], ts=nonexistent)
     with pytest.raises(datahub_sdk.DataHubException) as exc_info:
         sync_client.timeseries.insert_datapoints(input=[vals])
     assert exc_info.value.status_code == 404

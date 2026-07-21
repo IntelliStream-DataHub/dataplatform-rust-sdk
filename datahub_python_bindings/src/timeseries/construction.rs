@@ -1,4 +1,4 @@
-use crate::timeseries::datapoints::{PyDatapointString, PyDatapointsCollectionString};
+use crate::timeseries::datapoints::{PyDatapointInput, PyDatapointsBatch};
 use crate::timeseries::{PyRelationFrom, PyTimeSeries, ValueType};
 use crate::{DatahubIdentity, Identifiable};
 use dataplatform_rust_sdk::TimeSeries;
@@ -83,13 +83,13 @@ impl PyTimeSeries {
 }
 
 #[pymethods]
-impl PyDatapointsCollectionString {
+impl PyDatapointsBatch {
     #[new]
     #[pyo3(signature=(datapoints,ts))]
     pub fn new(
-        datapoints: Vec<PyDatapointString>,
+        datapoints: Vec<PyDatapointInput>,
         ts: Identifiable,
-    ) -> PyDatapointsCollectionString {
+    ) -> PyDatapointsBatch {
         let datapoints: Vec<DatapointString> = datapoints
             .into_iter()
             .map(|datapoint| datapoint.into())
@@ -104,7 +104,7 @@ impl PyDatapointsCollectionString {
                 unit: ts.unit().map(|u| u.to_string()),
                 unit_external_id: ts.unit_external_id().map(|u| u.to_string()),
             };
-            PyDatapointsCollectionString { inner }
+            PyDatapointsBatch { inner }
         } else {
             let inner: DatapointsCollection<DatapointString> = DatapointsCollection {
                 datapoints,
@@ -114,7 +114,7 @@ impl PyDatapointsCollectionString {
                 unit: None,
                 unit_external_id: None,
             };
-            PyDatapointsCollectionString { inner }
+            PyDatapointsBatch { inner }
         }
     }
 }

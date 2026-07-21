@@ -230,7 +230,5 @@ pub(crate) fn json_to_py<'py>(
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFunction>()?;
-    m.add_class::<sync_service::PyFunctionsServiceSync>()?;
-    m.add_class::<async_service::PyFunctionsServiceAsync>()?;
     Ok(())
 }

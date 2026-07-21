@@ -7,40 +7,40 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
 use pyo3::{Bound, Py, Python, pyclass, pymethods};
 
-#[pyclass(module = "datahub_sdk", name = "DatapointsCollectionString")]
+#[pyclass(module = "datahub_sdk", name = "DatapointsBatch")]
 #[derive(Clone, Debug)]
-pub struct PyDatapointsCollectionString {
+pub struct PyDatapointsBatch {
     pub inner: DatapointsCollection<DatapointString>,
 }
-impl From<DatapointsCollection<DatapointString>> for PyDatapointsCollectionString {
+impl From<DatapointsCollection<DatapointString>> for PyDatapointsBatch {
     fn from(ts: DatapointsCollection<DatapointString>) -> Self {
         Self { inner: ts }
     }
 }
-impl From<PyDatapointsCollectionString> for DatapointsCollection<DatapointString> {
-    fn from(ts: PyDatapointsCollectionString) -> Self {
+impl From<PyDatapointsBatch> for DatapointsCollection<DatapointString> {
+    fn from(ts: PyDatapointsBatch) -> Self {
         ts.inner
     }
 }
 
-#[pyclass(module = "datahub_sdk", name = "DatapointsCollectionDatapoints")]
+#[pyclass(module = "datahub_sdk", name = "DatapointsResult")]
 #[derive(Clone, Debug)]
-pub struct PyDatapointsCollectionDatapoints {
+pub struct PyDatapointsResult {
     pub inner: DatapointsCollection<Datapoint>,
 }
-impl From<DatapointsCollection<Datapoint>> for PyDatapointsCollectionDatapoints {
+impl From<DatapointsCollection<Datapoint>> for PyDatapointsResult {
     fn from(ts: DatapointsCollection<Datapoint>) -> Self {
         Self { inner: ts }
     }
 }
-impl From<PyDatapointsCollectionDatapoints> for DatapointsCollection<Datapoint> {
-    fn from(ts: PyDatapointsCollectionDatapoints) -> Self {
+impl From<PyDatapointsResult> for DatapointsCollection<Datapoint> {
+    fn from(ts: PyDatapointsResult) -> Self {
         ts.inner
     }
 }
 
 #[pymethods]
-impl PyDatapointsCollectionDatapoints {
+impl PyDatapointsResult {
     //#[getter]
     //pub fn datapoints(&self) -> Vec<PyDatapoint> {
     //    self.inner.datapoints.iter().map(|dp| PyDatapoint { inner: dp.clone() }).collect()
@@ -83,23 +83,23 @@ impl PyDatapointsCollectionDatapoints {
     }
 }
 
-#[pyclass(module = "datahub_sdk", name = "DatapointString")]
+#[pyclass(module = "datahub_sdk", name = "DatapointInput")]
 #[derive(Clone)]
-pub struct PyDatapointString {
+pub struct PyDatapointInput {
     pub inner: DatapointString,
 }
-impl From<DatapointString> for PyDatapointString {
+impl From<DatapointString> for PyDatapointInput {
     fn from(form: DatapointString) -> Self {
         Self { inner: form }
     }
 }
-impl From<PyDatapointString> for DatapointString {
-    fn from(value: PyDatapointString) -> Self {
+impl From<PyDatapointInput> for DatapointString {
+    fn from(value: PyDatapointInput) -> Self {
         value.inner
     }
 }
 #[pymethods]
-impl PyDatapointString {
+impl PyDatapointInput {
     #[new]
     pub fn new(ts: DateTime<Utc>, value: &str) -> Self {
         Self {

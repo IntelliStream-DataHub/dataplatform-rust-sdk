@@ -1,7 +1,7 @@
 use crate::events::EventIdentifyable;
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
 use crate::timeseries::datapoints::{
-    PyDatapointString, PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
+    PyDatapoint, PyDatapointInput, PyDatapointsResult, PyDatapointsBatch,
     PyRetrieveFilter,
 };
 use crate::timeseries::sync_service::PyTimeSeriesServiceSync;
@@ -399,8 +399,11 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRetrieveFilter>()?;
     m.add_class::<PyTimeSeriesUpdate>()?;
     m.add_class::<PyTimeSeries>()?;
-    m.add_class::<PyDatapointString>()?;
-    m.add_class::<PyDatapointsCollectionDatapoints>()?;
-    m.add_class::<PyDatapointsCollectionString>()?;
+    m.add_class::<PyRelationFrom>()?;
+    m.add_class::<ValueType>()?;
+    m.add_class::<PyDatapointInput>()?;
+    m.add_class::<PyDatapoint>()?;
+    m.add_class::<PyDatapointsResult>()?;
+    m.add_class::<PyDatapointsBatch>()?;
     Ok(())
 }
