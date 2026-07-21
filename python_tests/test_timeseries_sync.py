@@ -1,5 +1,5 @@
 import asyncio
-from datetime import tzinfo, timezone, timedelta
+from datetime import datetime, tzinfo, timezone, timedelta
 
 import numpy as np
 import pytest
@@ -113,32 +113,24 @@ def test_retrieve_latest_datapoint(sync_client,inserted_data,test_data,ts_float)
         (pd.date_range("2262-04-11",periods=100,tz="UTC"), pd.Series(np.random.randint(100),dtype="int64"), "float"),
     ]
 )
-def test_insert(sync_client,timestamps,values,value_type):
-    test_insert_ts = datahub_sdk.TimeSeries(name="test insert",value_type=value_type,unit="a.u")
-    sync_client.timeseries.delete([test_insert_ts])
+def test_insert(sync_client,make_ts,timestamps,values,value_type):
+    # make_ts deletes the series (and its datapoints) at teardown.
+    created = make_ts(name="test insert", value_type=value_type)
 
-    created = sync_client.timeseries.create([test_insert_ts])[0]
-    try:
-        if value_type == "bigint":
-            data = [datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
-        elif value_type == "float":
-            data = [datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
+    if value_type == "bigint":
+        data = [datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
+    elif value_type == "float":
+        data = [datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
 
-        vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=test_insert_ts)
-        inserted_datapoints = sync_client.timeseries.insert_datapoints(input=[vals])
-        # A successful insert is acknowledged with 204 No Content, so the body carries no items.
-        assert inserted_datapoints == []
-        retrieved_datapoints = sync_client.timeseries.retrieve_datapoints(datahub_sdk.RetrieveFilter(
-            start=pd.Timestamp("2019-01-01",tz="UTC"),
-            end=pd.Timestamp("2025-01-01",tz="UTC"),
-            ts=test_insert_ts))
-        assert retrieved_datapoints
-    finally:
-        # Delete the series (and its datapoints) created by this test.
-        try:
-            sync_client.timeseries.delete([created])
-        except Exception:
-            pass
+    vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=created)
+    inserted_datapoints = sync_client.timeseries.insert_datapoints(input=[vals])
+    # A successful insert is acknowledged with 204 No Content, so the body carries no items.
+    assert inserted_datapoints == []
+    retrieved_datapoints = sync_client.timeseries.retrieve_datapoints(datahub_sdk.RetrieveFilter(
+        start=pd.Timestamp("2019-01-01",tz="UTC"),
+        end=pd.Timestamp("2025-01-01",tz="UTC"),
+        ts=created))
+    assert retrieved_datapoints
 
 def test_insert_datapoints_missing_timeseries_returns_not_found(sync_client):
     nonexistent = datahub_sdk.TimeSeries(
@@ -216,79 +208,48 @@ def test_reject_invalid_timeseries_unit(sync_client,units,unit_external_id):
 
 
 
-def test_timeseries_update_with_fields(sync_client):
-    # 1. Create a new unique TS for updating
-    ext_id = f"test_update_{datetime.now().timestamp()}"
-    ts = datahub_sdk.TimeSeries(
-        name="Original Name",
-        external_id=ext_id,
-        value_type="bigint",
-        unit="a.u"
+def test_timeseries_update_with_fields(sync_client, make_ts):
+    # 1. Create a new unique TS for updating (make_ts deletes it at teardown)
+    created_ts = make_ts(name="Original Name", value_type="bigint")
+
+    # 2. Prepare Update Fields using Field structs
+    # Note: TimeSeriesUpdate.__init__ expects these types for specific fields
+    new_name = datahub_sdk.FieldStr(value="Updated Name")
+    new_unit = datahub_sdk.FieldStr(value="Updated Unit")
+    new_metadata = datahub_sdk.MapField(add={"status": "updated", "version": "2"})
+
+    # 3. Create the Update object
+    # The first argument 'ts' is the Identifyable (the created_ts itself)
+    ts_update = datahub_sdk.TimeSeriesUpdate(
+        created_ts,
+        name=new_name,
+        unit=new_unit,
+        metadata=new_metadata
     )
-    sync_client.timeseries.delete([ts])
-    created_ts = sync_client.timeseries.create([ts])[0]
 
-    try:
-        # 2. Prepare Update Fields using Field structs
-        # Note: TimeSeriesUpdate.__init__ expects these types for specific fields
-        new_name = datahub_sdk.FieldStr(value="Updated Name")
-        new_unit = datahub_sdk.FieldStr(value="Updated Unit")
-        new_metadata = datahub_sdk.MapField(add={"status": "updated", "version": "2"})
+    # 4. Perform the update
+    # The sync_client.timeseries.update likely takes a list of updates or objects
+    updated_tss = sync_client.timeseries.update([ts_update])
+    updated_ts = updated_tss[0]
 
-        # 3. Create the Update object
-        # The first argument 'ts' is the Identifyable (the created_ts itself)
-        ts_update = datahub_sdk.TimeSeriesUpdate(
-            created_ts,
-            name=new_name,
-            unit=new_unit,
-            metadata=new_metadata
-        )
+    # 5. Assertions
+    assert updated_ts.name == "Updated Name"
+    assert updated_ts.unit == "Updated Unit"
+    # Metadata in Datahub usually merges, verify the keys exist
+    assert updated_ts.metadata["status"] == "updated"
 
-        # 4. Perform the update
-        # The sync_client.timeseries.update likely takes a list of updates or objects
-        updated_tss = sync_client.timeseries.update([ts_update])
-        updated_ts = updated_tss[0]
+def test_timeseries_update_set_null(sync_client, make_ts):
+    # Create TS with a description (make_ts deletes it at teardown)
+    created_ts = make_ts(name="Null Test", description="I should be deleted", value_type="text")
 
-        # 5. Assertions
-        assert updated_ts.name == "Updated Name"
-        assert updated_ts.unit == "Updated Unit"
-        # Metadata in Datahub usually merges, verify the keys exist
-        assert updated_ts.metadata["status"] == "updated"
-    finally:
-        # Clean up (update does not change the identifier, so the created handle works)
-        try:
-            sync_client.timeseries.delete([created_ts])
-        except Exception:
-            pass
+    # Use FieldStr with set_null=True to clear the description
+    null_description = datahub_sdk.FieldStr(set_null=True)
 
-def test_timeseries_update_set_null(sync_client):
-    # Create TS with a description
-    ext_id = f"test_null_{datetime.now().timestamp()}"
-    ts = datahub_sdk.TimeSeries(
-        name="Null Test",
-        external_id=ext_id,
-        description="I should be deleted",
-        unit="a.u",
-        value_type="text"
+    ts_update = datahub_sdk.TimeSeriesUpdate(
+        created_ts,
+        description=null_description
     )
-    sync_client.timeseries.delete([ts])
-    created_ts = sync_client.timeseries.create([ts])[0]
 
-    try:
-        # Use FieldStr with set_null=True to clear the description
-        null_description = datahub_sdk.FieldStr(set_null=True)
+    updated_ts = sync_client.timeseries.update([ts_update])[0]
 
-        ts_update = datahub_sdk.TimeSeriesUpdate(
-            created_ts,
-            description=null_description
-        )
-
-        updated_ts = sync_client.timeseries.update([ts_update])[0]
-
-        assert updated_ts.description is None
-    finally:
-        # Clean up
-        try:
-            sync_client.timeseries.delete([created_ts])
-        except Exception:
-            pass
+    assert updated_ts.description is None

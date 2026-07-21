@@ -21,6 +21,7 @@ pub mod cleanup {
     //! runtime hangs or fails silently. A runtime-local client sidesteps that.
 
     use crate::create_api_service;
+    use crate::events::EventIdCollection;
     use crate::generic::{DataWrapper, IdAndExtId};
     use std::future::Future;
     use std::pin::Pin;
@@ -143,9 +144,9 @@ pub mod cleanup {
                 }
                 // Fresh, runtime-local service — see the module docs.
                 let api = create_api_service();
-                let ids: Vec<IdAndExtId> = external_ids
+                let ids: Vec<EventIdCollection> = external_ids
                     .iter()
-                    .map(|e| IdAndExtId::from_external_id(e))
+                    .map(|e| EventIdCollection::from_external_id(e))
                     .collect();
                 if let Err(e) = api.events.delete(&ids).await {
                     eprintln!(

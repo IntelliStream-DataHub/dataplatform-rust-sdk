@@ -566,6 +566,11 @@ class EventFilter:
 
 
 class EventIdCollection:
+    def __init__(
+        self,
+        id: UUID | None = None,
+        external_id: str | None = None,
+    ) -> None: ...
     @property
     def id(self) -> UUID | None: ...
     @property

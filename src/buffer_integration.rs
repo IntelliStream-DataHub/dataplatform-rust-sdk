@@ -5,7 +5,7 @@
 //! backend, like the rest of this crate's integration tests.
 
 use crate::datahub::DataHubApi;
-use crate::events::Event;
+use crate::events::{Event, EventIdCollection};
 use crate::generic::{DataWrapper, IdAndExtId};
 use crate::tests::cleanup::{cleanup_events, cleanup_timeseries};
 use crate::{create_api_service, ApiService, TimeSeries};
@@ -13,6 +13,21 @@ use chrono::Utc;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use uuid::Uuid;
+
+/// Event ingestion/deletion is eventually consistent, so `by_ids` right after a write can lag.
+/// Poll it until it reports `want` matches (or we give up after ~10s) and return the items.
+async fn poll_events_by_uuid(service: &ApiService, id: Uuid, want: usize) -> Vec<Event> {
+    for _ in 0..20 {
+        if let Ok(dw) = service.events.by_ids(&vec![EventIdCollection::from_uuid(id)]).await {
+            if dw.get_items().len() == want {
+                return dw.get_items().clone();
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    Vec::new()
+}
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -159,7 +174,54 @@ async fn live_event_gets_uuid_v7_id() {
     assert_eq!(id.get_version_num(), 7, "expected a v7 uuid, got {}", id);
 
     // teardown: delete by external id, which removes every copy so re-runs don't accumulate.
-    let ids = vec![IdAndExtId::from_external_id("rust_uuid_v7_event")];
+    let ids = vec![EventIdCollection::from_external_id("rust_uuid_v7_event")];
     let _ = service.events.delete(&ids).await;
     ev_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 }
+
+#[tokio::test]
+async fn live_event_get_by_uuid() {
+    let service = create_api_service();
+    let mut ev = Event::new("rust_event_get_by_uuid".to_string());
+    ev.set_event_time(Utc::now());
+    let mut ev_cleanup = cleanup_events(vec!["rust_event_get_by_uuid".to_string()]);
+
+    let created = service.events.create(&ev).await.expect("create event");
+    let id = created.get_items().first().expect("one event returned").id.expect("event has an id");
+
+    // Retrieve the event by the UUID the server echoed back (polling for eventual consistency).
+    let fetched = poll_events_by_uuid(&service, id, 1).await;
+    assert_eq!(fetched.len(), 1, "expected exactly the event we created back");
+    assert_eq!(fetched[0].id, Some(id), "returned event should carry the same uuid");
+
+    let _ = service.events.delete(&vec![EventIdCollection::from_uuid(id)]).await;
+    ev_cleanup.disarm();
+}
+
+#[tokio::test]
+async fn live_event_delete_by_uuid() {
+    let service = create_api_service();
+    let mut ev = Event::new("rust_event_delete_by_uuid".to_string());
+    ev.set_event_time(Utc::now());
+    let mut ev_cleanup = cleanup_events(vec!["rust_event_delete_by_uuid".to_string()]);
+
+    let created = service.events.create(&ev).await.expect("create event");
+    let id = created.get_items().first().expect("one event returned").id.expect("event has an id");
+
+    // Confirm it's queryable by UUID (read-after-write), then delete it by that UUID.
+    let present = poll_events_by_uuid(&service, id, 1).await;
+    assert_eq!(present.len(), 1, "event should be queryable by its uuid before delete");
+    service
+        .events
+        .delete(&vec![EventIdCollection::from_uuid(id)])
+        .await
+        .expect("delete by uuid");
+    // Poll until the delete has propagated and by_ids on that uuid returns nothing.
+    let after = poll_events_by_uuid(&service, id, 0).await;
+    assert!(after.is_empty(), "event should be gone after delete-by-uuid");
+    ev_cleanup.disarm(); // already deleted
+}
+
+// NB: there is deliberately no filter-by-uuid test. The backend types the event filter's `id`
+// field as a Long, so filtering events by their UUID id is rejected server-side; `by_ids` (above)
+// is the supported way to retrieve an event by its UUID.

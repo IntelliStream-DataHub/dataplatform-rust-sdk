@@ -46,7 +46,7 @@ async def test_delete_datapoints(async_client,fresh_inserted_data,ts_float,start
     #start = pd.Timestamp('2023-04-01', tz='UTC')
     #send = pd.Timestamp('2023-04-03', tz='UTC')
     delete_target = datahub_sdk.DeleteFilter(ts=ts_float, inclusive_begin=start,exclusive_end=end)
-    async_client.timeseries.delete_datapoints([delete_target])
+    await async_client.timeseries.delete_datapoints([delete_target])
     #await asyncio.sleep(20)
     """ # commented out because it takes a while to delete datapoints making test flaky
      fix could be to create special test query with final

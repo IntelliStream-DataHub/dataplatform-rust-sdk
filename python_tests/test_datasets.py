@@ -2,21 +2,15 @@
 
 Exercises every endpoint on `DatasetsServiceSync`: create, by_ids, delete.
 """
-import uuid
-
 import datahub_sdk
 import pytest
 
-from fixtures import sync_client
-
-
-def _suffix() -> str:
-    return uuid.uuid4().hex[:8]
+from fixtures import sync_client, unique_id
 
 
 def test_create_by_ids_delete_roundtrip(sync_client):
-    ext_a = f"py_test_dataset_a_{_suffix()}"
-    ext_b = f"py_test_dataset_b_{_suffix()}"
+    ext_a = unique_id("dataset_a")
+    ext_b = unique_id("dataset_b")
     ds_a = datahub_sdk.Dataset(
         external_id=ext_a,
         name=ext_a,
@@ -53,7 +47,7 @@ def test_create_by_ids_delete_roundtrip(sync_client):
 
 
 def test_create_preserves_metadata_and_description(sync_client):
-    ext = f"py_test_dataset_meta_{_suffix()}"
+    ext = unique_id("dataset_meta")
     ds = datahub_sdk.Dataset(
         external_id=ext,
         name=ext,

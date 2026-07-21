@@ -11,6 +11,7 @@ cargo test <name>                        # substring match on test name
 cargo test -- --ignored                  # run tests marked #[ignore] (e.g. long-running datapoint tests)
 cargo test <path>::tests::<name>         # e.g. `events::tests::test_events_full`
 cargo test -- --nocapture                # show println! from tests (the SDK prints response bodies)
+./run_python_tests.sh                    # Python-bindings suite (rebuilds the PyO3 module first — see below)
 ```
 
 Most tests are integration tests that call a live backend via `create_api_service()`. They read configuration from a local `.env` file (gitignored). Required:
@@ -26,13 +27,24 @@ The DataHub REST API this SDK targets is a separate Spring Boot project; the HTT
 
 ## Architecture
 
-This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point is `create_api_service()` in `src/lib.rs`, which returns an `Rc<ApiService>` built with `Rc::new_cyclic` so each subservice holds a `Weak<ApiService>` back-reference. Subservices are fields on `ApiService`:
+This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point is `create_api_service()` in `src/lib.rs`, which returns an `Arc<ApiService>` built with `Arc::new_cyclic` so each subservice holds a `Weak<ApiService>` back-reference. Subservices are fields on `ApiService`:
 
 - `time_series` (`src/timeseries/`) — `TimeSeries` + datapoint ingestion/retrieval
 - `units` (`src/unit/`)
 - `events` (`src/events/`)
-- `resources` (`src/resources/`) — hierarchical asset-like entities
+- `resources` (`src/resources/`) — hierarchical asset-like entities; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`)
+- `datasets` (`src/datasets/`)
 - `files` (`src/files/`) — multipart upload via `execute_file_upload_request`
+- `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`)
+- `functions` (`src/functions/`)
+
+### Blocking client (`src/blocking.rs`)
+
+Synchronous mirror of the async API behind the `blocking` cargo feature — the same split as `reqwest` / `reqwest::blocking`. Every wrapper delegates to the async implementation on a dedicated Tokio runtime owned by the client, so there is exactly one implementation of each call. It must not be constructed or called from inside an async context (building its runtime there panics); use the async `ApiService` instead.
+
+### Durable ingest buffering (`src/buffer.rs`, integration tests in `src/buffer_integration.rs`)
+
+When a datapoint/event send can't get through, ingestion spools to a segmented, zstd-compressed NDJSON log on disk and flushes automatically on a later ingest call. Invariants to preserve: memory use is bounded by a single segment (plain append-only active segment, zstd-sealed at ~50 MiB rollover via temp file + atomic rename, drained oldest-first one segment at a time); bounded by time retention (whole segments past the window dropped, expired records skipped on read) and a size cap (oldest segment deleted); a torn trailing line from an unclean shutdown is skipped on read. Each on-disk line is `<epoch_millis>\t<json>`; the spool is content-agnostic.
 
 ### The `ApiServiceProvider` trait (`src/generic.rs`)
 
@@ -48,7 +60,7 @@ The API wraps collections in `{ "items": [...] }`. `DataWrapper<T>` mirrors that
 
 ### Auth (`src/datahub.rs`)
 
-`DataHubApi` holds `Rc<RwLock<AuthState>>`. `get_api_token()` reads the cached token; if missing or expired, `refresh_token()` uses the OAuth2 refresh token when present, otherwise does a client-credentials exchange. A `TOKEN` passed via env is stored with `expire_time: None` (never considered expired by the `is_expired` check — a user-supplied token is assumed to be managed externally). OAuth2 client is `None` unless `CLIENT_ID`, `CLIENT_SECRET`, and `TOKEN_URI` are all present — only the client-credentials and refresh-token flows are supported, so `AUTH_URI` and `REDIRECT_URI` are not consumed.
+`DataHubApi` holds `Arc<tokio::sync::RwLock<AuthState>>`. `get_api_token()` reads the cached token; if missing or expired, `refresh_token()` uses the OAuth2 refresh token when present, otherwise does a client-credentials exchange. A `TOKEN` passed via env is stored with `expire_time: None` (never considered expired by the `is_expired` check — a user-supplied token is assumed to be managed externally). OAuth2 client is `None` unless `CLIENT_ID`, `CLIENT_SECRET`, and `TOKEN_URI` are all present — only the client-credentials and refresh-token flows are supported, so `AUTH_URI` and `REDIRECT_URI` are not consumed.
 
 ### Errors
 
@@ -61,6 +73,12 @@ Two error types, used in different layers:
 ### Filters (`src/filters.rs`)
 
 Two parallel filter styles coexist: `BasicEventFilter` (builder-style, legacy) and `EventFilter` + `AdvancedFilter` (richer, added more recently). When adding endpoints, prefer the advanced filter type — some advanced-filter endpoints are not yet wired up server-side and are currently tested only via serde round-trips.
+
+## Python bindings (`datahub_python_bindings/`)
+
+A PyO3 crate (built with maturin) that wraps this SDK as the Python package `datahub-sdk` (import name `datahub_sdk`). Binding modules in `datahub_python_bindings/src/` mirror the Rust subservices; the pure-Python side lives in `datahub_python_bindings/python/datahub_sdk`. The platform's `datahub-ml` worker consumes this package, so binding-visible API changes ripple there.
+
+The Python test suite in `python_tests/` imports the **compiled** `datahub_sdk` module, not the Rust sources — a stale `.so` silently masks source changes. Always run it through `./run_python_tests.sh`, which rebuilds via `maturin develop` first. Extra args are forwarded to pytest (`./run_python_tests.sh -k timeseries`); `--release`, `--no-build`, and `--no-deps` are consumed by the script itself.
 
 ## Conventions
 

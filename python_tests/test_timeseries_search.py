@@ -5,7 +5,6 @@ created series by name, by free-text query, and by description. Searches hit a
 backend search index that lags writes, so we sleep briefly before querying.
 """
 import time
-import uuid
 
 import pytest
 
@@ -18,39 +17,28 @@ SEARCH_INDEX_DELAY = 3.0
 
 
 def _uid(prefix="search"):
-    return f"pytest_{prefix}_{uuid.uuid4().hex[:12]}"
+    return unique_id(prefix)
 
 
 @pytest.mark.parametrize("field", ["name", "query", "description"])
-def test_search_finds_created_series(sync_client, field):
+def test_search_finds_created_series(sync_client, make_ts, field):
     ext_id = _uid(field)
     # Make name/description unique enough that the search can pick this row out.
     unique_name = f"Py SDK Search {ext_id}"
     unique_description = f"description for {ext_id}"
-    ts = datahub_sdk.TimeSeries(
-        external_id=ext_id,
-        name=unique_name,
-        description=unique_description,
-        value_type="float",
-        unit="a.u",
+    make_ts(external_id=ext_id, name=unique_name, description=unique_description)
+
+    time.sleep(SEARCH_INDEX_DELAY)
+
+    if field == "name":
+        form = datahub_sdk.SearchAndFilterForm(name=unique_name)
+    elif field == "query":
+        form = datahub_sdk.SearchAndFilterForm(query=unique_name)
+    else:
+        form = datahub_sdk.SearchAndFilterForm(description=unique_description)
+
+    results = sync_client.timeseries.search(form)
+    assert isinstance(results, list)
+    assert any(t.external_id == ext_id for t in results), (
+        f"search by {field} did not return the created series {ext_id}"
     )
-
-    sync_client.timeseries.delete([ts])
-    sync_client.timeseries.create([ts])
-    try:
-        time.sleep(SEARCH_INDEX_DELAY)
-
-        if field == "name":
-            form = datahub_sdk.SearchAndFilterForm(name=unique_name)
-        elif field == "query":
-            form = datahub_sdk.SearchAndFilterForm(query=unique_name)
-        else:
-            form = datahub_sdk.SearchAndFilterForm(description=unique_description)
-
-        results = sync_client.timeseries.search(form)
-        assert isinstance(results, list)
-        assert any(t.external_id == ext_id for t in results), (
-            f"search by {field} did not return the created series {ext_id}"
-        )
-    finally:
-        sync_client.timeseries.delete([ts])
