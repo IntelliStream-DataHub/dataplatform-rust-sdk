@@ -37,6 +37,7 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 - `files` (`src/files/`) — multipart upload via `execute_file_upload_request`
 - `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`)
 - `functions` (`src/functions/`)
+- `labels` (`src/labels/`) — label CRUD (`list`/`get`/`create`/`update`/`delete`). Note the entity type is `labels::Label`, deliberately *not* re-exported at the crate root because `resources::*` already brings a different graph-DTO `Label` there.
 
 ### Blocking client (`src/blocking.rs`)
 
