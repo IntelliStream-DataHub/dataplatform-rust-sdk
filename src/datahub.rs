@@ -23,6 +23,9 @@ pub const DEFAULT_BUFFER_MAX_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 pub const DEFAULT_BUFFER_DIR: &str = ".datahub-spool";
 /// RFC 7523 grant type: exchange an externally-issued JWT assertion for a token.
 const JWT_BEARER_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+/// RFC 7523 client-authentication type: authenticate the client itself with a JWT assertion
+/// (Keycloak "Signed JWT - Federated") instead of a client secret.
+const JWT_BEARER_CLIENT_ASSERTION: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
 #[derive(Default, Deserialize, Debug, Clone)]
 pub struct OAuthConfig {
@@ -65,6 +68,13 @@ pub struct OAuthConfig {
 
     #[serde(alias = "ASSERTION_AUDIENCE")]
     pub(crate) assertion_audience: Option<String>,
+
+    /// Grant used when the assertion authenticates the client itself (no `CLIENT_SECRET`):
+    /// `client_credentials` (default — token issued for the client's service account) or
+    /// `jwt-bearer` (identity chaining — token issued for the Keycloak user linked to the
+    /// assertion's subject).
+    #[serde(alias = "ASSERTION_GRANT")]
+    pub(crate) assertion_grant: Option<String>,
 
     #[serde(alias = "PROJECT_NAME")]
     pub(crate) project_name: Option<String>,
@@ -151,6 +161,7 @@ impl DataHubConfig {
             assertion_client_secret: None,
             assertion_scope: None,
             assertion_audience: None,
+            assertion_grant: None,
             project_name,
         };
 
@@ -292,6 +303,15 @@ impl DataHubConfig {
         self
     }
 
+    /// Grant used with an assertion source when no client secret is configured:
+    /// `"client_credentials"` (the default) issues a token for the client's service account;
+    /// `"jwt-bearer"` chains the external identity — the token is issued for the Keycloak user
+    /// linked to the assertion's subject.
+    pub fn set_assertion_grant<S: Into<String>>(&mut self, grant: S) -> &mut Self {
+        Arc::make_mut(&mut self.config).assertion_grant = Some(grant.into());
+        self
+    }
+
     /// Enable durable ingest buffering with default bounds (72h window, 5 GiB cap). Off by default.
     pub fn enable_buffering(&mut self) -> &mut Self {
         self.buffering_requested = true;
@@ -356,10 +376,10 @@ impl DataHubConfig {
                 .and_then(|t| t.refresh_token().cloned())
         };
 
-        // An assertion source means the token at `token_uri` comes from the jwt-bearer grant. A
+        // An assertion source means the token at `token_uri` comes from an assertion exchange. A
         // refresh token, when the provider issued one, still refreshes normally.
-        if self.has_jwt_bearer() && refresh_token.is_none() {
-            let new_token = self.exchange_jwt_bearer().await?;
+        if self.has_assertion_exchange() && refresh_token.is_none() {
+            let new_token = self.exchange_assertion().await?;
             let expire_time = new_token.expires_in().map(|duration| Utc::now() + duration);
             let mut auth_state = self.auth_state.write().await;
             if let Some(t) = &auth_state.token {
@@ -432,18 +452,17 @@ impl DataHubConfig {
 
         Ok(new_token.unwrap().access_token().secret().clone())
     }
-    /// True when an assertion source is configured, i.e. the token at `token_uri` is obtained with
-    /// the RFC 7523 `jwt-bearer` grant rather than plain client credentials.
-    fn has_jwt_bearer(&self) -> bool {
+    /// True when an assertion source is configured, i.e. the token at `token_uri` is obtained by
+    /// exchanging an externally-issued JWT rather than plain client credentials. `CLIENT_SECRET`
+    /// is optional here: without one the exchange authenticates with the assertion itself
+    /// (federated client authentication) instead of basic auth.
+    fn has_assertion_exchange(&self) -> bool {
         let config = &self.config;
-        let exchangeable = config.client_id.is_some()
-            && config.client_secret.is_some()
-            && config.token_uri.is_some();
         let has_source = config.assertion.is_some()
             || config.assertion_token_uri.is_some()
                 && config.assertion_client_id.is_some()
                 && config.assertion_client_secret.is_some();
-        exchangeable && has_source
+        config.token_uri.is_some() && has_source
     }
 
     /// The configured static assertion, or one fetched from the assertion provider.
@@ -474,54 +493,83 @@ impl DataHubConfig {
             form.push(("audience", audience.clone()));
         }
         let token = self
-            .post_token_form(uri, client_id, client_secret, &form, "assertion request")
+            .post_token_form(uri, Some((client_id, client_secret)), &form, "assertion request")
             .await?;
         Ok(token.access_token().secret().clone())
     }
 
-    /// RFC 7523: present an externally-issued JWT as an `assertion` and get back a token from this
-    /// provider — how an Entra ID service principal reaches an API that only trusts Keycloak.
-    async fn exchange_jwt_bearer(&self) -> Result<BasicTokenResponse, DataHubError> {
+    /// Exchange the assertion at `token_uri` for a token from this provider — how an Entra ID
+    /// service principal reaches an API that only trusts Keycloak.
+    ///
+    /// With `CLIENT_ID` + `CLIENT_SECRET` the request is the RFC 7523 `jwt-bearer` grant
+    /// authenticated with basic auth. Without a secret the assertion itself authenticates the
+    /// client (federated client authentication, Keycloak's "Signed JWT - Federated"), driving
+    /// the grant selected by `ASSERTION_GRANT`: `client_credentials` (default — token for the
+    /// client's service account) or `jwt-bearer` (identity chaining — token for the user linked
+    /// to the assertion's subject).
+    async fn exchange_assertion(&self) -> Result<BasicTokenResponse, DataHubError> {
         let config = &self.config;
-        let (Some(uri), Some(client_id), Some(client_secret)) = (
-            &config.token_uri,
-            &config.client_id,
-            &config.client_secret,
-        ) else {
+        let Some(uri) = &config.token_uri else {
             return Err(DataHubError::ConfigError(
-                "jwt-bearer needs CLIENT_ID + CLIENT_SECRET + TOKEN_URI to authenticate the exchange"
-                    .to_string(),
+                "an assertion exchange needs TOKEN_URI to send the request to".to_string(),
             ));
         };
-        let mut form = vec![
-            ("grant_type", JWT_BEARER_GRANT.to_string()),
-            ("assertion", self.fetch_assertion().await?),
-        ];
+        let assertion = self.fetch_assertion().await?;
+        let mut form: Vec<(&str, String)> = Vec::new();
         if let Some(scope) = &config.scope {
             form.push(("scope", scope.clone()));
         }
         if let Some(audience) = &config.audience {
             form.push(("audience", audience.clone()));
         }
-        self.post_token_form(uri, client_id, client_secret, &form, "jwt-bearer token request")
+        if let (Some(client_id), Some(client_secret)) = (&config.client_id, &config.client_secret)
+        {
+            form.push(("grant_type", JWT_BEARER_GRANT.to_string()));
+            form.push(("assertion", assertion));
+            return self
+                .post_token_form(
+                    uri,
+                    Some((client_id, client_secret)),
+                    &form,
+                    "jwt-bearer token request",
+                )
+                .await;
+        }
+        match config.assertion_grant.as_deref() {
+            None | Some("client_credentials") => {
+                form.push(("grant_type", "client_credentials".to_string()));
+            }
+            Some("jwt-bearer") => {
+                form.push(("grant_type", JWT_BEARER_GRANT.to_string()));
+                form.push(("assertion", assertion.clone()));
+            }
+            Some(other) => {
+                return Err(DataHubError::ConfigError(format!(
+                    "unknown ASSERTION_GRANT {other:?}: expected \"client_credentials\" or \"jwt-bearer\""
+                )));
+            }
+        }
+        // Deliberately no client_id: Keycloak resolves the client from the assertion's
+        // issuer + subject, and a client_id in the form makes the standard `client-jwt`
+        // authenticator (which runs earlier in the flow) claim the request and hard-fail.
+        form.push(("client_assertion_type", JWT_BEARER_CLIENT_ASSERTION.to_string()));
+        form.push(("client_assertion", assertion));
+        self.post_token_form(uri, None, &form, "federated token request")
             .await
     }
 
     async fn post_token_form(
         &self,
         uri: &str,
-        client_id: &str,
-        client_secret: &str,
+        basic_credentials: Option<(&str, &str)>,
         form: &[(&str, String)],
         context: &str,
     ) -> Result<BasicTokenResponse, DataHubError> {
-        let response = self
-            .http_client
-            .post(uri)
-            .basic_auth(client_id, Some(client_secret))
-            .form(form)
-            .send()
-            .await?;
+        let mut request = self.http_client.post(uri);
+        if let Some((client_id, client_secret)) = basic_credentials {
+            request = request.basic_auth(client_id, Some(client_secret));
+        }
+        let response = request.form(form).send().await?;
         let status = response.status();
         let body = response.text().await?;
         if !status.is_success() {
@@ -680,5 +728,93 @@ mod jwt_bearer_tests {
         // leg 2: the fetched JWT presented as the assertion
         let exchange_request = exchange_server.await.unwrap();
         assert!(exchange_request.contains("assertion=entra.jwt.sig"), "{exchange_request}");
+    }
+
+    /// Without a CLIENT_SECRET the exchange authenticates via federated client authentication:
+    /// the assertion is sent as the RFC 7523 `client_assertion`, so no Keycloak-issued
+    /// credential is involved anywhere in the request. The default grant is
+    /// `client_credentials` — the token is issued for the client's service account.
+    #[tokio::test]
+    async fn federated_exchange_without_client_secret() {
+        let (url, server) =
+            token_endpoint(r#"{"access_token":"kc-token","token_type":"Bearer","expires_in":3600}"#).await;
+
+        let mut api = DataHubConfig::from_vars(
+            "http://127.0.0.1:1".to_string(),
+            None,
+            Some(url),
+            Some("datahub-exchange".to_string()),
+            None,
+            None,
+        );
+        api.set_assertion("header.payload.signature");
+        let token = api.get_api_token().await.unwrap();
+
+        assert_eq!(token, "kc-token");
+        let request = server.await.unwrap();
+        assert!(
+            !request.to_lowercase().contains("authorization:"),
+            "no basic auth expected: {request}"
+        );
+        assert!(request.contains("grant_type=client_credentials"), "{request}");
+        assert!(
+            request.contains(
+                "client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer"
+            ),
+            "{request}"
+        );
+        assert!(request.contains("client_assertion=header.payload.signature"), "{request}");
+        // client_id must NOT be sent: it would make Keycloak's earlier client-jwt
+        // authenticator claim the request and reject it.
+        assert!(!request.contains("client_id="), "{request}");
+    }
+
+    /// `ASSERTION_GRANT=jwt-bearer` selects identity chaining: the assertion is presented
+    /// both as the authorization grant and as the client_assertion.
+    #[tokio::test]
+    async fn federated_jwt_bearer_identity_chaining() {
+        let (url, server) =
+            token_endpoint(r#"{"access_token":"kc-token","token_type":"Bearer","expires_in":3600}"#).await;
+
+        let mut api = DataHubConfig::from_vars(
+            "http://127.0.0.1:1".to_string(),
+            None,
+            Some(url),
+            None,
+            None,
+            None,
+        );
+        api.set_assertion("header.payload.signature");
+        api.set_assertion_grant("jwt-bearer");
+        let token = api.get_api_token().await.unwrap();
+
+        assert_eq!(token, "kc-token");
+        let request = server.await.unwrap();
+        assert!(
+            request.contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer"),
+            "{request}"
+        );
+        // present both as the grant assertion and as the client_assertion
+        assert_eq!(
+            request.matches("assertion=header.payload.signature").count(),
+            2,
+            "{request}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_assertion_grant_is_rejected() {
+        let mut api = DataHubConfig::from_vars(
+            "http://127.0.0.1:1".to_string(),
+            None,
+            Some("http://127.0.0.1:1".to_string()),
+            None,
+            None,
+            None,
+        );
+        api.set_assertion("header.payload.signature");
+        api.set_assertion_grant("password");
+        let err = api.get_api_token().await.unwrap_err();
+        assert!(err.to_string().contains("ASSERTION_GRANT"), "{err:?}");
     }
 }

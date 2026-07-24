@@ -92,6 +92,7 @@ fn build_buffered_config(
     assertion_client_secret: Option<String>,
     assertion_scope: Option<String>,
     assertion_audience: Option<String>,
+    assertion_grant: Option<String>,
 ) -> DataHubConfig {
     let mut config = DataHubConfig::from_vars(
         base_url,
@@ -133,6 +134,9 @@ fn build_buffered_config(
     if let Some(audience) = assertion_audience {
         config.set_assertion_audience(audience);
     }
+    if let Some(grant) = assertion_grant {
+        config.set_assertion_grant(grant);
+    }
     config
 }
 
@@ -164,6 +168,7 @@ impl PySyncClient {
         assertion_client_secret=None,
         assertion_scope=None,
         assertion_audience=None,
+        assertion_grant=None,
     ))]
     fn new(
         base_url: String,
@@ -184,6 +189,7 @@ impl PySyncClient {
         assertion_client_secret: Option<String>,
         assertion_scope: Option<String>,
         assertion_audience: Option<String>,
+        assertion_grant: Option<String>,
     ) -> Self {
         PySyncClient {
             inner: ApiService::new(build_buffered_config(
@@ -205,6 +211,7 @@ impl PySyncClient {
                 assertion_client_secret,
                 assertion_scope,
                 assertion_audience,
+                assertion_grant,
             )),
             runtime: Arc::new(tokio::runtime::Runtime::new().unwrap()),
         }
@@ -316,6 +323,7 @@ impl PyAsyncClient {
         assertion_client_secret=None,
         assertion_scope=None,
         assertion_audience=None,
+        assertion_grant=None,
     ))]
     fn new(
         base_url: String,
@@ -336,6 +344,7 @@ impl PyAsyncClient {
         assertion_client_secret: Option<String>,
         assertion_scope: Option<String>,
         assertion_audience: Option<String>,
+        assertion_grant: Option<String>,
     ) -> Self {
         Self {
             inner: ApiService::new(build_buffered_config(
@@ -357,6 +366,7 @@ impl PyAsyncClient {
                 assertion_client_secret,
                 assertion_scope,
                 assertion_audience,
+                assertion_grant,
             )),
         }
     }

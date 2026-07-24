@@ -59,6 +59,7 @@ class DataHubClient:
         assertion_client_secret: str | None = None,
         assertion_scope: str | None = None,
         assertion_audience: str | None = None,
+        assertion_grant: str | None = None,
     ) -> None:
         """Durable ingest buffering (off by default): when the API is unreachable, datapoint and
         event ingestion spools to disk and is flushed on a later call. Enable it with
@@ -78,6 +79,8 @@ class DataHubClient:
         `assertion_client_secret` / `assertion_token_url` (env: ASSERTION_CLIENT_ID /
         ASSERTION_CLIENT_SECRET / ASSERTION_TOKEN_URI) to have the SDK fetch one, narrowed by
         `assertion_scope` / `assertion_audience` (env: ASSERTION_SCOPE / ASSERTION_AUDIENCE).
+        With no `client_secret`, `assertion_grant` picks the federated grant (env: ASSERTION_GRANT):
+        "client_credentials" (default, service-account identity) or "jwt-bearer" (identity chaining).
         `client_id` / `client_secret` / `token_url` then describe the client performing the
         exchange. The assertion is re-fetched per exchange rather than cached."""
         ...
@@ -124,6 +127,7 @@ class AsyncDataHubClient:
         assertion_client_secret: str | None = None,
         assertion_scope: str | None = None,
         assertion_audience: str | None = None,
+        assertion_grant: str | None = None,
     ) -> None:
         """See `DataHubClient.__init__` for the durable-buffering parameters."""
         ...

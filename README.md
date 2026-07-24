@@ -58,6 +58,20 @@ the client performing the exchange:
   with client credentials from another provider (all three required).
 - `ASSERTION_SCOPE`, `ASSERTION_AUDIENCE` — narrow the assertion request.
 
+`CLIENT_SECRET` is optional for the exchange. When it is omitted the SDK authenticates the
+exchange with federated client authentication instead of basic auth: the assertion is sent as
+the RFC 7523 `client_assertion` (Keycloak's "Signed JWT - Federated" client authenticator,
+which resolves the client from the assertion's issuer and subject). No Keycloak-issued
+credential is involved anywhere — the only secrets are the external provider's. In this mode
+`CLIENT_ID` is ignored and no `client_id` is sent: Keycloak identifies the client purely from
+the assertion, and a `client_id` in the request would be claimed (and rejected) by the standard
+`client-jwt` authenticator that runs earlier in the client-auth flow.
+
+`ASSERTION_GRANT` (builder: `set_assertion_grant`) picks the grant used in that secretless
+mode: `client_credentials` (the default) issues the token for the Keycloak client's service
+account, while `jwt-bearer` chains the external identity — the token is issued for the
+Keycloak user linked to the assertion's subject.
+
 The same options are available on the builder as `set_scope`, `set_audience`, `set_assertion`,
 `set_assertion_credentials`, `set_assertion_scope` and `set_assertion_audience`.
 
