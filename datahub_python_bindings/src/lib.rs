@@ -2,6 +2,7 @@ mod datasets;
 mod datetime;
 mod events;
 mod files;
+mod labels;
 mod relations;
 mod resources;
 mod subscriptions;
@@ -20,6 +21,9 @@ use crate::events::sync_service::PyEventsServiceSync;
 use crate::resources::PyResource;
 use crate::resources::async_service::PyResourcesServiceAsync;
 use crate::resources::sync_service::PyResourcesServiceSync;
+use crate::labels::PyLabel;
+use crate::labels::async_service::PyLabelsServiceAsync;
+use crate::labels::sync_service::PyLabelsServiceSync;
 use crate::subscriptions::async_service::PySubscriptionsServiceAsync;
 use crate::subscriptions::sync_service::PySubscriptionsServiceSync;
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
@@ -228,6 +232,14 @@ impl PySyncClient {
         }
     }
 
+    #[getter]
+    fn labels(&self) -> PyLabelsServiceSync {
+        PyLabelsServiceSync {
+            api_service: self.inner.clone(),
+            runtime: self.runtime.clone(),
+        }
+    }
+
 }
 
 #[pyclass(module = "datahub_sdk", name = "AsyncDataHubClient")]
@@ -334,6 +346,13 @@ impl PyAsyncClient {
     fn functions(&self) -> PyFunctionsServiceAsync {
         PyFunctionsServiceAsync {
             api_service: self.inner.clone()
+        }
+    }
+
+    #[getter]
+    fn labels(&self) -> PyLabelsServiceAsync {
+        PyLabelsServiceAsync {
+            api_service: self.inner.clone(),
         }
     }
 }
@@ -659,7 +678,9 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyUnit>()?;
     m.add_class::<PyResource>()?;
     m.add_class::<crate::resources::PyResourceNetwork>()?;
-    m.add_class::<crate::resources::PyLabel>()?;
+    m.add_class::<PyLabel>()?;
+    m.add_class::<PyLabelsServiceSync>()?;
+    m.add_class::<PyLabelsServiceAsync>()?;
     m.add_class::<PyFieldU64>()?;
     m.add_class::<PyListFieldU64>()?;
     m.add_class::<PyFieldStr>()?;
