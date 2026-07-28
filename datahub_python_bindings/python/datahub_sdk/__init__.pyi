@@ -810,6 +810,30 @@ class GraphResult:
 ResourceIdentifiable = Union[Resource, str, int]
 
 
+class ResourceUpdate:
+    """One resource's update for `resources.update`. Target the resource by a `Resource`, its
+    numeric id, or its external id; every field is optional and uses the same wrappers as the
+    other update APIs (`FieldStr` for scalars, `ListFieldStr` for labels, `MapField` for
+    metadata). Mirrors `TimeSeriesUpdate`."""
+    def __init__(
+        self,
+        resource: ResourceIdentifiable,
+        external_id: FieldStr | None = None,
+        name: FieldStr | None = None,
+        description: FieldStr | None = None,
+        data_set_id: FieldU64 | None = None,
+        metadata: MapField | None = None,
+        source: FieldStr | None = None,
+        labels: ListFieldStr | None = None,
+    ) -> None: ...
+    @property
+    def target_id(self) -> int | None: ...
+    @property
+    def target_external_id(self) -> str | None: ...
+    @property
+    def labels(self) -> ListFieldStr | None: ...
+
+
 class ResourcesServiceSync:
     def create(
         self, nodes: list[Resource], relations: list[RelForm] | None = None
@@ -817,6 +841,7 @@ class ResourcesServiceSync:
     def by_ids(self, input: list[ResourceIdentifiable]) -> list[Resource]: ...
     def delete(self, input: list[ResourceIdentifiable]) -> None: ...
     def search(self, input: SearchAndFilterForm) -> list[Resource]: ...
+    def update(self, input: list[ResourceUpdate]) -> GraphResult: ...
 
 
 class ResourcesServiceAsync:
@@ -826,6 +851,7 @@ class ResourcesServiceAsync:
     async def by_ids(self, input: list[ResourceIdentifiable]) -> list[Resource]: ...
     async def delete(self, input: list[ResourceIdentifiable]) -> None: ...
     async def search(self, input: SearchAndFilterForm) -> list[Resource]: ...
+    async def update(self, input: list[ResourceUpdate]) -> GraphResult: ...
 
 
 # ====================== Labels ======================

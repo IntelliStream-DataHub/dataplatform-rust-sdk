@@ -41,7 +41,7 @@ use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::labels::Label;
 use crate::relations::RelForm;
-use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork};
+use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork, ResourceUpdate};
 use crate::timeseries::{TimeSeries, TimeSeriesUpdateCollection};
 use crate::unit::Unit;
 
@@ -206,6 +206,13 @@ impl ResourceService {
     {
         self.rt.block_on(self.api.resources.delete(input))
     }
+
+    pub fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
+    where
+        for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
+    {
+        self.rt.block_on(self.api.resources.update(input))
+    }
 }
 
 /// Blocking counterpart of [`crate::EventsService`].
@@ -297,24 +304,5 @@ impl FunctionsService {
     delegate_into! { functions =>
         fn create(data: Into<DataWrapper<Function>>) -> Result<DataWrapper<Function>, ResponseError>;
         fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Function>, ResponseError>;
-    }
-}
-
-/// Blocking counterpart of [`crate::labels::LabelsService`].
-pub struct LabelsService {
-    api: Arc<crate::ApiService>,
-    rt: Arc<Runtime>,
-}
-
-impl LabelsService {
-    delegate! { labels =>
-        fn list() -> Result<DataWrapper<Label>, ResponseError>;
-        fn get(id: u64) -> Result<DataWrapper<Label>, ResponseError>;
-    }
-
-    delegate_into! { labels =>
-        fn create(data: Into<DataWrapper<Label>>) -> Result<DataWrapper<Label>, ResponseError>;
-        fn update(data: Into<DataWrapper<Label>>) -> Result<DataWrapper<Label>, ResponseError>;
-        fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Label>, ResponseError>;
     }
 }
