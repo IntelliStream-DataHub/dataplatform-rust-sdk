@@ -388,7 +388,7 @@ mod uuid_serde {
 
     #[test]
     fn event_id_round_trips_as_a_uuid_string() {
-        let mut ev = Event::new("evt_roundtrip".to_string());
+        let mut ev = Event::new("evt_roundtrip".to_string(), Utc::now());
         ev.set_event_time(Utc::now());
         let id = Uuid::now_v7();
         ev.id = Some(id);

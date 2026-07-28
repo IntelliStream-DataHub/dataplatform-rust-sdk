@@ -182,7 +182,7 @@ async fn live_event_gets_uuid_v7_id() {
 #[tokio::test]
 async fn live_event_get_by_uuid() {
     let service = create_api_service();
-    let mut ev = Event::new("rust_event_get_by_uuid".to_string());
+    let mut ev = Event::new("rust_event_get_by_uuid".to_string(), Utc::now());
     ev.set_event_time(Utc::now());
     let mut ev_cleanup = cleanup_events(vec!["rust_event_get_by_uuid".to_string()]);
 
@@ -201,7 +201,7 @@ async fn live_event_get_by_uuid() {
 #[tokio::test]
 async fn live_event_delete_by_uuid() {
     let service = create_api_service();
-    let mut ev = Event::new("rust_event_delete_by_uuid".to_string());
+    let mut ev = Event::new("rust_event_delete_by_uuid".to_string(), Utc::now());
     ev.set_event_time(Utc::now());
     let mut ev_cleanup = cleanup_events(vec!["rust_event_delete_by_uuid".to_string()]);
 
