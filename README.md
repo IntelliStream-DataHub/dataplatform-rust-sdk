@@ -45,6 +45,35 @@ environment:
 - Either `TOKEN` (bearer token used as-is, never considered expired), **or** the OAuth2
   client-credentials set: `CLIENT_ID`, `CLIENT_SECRET`, `TOKEN_URI`
 - `PROJECT_NAME` — optional
+- `SCOPE`, `AUDIENCE` — optional, sent with the token request only when set. Keycloak needs
+  neither; Entra ID requires `SCOPE=api://<app-id-uri>/.default`, Auth0 requires `AUDIENCE`.
+
+Setting an assertion source switches the request at `TOKEN_URI` to the RFC 7523 `jwt-bearer`
+grant, exchanging a JWT from one issuer for a token from another — how an Entra ID service
+principal reaches a Keycloak-backed API. `CLIENT_ID`/`CLIENT_SECRET`/`TOKEN_URI` then describe
+the client performing the exchange:
+
+- `ASSERTION` — a ready-made JWT. Never refreshed; prefer the credentials below.
+- `ASSERTION_CLIENT_ID`, `ASSERTION_CLIENT_SECRET`, `ASSERTION_TOKEN_URI` — fetch the assertion
+  with client credentials from another provider (all three required).
+- `ASSERTION_SCOPE`, `ASSERTION_AUDIENCE` — narrow the assertion request.
+
+`CLIENT_SECRET` is optional for the exchange. When it is omitted the SDK authenticates the
+exchange with federated client authentication instead of basic auth: the assertion is sent as
+the RFC 7523 `client_assertion` (Keycloak's "Signed JWT - Federated" client authenticator,
+which resolves the client from the assertion's issuer and subject). No Keycloak-issued
+credential is involved anywhere — the only secrets are the external provider's. In this mode
+`CLIENT_ID` is ignored and no `client_id` is sent: Keycloak identifies the client purely from
+the assertion, and a `client_id` in the request would be claimed (and rejected) by the standard
+`client-jwt` authenticator that runs earlier in the client-auth flow.
+
+`ASSERTION_GRANT` (builder: `set_assertion_grant`) picks the grant used in that secretless
+mode: `client_credentials` (the default) issues the token for the Keycloak client's service
+account, while `jwt-bearer` chains the external identity — the token is issued for the
+Keycloak user linked to the assertion's subject.
+
+The same options are available on the builder as `set_scope`, `set_audience`, `set_assertion`,
+`set_assertion_credentials`, `set_assertion_scope` and `set_assertion_audience`.
 
 ## Durable ingest buffering
 

@@ -69,9 +69,14 @@ pub(crate) fn datahub_err(e: ResponseError) -> PyErr {
     })
 }
 
-/// Build a `DataHubApi` from explicit vars and apply optional durable-buffering settings. Setting any
+/// Build a `DataHubConfig` from explicit vars and apply optional durable-buffering settings. Setting any
 /// of `buffer_retention_secs` / `buffer_max_bytes` (or `enable_buffering=True`) turns buffering on;
 /// unset bounds fall back to the defaults (72h / 5 GiB).
+///
+/// `scope` / `audience` are added to the token request only when set. An assertion source
+/// (`assertion`, or the `assertion_client_id`/`assertion_client_secret`/`assertion_token_url`
+/// triple) switches that request to the RFC 7523 `jwt-bearer` grant.
+#[allow(clippy::too_many_arguments)]
 fn build_buffered_config(
     base_url: String,
     token: Option<String>,
@@ -83,6 +88,15 @@ fn build_buffered_config(
     buffer_retention_secs: Option<i64>,
     buffer_max_bytes: Option<u64>,
     buffer_dir: Option<String>,
+    scope: Option<String>,
+    audience: Option<String>,
+    assertion: Option<String>,
+    assertion_token_url: Option<String>,
+    assertion_client_id: Option<String>,
+    assertion_client_secret: Option<String>,
+    assertion_scope: Option<String>,
+    assertion_audience: Option<String>,
+    assertion_grant: Option<String>,
 ) -> DataHubConfig {
     let mut config = DataHubConfig::from_vars(
         base_url,
@@ -104,6 +118,29 @@ fn build_buffered_config(
     if enable_buffering {
         config.enable_buffering();
     }
+    if let Some(scope) = scope {
+        config.set_scope(scope);
+    }
+    if let Some(audience) = audience {
+        config.set_audience(audience);
+    }
+    if let Some(assertion) = assertion {
+        config.set_assertion(assertion);
+    }
+    if let (Some(id), Some(secret), Some(uri)) =
+        (assertion_client_id, assertion_client_secret, assertion_token_url)
+    {
+        config.set_assertion_credentials(id, secret, uri);
+    }
+    if let Some(scope) = assertion_scope {
+        config.set_assertion_scope(scope);
+    }
+    if let Some(audience) = assertion_audience {
+        config.set_assertion_audience(audience);
+    }
+    if let Some(grant) = assertion_grant {
+        config.set_assertion_grant(grant);
+    }
     config
 }
 
@@ -115,6 +152,7 @@ pub struct PySyncClient {
 #[pymethods]
 impl PySyncClient {
     #[new]
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         base_url,
         token=None,
@@ -126,6 +164,15 @@ impl PySyncClient {
         buffer_retention_secs=None,
         buffer_max_bytes=None,
         buffer_dir=None,
+        scope=None,
+        audience=None,
+        assertion=None,
+        assertion_token_url=None,
+        assertion_client_id=None,
+        assertion_client_secret=None,
+        assertion_scope=None,
+        assertion_audience=None,
+        assertion_grant=None,
     ))]
     fn new(
         base_url: String,
@@ -138,6 +185,15 @@ impl PySyncClient {
         buffer_retention_secs: Option<i64>,
         buffer_max_bytes: Option<u64>,
         buffer_dir: Option<String>,
+        scope: Option<String>,
+        audience: Option<String>,
+        assertion: Option<String>,
+        assertion_token_url: Option<String>,
+        assertion_client_id: Option<String>,
+        assertion_client_secret: Option<String>,
+        assertion_scope: Option<String>,
+        assertion_audience: Option<String>,
+        assertion_grant: Option<String>,
     ) -> Self {
         PySyncClient {
             inner: ApiService::new(build_buffered_config(
@@ -151,6 +207,15 @@ impl PySyncClient {
                 buffer_retention_secs,
                 buffer_max_bytes,
                 buffer_dir,
+                scope,
+                audience,
+                assertion,
+                assertion_token_url,
+                assertion_client_id,
+                assertion_client_secret,
+                assertion_scope,
+                assertion_audience,
+                assertion_grant,
             )),
             runtime: Arc::new(tokio::runtime::Runtime::new().unwrap()),
         }
@@ -250,6 +315,7 @@ struct PyAsyncClient {
 #[pymethods]
 impl PyAsyncClient {
     #[new]
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         base_url,
         token=None,
@@ -261,6 +327,15 @@ impl PyAsyncClient {
         buffer_retention_secs=None,
         buffer_max_bytes=None,
         buffer_dir=None,
+        scope=None,
+        audience=None,
+        assertion=None,
+        assertion_token_url=None,
+        assertion_client_id=None,
+        assertion_client_secret=None,
+        assertion_scope=None,
+        assertion_audience=None,
+        assertion_grant=None,
     ))]
     fn new(
         base_url: String,
@@ -273,6 +348,15 @@ impl PyAsyncClient {
         buffer_retention_secs: Option<i64>,
         buffer_max_bytes: Option<u64>,
         buffer_dir: Option<String>,
+        scope: Option<String>,
+        audience: Option<String>,
+        assertion: Option<String>,
+        assertion_token_url: Option<String>,
+        assertion_client_id: Option<String>,
+        assertion_client_secret: Option<String>,
+        assertion_scope: Option<String>,
+        assertion_audience: Option<String>,
+        assertion_grant: Option<String>,
     ) -> Self {
         Self {
             inner: ApiService::new(build_buffered_config(
@@ -286,6 +370,15 @@ impl PyAsyncClient {
                 buffer_retention_secs,
                 buffer_max_bytes,
                 buffer_dir,
+                scope,
+                audience,
+                assertion,
+                assertion_token_url,
+                assertion_client_id,
+                assertion_client_secret,
+                assertion_scope,
+                assertion_audience,
+                assertion_grant,
             )),
         }
     }
