@@ -4,8 +4,10 @@ mod tests;
 use crate::buffer::DurableSpool;
 use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubConfig};
 use crate::filters::EventFilter;
-use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper};
+use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, HasDataSetId, IdAndExtId};
+use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
+use crate::resources::Resource;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -178,6 +180,32 @@ impl EventsService {
             .await
     }
 
+    /// Look up the resources this event references through its
+    /// `related_resource_ids` and `related_resource_external_ids`, resolving
+    /// them via [`crate::resources::ResourceService::by_ids`]. Returns an empty
+    /// graph when the event references no resources (no request is made).
+    pub async fn related_resources(
+        &self,
+        event: &Event,
+    ) -> Result<GraphDataWrapper<Resource>, ResponseError> {
+        let mut ids: Vec<IdAndExtId> = event
+            .related_resource_ids
+            .iter()
+            .copied()
+            .map(IdAndExtId::from_id)
+            .collect();
+        ids.extend(
+            event
+                .related_resource_external_ids
+                .iter()
+                .map(|ext_id| IdAndExtId::from_external_id(ext_id)),
+        );
+        if ids.is_empty() {
+            return Ok(GraphDataWrapper::new());
+        }
+        self.get_api_service().resources.by_ids(&ids).await
+    }
+
     pub fn retrieve(&self) -> Result<(), ResponseError> {
         unimplemented!()
     }
@@ -223,6 +251,11 @@ pub struct Event {
 impl DataHubEntity for Event {
     fn ext_id(&self) -> &String {
         &self.external_id
+    }
+}
+impl HasDataSetId for Event {
+    fn data_set_id(&self) -> Option<u64> {
+        self.data_set_id
     }
 }
 

@@ -2,7 +2,7 @@ mod test;
 
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::events::Event;
-use crate::generic::{ApiServiceProvider, DataWrapper, INode, IdAndExtId};
+use crate::generic::{ApiServiceProvider, DataWrapper, HasDataSetId, INode, IdAndExtId};
 use crate::http::ResponseError;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
@@ -89,6 +89,11 @@ pub struct FileUpload {
     pub source_last_updated: Option<DateTime<Utc>>,
 }
 
+impl HasDataSetId for FileUpload {
+    fn data_set_id(&self) -> Option<u64> {
+        self.data_set_id
+    }
+}
 impl FileUpload {
     pub fn new_with_destination_path(file_path: &str, destination_path: &str) -> Self {
         let mut f = Self::new(file_path);

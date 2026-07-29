@@ -377,6 +377,101 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// End-to-end check of the two lookup convenience methods: `EventsService::related_resources`
+/// (event -> the resources it references) and `DatasetsService::of` (any entity -> its dataset).
+#[tokio::test]
+async fn test_related_resources_and_dataset_lookup() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::resources::Resource;
+    use uuid::Uuid;
+
+    let api = create_api_service();
+    // Hyphen-free: the backend normalizes external ids to snake_case (hyphens -> underscores),
+    // so a hyphenated suffix would make the event reference resource ids that don't match.
+    let suffix = Uuid::new_v4().simple().to_string();
+
+    // A dataset to own the event and resources.
+    let ds_ext_id = format!("rust_sdk_lookup_ds_{suffix}");
+    let dataset = Dataset::new(ds_ext_id.clone());
+    let created_ds = api.datasets.create(&dataset).await?;
+    let ds_id = created_ds
+        .get_items()
+        .first()
+        .and_then(|d| d.id)
+        .expect("created dataset should have an id");
+    let mut ds_cleanup = cleanup_resources(vec![ds_ext_id.clone()]);
+
+    // Two resources that the event will reference by external id.
+    let res_ext_ids: Vec<String> = (0..2)
+        .map(|i| format!("rust_sdk_lookup_res_{suffix}_{i}"))
+        .collect();
+    let resources: Vec<Resource> = res_ext_ids
+        .iter()
+        .map(|ext_id| {
+            let mut r = Resource::new();
+            r.external_id = ext_id.clone();
+            r.name = ext_id.clone();
+            r.data_set_id = Some(ds_id);
+            r.labels = Some(vec!["ASSET".to_string()]);
+            r
+        })
+        .collect();
+    api.resources.create(resources, vec![]).await?;
+    let mut res_cleanup = cleanup_resources(res_ext_ids.clone());
+
+    // An event that references both resources and belongs to the dataset.
+    let event_ext_id = format!("rust_sdk_lookup_evt_{suffix}");
+    let mut event = Event::new(event_ext_id.clone(), Utc::now());
+    event.set_data_set_id(ds_id);
+    for ext_id in &res_ext_ids {
+        event.add_related_resource_external_id(ext_id.clone());
+    }
+    api.events.create(&event).await?;
+    let mut evt_cleanup = cleanup_events(vec![event_ext_id.clone()]);
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    // related_resources: the event resolves to exactly the two resources it references.
+    let related = api.events.related_resources(&event).await?;
+    let mut got: Vec<String> = related
+        .nodes()
+        .unwrap_or_default()
+        .iter()
+        .map(|r| r.external_id.clone())
+        .collect();
+    got.sort();
+    let mut expected = res_ext_ids.clone();
+    expected.sort();
+    assert_eq!(got, expected, "related_resources should return the referenced resources");
+
+    // An event with no references makes no request and yields an empty graph.
+    let empty_event = Event::new(format!("rust_sdk_lookup_evt_empty_{suffix}"), Utc::now());
+    let empty = api.events.related_resources(&empty_event).await?;
+    assert!(empty.nodes().unwrap_or_default().is_empty());
+
+    // datasets.of resolves the owning dataset for entities carrying a data_set_id.
+    let ds_from_event = api.datasets.of(&event).await?;
+    assert_eq!(
+        ds_from_event.as_ref().map(|d| d.external_id.as_str()),
+        Some(ds_ext_id.as_str()),
+        "datasets.of(event) should resolve the owning dataset",
+    );
+
+    // An entity with no data_set_id resolves to None without a request.
+    let no_ds_event = Event::new(format!("rust_sdk_lookup_evt_nods_{suffix}"), Utc::now());
+    assert!(api.datasets.of(&no_ds_event).await?.is_none());
+
+    // Explicit teardown on the happy path; guards below disarm so drop doesn't re-run it.
+    api.events.delete(&vec![EventIdCollection::from_external_id(&event_ext_id)]).await.ok();
+    let res_id_coll: Vec<IdAndExtId> =
+        res_ext_ids.iter().map(|e| IdAndExtId::from_external_id(e)).collect();
+    api.resources.delete(&res_id_coll).await.ok();
+    api.datasets.delete(&vec![IdAndExtId::from_external_id(&ds_ext_id)]).await.ok();
+    evt_cleanup.disarm();
+    res_cleanup.disarm();
+    ds_cleanup.disarm();
+    Ok(())
+}
+
 /// Pure serde round-trips for the UUID-based event id and its selector. These need no backend and
 /// pin down that a UUID survives serialize→deserialize and lands on the wire as a JSON string in
 /// exactly the places the server reads it (`Event.id`, `EventIdCollection`, `BasicEventFilter.id`).
@@ -388,8 +483,7 @@ mod uuid_serde {
 
     #[test]
     fn event_id_round_trips_as_a_uuid_string() {
-        let mut ev = Event::new("evt_roundtrip".to_string());
-        ev.set_event_time(Utc::now());
+        let mut ev = Event::new("evt_roundtrip".to_string(),Utc::now());
         let id = Uuid::now_v7();
         ev.id = Some(id);
 

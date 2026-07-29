@@ -555,6 +555,20 @@ pub trait Identifiable {
     fn external_id(&self) -> &str;
 }
 
+/// Implemented by entity types that carry an optional owning dataset id
+/// (`data_set_id`). Enables [`crate::datasets::DatasetsService::of`] to resolve
+/// the owning [`crate::datasets::Dataset`] for any such entity uniformly.
+pub trait HasDataSetId {
+    /// The numeric id of the dataset this entity belongs to, if any.
+    fn data_set_id(&self) -> Option<u64>;
+}
+
+impl HasDataSetId for INode {
+    fn data_set_id(&self) -> Option<u64> {
+        self.data_set_id.map(|id| id as u64)
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DataWrapper<T> {
     items: Vec<T>,

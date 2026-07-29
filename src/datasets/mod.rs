@@ -5,8 +5,8 @@ use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::fields::{Field, ListField, MapField};
 use crate::filters::{AdvancedEventFilter, BasicEventFilter, TimeFilter};
 use crate::generic::{
-    ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, RelationForm, SearchAndFilterForm,
-    SearchForm,
+    ApiServiceProvider, DataHubEntity, DataWrapper, HasDataSetId, IdAndExtId, RelationForm,
+    SearchAndFilterForm, SearchForm,
 };
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::ResponseError;
@@ -70,6 +70,22 @@ impl DatasetsService {
         let path = &format!("{}/byids", self.base_url);
         self.execute_post_request::<DataWrapper<Dataset>, _>(path, &id_collection.into())
             .await
+    }
+
+    /// Look up the dataset that `entity` belongs to, resolving its `data_set_id`
+    /// through [`by_ids`](Self::by_ids). Works for any entity carrying a
+    /// `data_set_id` (events, resources, time series, files, file nodes) via the
+    /// [`HasDataSetId`] trait. Returns `Ok(None)` when the entity has no
+    /// `data_set_id` set (no request is made) or the dataset can't be found.
+    pub async fn of<E: HasDataSetId>(
+        &self,
+        entity: &E,
+    ) -> Result<Option<Dataset>, ResponseError> {
+        let Some(id) = entity.data_set_id() else {
+            return Ok(None);
+        };
+        let wrapper = self.by_ids(&IdAndExtId::from_id(id)).await?;
+        Ok(wrapper.get_items().first().cloned())
     }
 
     pub async fn search(

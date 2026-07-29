@@ -5,7 +5,7 @@ use crate::datahub::DataHubConfig;
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{
     ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection,
-    DeleteFilter, IdAndExtId, RelationForm, RetrieveFilter, SearchAndFilterForm,
+    DeleteFilter, HasDataSetId, IdAndExtId, RelationForm, RetrieveFilter, SearchAndFilterForm,
     SearchForm,
 };
 use crate::http::{process_response, ResponseError};
@@ -516,6 +516,11 @@ pub struct TimeSeries {
     pub relations_from: Vec<RelationForm>,
 }
 
+impl HasDataSetId for TimeSeries {
+    fn data_set_id(&self) -> Option<u64> {
+        self.data_set_id
+    }
+}
 impl TimeSeries {
     pub fn new(external_id: &str, name: &str) -> TimeSeries {
         TimeSeries {

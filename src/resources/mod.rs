@@ -3,8 +3,8 @@ mod tests;
 
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{
-    ApiServiceProvider, DataWrapper, DataWrapperDeserialization, IdAndExtId, Identifiable,
-    RelationForm, SearchAndFilterForm,
+    ApiServiceProvider, DataWrapper, DataWrapperDeserialization, HasDataSetId, IdAndExtId,
+    Identifiable, RelationForm, SearchAndFilterForm,
 };
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::{process_response, ResponseError};
@@ -168,6 +168,11 @@ impl Resource {
     }
 }
 impl GraphNode for Resource {}
+impl HasDataSetId for Resource {
+    fn data_set_id(&self) -> Option<u64> {
+        self.data_set_id
+    }
+}
 impl Identifiable for Resource {
     //todo!()
 
