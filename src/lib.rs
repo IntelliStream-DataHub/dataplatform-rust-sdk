@@ -40,7 +40,7 @@ pub mod functions;
 pub use resources::*;
 pub use events::*;
 pub use timeseries::*;
-pub use relations::{EdgeProxy, RelForm};
+pub use relations::{EdgeProxy, RelForm, RelatedNode, RelationDirection};
 use crate::datasets::*;
 
 pub use subscriptions::{

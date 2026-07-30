@@ -1,6 +1,6 @@
 use crate::resources::PyResource;
 use dataplatform_rust_sdk::graph_data_wrapper::GraphDataWrapper;
-use dataplatform_rust_sdk::relations::{EdgeProxy, RelForm};
+use dataplatform_rust_sdk::relations::{EdgeProxy, RelForm, RelatedNode, RelationDirection};
 use dataplatform_rust_sdk::Resource;
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, pyclass, pymethods};
@@ -95,6 +95,107 @@ impl PyEdgeProxy {
     #[getter]
     fn metadata(&self) -> HashMap<String, String> {
         self.inner.metadata.clone()
+    }
+}
+
+/// The unified node-centric relation, mirroring server-side `RelatedNode`: a node this
+/// one is connected to, with `relationship_type` and (on read) `direction`/`edge_id`.
+/// Constructible from Python for the create path — pass `id` **or** `external_id` plus a
+/// `relationship_type`; `direction` and `edge_id` are server-assigned and read-only.
+#[pyclass(module = "datahub_sdk", name = "RelatedNode")]
+#[derive(Clone)]
+pub struct PyRelatedNode {
+    pub inner: RelatedNode,
+}
+
+impl From<RelatedNode> for PyRelatedNode {
+    fn from(r: RelatedNode) -> Self {
+        Self { inner: r }
+    }
+}
+
+impl From<PyRelatedNode> for RelatedNode {
+    fn from(r: PyRelatedNode) -> Self {
+        r.inner
+    }
+}
+
+#[pymethods]
+impl PyRelatedNode {
+    #[new]
+    #[pyo3(signature = (
+        *,
+        relationship_type = None,
+        id = None,
+        external_id = None,
+    ))]
+    fn new(
+        relationship_type: Option<String>,
+        id: Option<u64>,
+        external_id: Option<String>,
+    ) -> Self {
+        Self {
+            inner: RelatedNode {
+                id,
+                external_id,
+                relationship_type,
+                direction: None,
+                edge_id: None,
+            },
+        }
+    }
+
+    #[classmethod]
+    #[pyo3(name = "from_id")]
+    fn from_id(
+        _cls: &Bound<'_, pyo3::types::PyType>,
+        id: u64,
+        relationship_type: String,
+    ) -> Self {
+        Self {
+            inner: RelatedNode::from_id(id, relationship_type),
+        }
+    }
+
+    #[classmethod]
+    #[pyo3(name = "from_external_id")]
+    fn from_external_id(
+        _cls: &Bound<'_, pyo3::types::PyType>,
+        external_id: String,
+        relationship_type: String,
+    ) -> Self {
+        Self {
+            inner: RelatedNode::from_external_id(external_id, relationship_type),
+        }
+    }
+
+    #[getter]
+    fn id(&self) -> Option<u64> {
+        self.inner.id
+    }
+
+    #[getter]
+    fn external_id(&self) -> Option<&str> {
+        self.inner.external_id.as_deref()
+    }
+
+    #[getter]
+    fn relationship_type(&self) -> Option<&str> {
+        self.inner.relationship_type.as_deref()
+    }
+
+    /// `"OUTBOUND"` / `"INBOUND"` on read; `None` on input.
+    #[getter]
+    fn direction(&self) -> Option<&'static str> {
+        self.inner.direction.map(|d| match d {
+            RelationDirection::Outbound => "OUTBOUND",
+            RelationDirection::Inbound => "INBOUND",
+        })
+    }
+
+    #[getter]
+    fn edge_id(&self) -> Option<u64> {
+        self.inner.edge_id
     }
 }
 
@@ -280,6 +381,7 @@ impl PyGraphResult {
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEdgeProxy>()?;
+    m.add_class::<PyRelatedNode>()?;
     m.add_class::<PyRelForm>()?;
     m.add_class::<PyGraphResult>()?;
     Ok(())

@@ -1,5 +1,5 @@
 use crate::PyIdCollection;
-use crate::relations::PyEdgeProxy;
+use crate::relations::PyRelatedNode;
 use chrono::{DateTime, Utc};
 use dataplatform_rust_sdk::functions::Function;
 use dataplatform_rust_sdk::generic::IdAndExtId;
@@ -97,16 +97,16 @@ impl PyFunction {
         self.inner.last_updated_time
     }
 
-    /// PROCESSED_BY edges binding input timeseries into this function. Populated by the
-    /// server on `/functions/list`; the Python worker reads `e.start` (timeseries id) and
-    /// `e.edge_type == "PROCESSED_BY"` to build its routing map.
+    /// The nodes bound into this function (e.g. its input timeseries via PROCESSED_BY
+    /// edges). Populated by the server on `/functions/list`; the Python worker reads each
+    /// entry's `id` and `relationship_type == "PROCESSED_BY"` to build its routing map.
     #[getter]
-    fn relations(&self) -> Vec<PyEdgeProxy> {
+    fn related_resources(&self) -> Vec<PyRelatedNode> {
         self.inner
-            .relations
+            .related_resources
             .iter()
             .cloned()
-            .map(PyEdgeProxy::from)
+            .map(PyRelatedNode::from)
             .collect()
     }
 }

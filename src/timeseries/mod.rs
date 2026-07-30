@@ -5,9 +5,10 @@ use crate::datahub::DataHubConfig;
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{
     ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection,
-    DeleteFilter, IdAndExtId, RelationForm, RetrieveFilter, SearchAndFilterForm,
+    DeleteFilter, IdAndExtId, RetrieveFilter, SearchAndFilterForm,
     SearchForm,
 };
+use crate::relations::RelatedNode;
 use crate::http::{process_response, ResponseError};
 use crate::serde_helper::is_zero;
 use crate::ApiService;
@@ -512,8 +513,11 @@ pub struct TimeSeries {
     pub created_time: Option<DateTime<Utc>>,
     #[serde(rename = "lastUpdatedTime")]
     pub last_updated_time: Option<DateTime<Utc>>,
-    #[serde(rename = "relationsFrom")]
-    pub relations_from: Vec<RelationForm>,
+    /// The nodes this timeseries is connected to, with relationship type and (on read)
+    /// direction. On create, each entry's `id`/`external_id` + `relationship_type` is
+    /// turned into an edge server-side.
+    #[serde(rename = "relatedResources", default)]
+    pub related_resources: Vec<RelatedNode>,
 }
 
 impl TimeSeries {
@@ -531,7 +535,7 @@ impl TimeSeries {
             value_type: "float".to_string(),
             created_time: None,
             last_updated_time: None,
-            relations_from: vec![],
+            related_resources: vec![],
         }
     }
     pub fn from_dict(dict: HashMap<String, String>) -> Self {
@@ -552,7 +556,7 @@ impl TimeSeries {
             value_type: dict.get("valueType").unwrap().to_string(),
             created_time: None,
             last_updated_time: None,
-            relations_from: vec![],
+            related_resources: vec![],
         }
     }
 
@@ -615,8 +619,8 @@ impl TimeSeries {
         self
     }
 
-    pub fn set_relations_from(&mut self, relations_from: Vec<RelationForm>) -> &mut TimeSeries {
-        self.relations_from = relations_from;
+    pub fn set_related_resources(&mut self, related_resources: Vec<RelatedNode>) -> &mut TimeSeries {
+        self.related_resources = related_resources;
         self
     }
 }
@@ -635,8 +639,6 @@ pub struct TimeSeriesUpdateFields {
     pub security_categories: ListField<u64>,
     #[serde(rename = "dataSetId")]
     pub data_set_id: Field<u64>,
-    #[serde(rename = "relationsFrom")]
-    pub relations_from: ListField<u64>,
     #[serde(rename = "valueType")]
     pub value_type: Field<String>,
 }
@@ -652,7 +654,6 @@ impl TimeSeriesUpdateFields {
             unit_external_id: Field::default(),
             security_categories: ListField::default(),
             data_set_id: Field::default(),
-            relations_from: ListField::default(),
             value_type: Field::default(),
         }
     }

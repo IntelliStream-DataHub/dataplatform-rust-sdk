@@ -1,4 +1,4 @@
-use super::{EdgeProxy, RelForm};
+use super::{EdgeProxy, RelForm, RelatedNode, RelationDirection};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -73,6 +73,73 @@ fn rel_form_by_ids_omits_external_id_fields() {
     assert_eq!(v.get("toId").and_then(Value::as_str), Some("43"));
     assert!(v.get("fromExternalId").is_none());
     assert!(v.get("toExternalId").is_none());
+}
+
+#[test]
+fn related_node_output_shape_serializes_ids_as_strings() {
+    let rn = RelatedNode {
+        id: Some(34),
+        external_id: Some("sensor_abc".to_string()),
+        relationship_type: Some("PUBLISHES_DATA_TO".to_string()),
+        direction: Some(RelationDirection::Outbound),
+        edge_id: Some(98231),
+    };
+    let v: Value = serde_json::to_value(&rn).unwrap();
+    // Ids serialize as JSON strings on the wire (the field stays u64 in Rust).
+    assert_eq!(v.get("id").and_then(Value::as_str), Some("34"));
+    assert_eq!(v.get("edgeId").and_then(Value::as_str), Some("98231"));
+    assert_eq!(v.get("externalId").and_then(Value::as_str), Some("sensor_abc"));
+    assert_eq!(
+        v.get("relationshipType").and_then(Value::as_str),
+        Some("PUBLISHES_DATA_TO")
+    );
+    assert_eq!(v.get("direction").and_then(Value::as_str), Some("OUTBOUND"));
+}
+
+#[test]
+fn related_node_input_helpers_omit_output_only_fields() {
+    let by_id = RelatedNode::from_id(42, "flows_to");
+    let v: Value = serde_json::to_value(&by_id).unwrap();
+    assert_eq!(v.get("id").and_then(Value::as_str), Some("42"));
+    assert_eq!(v.get("relationshipType").and_then(Value::as_str), Some("flows_to"));
+    // direction / edgeId / externalId are output-only or absent -> skipped.
+    assert!(v.get("direction").is_none());
+    assert!(v.get("edgeId").is_none());
+    assert!(v.get("externalId").is_none());
+
+    let by_ext = RelatedNode::from_external_id("pump_a", "flows_to");
+    let v: Value = serde_json::to_value(&by_ext).unwrap();
+    assert_eq!(v.get("externalId").and_then(Value::as_str), Some("pump_a"));
+    assert!(v.get("id").is_none());
+    assert!(v.get("direction").is_none());
+    assert!(v.get("edgeId").is_none());
+}
+
+#[test]
+fn related_node_round_trip_from_server_payload() {
+    let payload = json!({
+        "id": "34",
+        "externalId": "sensor_abc",
+        "relationshipType": "PROCESSED_BY",
+        "direction": "INBOUND",
+        "edgeId": "98231"
+    });
+    let parsed: RelatedNode = serde_json::from_value(payload).unwrap();
+    assert_eq!(parsed.id, Some(34));
+    assert_eq!(parsed.external_id.as_deref(), Some("sensor_abc"));
+    assert_eq!(parsed.relationship_type.as_deref(), Some("PROCESSED_BY"));
+    assert_eq!(parsed.direction, Some(RelationDirection::Inbound));
+    assert_eq!(parsed.edge_id, Some(98231));
+}
+
+#[test]
+fn related_node_tolerates_empty_payload() {
+    let parsed: RelatedNode = serde_json::from_str("{}").unwrap();
+    assert!(parsed.id.is_none());
+    assert!(parsed.external_id.is_none());
+    assert!(parsed.relationship_type.is_none());
+    assert!(parsed.direction.is_none());
+    assert!(parsed.edge_id.is_none());
 }
 
 #[test]

@@ -5,7 +5,7 @@ use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::fields::{Field, ListField, MapField};
 use crate::filters::{AdvancedEventFilter, BasicEventFilter, TimeFilter};
 use crate::generic::{
-    ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, RelationForm, SearchAndFilterForm,
+    ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, SearchAndFilterForm,
     SearchForm,
 };
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};

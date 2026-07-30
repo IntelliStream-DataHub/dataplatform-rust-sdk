@@ -1,9 +1,9 @@
-use crate::relations::PyEdgeProxy;
+use crate::relations::{PyEdgeProxy, PyRelatedNode};
 use chrono::{DateTime, Utc};
 use dataplatform_rust_sdk::Resource;
 use dataplatform_rust_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
 use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::relations::EdgeProxy;
+use dataplatform_rust_sdk::relations::RelatedNode;
 use pyo3::exceptions::PyValueError;
 use pyo3::{FromPyObject, PyResult, pyclass, pymethods};
 use std::collections::HashMap;
@@ -70,7 +70,7 @@ impl PyResource {
     data_set_id=None,
     source=None,
     labels=None,
-    relations=None,
+    related_resources=None,
     geolocation=None))]
     pub fn new(
         // todo implement a smooth way to convert "datahub entities" to id-collections
@@ -83,7 +83,7 @@ impl PyResource {
         data_set_id: Option<u64>,
         source: Option<String>,
         labels: Option<Vec<String>>,
-        relations: Option<Vec<PyEdgeProxy>>,
+        related_resources: Option<Vec<PyRelatedNode>>,
         geolocation: Option<HashMap<String, f64>>, // todo implement GEOJSON, not prio atm
     ) -> PyResult<Self> {
         let (final_name, final_ext_id) = match (name, external_id) {
@@ -110,12 +110,12 @@ impl PyResource {
                 data_set_id,
                 source,
                 labels,
-                relations: relations
-                    .map(|v| v.into_iter().map(EdgeProxy::from).collect()),
+                related_resources: related_resources
+                    .map(|v| v.into_iter().map(RelatedNode::from).collect())
+                    .unwrap_or_default(),
                 geolocation,
                 created_time: None,
                 last_updated_time: None,
-                relations_form: None,
             },
         })
     }
@@ -192,15 +192,19 @@ impl PyResource {
         self.inner.labels = value;
     }
     #[getter]
-    pub fn relations(&self) -> Option<Vec<PyEdgeProxy>> {
+    pub fn related_resources(&self) -> Vec<PyRelatedNode> {
         self.inner
-            .relations
-            .as_ref()
-            .map(|v| v.iter().cloned().map(PyEdgeProxy::from).collect())
+            .related_resources
+            .iter()
+            .cloned()
+            .map(PyRelatedNode::from)
+            .collect()
     }
     #[setter]
-    pub fn set_relations(&mut self, value: Option<Vec<PyEdgeProxy>>) {
-        self.inner.relations = value.map(|v| v.into_iter().map(EdgeProxy::from).collect());
+    pub fn set_related_resources(&mut self, value: Option<Vec<PyRelatedNode>>) {
+        self.inner.related_resources = value
+            .map(|v| v.into_iter().map(RelatedNode::from).collect())
+            .unwrap_or_default();
     }
     #[getter]
     pub fn geolocation(&self) -> Option<&HashMap<String, f64>> {
