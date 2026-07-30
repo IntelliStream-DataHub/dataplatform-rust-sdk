@@ -4,9 +4,18 @@ use dataplatform_rust_sdk::Resource;
 use dataplatform_rust_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::relations::RelatedNode;
+use geojson::Geometry;
 use pyo3::exceptions::PyValueError;
-use pyo3::{FromPyObject, PyResult, pyclass, pymethods};
+use pyo3::types::PyAny;
+use pyo3::{Bound, FromPyObject, PyResult, Python, pyclass, pymethods};
+use pythonize::{depythonize, pythonize};
 use std::collections::HashMap;
+
+/// Convert a Python object (a GeoJSON geometry `dict`) into a [`Geometry`], surfacing
+/// conversion failures as `ValueError`.
+fn geometry_from_py(obj: Bound<'_, PyAny>) -> PyResult<Geometry> {
+    depythonize(&obj).map_err(|e| PyValueError::new_err(format!("invalid geolocation: {e}")))
+}
 
 pub mod async_service;
 pub mod sync_service;
@@ -84,8 +93,9 @@ impl PyResource {
         source: Option<String>,
         labels: Option<Vec<String>>,
         related_resources: Option<Vec<PyRelatedNode>>,
-        geolocation: Option<HashMap<String, f64>>, // todo implement GEOJSON, not prio atm
+        geolocation: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
+        let geolocation = geolocation.map(geometry_from_py).transpose()?;
         let (final_name, final_ext_id) = match (name, external_id) {
             (Some(name), Some(external_id)) => (name, external_id),
             (None, Some(external_id)) => (external_id.clone(), external_id),
@@ -206,13 +216,21 @@ impl PyResource {
             .map(|v| v.into_iter().map(RelatedNode::from).collect())
             .unwrap_or_default();
     }
+    /// The GeoJSON geometry as a Python `dict` (e.g.
+    /// `{"type": "Point", "coordinates": [10.75, 59.91]}`), or `None`.
     #[getter]
-    pub fn geolocation(&self) -> Option<&HashMap<String, f64>> {
-        self.inner.geolocation.as_ref()
+    pub fn geolocation<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        match &self.inner.geolocation {
+            Some(geom) => Ok(Some(pythonize(py, geom).map_err(|e| {
+                PyValueError::new_err(format!("could not serialize geolocation: {e}"))
+            })?)),
+            None => Ok(None),
+        }
     }
     #[setter]
-    pub fn set_geolocation(&mut self, value: Option<HashMap<String, f64>>) {
-        self.inner.geolocation = value;
+    pub fn set_geolocation(&mut self, value: Option<Bound<'_, PyAny>>) -> PyResult<()> {
+        self.inner.geolocation = value.map(geometry_from_py).transpose()?;
+        Ok(())
     }
     #[getter]
     pub fn created_time(&self) -> Option<DateTime<Utc>> {

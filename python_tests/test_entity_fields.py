@@ -316,7 +316,7 @@ class TestResource:
             source="src",
             labels=["rotating", "critical"],
             metadata={"vendor": "acme"},
-            geolocation={"lat": 1.0, "lon": 2.0},
+            geolocation={"type": "Point", "coordinates": [10.75, 59.91]},
         )
         assert r.name == "Pump"
         assert r.external_id == "asset1"
@@ -327,7 +327,7 @@ class TestResource:
         assert r.source == "src"
         assert r.labels == ["rotating", "critical"]
         assert r.metadata == {"vendor": "acme"}
-        assert r.geolocation == {"lat": 1.0, "lon": 2.0}
+        assert r.geolocation == {"type": "Point", "coordinates": [10.75, 59.91]}
 
     def test_setters_update_every_field(self):
         r = dh.Resource(name="Pump", external_id="asset1")
@@ -340,7 +340,7 @@ class TestResource:
         r.source = "src"
         r.labels = ["rotating"]
         r.metadata = {"vendor": "acme"}
-        r.geolocation = {"lat": 1.0}
+        r.geolocation = {"type": "Point", "coordinates": [1.0, 2.0]}
 
         assert r.name == "Pump2"
         assert r.external_id == "asset2"
@@ -351,7 +351,7 @@ class TestResource:
         assert r.source == "src"
         assert r.labels == ["rotating"]
         assert r.metadata == {"vendor": "acme"}
-        assert r.geolocation == {"lat": 1.0}
+        assert r.geolocation == {"type": "Point", "coordinates": [1.0, 2.0]}
 
     def test_related_resources_setter_accepts_related_nodes(self):
         r = dh.Resource(name="Pump", external_id="asset1")
@@ -374,6 +374,22 @@ class TestResource:
         assert r.id is None
         assert r.source is None
         assert r.labels is None
+
+    def test_geolocation_accepts_geojson_geometry(self):
+        # geolocation is a GeoJSON geometry dict, round-tripping through the binding.
+        r = dh.Resource(name="Pump", external_id="asset1")
+        assert r.geolocation is None
+        r.geolocation = {"type": "Point", "coordinates": [10.75, 59.91]}
+        assert r.geolocation == {"type": "Point", "coordinates": [10.75, 59.91]}
+        # a general (non-Point) geometry survives too
+        poly = {"type": "Polygon", "coordinates": [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]]}
+        r.geolocation = poly
+        assert r.geolocation == poly
+
+    def test_geolocation_rejects_non_geojson(self):
+        # A dict that is not a GeoJSON geometry cannot be coerced and raises ValueError.
+        with pytest.raises(ValueError):
+            dh.Resource(name="Pump", external_id="asset1", geolocation={"lat": 1.0, "lon": 2.0})
 
 
 # --------------------------------------------------------------------------- #

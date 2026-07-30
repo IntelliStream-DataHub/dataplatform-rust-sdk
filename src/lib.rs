@@ -38,6 +38,9 @@ pub mod unit;
 pub mod functions;
 
 pub use resources::*;
+/// GeoJSON geometry type used by [`Resource::geolocation`]; re-exported so callers
+/// don't need a direct dependency on the `geojson` crate.
+pub use geojson::Geometry;
 pub use events::*;
 pub use timeseries::*;
 pub use relations::{EdgeProxy, RelForm, RelatedNode, RelationDirection};
