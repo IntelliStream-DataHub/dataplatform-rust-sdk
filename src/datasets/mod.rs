@@ -102,6 +102,9 @@ pub struct Dataset {
     //3, max = 512)
     pub name: String,
     pub description: Option<String>,
+    /// The name of the data source this dataset originates from. A shared node field
+    /// (backend `node.source`); empty or 2–128 chars. `None` leaves it unset.
+    pub source: Option<String>,
     pub policies: Option<Vec<String>>,
     pub metadata: HashMap<String, String>,
     pub connected_data_sets: Vec<u64>,
@@ -123,6 +126,7 @@ impl Dataset {
             external_id: to_snake_lower_cased_allow_start_with_digits(&name),
             metadata: hashmap! {},
             description: None,
+            source: None,
             name,
             policies: None,
             connected_data_sets: vec![],
@@ -173,6 +177,13 @@ impl Dataset {
     }
     pub fn set_description(&mut self, description: String) -> &mut Self {
         self.description = Some(description);
+        self
+    }
+    pub fn source(&self) -> Option<&String> {
+        self.source.as_ref()
+    }
+    pub fn set_source(&mut self, source: String) -> &mut Self {
+        self.source = Some(source);
         self
     }
     pub fn created_time(&self) -> Option<&DateTime<FixedOffset>> {

@@ -52,13 +52,18 @@ def test_create_preserves_metadata_and_description(sync_client):
         external_id=ext,
         name=ext,
         description="with metadata",
+        source="acme_sap",
         metadata={"team": "platform", "tier": "1"},
     )
     try:
         created = sync_client.datasets.create([ds])[0]
         assert created.description == "with metadata"
+        assert created.source == "acme_sap"
         assert created.metadata.get("team") == "platform"
         assert created.metadata.get("tier") == "1"
+        # `source` (shared node field) also survives a fresh read-back.
+        fetched = sync_client.datasets.by_ids([ext])[0]
+        assert fetched.source == "acme_sap"
     finally:
         try:
             sync_client.datasets.delete([ext])

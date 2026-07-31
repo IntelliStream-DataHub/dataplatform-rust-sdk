@@ -128,6 +128,10 @@ pub struct Function {
     pub labels: Vec<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
+    /// The name of the data source this function originates from. A shared node field
+    /// (backend `node.source`, inherited from the resource shape); empty or 2–128 chars.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     /// The nodes this function is connected to (e.g. its bound input timeseries via
     /// PROCESSED_BY edges), with relationship type and direction. Populated server-side
     /// by `FunctionService.list()` so a function worker can derive its `(function, ts)`
@@ -158,6 +162,11 @@ impl Function {
 
     pub fn with_name(mut self, name: String) -> Self {
         self.name = Some(name);
+        self
+    }
+
+    pub fn with_source(mut self, source: String) -> Self {
+        self.source = Some(source);
         self
     }
 

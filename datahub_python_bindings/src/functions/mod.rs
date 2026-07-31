@@ -31,16 +31,18 @@ impl From<PyFunction> for Function {
 #[pymethods]
 impl PyFunction {
     #[new]
-    #[pyo3(signature=(external_id, model_name, name=None, config=None))]
+    #[pyo3(signature=(external_id, model_name, name=None, config=None, source=None))]
     fn __init__(
         py: Python<'_>,
         external_id: String,
         model_name: String,
         name: Option<String>,
         config: Option<Bound<'_, PyDict>>,
+        source: Option<String>,
     ) -> PyResult<Self> {
         let mut function = Function::new(external_id, model_name);
         function.name = name;
+        function.source = source;
         if let Some(d) = config {
             function.config = py_to_json(&d.into_any())?;
         }
@@ -85,6 +87,12 @@ impl PyFunction {
     #[getter]
     fn metadata(&self) -> std::collections::HashMap<String, String> {
         self.inner.metadata.clone()
+    }
+
+    /// The name of the data source this function originates from (shared node field).
+    #[getter]
+    fn source(&self) -> Option<&str> {
+        self.inner.source.as_deref()
     }
 
     #[getter]

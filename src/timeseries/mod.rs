@@ -4,8 +4,8 @@ use crate::buffer::DurableSpool;
 use crate::datahub::DataHubConfig;
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{
-    ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection,
-    DeleteFilter, IdAndExtId, RetrieveFilter, SearchAndFilterForm,
+    ApiServiceProvider, CrudService, DataHubEntity, DataWrapper, Datapoint, DatapointString,
+    DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter, SearchAndFilterForm,
     SearchForm,
 };
 use crate::relations::RelatedNode;
@@ -37,6 +37,16 @@ pub struct TimeSeriesService {
     spool: Mutex<Option<DurableSpool>>,
 }
 
+impl CrudService for TimeSeriesService {
+    type Entity = TimeSeries;
+    type IdRef = IdAndExtId;
+    fn crud_base_url(&self) -> &str {
+        &self.base_url
+    }
+    // `create`, `delete`, `by_ids` use the trait defaults. They accept a single
+    // `TimeSeries`/`IdAndExtId`, a `Vec` of them, or a pre-built `DataWrapper`.
+}
+
 impl TimeSeriesService {
     pub fn new(api_service: Weak<ApiService>, base_url: &String) -> Self {
         let base_url = format!("{}/timeseries", base_url);
@@ -60,41 +70,22 @@ impl TimeSeriesService {
             .await
     }
 
-    pub async fn create(
-        &self,
-        json: &DataWrapper<TimeSeries>,
-    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        let path = &format!("{}/create", self.base_url);
-        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json)
-            .await
-    }
-
+    /// Create a single timeseries. Thin wrapper over [`CrudService::create`], which also
+    /// accepts a `&TimeSeries` directly; kept for readability at call sites.
     pub async fn create_one(
         &self,
         ts: &TimeSeries,
     ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        let mut dw = DataWrapper::new();
-        dw.add_item(ts.clone());
-        self.create(&dw).await
+        self.create(ts).await
     }
 
+    /// Create many timeseries. Thin wrapper over [`CrudService::create`], which also
+    /// accepts a `&Vec<TimeSeries>` directly; kept for readability at call sites.
     pub async fn create_from_list(
         &self,
         ts_list: &Vec<TimeSeries>,
     ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        let mut dw = DataWrapper::new();
-        ts_list.iter().for_each(|ts| {
-            dw.add_item(ts.clone());
-        });
-        self.create(&dw).await
-    }
-
-    pub async fn delete(
-        &self,
-        json: &DataWrapper<IdAndExtId>,
-    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        let path = &format!("{}/delete", self.base_url);
-        self.execute_post_request(path, json).await
+        self.create(ts_list).await
     }
 
     pub async fn update(
@@ -102,15 +93,6 @@ impl TimeSeriesService {
         json: &TimeSeriesUpdateCollection,
     ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
         let path = &format!("{}/update", self.base_url);
-        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json)
-            .await
-    }
-
-    pub async fn by_ids(
-        &self,
-        json: &DataWrapper<IdAndExtId>,
-    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        let path = &format!("{}/byids", self.base_url);
         self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, json)
             .await
     }
@@ -509,6 +491,9 @@ pub struct TimeSeries {
     pub data_set_id: Option<u64>,
     #[serde(rename = "valueType")]
     pub value_type: String,
+    /// The name of the data source this timeseries originates from. A shared node field
+    /// (backend `node.source`); empty or 2–128 chars. `None` leaves it unset.
+    pub source: Option<String>,
     #[serde(rename = "createdTime")]
     pub created_time: Option<DateTime<Utc>>,
     #[serde(rename = "lastUpdatedTime")]
@@ -518,6 +503,12 @@ pub struct TimeSeries {
     /// turned into an edge server-side.
     #[serde(rename = "relatedResources", default)]
     pub related_resources: Vec<RelatedNode>,
+}
+
+impl DataHubEntity for TimeSeries {
+    fn ext_id(&self) -> &String {
+        &self.external_id
+    }
 }
 
 impl TimeSeries {
@@ -533,6 +524,7 @@ impl TimeSeries {
             security_categories: None,
             data_set_id: None,
             value_type: "float".to_string(),
+            source: None,
             created_time: None,
             last_updated_time: None,
             related_resources: vec![],
@@ -554,6 +546,7 @@ impl TimeSeries {
                 .map(|v| serde_json::from_str(v).unwrap()),
             data_set_id: dict.get("dataSetId").map(|v| v.parse::<u64>().unwrap()),
             value_type: dict.get("valueType").unwrap().to_string(),
+            source: dict.get("source").map(|v| v.to_string()),
             created_time: None,
             last_updated_time: None,
             related_resources: vec![],
@@ -606,6 +599,11 @@ impl TimeSeries {
 
     pub fn set_value_type(&mut self, value_type: &str) -> &mut TimeSeries {
         self.value_type = value_type.to_string();
+        self
+    }
+
+    pub fn set_source(&mut self, source: &str) -> &mut TimeSeries {
+        self.source = Some(source.to_string());
         self
     }
 

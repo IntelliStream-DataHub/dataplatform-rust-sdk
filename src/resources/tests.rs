@@ -1,7 +1,7 @@
 use super::*;
 use crate::create_api_service;
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
-use crate::generic::{IdAndExtId, SearchForm};
+use crate::generic::{CrudService, IdAndExtId, SearchForm};
 use crate::relations::RelForm;
 use crate::tests::cleanup::cleanup_resources;
 use maplit::hashmap;
@@ -353,7 +353,7 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     assert_eq!(t.name, "Neo Fields TS");
     assert_eq!(t.description.as_deref(), Some("ts description"));
     assert!(!t.is_root, "a timeseries is never a root node");
-    assert_eq!(t.source, None, "source is a resource-only field; null for timeseries");
+    assert_eq!(t.source, None, "no source was set on this timeseries, so it reads back null");
     assert_eq!(t.data_set_id, Some(ds_id));
     assert!(t.labels.as_deref().unwrap_or_default().contains(&"TIMESERIES".to_string()));
     assert!(t.created_time.is_some());

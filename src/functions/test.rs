@@ -2,7 +2,7 @@
 mod tests {
     use crate::create_api_service;
     use crate::functions::Function;
-    use crate::generic::IdAndExtId;
+    use crate::generic::{CrudService, IdAndExtId};
     use crate::tests::cleanup::cleanup_functions;
     use serde_json::json;
     use uuid::Uuid;
@@ -19,6 +19,7 @@ mod tests {
 
         let fn_in = Function::new(ext_id.clone(), "forecast-ema".to_string())
             .with_name("SDK roundtrip ema".to_string())
+            .with_source("rust_sdk_source".to_string())
             .with_config(json!({"alpha": 0.5}));
 
         let created = api.functions.create(&vec![fn_in]).await.unwrap();
@@ -32,6 +33,8 @@ mod tests {
 
         let by_ext = api.functions.by_external_id(&ext_id).await.unwrap();
         assert_eq!(by_ext.external_id, ext_id);
+        // `source` (a shared node field) round-trips for functions too.
+        assert_eq!(by_ext.source.as_deref(), Some("rust_sdk_source"));
 
         let by_ids = api
             .functions

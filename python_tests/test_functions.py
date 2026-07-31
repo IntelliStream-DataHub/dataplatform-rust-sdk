@@ -9,6 +9,16 @@ import pytest
 from fixtures import sync_client, unique_id
 
 
+def test_function_source_constructor_and_getter():
+    # `source` (shared node field) is settable in the constructor and readable back.
+    fn = datahub_sdk.Function(external_id="fn1", model_name="forecast-ema")
+    assert fn.source is None
+    fn = datahub_sdk.Function(
+        external_id="fn1", model_name="forecast-ema", source="acme_historian"
+    )
+    assert fn.source == "acme_historian"
+
+
 def test_create_list_by_external_id_delete(sync_client):
     ext_id = unique_id("fn")
     fn = datahub_sdk.Function(
@@ -16,6 +26,7 @@ def test_create_list_by_external_id_delete(sync_client):
         model_name="forecast-ema",
         name="Function SDK roundtrip ema",
         config={"alpha": 0.5},
+        source="acme_historian",
     )
 
     try:
@@ -33,6 +44,8 @@ def test_create_list_by_external_id_delete(sync_client):
 
         by_ext = sync_client.functions.by_external_id(ext_id)
         assert by_ext.external_id == ext_id
+        # `source` round-trips for functions too.
+        assert by_ext.source == "acme_historian"
 
         by_ids = sync_client.functions.by_ids([ext_id])
         assert any(f.external_id == ext_id for f in by_ids)

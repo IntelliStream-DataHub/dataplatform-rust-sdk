@@ -38,6 +38,7 @@ class TestTimeSeries:
         assert ts.metadata is None
         assert ts.security_categories is None
         assert ts.data_set_id is None
+        assert ts.source is None
 
     def test_full_constructor_round_trips_through_getters(self):
         ts = dh.TimeSeries(
@@ -50,6 +51,7 @@ class TestTimeSeries:
             metadata={"k": "v"},
             security_categories=[1, 2],
             data_set_id=99,
+            source="acme_historian",
         )
         assert ts.external_id == "ext1"
         assert ts.name == "My TS"
@@ -60,6 +62,7 @@ class TestTimeSeries:
         assert ts.metadata == {"k": "v"}
         assert ts.security_categories == [1, 2]
         assert ts.data_set_id == 99
+        assert ts.source == "acme_historian"
 
     @pytest.mark.parametrize(
         "given, expected",
@@ -90,6 +93,7 @@ class TestTimeSeries:
         ts.metadata = {"k": "v"}
         ts.security_categories = [1, 2, 3]
         ts.data_set_id = 42
+        ts.source = "acme_historian"
 
         assert ts.external_id == "ext2"
         assert ts.name == "renamed"
@@ -99,6 +103,7 @@ class TestTimeSeries:
         assert ts.metadata == {"k": "v"}
         assert ts.security_categories == [1, 2, 3]
         assert ts.data_set_id == 42
+        assert ts.source == "acme_historian"
 
     @pytest.mark.parametrize(
         "given, expected",
@@ -117,10 +122,12 @@ class TestTimeSeries:
         ts.description = None
         ts.unit_external_id = None
         ts.security_categories = None
+        ts.source = None
         assert ts.unit is None
         assert ts.metadata is None
         assert ts.data_set_id is None
         assert ts.security_categories is None
+        assert ts.source is None
 
     def test_invalid_value_type_raises(self):
         ts = dh.TimeSeries(external_id="e", name="n")
@@ -233,6 +240,7 @@ class TestDataset:
         assert ds.id is None
         assert ds.description is None
         assert ds.policies is None
+        assert ds.source is None
         # metadata and connected_data_sets are always concrete containers
         assert ds.metadata == {}
         assert ds.connected_data_sets == []
@@ -243,6 +251,7 @@ class TestDataset:
             name="Nice Dataset",
             id=3,
             description="a description",
+            source="acme_sap",
             policies=["policy-a", "policy-b"],
             metadata={"env": "test"},
             connected_data_sets=[1, 2],
@@ -251,6 +260,7 @@ class TestDataset:
         assert ds.name == "Nice Dataset"
         assert ds.id == 3
         assert ds.description == "a description"
+        assert ds.source == "acme_sap"
         assert ds.policies == ["policy-a", "policy-b"]
         assert ds.metadata == {"env": "test"}
         assert ds.connected_data_sets == [1, 2]
@@ -265,6 +275,7 @@ class TestDataset:
         ds.name = "Renamed"
         ds.id = 5
         ds.description = "a description"
+        ds.source = "acme_sap"
         ds.policies = ["p1", "p2"]
         ds.metadata = {"env": "test"}
         ds.connected_data_sets = [10, 20]
@@ -273,17 +284,20 @@ class TestDataset:
         assert ds.name == "Renamed"
         assert ds.id == 5
         assert ds.description == "a description"
+        assert ds.source == "acme_sap"
         assert ds.policies == ["p1", "p2"]
         assert ds.metadata == {"env": "test"}
         assert ds.connected_data_sets == [10, 20]
 
     def test_optional_setters_accept_none(self):
-        ds = dh.Dataset("ds_ext", id=1, description="d", policies=["p"])
+        ds = dh.Dataset("ds_ext", id=1, description="d", source="s", policies=["p"])
         ds.id = None
         ds.description = None
+        ds.source = None
         ds.policies = None
         assert ds.id is None
         assert ds.description is None
+        assert ds.source is None
         assert ds.policies is None
 
 

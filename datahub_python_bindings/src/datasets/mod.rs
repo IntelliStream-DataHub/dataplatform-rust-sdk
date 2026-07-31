@@ -45,6 +45,7 @@ impl PyDataset {
         //@NotNull
         //3, max = 512)
         description = None,
+        source = None,
         policies= None,
         metadata= None,
         connected_data_sets=None
@@ -54,6 +55,7 @@ impl PyDataset {
         name: Option<String>,
         id: Option<u64>,
         description: Option<String>,
+        source: Option<String>,
         policies: Option<Vec<String>>,
         metadata: Option<HashMap<String, String>>,
         connected_data_sets: Option<Vec<u64>>,
@@ -65,6 +67,7 @@ impl PyDataset {
                 id,
                 external_id,
                 description,
+                source,
                 policies,
                 metadata: metadata.unwrap_or_default(),
                 connected_data_sets: connected_data_sets.unwrap_or_default(),
@@ -104,6 +107,14 @@ impl PyDataset {
     #[setter]
     pub fn set_description(&mut self, value: Option<String>) {
         self.inner.description = value;
+    }
+    #[getter]
+    pub fn source(&self) -> Option<&str> {
+        self.inner.source.as_deref()
+    }
+    #[setter]
+    pub fn set_source(&mut self, value: Option<String>) {
+        self.inner.source = value;
     }
     #[getter]
     pub fn policies(&self) -> Option<&Vec<String>> {

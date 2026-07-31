@@ -84,6 +84,25 @@ def test_create_delete_roundtrip(sync_client, kwargs):
             pass
 
 
+def test_source_round_trips(sync_client):
+    # `source` (shared node field) is sent on create and read back via by_ids.
+    ext_id = _uid("src")
+    ts = datahub_sdk.TimeSeries(
+        external_id=ext_id, value_type="float", unit="a.u", source="acme_historian"
+    )
+    sync_client.timeseries.delete([ts])
+    try:
+        sync_client.timeseries.create([ts])
+        fetched = sync_client.timeseries.by_ids([ext_id])
+        item = next(t for t in fetched if t.external_id == ext_id)
+        assert item.source == "acme_historian"
+    finally:
+        try:
+            sync_client.timeseries.delete([ext_id])
+        except Exception:
+            pass
+
+
 def test_create_batch_multiple(sync_client):
     ext_ids = [_uid("batch") for _ in range(3)]
     series = [

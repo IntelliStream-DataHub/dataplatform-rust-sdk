@@ -86,6 +86,14 @@ impl PyTimeSeries {
         self.inner.value_type = value.to_string();
     }
     #[getter]
+    pub fn source(&self) -> Option<&str> {
+        self.inner.source.as_deref()
+    }
+    #[setter]
+    pub fn set_source(&mut self, value: Option<String>) {
+        self.inner.source = value;
+    }
+    #[getter]
     pub fn created_time(&self) -> Option<DateTime<Utc>> {
         self.inner.created_time
     }

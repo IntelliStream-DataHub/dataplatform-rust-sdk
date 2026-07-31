@@ -1,6 +1,6 @@
 use crate::create_api_service;
 use crate::datasets::{BasicDatasetFilter, Dataset, DatasetFilter, DatasetSearch};
-use crate::generic::{IdAndExtId, SearchForm};
+use crate::generic::{CrudService, IdAndExtId, SearchForm};
 use crate::http::ResponseError;
 use crate::tests::cleanup::cleanup_datasets;
 use maplit::hashmap;
@@ -122,5 +122,35 @@ async fn test_dataset_crud() -> Result<(), ResponseError> {
         &expected_search_res,
         false
     ));
+    Ok(())
+}
+
+/// End-to-end: `source` (a shared node field) round-trips through create -> by_ids for a
+/// dataset. `source` used to be absent from the SDK `Dataset`; this pins that it is now
+/// sent on create and read back.
+#[tokio::test]
+async fn test_dataset_source_round_trips() -> Result<(), ResponseError> {
+    let api = create_api_service();
+    let ext = format!("rust_sdk_src_ds_{}", uuid::Uuid::new_v4().simple());
+    let mut ds = Dataset::new("Rust SDK Source DS".to_string());
+    ds.set_external_id(ext.clone());
+    ds.set_source("rust_sdk_source".to_string());
+
+    let ids = vec![IdAndExtId::from_external_id(&ext)];
+    api.datasets.delete(&ids).await?;
+
+    api.datasets.create(&ds).await?;
+    let mut cleanup = cleanup_datasets(vec![ext.clone()]);
+
+    let read = api.datasets.by_ids(&ids).await?;
+    let got = read
+        .get_items()
+        .iter()
+        .find(|d| d.external_id() == &ext)
+        .expect("dataset should be readable via by_ids after create");
+    assert_eq!(got.source().map(String::as_str), Some("rust_sdk_source"));
+
+    api.datasets.delete(&ids).await?;
+    cleanup.disarm();
     Ok(())
 }

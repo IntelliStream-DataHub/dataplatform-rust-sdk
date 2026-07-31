@@ -9,7 +9,7 @@ mod tests {
     use maplit::hashmap;
     use reqwest::StatusCode;
     use crate::{create_api_service, ApiService};
-    use crate::generic::{DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter};
+    use crate::generic::{CrudService, DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter};
     use crate::http::ResponseError;
     use crate::timeseries::{TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
     use crate::tests::cleanup::cleanup_timeseries;
@@ -113,6 +113,34 @@ mod tests {
                 println!("{:?}", e.get_message());
             }
         }
+    }
+
+    /// End-to-end: `source` (a shared node field) round-trips through create -> by_ids for
+    /// a timeseries. `source` used to be absent from the SDK `TimeSeries`; this pins that
+    /// it is now sent on create and read back.
+    #[tokio::test]
+    async fn test_timeseries_source_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+        let api = create_api_service();
+        let ext = format!("rust_sdk_src_ts_{}", uuid::Uuid::new_v4().simple());
+        let ids = DataWrapper::from_vec(vec![IdAndExtId::from_external_id(&ext)]);
+        api.time_series.delete(&ids).await?;
+
+        let mut ts = TimeSeries::new(&ext, "Rust SDK Source TS");
+        ts.set_unit("a.u").set_source("rust_sdk_source");
+        api.time_series.create_one(&ts).await?;
+        let mut cleanup = cleanup_timeseries(vec![ext.clone()]);
+
+        let read = api.time_series.by_ids(&ids).await?;
+        let item = read
+            .get_items()
+            .iter()
+            .find(|t| t.external_id == ext)
+            .expect("timeseries should be readable via by_ids after create");
+        assert_eq!(item.source.as_deref(), Some("rust_sdk_source"));
+
+        api.time_series.delete(&ids).await?;
+        cleanup.disarm();
+        Ok(())
     }
 
     #[tokio::test]
