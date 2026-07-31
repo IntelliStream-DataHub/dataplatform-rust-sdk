@@ -802,6 +802,11 @@ impl ApiServiceProvider for FunctionsService {
         &self.api_service
     }
 }
+impl ApiServiceProvider for crate::labels::LabelsService {
+    fn api_service(&self) -> &Weak<ApiService> {
+        &self.api_service
+    }
+}
 
 // A marker trait
 pub trait DataWrapperDeserialization

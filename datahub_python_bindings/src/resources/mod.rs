@@ -220,34 +220,9 @@ impl PyResource {
     }
 }
 
-/// A graph label inside a [`PyResourceNetwork`].
-#[pyclass(module = "datahub_sdk", name = "Label")]
-#[derive(Clone)]
-pub struct PyLabel {
-    pub inner: dataplatform_rust_sdk::resources::Label,
-}
-
-impl From<dataplatform_rust_sdk::resources::Label> for PyLabel {
-    fn from(inner: dataplatform_rust_sdk::resources::Label) -> Self {
-        Self { inner }
-    }
-}
-
-#[pymethods]
-impl PyLabel {
-    #[getter]
-    fn id(&self) -> Option<u64> {
-        self.inner.id
-    }
-    #[getter]
-    fn name(&self) -> Option<&str> {
-        self.inner.name.as_deref()
-    }
-    #[getter]
-    fn description(&self) -> Option<&str> {
-        self.inner.description.as_deref()
-    }
-}
+// The label shape returned inside a `ResourceNetwork` is the unified `Label` entity from the
+// labels module (`crate::labels::PyLabel`); the graph DTO is widened into it via `From`.
+use crate::labels::PyLabel;
 
 /// Result of a graph traversal (`resources.fetch_related(...)`): the connected
 /// sub-graph of `nodes`, the `edges` between them, and their `labels`.
