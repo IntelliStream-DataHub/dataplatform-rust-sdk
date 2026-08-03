@@ -137,7 +137,7 @@ mod tests {
             assert_eq!(created_item.timeseries.len(), 2);
 
             // 3. List — the unfiltered list may include prior test data, so we assert *at least*
-            //    our subscription is present (per CLAUDE.md: avoid exact-count assertions against
+            //    our subscription is present (per AGENTS.md: avoid exact-count assertions against
             //    shared backend state).
             let all = api_service
                 .subscriptions
