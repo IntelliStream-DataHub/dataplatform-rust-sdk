@@ -35,7 +35,7 @@ impl PyTimeSeriesServiceSync {
                 .get_items()
                 .iter()
                 .cloned()
-                .map(PyTimeSeries::from)
+                .map(|ts| PyTimeSeries::with_client(ts, service.clone()))
                 .collect();
 
             Ok(py_units)
@@ -55,7 +55,7 @@ impl PyTimeSeriesServiceSync {
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyTimeSeries { inner: ts.clone() })
+                .map(|ts| PyTimeSeries::with_client(ts.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })
@@ -82,7 +82,7 @@ impl PyTimeSeriesServiceSync {
             let py_units: Vec<PyTimeSeries> = result
                 .get_items()
                 .iter()
-                .map(|u| PyTimeSeries { inner: u.clone() })
+                .map(|u| PyTimeSeries::with_client(u.clone(), service.clone()))
                 .collect();
             Ok(py_units)
         })
@@ -122,7 +122,7 @@ impl PyTimeSeriesServiceSync {
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyTimeSeries { inner: ts.clone() })
+                .map(|ts| PyTimeSeries::with_client(ts.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })
@@ -142,7 +142,7 @@ impl PyTimeSeriesServiceSync {
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyTimeSeries { inner: ts.clone() })
+                .map(|ts| PyTimeSeries::with_client(ts.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })

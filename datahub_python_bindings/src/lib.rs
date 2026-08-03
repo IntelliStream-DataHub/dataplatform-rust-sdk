@@ -47,6 +47,7 @@ use pyo3::types::PyType;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use units::*;
 
 create_exception!(
@@ -67,6 +68,29 @@ pub(crate) fn datahub_err(e: ResponseError) -> PyErr {
         let _ = value.setattr("message", e.get_message());
         err
     })
+}
+
+/// Shared Tokio runtime backing the blocking navigation twins (`event.related_resources()`,
+/// `resource.related()`, ...). Mirrors the Cognite Python SDK's single managed event loop:
+/// one process-wide runtime, independent of which client produced the object. Must not be
+/// called from inside an async context — `block_on` would panic — use the `*_async` twin there
+/// (same restriction as `src/blocking.rs`).
+pub(crate) fn nav_runtime() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Runtime::new().expect("failed to build navigation runtime")
+    })
+}
+
+/// Error raised when a navigation method is called on an object that carries no client — i.e.
+/// one constructed locally rather than returned by the API. Mirrors Cognite's
+/// `CogniteMissingClientError`.
+pub(crate) fn missing_client_err() -> PyErr {
+    pyo3::exceptions::PyRuntimeError::new_err(
+        "This object has no client attached; navigation methods only work on objects returned \
+         by the API (e.g. from create/by_ids/search/filter/fetch_related), not ones constructed \
+         locally.",
+    )
 }
 
 /// Build a `DataHubConfig` from explicit vars and apply optional durable-buffering settings. Setting any

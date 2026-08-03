@@ -16,6 +16,7 @@ impl PyTimeSeries {
     pub fn from_dict(dict: HashMap<String, String>) -> PyTimeSeries {
         PyTimeSeries {
             inner: TimeSeries::from_dict(dict),
+            client: None,
         }
     }
     /// Constructor for PyTimeSeries
@@ -80,7 +81,10 @@ impl PyTimeSeries {
                 .map(|r| r.into_iter().map(RelatedNode::from).collect())
                 .unwrap_or_default(),
         };
-        Ok(PyTimeSeries { inner })
+        Ok(PyTimeSeries {
+            inner,
+            client: None,
+        })
     }
 }
 

@@ -7,7 +7,9 @@ use crate::timeseries::datapoints::{
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
 use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter, TimeFilter};
 use dataplatform_rust_sdk::events::EventIdCollection;
-use dataplatform_rust_sdk::{Event, TimeSeries};
+use dataplatform_rust_sdk::generic::IdAndExtId;
+use dataplatform_rust_sdk::{ApiService, Event, TimeSeries};
+use std::sync::Arc;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::{Bound, PyErr, PyResult, pyclass, pymethods};
@@ -22,11 +24,17 @@ pub mod sync_service;
 #[derive(Clone)]
 pub struct PyEvent {
     pub inner: Event,
+    /// The client this object was returned by, enabling navigation methods
+    /// (`related_resources`). `None` on locally-constructed events — navigation then raises.
+    pub client: Option<Arc<ApiService>>,
 }
 
 impl From<Event> for PyEvent {
     fn from(ts: Event) -> Self {
-        Self { inner: ts }
+        Self {
+            inner: ts,
+            client: None,
+        }
     }
 }
 impl From<PyEvent> for Event {
@@ -38,6 +46,33 @@ impl From<PyEvent> for Event {
 impl PyEvent {
     pub fn uuid(&self) -> Option<&Uuid> {
         self.inner.id.as_ref()
+    }
+
+    /// Wrap an event returned by the API, stamping the client so navigation methods work.
+    pub fn with_client(inner: Event, client: Arc<ApiService>) -> Self {
+        Self {
+            inner,
+            client: Some(client),
+        }
+    }
+
+    /// The event's related-resource references as id selectors: numeric
+    /// `related_resource_ids` first, then `related_resource_external_ids`.
+    pub(crate) fn related_id_collections(&self) -> Vec<IdAndExtId> {
+        let mut ids = Vec::new();
+        for id in self.inner.get_related_resource_ids() {
+            ids.push(IdAndExtId {
+                id: Some(*id),
+                external_id: None,
+            });
+        }
+        for ext in self.inner.get_related_resource_external_ids() {
+            ids.push(IdAndExtId {
+                id: None,
+                external_id: Some(ext.clone()),
+            });
+        }
+        ids
     }
 }
 
