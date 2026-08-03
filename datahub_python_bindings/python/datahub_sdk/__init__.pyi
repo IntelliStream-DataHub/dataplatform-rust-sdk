@@ -69,10 +69,11 @@ class DataHubClient:
         BUFFER_MAX_BYTES / BUFFER_DIR from the environment instead.
 
         `scope` and `audience` (env: SCOPE / AUDIENCE) are added to the token request only when
-        set. Against DataHub `scope` is REQUIRED: use `organization:*`, or `organization:<alias>`
-        to pin one tenant. Keycloak only emits the `organization` claim DataHub resolves the tenant
-        from when the request asks for that scope with a selector; without it every call fails
-        `401 invalid_token`. Entra ID instead requires `api://<app-id-uri>/.default`, Auth0
+        set. Against a DataHub realm using Keycloak Organizations, `scope` is required: use
+        `organization:*`, or `organization:<alias>` to pin one tenant. That claim comes from a
+        dynamic client scope, so without a selector the token carries no tenant and every call
+        fails `401 invalid_token`. Not needed where the realm produces the `organization` claim
+        with a protocol mapper. Entra ID instead requires `api://<app-id-uri>/.default`, Auth0
         requires an audience.
 
         Setting an assertion source switches the token request to the RFC 7523 `jwt-bearer`
