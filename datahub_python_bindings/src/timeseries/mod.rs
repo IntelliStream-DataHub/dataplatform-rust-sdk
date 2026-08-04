@@ -16,14 +16,18 @@ use dataplatform_rust_sdk::generic::{
     Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId,
     RetrieveFilter,
 };
-use dataplatform_rust_sdk::{TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
+use crate::resources::{PyResource, PyResourceNetwork};
+use dataplatform_rust_sdk::resources::RelatedResourcesForm;
+use dataplatform_rust_sdk::{ApiService, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pyclass;
 use pyo3::types::{PyDict, PyList, PyTuple};
+use pyo3_async_runtimes::tokio::future_into_py;
 use serde::de::Unexpected::Map;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
 use strum::{Display, EnumString};
 
 pub mod async_service;
@@ -82,16 +86,50 @@ pub mod sync_service;
 #[derive(Clone)]
 pub struct PyTimeSeries {
     pub inner: TimeSeries,
+    /// The client this object was returned by, enabling navigation methods
+    /// (`related`). `None` on locally-constructed timeseries — navigation then raises.
+    pub client: Option<Arc<ApiService>>,
 }
 
 impl From<TimeSeries> for PyTimeSeries {
     fn from(ts: TimeSeries) -> Self {
-        Self { inner: ts }
+        Self {
+            inner: ts,
+            client: None,
+        }
     }
 }
 impl From<PyTimeSeries> for TimeSeries {
     fn from(ts: PyTimeSeries) -> Self {
         ts.inner
+    }
+}
+
+impl PyTimeSeries {
+    /// Wrap a timeseries returned by the API, stamping the client so navigation methods work.
+    pub fn with_client(inner: TimeSeries, client: Arc<ApiService>) -> Self {
+        Self {
+            inner,
+            client: Some(client),
+        }
+    }
+
+    /// Build the graph-traversal form for this timeseries, keyed by its external id (the graph
+    /// is unified — timeseries are nodes too).
+    fn related_form(
+        &self,
+        depth: i32,
+        relationship_types: Option<Vec<String>>,
+        limit: i32,
+    ) -> RelatedResourcesForm {
+        RelatedResourcesForm {
+            id: self.inner.id,
+            external_id: Some(self.inner.external_id.clone()),
+            depth,
+            relationship_types,
+            limit,
+            excluded_labels: vec![],
+        }
     }
 }
 impl From<PyTimeSeries> for PyIdCollection {
@@ -102,6 +140,55 @@ impl From<PyTimeSeries> for PyIdCollection {
                 external_id: Some(value.inner.external_id.clone()),
             },
         }
+    }
+}
+
+/// Object-level graph navigation. Available only on timeseries returned by the API (which carry
+/// a client); calling these on a locally-constructed `TimeSeries` raises a clear error.
+#[pymethods]
+impl PyTimeSeries {
+    /// Walk the graph from this timeseries and return the connected sub-graph (its `nodes`, the
+    /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
+    /// (`-1`, the default, = the whole connected component); `relationship_types` filters which
+    /// edge types to follow (`None` = all); `limit` caps the node count. Neighbour nodes are
+    /// modelled as `Resource`. Blocking; see [`related_async`] for the awaitable variant.
+    #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
+    fn related(
+        &self,
+        py: Python<'_>,
+        depth: i32,
+        relationship_types: Option<Vec<String>>,
+        limit: i32,
+    ) -> PyResult<PyResourceNetwork> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let form = self.related_form(depth, relationship_types, limit);
+        py.detach(|| {
+            let result = crate::nav_runtime()
+                .block_on(service.resources.fetch_related(&form))
+                .map_err(crate::datahub_err)?;
+            Ok(PyResourceNetwork::from_network(result, service.clone()))
+        })
+    }
+
+    /// Awaitable variant of [`related`].
+    #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
+    fn related_async<'py>(
+        &self,
+        py: Python<'py>,
+        depth: i32,
+        relationship_types: Option<Vec<String>>,
+        limit: i32,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let form = self.related_form(depth, relationship_types, limit);
+        future_into_py(py, async move {
+            let result = service
+                .resources
+                .fetch_related(&form)
+                .await
+                .map_err(crate::datahub_err)?;
+            Ok(PyResourceNetwork::from_network(result, service.clone()))
+        })
     }
 }
 #[derive(FromPyObject)]

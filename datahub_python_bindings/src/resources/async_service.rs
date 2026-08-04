@@ -133,7 +133,7 @@ impl PyResourcesServiceAsync {
                 .update(&updates)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            Ok(PyGraphResult::from_wrapper(result))
+            Ok(PyGraphResult::from_wrapper(result, service.clone()))
         })
     }
 

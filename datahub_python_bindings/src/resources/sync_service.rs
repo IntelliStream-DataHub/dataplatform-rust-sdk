@@ -115,7 +115,7 @@ impl PyResourcesServiceSync {
         let service = self.api_service.clone();
         let result = py.detach(|| self.runtime.block_on(service.resources.update(&updates)));
         let result = result.map_err(|e| crate::datahub_err(e))?;
-        Ok(PyGraphResult::from_wrapper(result))
+        Ok(PyGraphResult::from_wrapper(result, service.clone()))
     }
 
     /// Walk the graph from a starting resource and return the connected sub-graph.

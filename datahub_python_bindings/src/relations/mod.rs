@@ -1,10 +1,11 @@
 use crate::resources::PyResource;
 use dataplatform_rust_sdk::graph_data_wrapper::GraphDataWrapper;
 use dataplatform_rust_sdk::relations::{EdgeProxy, RelForm, RelatedNode, RelationDirection};
-use dataplatform_rust_sdk::Resource;
+use dataplatform_rust_sdk::{ApiService, Resource};
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, pyclass, pymethods};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Server-assigned edge between two resources. Constructible from Python primarily
 /// for tests and round-trip serde — in normal use these are returned by the server
@@ -351,12 +352,14 @@ pub struct PyGraphResult {
 }
 
 impl PyGraphResult {
-    pub fn from_wrapper(wrapper: GraphDataWrapper<Resource>) -> Self {
+    /// Build the Python view of a create/graph response, stamping `client` onto every node so
+    /// callers can chain navigation off the returned resources.
+    pub fn from_wrapper(wrapper: GraphDataWrapper<Resource>, client: Arc<ApiService>) -> Self {
         let nodes = wrapper
             .nodes()
             .unwrap_or_default()
             .into_iter()
-            .map(|r| PyResource { inner: r })
+            .map(|r| PyResource::with_client(r, client.clone()))
             .collect();
         let relations = wrapper
             .relations()
