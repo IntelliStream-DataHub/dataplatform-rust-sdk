@@ -39,7 +39,18 @@ pub struct OAuthConfig {
     pub(crate) token_uri: Option<String>,
 
     /// OAuth2 `scope` for the client-credentials request; space-separated for several. Omitted
-    /// when unset — Keycloak needs no scope, Entra ID requires `api://<app-id-uri>/.default`.
+    /// when unset.
+    ///
+    /// **Against DataHub, whether this is required depends on the realm.** DataHub resolves the
+    /// caller's tenant from the `organization` claim, and there are two ways a realm produces it.
+    /// With Keycloak's Organizations feature the claim comes from a dynamic client scope, so the
+    /// request must name it: `organization:*`, or `organization:<alias>` to pin one tenant.
+    /// Without it the token carries no tenant and every call fails `401 invalid_token`, which
+    /// looks like bad credentials but is not. Where the claim instead comes from a protocol mapper
+    /// on the client it is emitted unconditionally and no scope is needed.
+    ///
+    /// Other providers want it for their own reasons: Entra ID requires
+    /// `api://<app-id-uri>/.default`.
     #[serde(alias = "SCOPE")]
     pub(crate) scope: Option<String>,
 
@@ -255,6 +266,10 @@ impl DataHubConfig {
 
     /// Set the OAuth2 `scope` sent with the client-credentials request (space-separated for
     /// several). Unset by default, in which case the parameter is omitted.
+    ///
+    /// Against a DataHub realm using Keycloak Organizations this must include `organization:*`
+    /// (or `organization:<alias>`), or the minted token carries no tenant and every call is
+    /// rejected. Not needed where the claim comes from a protocol mapper instead.
     pub fn set_scope<S: Into<String>>(&mut self, scope: S) -> &mut Self {
         Arc::make_mut(&mut self.config).scope = Some(scope.into());
         self

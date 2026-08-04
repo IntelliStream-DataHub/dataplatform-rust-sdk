@@ -45,8 +45,13 @@ environment:
 - Either `TOKEN` (bearer token used as-is, never considered expired), **or** the OAuth2
   client-credentials set: `CLIENT_ID`, `CLIENT_SECRET`, `TOKEN_URI`
 - `PROJECT_NAME` — optional
-- `SCOPE`, `AUDIENCE` — optional, sent with the token request only when set. Keycloak needs
-  neither; Entra ID requires `SCOPE=api://<app-id-uri>/.default`, Auth0 requires `AUDIENCE`.
+- `SCOPE` — against DataHub, needed when the realm uses Keycloak Organizations: that claim comes
+  from a dynamic client scope, so the request must name it (`organization:*`, or
+  `organization:<alias>` to pin one tenant). Without it the token carries no tenant and every call
+  fails `401 invalid_token`, which looks like bad credentials but is not. Not needed where the
+  realm produces the `organization` claim with a protocol mapper. Entra ID instead requires
+  `SCOPE=api://<app-id-uri>/.default`.
+- `AUDIENCE` — optional, sent only when set. Required by Auth0, unused by Keycloak.
 
 Setting an assertion source switches the request at `TOKEN_URI` to the RFC 7523 `jwt-bearer`
 grant, exchanging a JWT from one issuer for a token from another — how an Entra ID service
