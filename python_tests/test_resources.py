@@ -122,6 +122,38 @@ def test_search_resources(sync_client):
         sync_client.resources.delete([ext_id])
 
 
+def test_geolocation_round_trips_through_backend(sync_client):
+    # Mirrors `src/resources/tests.rs::test_resource_geolocation_round_trips`: create a
+    # resource carrying a GeoJSON Point, read it back via by_ids, and assert the geometry
+    # survives. Uses exactly-representable coordinates to avoid float-formatting drift.
+    ext_id = unique_id("geo")
+    geom = {"type": "Point", "coordinates": [10.5, 59.25]}
+    resource = Resource(
+        external_id=ext_id, name="Py SDK Geo Asset", labels=["ASSET"], geolocation=geom
+    )
+
+    sync_client.resources.delete([ext_id])
+    sync_client.resources.create([resource])
+    try:
+        # by_ids reads Postgres (written synchronously on create); retry briefly for safety.
+        fetched = None
+        for _ in range(10):
+            nodes = sync_client.resources.by_ids([ext_id])
+            fetched = next((r for r in nodes if r.external_id == ext_id), None)
+            if fetched is not None:
+                break
+            time.sleep(0.5)
+        assert fetched is not None, "resource should be readable via by_ids after create"
+
+        assert fetched.geolocation is not None, "geolocation should round-trip from the backend"
+        assert fetched.geolocation["type"] == "Point"
+        lon, lat = fetched.geolocation["coordinates"]
+        assert abs(lon - 10.5) < 1e-9
+        assert abs(lat - 59.25) < 1e-9
+    finally:
+        sync_client.resources.delete([ext_id])
+
+
 def test_api_error_surfaces_status_code(sync_client):
     # A resource without labels is rejected by the backend with HTTP 400. The
     # error must reach Python as a DataHubException exposing that status code.

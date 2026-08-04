@@ -435,3 +435,98 @@ fn fetch_related_deserializes_shared_subsystem() {
         .iter()
         .all(|e| e.relationship_type.as_deref() == Some("PART_OF")));
 }
+
+/// Pure serde test (no backend): the `geolocation` field is emitted on the wire under the
+/// key `geoLocation` as a nested GeoJSON geometry object (not a quoted string), is omitted
+/// entirely when `None`, and survives a round-trip verbatim. Covers both a `Point` and a
+/// general `Polygon` geometry.
+#[test]
+fn geolocation_serializes_as_geojson_object() {
+    let mut r = Resource::new();
+    r.external_id = "geo_ser".to_string();
+    r.name = "Geo Ser".to_string();
+    r.labels = Some(vec!["ASSET".to_string()]);
+    r.geolocation = Some(geojson::Geometry::new_point([10.75, 59.91]));
+
+    let v = serde_json::to_value(&r).unwrap();
+    // Correct wire key (camelCase `geoLocation`, not the Rust field name) and nested object.
+    assert_eq!(
+        v.get("geoLocation").expect("wire key `geoLocation` should be present"),
+        &serde_json::json!({"type": "Point", "coordinates": [10.75, 59.91]})
+    );
+
+    // Round-trips back to the same geometry.
+    let back: Resource = serde_json::from_value(v).unwrap();
+    assert_eq!(back.geolocation, r.geolocation);
+
+    // A general (non-Point) geometry is carried faithfully too.
+    let mut poly = Resource::new();
+    poly.external_id = "geo_poly".to_string();
+    poly.name = "Geo Poly".to_string();
+    poly.geolocation = Some(geojson::Geometry::new_polygon(vec![vec![
+        [0.0, 0.0],
+        [1.0, 0.0],
+        [1.0, 1.0],
+        [0.0, 1.0],
+        [0.0, 0.0],
+    ]]));
+    let pv = serde_json::to_value(&poly).unwrap();
+    assert_eq!(pv["geoLocation"]["type"], "Polygon");
+
+    // Absent geolocation omits the key entirely (matches the backend's NON_NULL behaviour).
+    let mut none = Resource::new();
+    none.external_id = "geo_none".to_string();
+    none.name = "Geo None".to_string();
+    let nv = serde_json::to_value(&none).unwrap();
+    assert!(nv.get("geoLocation").is_none(), "None must omit the `geoLocation` key");
+}
+
+/// End-to-end: create a resource carrying a GeoJSON Point, read it back through `by_ids`
+/// (which loads from Postgres, where the geometry is stored verbatim and written
+/// synchronously on create), and assert the geometry survives the round-trip. Uses
+/// exactly-representable coordinates so the equality is not subject to float formatting.
+#[tokio::test]
+async fn test_resource_geolocation_round_trips() -> Result<(), ResponseError> {
+    let api = create_api_service();
+    let uid = Uuid::new_v4().simple().to_string();
+    let ext = format!("rust_sdk_geo_{}", uid);
+
+    let mut asset = Resource::new();
+    asset.external_id = ext.clone();
+    asset.name = "Rust SDK Geo Asset".to_string();
+    asset.labels = Some(vec!["ASSET".to_string()]);
+    asset.geolocation = Some(geojson::Geometry::new_point([10.5, 59.25]));
+
+    let ids = vec![IdAndExtId::from_external_id(&ext)];
+    api.resources.delete(&ids).await?; // clear any leftover from a prior failed run
+
+    api.resources.create(vec![asset], vec![]).await?;
+    let mut cleanup = cleanup_resources(vec![ext.clone()]);
+
+    // by_ids reads Postgres (synchronous on create); retry briefly to absorb any lag.
+    let mut fetched: Option<Resource> = None;
+    for _ in 0..10 {
+        let nodes = api.resources.by_ids(&ids).await?.nodes().unwrap_or_default();
+        if let Some(r) = nodes.into_iter().find(|r| r.external_id == ext) {
+            fetched = Some(r);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    let fetched = fetched.expect("resource should be readable via by_ids after create");
+
+    let geom = fetched
+        .geolocation
+        .expect("geolocation should round-trip back from the backend");
+    match geom.value {
+        geojson::GeometryValue::Point { coordinates } => {
+            assert!((coordinates[0] - 10.5).abs() < 1e-9, "lon round-trips: {}", coordinates[0]);
+            assert!((coordinates[1] - 59.25).abs() < 1e-9, "lat round-trips: {}", coordinates[1]);
+        }
+        other => panic!("expected a Point geometry, got {other:?}"),
+    }
+
+    api.resources.delete(&ids).await?;
+    cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
+    Ok(())
+}

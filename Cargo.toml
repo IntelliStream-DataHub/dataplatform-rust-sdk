@@ -25,6 +25,7 @@ tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 infer = { version = "0.19", default-features = false, features = ["std"] }
 thiserror = "2.0.17"
 zstd = "0.13"
+geojson = "1"
 
 
 #[lib]

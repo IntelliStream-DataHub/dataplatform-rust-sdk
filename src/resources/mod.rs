@@ -136,7 +136,14 @@ pub struct Resource {
     /// create request (relations for create are passed separately as [`RelForm`]s).
     #[serde(default)]
     pub related_resources: Vec<RelatedNode>,
-    pub geolocation: Option<HashMap<String, f64>>, // todo implement GEOJSON, not prio atm
+    /// Geographic location as a GeoJSON geometry (`Point`, `Polygon`, …). Optional;
+    /// omitted from the request body when `None`. Serialized on the wire under the
+    /// key `geoLocation` as a nested GeoJSON object, e.g.
+    /// `{"type":"Point","coordinates":[10.75,59.91]}`. Build one with
+    /// [`geojson::Geometry::new_point`] and friends (re-exported as
+    /// [`crate::Geometry`]).
+    #[serde(rename = "geoLocation", skip_serializing_if = "Option::is_none")]
+    pub geolocation: Option<geojson::Geometry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_time: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
