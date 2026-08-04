@@ -3,8 +3,11 @@ mod tests;
 
 use crate::buffer::DurableSpool;
 use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubConfig};
-use crate::filters::EventFilter;
-use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper};
+use crate::fields::{Field, ListField, MapField};
+use crate::filters::{BasicEventFilter, EventFilter};
+use crate::generic::{
+    ApiServiceProvider, DataHubEntity, DataWrapper, DataWrapperDeserialization, SearchForm,
+};
 use crate::http::ResponseError;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
@@ -178,16 +181,147 @@ impl EventsService {
             .await
     }
 
-    pub fn retrieve(&self) -> Result<(), ResponseError> {
-        unimplemented!()
+    /// Look up a single event by its UUID `id` (`GET /events/{id}`). The result is an empty
+    /// `items` if no event with that id exists (or it belongs to a tenant you can't read).
+    pub async fn get(&self, id: &Uuid) -> Result<DataWrapper<Event>, ResponseError> {
+        let path = &format!("{}/{}", self.base_url, id);
+        self.execute_get_request(path, None::<&str>).await
     }
 
-    pub fn search(&self) -> Result<(), ResponseError> {
-        unimplemented!()
+    /// Update events in place (`POST /events/update`). Each [`EventUpdate`] targets one event by
+    /// UUID `id` or `external_id`; only the fields you set in its `update` block are changed. The
+    /// server returns the events after the update. See [`EventUpdate`] for the fluent builder.
+    ///
+    /// Prefer creating a corrective follow-up event over mutating one when audit history matters —
+    /// an in-flight update can briefly expose the pre-update version to a concurrent read.
+    pub async fn update<I>(&self, input: &I) -> Result<DataWrapper<Event>, ResponseError>
+    where
+        for<'a> &'a I: Into<DataWrapper<EventUpdate>>,
+    {
+        let path = &format!("{}/update", self.base_url);
+        self.execute_post_request::<DataWrapper<Event>, _>(path, &input.into())
+            .await
     }
 
-    pub fn update(&self) -> Result<(), ResponseError> {
-        unimplemented!()
+    /// Free-text search over event descriptions (`POST /events/search`). Matching is fuzzy and
+    /// word-aware; results are ranked by relevance. For structured filters (time ranges, types,
+    /// related resources) use [`filter`](Self::filter) instead — it is faster and more predictable.
+    pub async fn search(&self, search: &EventSearch) -> Result<DataWrapper<Event>, ResponseError> {
+        let path = &format!("{}/search", self.base_url);
+        self.execute_post_request::<DataWrapper<Event>, _>(path, search)
+            .await
+    }
+
+    /// Total number of events in your tenant (`GET /events/count`). Cheap — a single query. It does
+    /// not support filters; use [`filter`](Self::filter) with a `limit` for filtered counting.
+    pub async fn count(&self) -> Result<u64, ResponseError> {
+        let path = &format!("{}/count", self.base_url);
+        let res: EventCount = self.execute_get_request(path, None::<&str>).await?;
+        Ok(res.count)
+    }
+
+    /// Distinct `type` values across events you can read (`GET /events/list/types`), sorted
+    /// alphabetically. `limit` caps the result (server default 1000, hard cap 10000). To
+    /// substring-match instead, use [`search_types`](Self::search_types).
+    pub async fn list_types(&self, limit: u64) -> Result<DataWrapper<String>, ResponseError> {
+        let path = &format!("{}/list/types", self.base_url);
+        self.execute_get_request(path, Some(&[("limit", limit)]))
+            .await
+    }
+
+    /// Distinct `subType` values across events you can read (`GET /events/list/sub-types`), sorted
+    /// alphabetically. `limit` caps the result. To substring-match, use
+    /// [`search_sub_types`](Self::search_sub_types).
+    pub async fn list_sub_types(&self, limit: u64) -> Result<DataWrapper<String>, ResponseError> {
+        let path = &format!("{}/list/sub-types", self.base_url);
+        self.execute_get_request(path, Some(&[("limit", limit)]))
+            .await
+    }
+
+    /// Distinct `status` values across events you can read (`GET /events/list/statuses`), sorted
+    /// alphabetically. `limit` caps the result. To substring-match, use
+    /// [`search_statuses`](Self::search_statuses).
+    pub async fn list_statuses(&self, limit: u64) -> Result<DataWrapper<String>, ResponseError> {
+        let path = &format!("{}/list/statuses", self.base_url);
+        self.execute_get_request(path, Some(&[("limit", limit)]))
+            .await
+    }
+
+    /// Distinct `source` values across events you can read (`GET /events/list/sources`), sorted
+    /// alphabetically. `limit` caps the result. To substring-match, use
+    /// [`search_sources`](Self::search_sources).
+    pub async fn list_sources(&self, limit: u64) -> Result<DataWrapper<String>, ResponseError> {
+        let path = &format!("{}/list/sources", self.base_url);
+        self.execute_get_request(path, Some(&[("limit", limit)]))
+            .await
+    }
+
+    /// Distinct `type` values containing `q` (case-insensitive substring), sorted alphabetically
+    /// (`GET /events/search/type`) — built for type-ahead. `limit` caps the result. To list every
+    /// value, use [`list_types`](Self::list_types).
+    pub async fn search_types(
+        &self,
+        q: &str,
+        limit: u64,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        let path = &format!("{}/search/type", self.base_url);
+        let limit = limit.to_string();
+        self.execute_get_request(path, Some(&[("q", q), ("limit", limit.as_str())]))
+            .await
+    }
+
+    /// Distinct `subType` values containing `q` (case-insensitive substring), sorted alphabetically
+    /// (`GET /events/search/sub-type`). `limit` caps the result. To list every value, use
+    /// [`list_sub_types`](Self::list_sub_types).
+    pub async fn search_sub_types(
+        &self,
+        q: &str,
+        limit: u64,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        let path = &format!("{}/search/sub-type", self.base_url);
+        let limit = limit.to_string();
+        self.execute_get_request(path, Some(&[("q", q), ("limit", limit.as_str())]))
+            .await
+    }
+
+    /// Distinct `status` values containing `q` (case-insensitive substring), sorted alphabetically
+    /// (`GET /events/search/status`). `limit` caps the result. To list every value, use
+    /// [`list_statuses`](Self::list_statuses).
+    pub async fn search_statuses(
+        &self,
+        q: &str,
+        limit: u64,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        let path = &format!("{}/search/status", self.base_url);
+        let limit = limit.to_string();
+        self.execute_get_request(path, Some(&[("q", q), ("limit", limit.as_str())]))
+            .await
+    }
+
+    /// Distinct `source` values containing `q` (case-insensitive substring), sorted alphabetically
+    /// (`GET /events/search/source`). `limit` caps the result. To list every value, use
+    /// [`list_sources`](Self::list_sources).
+    pub async fn search_sources(
+        &self,
+        q: &str,
+        limit: u64,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        let path = &format!("{}/search/source", self.base_url);
+        let limit = limit.to_string();
+        self.execute_get_request(path, Some(&[("q", q), ("limit", limit.as_str())]))
+            .await
+    }
+}
+
+/// Minimal `{ "count": N }` body returned by `GET /events/count`.
+#[derive(Debug, Deserialize)]
+struct EventCount {
+    count: u64,
+}
+
+impl DataWrapperDeserialization for EventCount {
+    fn deserialize_and_set_status(body: &str, _status_code: u16) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(body)
     }
 }
 
@@ -431,6 +565,226 @@ impl From<Vec<EventIdCollection>> for DataWrapper<EventIdCollection> {
 }
 impl From<&Vec<EventIdCollection>> for DataWrapper<EventIdCollection> {
     fn from(value: &Vec<EventIdCollection>) -> Self {
+        DataWrapper::from_vec(value.clone())
+    }
+}
+
+/// Request body for [`EventsService::search`] (`POST /events/search`). `search.query` is the
+/// free-text phrase to match against event descriptions; `filter` optionally narrows the candidate
+/// set with the same fields as [`BasicEventFilter`], and `limit` caps the result (server max 1000).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EventSearch {
+    filter: BasicEventFilter,
+    search: SearchForm,
+    limit: usize,
+}
+
+impl EventSearch {
+    pub fn new() -> Self {
+        Self {
+            filter: BasicEventFilter::default(),
+            search: SearchForm::new(),
+            limit: 100,
+        }
+    }
+
+    /// Build a search for the given free-text query, with no extra filter and the default limit.
+    pub fn from_query(query: &str) -> Self {
+        let mut search = SearchForm::new();
+        search.query = Some(query.to_string());
+        Self {
+            filter: BasicEventFilter::default(),
+            search,
+            limit: 100,
+        }
+    }
+
+    pub fn set_filter(&mut self, filter: BasicEventFilter) -> &mut Self {
+        self.filter = filter;
+        self
+    }
+
+    pub fn set_search(&mut self, search: SearchForm) -> &mut Self {
+        self.search = search;
+        self
+    }
+
+    pub fn set_limit(&mut self, limit: usize) -> &mut Self {
+        self.limit = limit;
+        self
+    }
+
+    pub fn build(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl Default for EventSearch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One event's update in `POST /events/update`. Target the event by UUID `id` or `external_id`,
+/// then layer on the field changes. Each setter takes the field-change struct directly, so one
+/// method per field covers every operation that field supports — [`Field::value`] / [`Field::null`]
+/// for scalars, [`MapField`] / [`ListField`] (`new_set` / `new_add` / `new_remove`) for the
+/// collection fields. For example:
+///
+/// ```
+/// use dataplatform_rust_sdk::events::EventUpdate;
+/// use dataplatform_rust_sdk::fields::{Field, MapField};
+///
+/// EventUpdate::by_external_id("alarm_x")
+///     .status(Field::value("acknowledged"))
+///     .description(Field::null())
+///     .metadata(MapField::new_add(Some([("acked_by".into(), "olav".into())].into())));
+/// ```
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EventUpdate {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    pub update: EventUpdateFields,
+}
+
+impl EventUpdate {
+    /// Target the event by its UUID `id`.
+    pub fn by_id(id: Uuid) -> Self {
+        Self {
+            id: Some(id),
+            external_id: None,
+            update: EventUpdateFields::default(),
+        }
+    }
+
+    /// Target the event by its `external_id`.
+    pub fn by_external_id(external_id: &str) -> Self {
+        Self {
+            id: None,
+            external_id: Some(external_id.to_string()),
+            update: EventUpdateFields::default(),
+        }
+    }
+
+    /// Change the event `externalId`.
+    pub fn external_id(mut self, field: Field<String>) -> Self {
+        self.update.external_id = Some(field);
+        self
+    }
+
+    /// Change the event `description`.
+    pub fn description(mut self, field: Field<String>) -> Self {
+        self.update.description = Some(field);
+        self
+    }
+
+    /// Change the event `type` (named `event_type` because `type` is a reserved word).
+    pub fn event_type(mut self, field: Field<String>) -> Self {
+        self.update.r#type = Some(field);
+        self
+    }
+
+    /// Change the event `subType`.
+    pub fn sub_type(mut self, field: Field<String>) -> Self {
+        self.update.sub_type = Some(field);
+        self
+    }
+
+    /// Change the event `status`.
+    pub fn status(mut self, field: Field<String>) -> Self {
+        self.update.status = Some(field);
+        self
+    }
+
+    /// Change the event `dataSetId`.
+    pub fn data_set_id(mut self, field: Field<u64>) -> Self {
+        self.update.data_set_id = Some(field);
+        self
+    }
+
+    /// Change the event `source`.
+    pub fn source(mut self, field: Field<String>) -> Self {
+        self.update.source = Some(field);
+        self
+    }
+
+    /// Change the event `eventTime`. The value is sent to the server as a string, so it must be a
+    /// parseable timestamp — e.g. `Field::value(when.to_rfc3339())`.
+    pub fn event_time(mut self, field: Field<String>) -> Self {
+        self.update.event_time = Some(field);
+        self
+    }
+
+    /// Change the event `metadata` (`set` / `add` / `remove` via [`MapField`]).
+    pub fn metadata(mut self, field: MapField) -> Self {
+        self.update.metadata = Some(field);
+        self
+    }
+
+    /// Change the event `relatedResourceIds` (`set` / `add` / `remove` via [`ListField`]).
+    pub fn related_resource_ids(mut self, field: ListField<u64>) -> Self {
+        self.update.related_resource_ids = Some(field);
+        self
+    }
+
+    /// Change the event `relatedResourceExternalIds` (`set` / `add` / `remove` via [`ListField`]).
+    pub fn related_resource_external_ids(mut self, field: ListField<String>) -> Self {
+        self.update.related_resource_external_ids = Some(field);
+        self
+    }
+}
+
+/// Field-level changes for an [`EventUpdate`]. Every field is optional and only the ones set are
+/// serialized; the server applies just those. String/number fields use the two-way [`Field`]
+/// (`set` / `setNull`); `metadata` and the related-resource lists use the three-way
+/// [`MapField`] / [`ListField`] (`set` / `add` / `remove`).
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EventUpdateFields {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<Field<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<Field<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<Field<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sub_type: Option<Field<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<Field<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_set_id: Option<Field<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<MapField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<Field<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub related_resource_ids: Option<ListField<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub related_resource_external_ids: Option<ListField<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_time: Option<Field<String>>,
+}
+
+impl From<EventUpdate> for DataWrapper<EventUpdate> {
+    fn from(value: EventUpdate) -> Self {
+        DataWrapper::from_vec(vec![value])
+    }
+}
+impl From<&EventUpdate> for DataWrapper<EventUpdate> {
+    fn from(value: &EventUpdate) -> Self {
+        DataWrapper::from_vec(vec![value.clone()])
+    }
+}
+impl From<Vec<EventUpdate>> for DataWrapper<EventUpdate> {
+    fn from(value: Vec<EventUpdate>) -> Self {
+        DataWrapper::from_vec(value)
+    }
+}
+impl From<&Vec<EventUpdate>> for DataWrapper<EventUpdate> {
+    fn from(value: &Vec<EventUpdate>) -> Self {
         DataWrapper::from_vec(value.clone())
     }
 }

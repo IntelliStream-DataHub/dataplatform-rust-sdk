@@ -16,6 +16,22 @@ impl<T> Field<T> {
         }
     }
 
+    /// Set the field to `value` (`{ "set": value, "setNull": false }`).
+    pub fn value(value: impl Into<T>) -> Self {
+        Field {
+            set: Some(value.into()),
+            set_null: false,
+        }
+    }
+
+    /// Clear the field (`{ "setNull": true }`).
+    pub fn null() -> Self {
+        Field {
+            set: None,
+            set_null: true,
+        }
+    }
+
     pub fn set(&mut self, value: T)
     where
         T: Clone,
@@ -52,6 +68,33 @@ impl<T> ListField<T> {
             set: None,
             add: None,
             remove: None,
+        }
+    }
+
+    /// Replace the whole list (`{ "set": [...] }`).
+    pub fn new_set(set: Vec<T>) -> Self {
+        ListField {
+            set: Some(set),
+            add: None,
+            remove: None,
+        }
+    }
+
+    /// Add to the list, keeping existing entries (`{ "add": [...] }`).
+    pub fn new_add(add: Vec<T>) -> Self {
+        ListField {
+            set: None,
+            add: Some(add),
+            remove: None,
+        }
+    }
+
+    /// Remove entries from the list (`{ "remove": [...] }`).
+    pub fn new_remove(remove: Vec<T>) -> Self {
+        ListField {
+            set: None,
+            add: None,
+            remove: Some(remove),
         }
     }
 
