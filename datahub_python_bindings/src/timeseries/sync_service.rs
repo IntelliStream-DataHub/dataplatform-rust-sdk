@@ -4,7 +4,7 @@ use crate::timeseries::datapoints::{
     PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
 };
 use crate::{DatahubIdentity, Identifiable};
-use crate::{PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm};
+use crate::{PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm, PyTimeSeriesFilterForm};
 use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
 use dataplatform_rust_sdk::{ApiService, TimeSeriesUpdateCollection};
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -138,6 +138,27 @@ impl PyTimeSeriesServiceSync {
             let result = self
                 .runtime
                 .block_on(service.time_series.search(&input.into()))
+                .map_err(|e| crate::datahub_err(e))?;
+            let py_ts: Vec<PyTimeSeries> = result
+                .get_items()
+                .iter()
+                .map(|ts| PyTimeSeries::with_client(ts.clone(), service.clone()))
+                .collect();
+            Ok(py_ts)
+        })
+    }
+
+    fn filter<'p>(
+        &self,
+        py: Python<'p>,
+        input: PyTimeSeriesFilterForm,
+    ) -> PyResult<Vec<PyTimeSeries>> {
+        let service = self.api_service.clone();
+
+        py.detach(|| {
+            let result = self
+                .runtime
+                .block_on(service.time_series.filter(&input.into()))
                 .map_err(|e| crate::datahub_err(e))?;
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()

@@ -40,6 +40,7 @@ use dataplatform_rust_sdk::datahub::DataHubConfig;
 use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
 use dataplatform_rust_sdk::generic::*;
 use dataplatform_rust_sdk::http::ResponseError;
+use dataplatform_rust_sdk::{TimeSeriesFilter, TimeSeriesFilterForm};
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
@@ -553,6 +554,51 @@ impl PySearchAndFilterForm {
     }
 }
 
+#[pyclass(module = "datahub_sdk", name = "TimeSeriesFilterForm")]
+#[derive(Clone)]
+pub struct PyTimeSeriesFilterForm {
+    pub inner: TimeSeriesFilterForm,
+}
+impl From<TimeSeriesFilterForm> for PyTimeSeriesFilterForm {
+    fn from(form: TimeSeriesFilterForm) -> Self {
+        Self { inner: form }
+    }
+}
+impl From<PyTimeSeriesFilterForm> for TimeSeriesFilterForm {
+    fn from(value: PyTimeSeriesFilterForm) -> Self {
+        value.inner
+    }
+}
+#[pymethods]
+impl PyTimeSeriesFilterForm {
+    /// AND-combined criteria for `timeseries.filter`. `data_set_id` expands down the dataset
+    /// hierarchy server-side (a master dataset matches its children's timeseries too);
+    /// `metadata_key`/`metadata_value` work together or alone.
+    #[new]
+    #[pyo3(signature = (data_set_id=None, unit=None, unit_external_id=None, metadata_key=None, metadata_value=None, limit=None))]
+    pub fn new(
+        data_set_id: Option<u64>,
+        unit: Option<String>,
+        unit_external_id: Option<String>,
+        metadata_key: Option<String>,
+        metadata_value: Option<String>,
+        limit: Option<u64>,
+    ) -> Self {
+        Self {
+            inner: TimeSeriesFilterForm {
+                filter: TimeSeriesFilter {
+                    data_set_id,
+                    unit,
+                    unit_external_id,
+                    metadata_key,
+                    metadata_value,
+                },
+                limit,
+            },
+        }
+    }
+}
+
 #[derive(FromPyObject)]
 pub enum Identifiable {
     #[pyo3(transparent)]
@@ -805,6 +851,7 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyListFieldStr>()?;
     m.add_class::<PyMapField>()?;
     m.add_class::<PySearchAndFilterForm>()?;
+    m.add_class::<PyTimeSeriesFilterForm>()?;
     timeseries::register(m)?;
     events::register(m)?;
     datasets::register(m)?;

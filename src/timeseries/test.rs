@@ -11,7 +11,7 @@ mod tests {
     use crate::{create_api_service, ApiService};
     use crate::generic::{DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter};
     use crate::http::ResponseError;
-    use crate::timeseries::{TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
+    use crate::timeseries::{TimeSeries, TimeSeriesFilter, TimeSeriesFilterForm, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
     use crate::tests::cleanup::cleanup_timeseries;
 
 
@@ -45,6 +45,66 @@ mod tests {
                 panic!("{:?}", e.get_message());
             }
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_filter_timeseries() -> Result<(), Box<dyn std::error::Error>> {
+        let unique_id: u64 = 7300;
+        let api_service = create_api_service();
+
+        // Delete timeseries first, in case a test failed and the time series exists
+        delete_timeseries(unique_id, &api_service).await;
+
+        // A metadata value unique to this run isolates the assertions from other data.
+        let unique_value = format!("filter_test_{id}", id = unique_id);
+        let ext_id = format!("rust_sdk_test_{id}_ts", id = unique_id);
+        let mut ts_collection = DataWrapper::new();
+        let ts = TimeSeries::builder()
+            .set_external_id(ext_id.as_str())
+            .set_name(format!("Rust SDK Test {id} TimeSeries", id = unique_id).as_str())
+            .set_unit("celsius")
+            .set_metadata(hashmap! {
+                    "rust_sdk_filter_key".to_string() => unique_value.clone()
+                })
+            .set_value_type("float")
+            .clone();
+        ts_collection.add_item(ts);
+        api_service.time_series.create(&ts_collection).await
+            .expect("could not create the filter-test timeseries");
+
+        // Key + value together must find exactly the created series.
+        let mut filter = TimeSeriesFilter::default();
+        filter.metadata_key = Some("rust_sdk_filter_key".to_string());
+        filter.metadata_value = Some(unique_value.clone());
+        let form = TimeSeriesFilterForm::new(filter, Some(10));
+        match api_service.time_series.filter(&form).await {
+            Ok(timeseries) => {
+                assert_eq!(timeseries.length(), 1);
+                assert_eq!(timeseries.get_items()[0].external_id, ext_id);
+            },
+            Err(e) => {
+                panic!("{:?}", e.get_message());
+            }
+        }
+
+        // Adding the unit keeps it; a wrong unit must drop it.
+        let mut filter = TimeSeriesFilter::default();
+        filter.metadata_value = Some(unique_value.clone());
+        filter.unit = Some("celsius".to_string());
+        match api_service.time_series.filter(&TimeSeriesFilterForm::new(filter, None)).await {
+            Ok(timeseries) => assert_eq!(timeseries.length(), 1),
+            Err(e) => panic!("{:?}", e.get_message()),
+        }
+        let mut filter = TimeSeriesFilter::default();
+        filter.metadata_value = Some(unique_value.clone());
+        filter.unit = Some("watt".to_string());
+        match api_service.time_series.filter(&TimeSeriesFilterForm::new(filter, None)).await {
+            Ok(timeseries) => assert_eq!(timeseries.length(), 0),
+            Err(e) => panic!("{:?}", e.get_message()),
+        }
+
+        delete_timeseries(unique_id, &api_service).await;
         Ok(())
     }
     #[tokio::test]

@@ -124,6 +124,21 @@ impl TimeSeriesService {
             .await
     }
 
+    /// `POST /timeseries/filter` — structured, AND-combined filtering.
+    ///
+    /// `data_set_id` is expanded down the dataset hierarchy server-side: filtering on a master
+    /// dataset also returns the timeseries attached to its child datasets, children of children
+    /// included. Datasets the caller lacks read access to are silently omitted. Results come
+    /// newest first, capped by the form's `limit` (backend default 1000, max 10000).
+    pub async fn filter(
+        &self,
+        form: &TimeSeriesFilterForm,
+    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+        let path = &format!("{}/filter", self.base_url);
+        self.execute_post_request::<DataWrapper<TimeSeries>, _>(path, form)
+            .await
+    }
+
     pub async fn search_by_name(
         &self,
         name: &str,
@@ -488,6 +503,43 @@ fn buffered_string_wrapper() -> DataWrapper<String> {
     let mut w = DataWrapper::new();
     w.set_http_status_code(202);
     w
+}
+
+/// Criteria for [`TimeSeriesService::filter`] (`POST /timeseries/filter`). Supplied fields are
+/// combined with AND; `None` fields are omitted from the request.
+///
+/// `metadata_key` and `metadata_value` may be used together ("that key carries that value") or
+/// alone ("any entry with that key" / "any entry with that value"). `unit` matches
+/// case-insensitively and accepts `%` as a wildcard; `unit_external_id` is an exact match on the
+/// unit-catalogue external id.
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeSeriesFilter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_set_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit_external_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_value: Option<String>,
+}
+
+/// Request body for [`TimeSeriesService::filter`]: the criteria plus an optional result cap
+/// (backend default 1000, max 10000).
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+pub struct TimeSeriesFilterForm {
+    pub filter: TimeSeriesFilter,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+}
+
+impl TimeSeriesFilterForm {
+    pub fn new(filter: TimeSeriesFilter, limit: Option<u64>) -> Self {
+        Self { filter, limit }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
