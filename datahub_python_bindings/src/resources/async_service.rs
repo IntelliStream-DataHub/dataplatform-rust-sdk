@@ -37,7 +37,7 @@ impl PyResourcesServiceAsync {
                 .create(resources, rel_forms)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            Ok(PyGraphResult::from_wrapper(result))
+            Ok(PyGraphResult::from_wrapper(result, service.clone()))
         })
     }
 
@@ -63,7 +63,7 @@ impl PyResourcesServiceAsync {
                 .nodes()
                 .unwrap()
                 .iter()
-                .map(|u| PyResource { inner: u.clone() })
+                .map(|u| PyResource::with_client(u.clone(), service.clone()))
                 .collect();
             Ok(py_units)
         })
@@ -89,7 +89,7 @@ impl PyResourcesServiceAsync {
             let py_ts: Vec<PyResource> = result
                 .nodes().unwrap_or_default()
                 .into_iter()
-                .map(|res| PyResource { inner: res.clone() })
+                .map(|res| PyResource::with_client(res.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })
@@ -111,7 +111,7 @@ impl PyResourcesServiceAsync {
             let py_res: Vec<PyResource> = result
                 .get_items()
                 .iter()
-                .map(|r| PyResource { inner: r.clone() })
+                .map(|r| PyResource::with_client(r.clone(), service.clone()))
                 .collect();
             Ok(py_res)
         })
@@ -133,7 +133,7 @@ impl PyResourcesServiceAsync {
                 .update(&updates)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            Ok(PyGraphResult::from_wrapper(result))
+            Ok(PyGraphResult::from_wrapper(result, service.clone()))
         })
     }
 
@@ -163,7 +163,7 @@ impl PyResourcesServiceAsync {
                 .fetch_related(&form)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            Ok(PyResourceNetwork::from_network(result))
+            Ok(PyResourceNetwork::from_network(result, service.clone()))
         })
     }
 }

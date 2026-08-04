@@ -30,7 +30,7 @@ impl PyFilesServiceAsync {
             let py_inodes: Vec<PyINode> = result
                 .get_items()
                 .iter()
-                .map(|node| PyINode::from(node.clone()))
+                .map(|node| PyINode::with_client(node.clone(), service.clone()))
                 .collect();
             Ok(py_inodes)
         })
@@ -49,7 +49,7 @@ impl PyFilesServiceAsync {
             let py_ts: Vec<PyINode> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyINode { inner: ts.clone() })
+                .map(|ts| PyINode::with_client(ts.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })
@@ -89,7 +89,7 @@ impl PyFilesServiceAsync {
             let py_ts: Vec<PyINode> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyINode { inner: ts.clone() })
+                .map(|ts| PyINode::with_client(ts.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })

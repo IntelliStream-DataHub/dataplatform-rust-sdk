@@ -32,7 +32,7 @@ impl PyEventsServiceSync {
             let py_ts: Vec<PyEvent> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyEvent { inner: ts.clone() })
+                .map(|ts| PyEvent::with_client(ts.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })
@@ -56,7 +56,7 @@ impl PyEventsServiceSync {
             let py_units: Vec<PyEvent> = result
                 .get_items()
                 .iter()
-                .map(|u| PyEvent { inner: u.clone() })
+                .map(|u| PyEvent::with_client(u.clone(), service.clone()))
                 .collect();
             Ok(py_units)
         })
@@ -88,7 +88,7 @@ impl PyEventsServiceSync {
             let py_ts: Vec<PyEvent> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyEvent { inner: ts.clone() })
+                .map(|ts| PyEvent::with_client(ts.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })

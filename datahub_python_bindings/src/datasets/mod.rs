@@ -5,28 +5,67 @@ use crate::PyIdCollection;
 use crate::events::{
     PyBasicEventFilter, PyEvent, PyEventFilter, PyEventIdCollection, PyTimeFilter,
 };
+use crate::resources::PyResourceNetwork;
+use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter};
 use dataplatform_rust_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
 use dataplatform_rust_sdk::datasets::Dataset;
 use dataplatform_rust_sdk::generic::IdAndExtId;
+use dataplatform_rust_sdk::resources::RelatedResourcesForm;
+use dataplatform_rust_sdk::ApiService;
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, pyclass, pymethods};
+use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[pyclass(module = "datahub_sdk", name = "Dataset", from_py_object)]
 #[derive(Clone)]
 pub struct PyDataset {
     pub inner: Dataset,
+    /// The client this object was returned by, enabling navigation methods
+    /// (`neighbors`). `None` on locally-constructed datasets — navigation then raises.
+    pub client: Option<Arc<ApiService>>,
 }
 
 impl From<Dataset> for PyDataset {
     fn from(ts: Dataset) -> Self {
-        Self { inner: ts }
+        Self {
+            inner: ts,
+            client: None,
+        }
     }
 }
 impl From<PyDataset> for Dataset {
     fn from(ts: PyDataset) -> Self {
         ts.inner
+    }
+}
+
+impl PyDataset {
+    /// Wrap a dataset returned by the API, stamping the client so navigation methods work.
+    pub fn with_client(inner: Dataset, client: Arc<ApiService>) -> Self {
+        Self {
+            inner,
+            client: Some(client),
+        }
+    }
+
+    /// Build the graph-traversal form for this dataset (the unified graph — datasets are nodes).
+    fn related_form(
+        &self,
+        depth: i32,
+        relationship_types: Option<Vec<String>>,
+        limit: i32,
+    ) -> RelatedResourcesForm {
+        RelatedResourcesForm {
+            id: self.inner.id,
+            external_id: Some(self.inner.external_id.clone()),
+            depth,
+            relationship_types,
+            limit,
+            excluded_labels: vec![],
+        }
     }
 }
 #[pymethods]
@@ -71,6 +110,7 @@ impl PyDataset {
                 created_time: None,
                 last_updated_time: None,
             },
+            client: None,
         }
     }
     #[getter]
@@ -194,4 +234,119 @@ impl From<DatasetIdentifiable> for IdAndExtId {
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDataset>()?;
     Ok(())
+}
+
+/// Object-level graph navigation. Available only on datasets returned by the API (which carry a
+/// client); calling these on a locally-constructed `Dataset` raises a clear error.
+#[pymethods]
+impl PyDataset {
+    /// Walk the graph from this dataset and return the connected sub-graph (its `nodes`, the
+    /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
+    /// (`-1`, the default, = the whole connected component); `relationship_types` filters which
+    /// edge types to follow (`None` = all); `limit` caps the node count. Neighbour nodes are
+    /// modelled as `Resource`. Blocking; see [`neighbors_async`] for the awaitable variant.
+    #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
+    fn neighbors(
+        &self,
+        py: Python<'_>,
+        depth: i32,
+        relationship_types: Option<Vec<String>>,
+        limit: i32,
+    ) -> PyResult<PyResourceNetwork> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let form = self.related_form(depth, relationship_types, limit);
+        py.detach(|| {
+            let result = crate::nav_runtime()
+                .block_on(service.resources.fetch_related(&form))
+                .map_err(crate::datahub_err)?;
+            Ok(PyResourceNetwork::from_network(result, service.clone()))
+        })
+    }
+
+    /// Awaitable variant of [`neighbors`].
+    #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
+    fn neighbors_async<'py>(
+        &self,
+        py: Python<'py>,
+        depth: i32,
+        relationship_types: Option<Vec<String>>,
+        limit: i32,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let form = self.related_form(depth, relationship_types, limit);
+        future_into_py(py, async move {
+            let result = service
+                .resources
+                .fetch_related(&form)
+                .await
+                .map_err(crate::datahub_err)?;
+            Ok(PyResourceNetwork::from_network(result, service.clone()))
+        })
+    }
+}
+
+/// Reverse lookup: the events that reference this dataset. (The other direction —
+/// `Event.related_resource_nodes()` — resolves an event's resources.) Available only on
+/// datasets returned by the API; calling on a locally-constructed one raises.
+#[pymethods]
+impl PyDataset {
+    /// Fetch events whose `related_resource_ids` / `related_resource_external_ids` include this
+    /// dataset (matched by graph-node id when present, else external id), via `events.filter`.
+    /// `limit` caps the results (default 100). Blocking; see [`related_events_async`].
+    #[pyo3(signature = (limit=100))]
+    fn related_events(&self, py: Python<'_>, limit: u64) -> PyResult<Vec<PyEvent>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let filter = self.related_events_filter(limit);
+        py.detach(|| {
+            let result = crate::nav_runtime()
+                .block_on(service.events.filter(&filter))
+                .map_err(crate::datahub_err)?;
+            Ok(result
+                .get_items()
+                .iter()
+                .cloned()
+                .map(|e| PyEvent::with_client(e, service.clone()))
+                .collect())
+        })
+    }
+
+    /// Awaitable variant of [`related_events`].
+    #[pyo3(signature = (limit=100))]
+    fn related_events_async<'py>(&self, py: Python<'py>, limit: u64) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let filter = self.related_events_filter(limit);
+        future_into_py(py, async move {
+            let result = service
+                .events
+                .filter(&filter)
+                .await
+                .map_err(crate::datahub_err)?;
+            Ok(result
+                .get_items()
+                .iter()
+                .cloned()
+                .map(|e| PyEvent::with_client(e, service.clone()))
+                .collect::<Vec<_>>())
+        })
+    }
+}
+
+impl PyDataset {
+    /// Build the events filter selecting events that reference this node (by id when present,
+    /// else external id).
+    fn related_events_filter(&self, limit: u64) -> EventFilter {
+        let mut basic = BasicEventFilter::default();
+        match self.inner.id {
+            Some(id) => {
+                basic.set_related_resource_ids(&[id]);
+            }
+            None => {
+                basic.set_related_resource_external_ids(&[self.inner.external_id.as_str()]);
+            }
+        }
+        let mut filter = EventFilter::default();
+        filter.set_filter(basic);
+        filter.set_limit(limit);
+        filter
+    }
 }

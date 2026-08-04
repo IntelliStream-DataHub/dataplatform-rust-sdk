@@ -1,15 +1,20 @@
 use crate::relations::{PyEdgeProxy, PyRelatedNode};
 use chrono::{DateTime, Utc};
-use dataplatform_rust_sdk::Resource;
 use dataplatform_rust_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
 use dataplatform_rust_sdk::generic::IdAndExtId;
+use crate::events::PyEvent;
+use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter};
 use dataplatform_rust_sdk::relations::RelatedNode;
+use dataplatform_rust_sdk::resources::RelatedResourcesForm;
+use dataplatform_rust_sdk::{ApiService, Resource};
 use geojson::Geometry;
 use pyo3::exceptions::PyValueError;
 use pyo3::types::PyAny;
 use pyo3::{Bound, FromPyObject, PyResult, Python, pyclass, pymethods};
+use pyo3_async_runtimes::tokio::future_into_py;
 use pythonize::{depythonize, pythonize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Convert a Python object (a GeoJSON geometry `dict`) into a [`Geometry`], surfacing
 /// conversion failures as `ValueError`.
@@ -127,16 +132,50 @@ impl From<ResourceIdentifiable> for IdAndExtId {
 #[derive(Clone)]
 pub struct PyResource {
     pub inner: Resource,
+    /// The client this object was returned by, enabling navigation methods
+    /// (`neighbors`). `None` on locally-constructed resources — navigation then raises.
+    pub client: Option<Arc<ApiService>>,
 }
 
 impl From<Resource> for PyResource {
     fn from(ts: Resource) -> Self {
-        Self { inner: ts }
+        Self {
+            inner: ts,
+            client: None,
+        }
     }
 }
 impl From<PyResource> for Resource {
     fn from(ts: PyResource) -> Self {
         ts.inner
+    }
+}
+
+impl PyResource {
+    /// Wrap a resource returned by the API, stamping the client so navigation methods work.
+    pub fn with_client(inner: Resource, client: Arc<ApiService>) -> Self {
+        Self {
+            inner,
+            client: Some(client),
+        }
+    }
+
+    /// Build the graph-traversal form for this resource, identified by id (preferred) and
+    /// external id.
+    fn related_form(
+        &self,
+        depth: i32,
+        relationship_types: Option<Vec<String>>,
+        limit: i32,
+    ) -> RelatedResourcesForm {
+        RelatedResourcesForm {
+            id: self.inner.id,
+            external_id: Some(self.inner.external_id.clone()),
+            depth,
+            relationship_types,
+            limit,
+            excluded_labels: vec![],
+        }
     }
 }
 
@@ -201,6 +240,7 @@ impl PyResource {
                 created_time: None,
                 last_updated_time: None,
             },
+            client: None,
         })
     }
     #[getter]
@@ -331,12 +371,17 @@ pub struct PyResourceNetwork {
 }
 
 impl PyResourceNetwork {
-    pub fn from_network(network: dataplatform_rust_sdk::resources::ResourceNetwork) -> Self {
+    /// Build the Python view of a graph traversal, stamping `client` onto every node so
+    /// callers can chain navigation off the returned resources.
+    pub fn from_network(
+        network: dataplatform_rust_sdk::resources::ResourceNetwork,
+        client: Arc<ApiService>,
+    ) -> Self {
         Self {
             nodes: network
                 .nodes
                 .into_iter()
-                .map(|r| PyResource { inner: r })
+                .map(|r| PyResource::with_client(r, client.clone()))
                 .collect(),
             edges: network.edges.into_iter().map(PyEdgeProxy::from).collect(),
             labels: network.labels.into_iter().map(PyLabel::from).collect(),
@@ -357,5 +402,120 @@ impl PyResourceNetwork {
     #[getter]
     fn labels(&self) -> Vec<PyLabel> {
         self.labels.clone()
+    }
+}
+
+/// Object-level graph navigation. Available only on resources returned by the API (which carry
+/// a client); calling these on a locally-constructed `Resource` raises a clear error.
+#[pymethods]
+impl PyResource {
+    /// Walk the graph from this resource and return the connected sub-graph (its `nodes`, the
+    /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
+    /// (`-1`, the default, = the whole connected component); `relationship_types` filters which
+    /// edge types to follow (`None` = all); `limit` caps the node count. Blocking; see
+    /// [`neighbors_async`] for the awaitable variant.
+    #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
+    fn neighbors(
+        &self,
+        py: Python<'_>,
+        depth: i32,
+        relationship_types: Option<Vec<String>>,
+        limit: i32,
+    ) -> PyResult<PyResourceNetwork> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let form = self.related_form(depth, relationship_types, limit);
+        py.detach(|| {
+            let result = crate::nav_runtime()
+                .block_on(service.resources.fetch_related(&form))
+                .map_err(crate::datahub_err)?;
+            Ok(PyResourceNetwork::from_network(result, service.clone()))
+        })
+    }
+
+    /// Awaitable variant of [`neighbors`].
+    #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
+    fn neighbors_async<'py>(
+        &self,
+        py: Python<'py>,
+        depth: i32,
+        relationship_types: Option<Vec<String>>,
+        limit: i32,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let form = self.related_form(depth, relationship_types, limit);
+        future_into_py(py, async move {
+            let result = service
+                .resources
+                .fetch_related(&form)
+                .await
+                .map_err(crate::datahub_err)?;
+            Ok(PyResourceNetwork::from_network(result, service.clone()))
+        })
+    }
+}
+
+/// Reverse lookup: the events that reference this resource. (The other direction —
+/// `Event.related_resource_nodes()` — resolves an event's resources.) Available only on
+/// resources returned by the API; calling on a locally-constructed one raises.
+#[pymethods]
+impl PyResource {
+    /// Fetch events whose `related_resource_ids` / `related_resource_external_ids` include this
+    /// resource (matched by graph-node id when present, else external id), via `events.filter`.
+    /// `limit` caps the results (default 100). Blocking; see [`related_events_async`].
+    #[pyo3(signature = (limit=100))]
+    fn related_events(&self, py: Python<'_>, limit: u64) -> PyResult<Vec<PyEvent>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let filter = self.related_events_filter(limit);
+        py.detach(|| {
+            let result = crate::nav_runtime()
+                .block_on(service.events.filter(&filter))
+                .map_err(crate::datahub_err)?;
+            Ok(result
+                .get_items()
+                .iter()
+                .cloned()
+                .map(|e| PyEvent::with_client(e, service.clone()))
+                .collect())
+        })
+    }
+
+    /// Awaitable variant of [`related_events`].
+    #[pyo3(signature = (limit=100))]
+    fn related_events_async<'py>(&self, py: Python<'py>, limit: u64) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let filter = self.related_events_filter(limit);
+        future_into_py(py, async move {
+            let result = service
+                .events
+                .filter(&filter)
+                .await
+                .map_err(crate::datahub_err)?;
+            Ok(result
+                .get_items()
+                .iter()
+                .cloned()
+                .map(|e| PyEvent::with_client(e, service.clone()))
+                .collect::<Vec<_>>())
+        })
+    }
+}
+
+impl PyResource {
+    /// Build the events filter selecting events that reference this node (by id when present,
+    /// else external id).
+    fn related_events_filter(&self, limit: u64) -> EventFilter {
+        let mut basic = BasicEventFilter::default();
+        match self.inner.id {
+            Some(id) => {
+                basic.set_related_resource_ids(&[id]);
+            }
+            None => {
+                basic.set_related_resource_external_ids(&[self.inner.external_id.as_str()]);
+            }
+        }
+        let mut filter = EventFilter::default();
+        filter.set_filter(basic);
+        filter.set_limit(limit);
+        filter
     }
 }

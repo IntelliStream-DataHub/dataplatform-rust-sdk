@@ -1,7 +1,9 @@
 use crate::PyEvent;
 use crate::datetime::py_datetime_to_utc;
+use crate::resources::PyResource;
 use chrono::{DateTime, Utc};
 use pyo3::prelude::*;
+use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -44,7 +46,10 @@ impl PyEvent {
         ev.related_resource_ids = related_resource_ids.unwrap_or_default();
         ev.related_resource_external_ids = related_resource_external_ids.unwrap_or_default();
         ev.source = source;
-        Ok(Self { inner: ev })
+        Ok(Self {
+            inner: ev,
+            client: None,
+        })
     }
     #[getter]
     pub fn id(&self) -> Option<Uuid> {
@@ -149,5 +154,54 @@ impl PyEvent {
     pub fn set_event_time(&mut self, value: Bound<'_, PyAny>) -> PyResult<()> {
         self.inner.event_time = py_datetime_to_utc(&value)?;
         Ok(())
+    }
+}
+
+/// Object-level navigation. Available only on events returned by the API (which carry a
+/// client); calling these on a locally-constructed `Event` raises a clear error.
+#[pymethods]
+impl PyEvent {
+    /// Fetch the resources this event references (its `related_resource_ids` /
+    /// `related_resource_external_ids`), resolved via the resources service. Blocking;
+    /// see [`related_resource_nodes_async`] for the awaitable variant.
+    fn related_resource_nodes(&self, py: Python<'_>) -> PyResult<Vec<PyResource>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let ids = self.related_id_collections();
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        py.detach(|| {
+            let result = crate::nav_runtime()
+                .block_on(service.resources.by_ids(&ids))
+                .map_err(crate::datahub_err)?;
+            Ok(result
+                .nodes()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| PyResource::with_client(r, service.clone()))
+                .collect())
+        })
+    }
+
+    /// Awaitable variant of [`related_resource_nodes`].
+    fn related_resource_nodes_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let ids = self.related_id_collections();
+        future_into_py(py, async move {
+            if ids.is_empty() {
+                return Ok(Vec::<PyResource>::new());
+            }
+            let result = service
+                .resources
+                .by_ids(&ids)
+                .await
+                .map_err(crate::datahub_err)?;
+            Ok(result
+                .nodes()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| PyResource::with_client(r, service.clone()))
+                .collect())
+        })
     }
 }

@@ -26,7 +26,7 @@ impl PyDatasetsServiceAsync {
             let py_ts: Vec<PyDataset> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyDataset { inner: ts.clone() })
+                .map(|ts| PyDataset::with_client(ts.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })
@@ -45,7 +45,7 @@ impl PyDatasetsServiceAsync {
             let py_ts: Vec<PyDataset> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyDataset { inner: ts.clone() })
+                .map(|ts| PyDataset::with_client(ts.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })
@@ -72,7 +72,7 @@ impl PyDatasetsServiceAsync {
             let py_units: Vec<PyDataset> = result
                 .get_items()
                 .iter()
-                .map(|u| PyDataset { inner: u.clone() })
+                .map(|u| PyDataset::with_client(u.clone(), service.clone()))
                 .collect();
             Ok(py_units)
         })
@@ -98,7 +98,7 @@ impl PyDatasetsServiceAsync {
             let py_ts: Vec<PyDataset> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyDataset { inner: ts.clone() })
+                .map(|ts| PyDataset::with_client(ts.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })

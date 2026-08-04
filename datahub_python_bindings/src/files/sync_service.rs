@@ -30,7 +30,7 @@ impl PyFilesServiceSync {
             let py_inodes: Vec<PyINode> = result
                 .get_items()
                 .iter()
-                .map(|node| PyINode::from(node.clone()))
+                .map(|node| PyINode::with_client(node.clone(), service.clone()))
                 .collect();
             Ok(py_inodes)
         })
@@ -48,7 +48,7 @@ impl PyFilesServiceSync {
             let py_units: Vec<PyINode> = result
                 .get_items()
                 .into_iter()
-                .map(|u| PyINode::from(u.clone()))
+                .map(|u| PyINode::with_client(u.clone(), service.clone()))
                 .collect();
             Ok(py_units)
         })
@@ -79,7 +79,7 @@ impl PyFilesServiceSync {
             let py_ts: Vec<PyINode> = result
                 .get_items()
                 .iter()
-                .map(|ts| PyINode::from(ts.clone()))
+                .map(|ts| PyINode::with_client(ts.clone(), service.clone()))
                 .collect();
             Ok(py_ts)
         })

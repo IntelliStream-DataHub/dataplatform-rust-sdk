@@ -301,6 +301,21 @@ class TimeSeries:
     def related_resources(self) -> list[RelatedNode]: ...
     @related_resources.setter
     def related_resources(self, value: list[RelatedNode] | None) -> None: ...
+    # --- navigation (only on timeseries returned by the API; raises otherwise) ---
+    def neighbors(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    async def neighbors_async(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    def related_events(self, limit: int = 100) -> list[Event]: ...
+    async def related_events_async(self, limit: int = 100) -> list[Event]: ...
 
 class RelatedNode:
     """The unified node-centric relation, mirroring server-side `RelatedNode`: a node
@@ -590,6 +605,9 @@ class Event:
     def created_time(self) -> datetime.datetime | None: ...
     @property
     def last_updated_time(self) -> datetime.datetime | None: ...
+    # --- navigation (only on events returned by the API; raises otherwise) ---
+    def related_resource_nodes(self) -> list[Resource]: ...
+    async def related_resource_nodes_async(self) -> list[Resource]: ...
 
 
 class TimeFilter:
@@ -701,6 +719,21 @@ class Dataset:
     def connected_data_sets(self) -> list[int]: ...
     @connected_data_sets.setter
     def connected_data_sets(self, value: list[int]) -> None: ...
+    # --- navigation (only on datasets returned by the API; raises otherwise) ---
+    def neighbors(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    async def neighbors_async(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    def related_events(self, limit: int = 100) -> list[Event]: ...
+    async def related_events_async(self, limit: int = 100) -> list[Event]: ...
 
 
 class DatasetsServiceSync:
@@ -781,6 +814,33 @@ class Resource:
     def created_time(self) -> datetime.datetime | None: ...
     @property
     def last_updated_time(self) -> datetime.datetime | None: ...
+    # --- navigation (only on resources returned by the API; raises otherwise) ---
+    def neighbors(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    async def neighbors_async(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    def related_events(self, limit: int = 100) -> list[Event]: ...
+    async def related_events_async(self, limit: int = 100) -> list[Event]: ...
+
+
+class ResourceNetwork:
+    """Connected sub-graph returned by `Resource.neighbors` (and the timeseries/dataset/
+    function equivalents): the reachable `nodes`, the `edges` between them, and their
+    `labels`."""
+    @property
+    def nodes(self) -> list[Resource]: ...
+    @property
+    def edges(self) -> list[EdgeProxy]: ...
+    @property
+    def labels(self) -> list[Label]: ...
 
 
 # ====================== Relations ======================
@@ -1170,6 +1230,10 @@ class INode:
     def related_resources(self) -> list[int] | None: ...
     @property
     def security_categories(self) -> list[int] | None: ...
+    # --- navigation (only on inodes returned by the API; raises otherwise) ---
+    # `related_resources` (above) returns the raw ids; these resolve them to Resource objects.
+    def related_resource_nodes(self) -> list[Resource]: ...
+    async def related_resource_nodes_async(self) -> list[Resource]: ...
 
 
 class FileUpload:
@@ -1423,6 +1487,21 @@ class Function:
     def last_updated_time(self) -> datetime.datetime | None: ...
     @property
     def related_resources(self) -> list[RelatedNode]: ...
+    # --- navigation (only on functions returned by the API; raises otherwise) ---
+    def neighbors(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    async def neighbors_async(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    def related_events(self, limit: int = 100) -> list[Event]: ...
+    async def related_events_async(self, limit: int = 100) -> list[Event]: ...
 
 
 FunctionIdentifiable = Union[Function, IdCollection, int, str]

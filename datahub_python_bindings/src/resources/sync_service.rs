@@ -39,7 +39,7 @@ impl PyResourcesServiceSync {
         });
 
         let result = result.map_err(|e| crate::datahub_err(e))?;
-        Ok(PyGraphResult::from_wrapper(result))
+        Ok(PyGraphResult::from_wrapper(result, service.clone()))
     }
 
     fn by_ids<'py>(
@@ -62,7 +62,7 @@ impl PyResourcesServiceSync {
             .as_ref()
             .unwrap()
             .iter()
-            .map(|ts| PyResource { inner: ts.clone() })
+            .map(|ts| PyResource::with_client(ts.clone(), service.clone()))
             .collect();
         Ok(py_res)
     }
@@ -97,7 +97,7 @@ impl PyResourcesServiceSync {
             let py_res: Vec<PyResource> = result
                 .get_items()
                 .iter()
-                .map(|r| PyResource { inner: r.clone() })
+                .map(|r| PyResource::with_client(r.clone(), service.clone()))
                 .collect();
             Ok(py_res)
         })
@@ -115,7 +115,7 @@ impl PyResourcesServiceSync {
         let service = self.api_service.clone();
         let result = py.detach(|| self.runtime.block_on(service.resources.update(&updates)));
         let result = result.map_err(|e| crate::datahub_err(e))?;
-        Ok(PyGraphResult::from_wrapper(result))
+        Ok(PyGraphResult::from_wrapper(result, service.clone()))
     }
 
     /// Walk the graph from a starting resource and return the connected sub-graph.
@@ -143,7 +143,7 @@ impl PyResourcesServiceSync {
                 .runtime
                 .block_on(service.resources.fetch_related(&form))
                 .map_err(|e| crate::datahub_err(e))?;
-            Ok(PyResourceNetwork::from_network(result))
+            Ok(PyResourceNetwork::from_network(result, service.clone()))
         })
     }
 }

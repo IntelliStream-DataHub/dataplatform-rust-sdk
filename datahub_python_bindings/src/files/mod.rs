@@ -2,28 +2,61 @@ pub mod async_service;
 pub mod sync_service;
 
 use crate::datetime::opt_py_datetime_to_utc;
+use crate::resources::PyResource;
 use chrono::{DateTime, Utc};
-use dataplatform_rust_sdk::FileUpload;
 use dataplatform_rust_sdk::generic::{INode, IdAndExtId};
+use dataplatform_rust_sdk::{ApiService, FileUpload};
 use pyo3::prelude::*;
 use pyo3::types::PyType;
+use pyo3_async_runtimes::tokio::future_into_py;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[pyclass(module = "datahub_sdk", name = "INode", from_py_object)]
 #[derive(Clone)]
 pub struct PyINode {
     inner: INode,
+    /// The client this object was returned by, enabling navigation (`related_resource_nodes`).
+    /// `None` on locally-constructed inodes — navigation then raises.
+    client: Option<Arc<ApiService>>,
 }
 impl From<INode> for PyINode {
     fn from(ts: INode) -> Self {
-        Self { inner: ts }
+        Self {
+            inner: ts,
+            client: None,
+        }
     }
 }
 
 impl From<PyINode> for INode {
     fn from(ts: PyINode) -> Self {
         ts.inner
+    }
+}
+
+impl PyINode {
+    /// Wrap an inode returned by the API, stamping the client so navigation methods work.
+    pub fn with_client(inner: INode, client: Arc<ApiService>) -> Self {
+        Self {
+            inner,
+            client: Some(client),
+        }
+    }
+
+    /// This file's `related_resources` ids as resource selectors (for `resources.by_ids`).
+    fn related_id_collections(&self) -> Vec<IdAndExtId> {
+        self.inner
+            .related_resources
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|id| IdAndExtId {
+                id: Some(*id as u64),
+                external_id: None,
+            })
+            .collect()
     }
 }
 
@@ -94,6 +127,7 @@ impl PyINode {
                 related_resources,
                 security_categories,
             },
+            client: None,
         })
     }
 
@@ -176,6 +210,55 @@ impl PyINode {
     #[getter]
     pub fn security_categories(&self) -> Option<&Vec<i32>> {
         self.inner.security_categories.as_ref()
+    }
+}
+
+/// Object-level navigation. Available only on inodes returned by the API (which carry a client);
+/// calling these on a locally-constructed `INode` raises a clear error.
+#[pymethods]
+impl PyINode {
+    /// Fetch the resources this file references (its `related_resources` ids), resolved to
+    /// `Resource` objects via the resources service. (The `related_resources` *property* returns
+    /// the raw ids; this resolves them.) Blocking; see [`related_resource_nodes_async`].
+    fn related_resource_nodes(&self, py: Python<'_>) -> PyResult<Vec<PyResource>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let ids = self.related_id_collections();
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        py.detach(|| {
+            let result = crate::nav_runtime()
+                .block_on(service.resources.by_ids(&ids))
+                .map_err(crate::datahub_err)?;
+            Ok(result
+                .nodes()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| PyResource::with_client(r, service.clone()))
+                .collect())
+        })
+    }
+
+    /// Awaitable variant of [`related_resource_nodes`].
+    fn related_resource_nodes_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let ids = self.related_id_collections();
+        future_into_py(py, async move {
+            if ids.is_empty() {
+                return Ok(Vec::<PyResource>::new());
+            }
+            let result = service
+                .resources
+                .by_ids(&ids)
+                .await
+                .map_err(crate::datahub_err)?;
+            Ok(result
+                .nodes()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| PyResource::with_client(r, service.clone()))
+                .collect())
+        })
     }
 }
 #[pyclass(module = "datahub_sdk", name = "FileUpload", from_py_object)]
