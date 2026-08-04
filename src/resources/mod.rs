@@ -4,11 +4,11 @@ mod tests;
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{
     ApiServiceProvider, DataWrapper, DataWrapperDeserialization, IdAndExtId, Identifiable,
-    RelationForm, SearchAndFilterForm,
+    SearchAndFilterForm,
 };
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::{process_response, ResponseError};
-use crate::relations::{EdgeProxy, RelForm};
+use crate::relations::{EdgeProxy, RelForm, RelatedNode};
 use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -137,15 +137,16 @@ pub struct Resource {
     pub data_set_id: Option<u64>,
     pub source: Option<String>,
     pub labels: Option<Vec<String>>,
-    /// Edges where this resource is the `start` node, populated by the server on
-    /// read. Empty on resources you construct locally for a create request.
-    pub relations: Option<Vec<EdgeProxy>>,
+    /// The nodes this resource is connected to, with relationship type and direction,
+    /// populated by the server on read. Empty on resources you construct locally for a
+    /// create request (relations for create are passed separately as [`RelForm`]s).
+    #[serde(default)]
+    pub related_resources: Vec<RelatedNode>,
     pub geolocation: Option<HashMap<String, f64>>, // todo implement GEOJSON, not prio atm
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_time: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_updated_time: Option<DateTime<Utc>>,
-    pub relations_form: Option<Vec<RelationForm>>,
 }
 impl Resource {
     pub fn new() -> Self {
@@ -159,11 +160,10 @@ impl Resource {
             data_set_id: None,
             source: None,
             labels: None,
-            relations: None,
+            related_resources: vec![],
             geolocation: None,
             created_time: None,
             last_updated_time: None,
-            relations_form: Some(vec![]),
         }
     }
 }

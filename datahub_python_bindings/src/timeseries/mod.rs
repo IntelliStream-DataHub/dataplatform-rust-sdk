@@ -13,7 +13,7 @@ use crate::{
 use chrono::{DateTime, Utc};
 use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
 use dataplatform_rust_sdk::generic::{
-    Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RelationForm,
+    Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId,
     RetrieveFilter,
 };
 use dataplatform_rust_sdk::{TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
@@ -68,13 +68,14 @@ pub mod sync_service;
 ///
 /// data_set_id: int
 ///     the id of the datasets this timeseries belongs to
-/// relations_from: list[PyRelationFrom]
-///     A list of other Datahub entities that are connected to this timeseries
-///     PyRelationForm
+/// related_resources: list[RelatedNode]
+///     A list of other Datahub nodes connected to this timeseries. On create, each
+///     entry's id/external_id + relationship_type is turned into an edge server-side.
+///     RelatedNode
 ///         relationship_type: str
 ///             the type of relation, e.g. "derived_from" or "measures pressure of"
-///         entity: Identifyable
-///             a Datahub entity connected to this timeseries can be a Timeseries, Dataset, Asset or Policy
+///         id / external_id
+///             the connected node (a Timeseries, Dataset, Asset or Policy)
 ///
 ///
 #[pyclass(module = "datahub_sdk", name = "TimeSeries")]
@@ -103,39 +104,6 @@ impl From<PyTimeSeries> for PyIdCollection {
         }
     }
 }
-#[pyclass(module = "datahub_sdk", name = "RelationFrom")]
-#[derive(Clone, Debug)]
-pub struct PyRelationFrom {
-    pub inner: RelationForm,
-}
-impl From<RelationForm> for PyRelationFrom {
-    fn from(ts: RelationForm) -> Self {
-        Self { inner: ts }
-    }
-}
-impl From<PyRelationFrom> for RelationForm {
-    fn from(ts: PyRelationFrom) -> Self {
-        ts.inner
-    }
-}
-
-#[pymethods]
-impl PyRelationFrom {
-    /// constructor for PyRelationFrom
-    #[new]
-    #[pyo3(signature=(entity, relationship_type))]
-    pub fn new(entity: Identifiable, relationship_type: String) -> Self {
-        let id_collection = entity.id_collection();
-        Self {
-            inner: RelationForm {
-                id: id_collection.id,
-                external_id: id_collection.external_id,
-                relationship_type,
-            },
-        }
-    }
-}
-
 #[derive(FromPyObject)]
 pub enum PyTimeseriesIdentifiable {
     #[pyo3(transparent)]
@@ -201,7 +169,6 @@ impl PyTimeSeriesUpdate {
         unit_external_id=None,
         security_categories=None,
         data_set_id=None,
-        relations_from=None,
         value_type=None,
     ))]
     pub fn __init__(
@@ -214,7 +181,6 @@ impl PyTimeSeriesUpdate {
         unit_external_id: Option<PyFieldStr>,
         security_categories: Option<PyListFieldU64>,
         data_set_id: Option<PyFieldU64>,
-        relations_from: Option<PyListFieldU64>,
         value_type: Option<ValueType>,
     ) -> PyResult<Self> {
         let id_collection = ts.id_collection();
@@ -227,7 +193,6 @@ impl PyTimeSeriesUpdate {
             unit_external_id: unit_external_id.map(|s| s.0).unwrap_or_default(),
             security_categories: security_categories.map(|s| s.0).unwrap_or_default(),
             data_set_id: data_set_id.map(|s| s.0).unwrap_or_default(),
-            relations_from: relations_from.map(|s| s.0).unwrap_or_default(),
             value_type: Field::new(value_type.map(|s| s.to_string()), false),
         };
         Ok(Self {
@@ -277,10 +242,6 @@ impl PyTimeSeriesUpdate {
     #[getter]
     fn data_set_id(&self) -> PyFieldU64 {
         self.inner.update.data_set_id.clone().into()
-    }
-    #[getter]
-    fn relations_from(&self) -> PyListFieldU64 {
-        self.inner.update.relations_from.clone().into()
     }
     #[getter]
     fn value_type(&self) -> Option<&String> {

@@ -256,33 +256,6 @@ impl<T> DatapointsCollection<T> {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct RelationForm {
-    #[serde(default, with = "crate::serde_helper::opt_string_id")]
-    pub id: Option<u64>,
-    pub external_id: Option<String>,
-    pub relationship_type: String,
-}
-
-impl RelationForm {
-    pub fn from_id(id: u64, relationship_type: String) -> Self {
-        RelationForm {
-            id: Some(id),
-            external_id: None,
-            relationship_type,
-        }
-    }
-
-    pub fn from_external_id(external_id: String, relationship_type: String) -> Self {
-        RelationForm {
-            id: None,
-            external_id: Some(external_id),
-            relationship_type,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SearchAndFilterForm {
     pub filter: Option<FilterForm>, // todo!() not implemented yet in java app

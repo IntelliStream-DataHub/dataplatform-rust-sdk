@@ -10,9 +10,9 @@ the client fixtures. They only exercise the Python surface of the value objects:
   value (including assigning ``None`` to clear optional fields).
 
 Notes on the current build:
-* ``FileUpload``, ``ValueType`` and ``RelationFrom`` appear in the ``.pyi`` stub
-  but are not registered in the compiled extension, so they cannot be
-  constructed from Python yet and are not covered here.
+* ``FileUpload`` and ``ValueType`` appear in the ``.pyi`` stub but are not
+  registered in the compiled extension, so they cannot be constructed from
+  Python yet and are not covered here.
 """
 import datetime
 
@@ -353,15 +353,16 @@ class TestResource:
         assert r.metadata == {"vendor": "acme"}
         assert r.geolocation == {"lat": 1.0}
 
-    def test_relations_setter_accepts_edge_proxies(self):
+    def test_related_resources_setter_accepts_related_nodes(self):
         r = dh.Resource(name="Pump", external_id="asset1")
-        assert r.relations is None
-        edge = dh.EdgeProxy(relationship_type="connected_to")
-        r.relations = [edge]
-        assert r.relations is not None
-        assert len(r.relations) == 1
-        r.relations = None
-        assert r.relations is None
+        assert r.related_resources == []
+        node = dh.RelatedNode(external_id="tank_b", relationship_type="connected_to")
+        r.related_resources = [node]
+        assert len(r.related_resources) == 1
+        assert r.related_resources[0].relationship_type == "connected_to"
+        assert r.related_resources[0].external_id == "tank_b"
+        r.related_resources = None
+        assert r.related_resources == []
 
     def test_optional_setters_accept_none(self):
         r = dh.Resource(name="Pump", external_id="asset1", id=1, source="s", labels=["l"])

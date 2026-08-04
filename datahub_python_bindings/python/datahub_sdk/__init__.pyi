@@ -253,7 +253,7 @@ class TimeSeries:
         security_categories: list[int] | None = None,
         data_set_id: int | None = None,
         id: int | None = None,
-        relations_from: list[RelationFrom] | None = None,
+        related_resources: list[RelatedNode] | None = None,
     ) -> None: ...
     @property
     def id(self) -> int | None: ...
@@ -294,11 +294,39 @@ class TimeSeries:
     @data_set_id.setter
     def data_set_id(self, value: int | None) -> None: ...
     @property
-    def relations_from(self) -> list[RelationFrom] | None: ...
+    def related_resources(self) -> list[RelatedNode]: ...
+    @related_resources.setter
+    def related_resources(self, value: list[RelatedNode] | None) -> None: ...
 
 
-class RelationFrom:
-    def __init__(self, entity: Identifiable, relationship_type: str) -> None: ...
+class RelatedNode:
+    """The unified node-centric relation, mirroring server-side `RelatedNode`: a node
+    this one is connected to, with `relationship_type` and (on read) `direction` /
+    `edge_id`. On input pass `id` or `external_id` plus a `relationship_type`."""
+
+    def __init__(
+        self,
+        *,
+        relationship_type: str | None = None,
+        id: int | None = None,
+        external_id: str | None = None,
+    ) -> None: ...
+    @classmethod
+    def from_id(cls, id: int, relationship_type: str) -> RelatedNode: ...
+    @classmethod
+    def from_external_id(
+        cls, external_id: str, relationship_type: str
+    ) -> RelatedNode: ...
+    @property
+    def id(self) -> int | None: ...
+    @property
+    def external_id(self) -> str | None: ...
+    @property
+    def relationship_type(self) -> str | None: ...
+    @property
+    def direction(self) -> str | None: ...
+    @property
+    def edge_id(self) -> int | None: ...
 
 
 class TimeSeriesUpdate:
@@ -313,7 +341,6 @@ class TimeSeriesUpdate:
         unit_external_id: FieldStr | None = None,
         security_categories: ListFieldU64 | None = None,
         data_set_id: FieldU64 | None = None,
-        relations_from: ListFieldU64 | None = None,
         value_type: ValueType | None = None,
     ) -> None: ...
     @property
@@ -336,8 +363,6 @@ class TimeSeriesUpdate:
     def security_categories(self) -> ListFieldU64: ...
     @property
     def data_set_id(self) -> FieldU64: ...
-    @property
-    def relations_from(self) -> ListFieldU64: ...
     @property
     def value_type(self) -> str | None: ...
 
@@ -702,7 +727,7 @@ class Resource:
         data_set_id: int | None = None,
         source: str | None = None,
         labels: list[str] | None = None,
-        relations: list[EdgeProxy] | None = None,
+        related_resources: list[RelatedNode] | None = None,
         geolocation: dict[str, float] | None = None,
     ) -> None: ...
     @property
@@ -742,9 +767,9 @@ class Resource:
     @labels.setter
     def labels(self, value: list[str] | None) -> None: ...
     @property
-    def relations(self) -> list[EdgeProxy] | None: ...
-    @relations.setter
-    def relations(self, value: list[EdgeProxy] | None) -> None: ...
+    def related_resources(self) -> list[RelatedNode]: ...
+    @related_resources.setter
+    def related_resources(self, value: list[RelatedNode] | None) -> None: ...
     @property
     def geolocation(self) -> dict[str, float] | None: ...
     @geolocation.setter
@@ -756,8 +781,9 @@ class Resource:
 
 
 # ====================== Relations ======================
-# NOTE: `RelForm` (graph/resources relation form) is distinct from the legacy
-# `RelationFrom` used by timeseries — both intentionally coexist.
+# NOTE: `RelForm` is the request-side edge form for resource create. `RelatedNode`
+# is the unified node-centric relation carried by every node type (Resource,
+# TimeSeries, Function, ...). `EdgeProxy` is the full edge detail in graph responses.
 
 class EdgeProxy:
     """Server-assigned edge between two resources. The `relationship_type`
@@ -1310,7 +1336,7 @@ class Function:
     @property
     def last_updated_time(self) -> datetime.datetime | None: ...
     @property
-    def relations(self) -> list[EdgeProxy]: ...
+    def related_resources(self) -> list[RelatedNode]: ...
 
 
 FunctionIdentifiable = Union[Function, IdCollection, int, str]

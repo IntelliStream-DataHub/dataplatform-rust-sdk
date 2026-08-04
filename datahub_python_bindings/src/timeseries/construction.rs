@@ -1,9 +1,11 @@
+use crate::relations::PyRelatedNode;
 use crate::timeseries::datapoints::{PyDatapointString, PyDatapointsCollectionString};
-use crate::timeseries::{PyRelationFrom, PyTimeSeries, ValueType};
+use crate::timeseries::{PyTimeSeries, ValueType};
 use crate::{DatahubIdentity, Identifiable};
 use dataplatform_rust_sdk::TimeSeries;
 use dataplatform_rust_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
-use dataplatform_rust_sdk::generic::{DatapointString, DatapointsCollection, RelationForm};
+use dataplatform_rust_sdk::generic::{DatapointString, DatapointsCollection};
+use dataplatform_rust_sdk::relations::RelatedNode;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -34,7 +36,7 @@ impl PyTimeSeries {
     unit_external_id = None,
     security_categories = None,
     data_set_id = None,
-    relations_from = None
+    related_resources = None
 ))]
     pub fn new(
         name: Option<String>,
@@ -46,7 +48,7 @@ impl PyTimeSeries {
         unit_external_id: Option<String>,
         security_categories: Option<Vec<u64>>,
         data_set_id: Option<u64>,
-        relations_from: Option<Vec<PyRelationFrom>>,
+        related_resources: Option<Vec<PyRelatedNode>>,
     ) -> PyResult<PyTimeSeries> {
         let (final_name, final_ext_id) = match (name, external_id) {
             (Some(name), Some(external_id)) => (name, external_id),
@@ -74,8 +76,8 @@ impl PyTimeSeries {
             value_type: value_type.to_string(),
             created_time: None,
             last_updated_time: None,
-            relations_from: relations_from
-                .map(|r| r.into_iter().map(|s| RelationForm::from(s)).collect())
+            related_resources: related_resources
+                .map(|r| r.into_iter().map(RelatedNode::from).collect())
                 .unwrap_or_default(),
         };
         Ok(PyTimeSeries { inner })

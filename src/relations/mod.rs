@@ -64,6 +64,71 @@ pub struct RelForm {
     pub description: Option<String>,
 }
 
+/// Direction of a relationship relative to the node it is attached to. A node-centric
+/// relation list mixes both directions of the underlying (directed) edges: `OUTBOUND`
+/// means this node is the edge `start`, `INBOUND` means this node is the edge `end`.
+/// Populated on outbound reads; absent on input payloads.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum RelationDirection {
+    Outbound,
+    Inbound,
+}
+
+/// The unified node-centric relation encoding, mirroring server-side `RelatedNode`.
+/// A single node related to some other node: the target's `id`/`external_id` plus the
+/// `relationship_type` and [`RelationDirection`]. Replaces the divergent legacy
+/// encodings (`Resource.relations` as `EdgeProxy`, `Timeseries.relationsFrom`).
+///
+/// It serves both directions. On **reads** all fields are populated: `direction` and
+/// `edge_id` describe how the nodes relate and which edge realizes the relation (look
+/// the edge up by `edge_id` for its metadata). On **input** (e.g. creating a timeseries
+/// with relations) only `id`/`external_id` + `relationship_type` are sent; `direction`
+/// and `edge_id` are server-assigned and omitted.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedNode {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
+    pub id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_type: Option<String>,
+    /// Output-only: direction of the relation relative to the node it hangs off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<RelationDirection>,
+    /// Output-only: id of the edge realizing this relation; look up the edge by this id
+    /// for its detail/metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
+    pub edge_id: Option<u64>,
+}
+
+impl RelatedNode {
+    /// Input helper: relate to the node with this numeric id via `ty`.
+    pub fn from_id(id: u64, ty: impl Into<String>) -> Self {
+        Self {
+            id: Some(id),
+            external_id: None,
+            relationship_type: Some(ty.into()),
+            direction: None,
+            edge_id: None,
+        }
+    }
+
+    /// Input helper: relate to the node with this external id via `ty`.
+    pub fn from_external_id(external_id: impl Into<String>, ty: impl Into<String>) -> Self {
+        Self {
+            id: None,
+            external_id: Some(external_id.into()),
+            relationship_type: Some(ty.into()),
+            direction: None,
+            edge_id: None,
+        }
+    }
+}
+
 impl RelForm {
     pub fn by_external_ids(
         from: impl Into<String>,

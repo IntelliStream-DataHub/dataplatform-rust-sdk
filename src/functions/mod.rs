@@ -10,7 +10,7 @@ use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Weak;
 
-pub use crate::relations::EdgeProxy;
+pub use crate::relations::RelatedNode;
 
 /// Client for the `/functions` endpoints. A `Function` binds a server-side model template
 /// (e.g. `forecast-ema`, `anomaly-detection`) to a JSON config map. Once a `PROCESSED_BY`
@@ -128,11 +128,12 @@ pub struct Function {
     pub labels: Vec<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
-    /// PROCESSED_BY edges where this function is the end (bound input timeseries on
-    /// {@code start}). Populated server-side by `FunctionService.list()` so a function
-    /// worker can derive its `(function, ts)` routing map without a separate edge query.
+    /// The nodes this function is connected to (e.g. its bound input timeseries via
+    /// PROCESSED_BY edges), with relationship type and direction. Populated server-side
+    /// by `FunctionService.list()` so a function worker can derive its `(function, ts)`
+    /// routing map without a separate edge query.
     #[serde(default, skip_serializing)]
-    pub relations: Vec<EdgeProxy>,
+    pub related_resources: Vec<RelatedNode>,
     #[serde(skip_serializing)]
     pub created_time: Option<DateTime<Utc>>,
     #[serde(skip_serializing)]
@@ -149,7 +150,7 @@ impl Function {
             config: JsonValue::Object(serde_json::Map::new()),
             labels: vec![],
             metadata: HashMap::new(),
-            relations: vec![],
+            related_resources: vec![],
             created_time: None,
             last_updated_time: None,
         }
