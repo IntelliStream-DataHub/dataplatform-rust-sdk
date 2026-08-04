@@ -16,7 +16,9 @@ use dataplatform_rust_sdk::generic::{
     Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId,
     RetrieveFilter,
 };
+use crate::events::PyEvent;
 use crate::resources::{PyResource, PyResourceNetwork};
+use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter};
 use dataplatform_rust_sdk::resources::RelatedResourcesForm;
 use dataplatform_rust_sdk::{ApiService, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
 use pyo3::exceptions::PyValueError;
@@ -87,7 +89,7 @@ pub mod sync_service;
 pub struct PyTimeSeries {
     pub inner: TimeSeries,
     /// The client this object was returned by, enabling navigation methods
-    /// (`related`). `None` on locally-constructed timeseries — navigation then raises.
+    /// (`neighbors`). `None` on locally-constructed timeseries — navigation then raises.
     pub client: Option<Arc<ApiService>>,
 }
 
@@ -151,9 +153,9 @@ impl PyTimeSeries {
     /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
     /// (`-1`, the default, = the whole connected component); `relationship_types` filters which
     /// edge types to follow (`None` = all); `limit` caps the node count. Neighbour nodes are
-    /// modelled as `Resource`. Blocking; see [`related_async`] for the awaitable variant.
+    /// modelled as `Resource`. Blocking; see [`neighbors_async`] for the awaitable variant.
     #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
-    fn related(
+    fn neighbors(
         &self,
         py: Python<'_>,
         depth: i32,
@@ -170,9 +172,9 @@ impl PyTimeSeries {
         })
     }
 
-    /// Awaitable variant of [`related`].
+    /// Awaitable variant of [`neighbors`].
     #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
-    fn related_async<'py>(
+    fn neighbors_async<'py>(
         &self,
         py: Python<'py>,
         depth: i32,
@@ -452,4 +454,70 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDatapointsCollectionDatapoints>()?;
     m.add_class::<PyDatapointsCollectionString>()?;
     Ok(())
+}
+
+/// Reverse lookup: the events that reference this timeseries. (The other direction —
+/// `Event.related_resource_nodes()` — resolves an event's resources.) Available only on
+/// timeseriess returned by the API; calling on a locally-constructed one raises.
+#[pymethods]
+impl PyTimeSeries {
+    /// Fetch events whose `related_resource_ids` / `related_resource_external_ids` include this
+    /// timeseries (matched by graph-node id when present, else external id), via `events.filter`.
+    /// `limit` caps the results (default 100). Blocking; see [`related_events_async`].
+    #[pyo3(signature = (limit=100))]
+    fn related_events(&self, py: Python<'_>, limit: u64) -> PyResult<Vec<PyEvent>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let filter = self.related_events_filter(limit);
+        py.detach(|| {
+            let result = crate::nav_runtime()
+                .block_on(service.events.filter(&filter))
+                .map_err(crate::datahub_err)?;
+            Ok(result
+                .get_items()
+                .iter()
+                .cloned()
+                .map(|e| PyEvent::with_client(e, service.clone()))
+                .collect())
+        })
+    }
+
+    /// Awaitable variant of [`related_events`].
+    #[pyo3(signature = (limit=100))]
+    fn related_events_async<'py>(&self, py: Python<'py>, limit: u64) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+        let filter = self.related_events_filter(limit);
+        future_into_py(py, async move {
+            let result = service
+                .events
+                .filter(&filter)
+                .await
+                .map_err(crate::datahub_err)?;
+            Ok(result
+                .get_items()
+                .iter()
+                .cloned()
+                .map(|e| PyEvent::with_client(e, service.clone()))
+                .collect::<Vec<_>>())
+        })
+    }
+}
+
+impl PyTimeSeries {
+    /// Build the events filter selecting events that reference this node (by id when present,
+    /// else external id).
+    fn related_events_filter(&self, limit: u64) -> EventFilter {
+        let mut basic = BasicEventFilter::default();
+        match self.inner.id {
+            Some(id) => {
+                basic.set_related_resource_ids(&[id]);
+            }
+            None => {
+                basic.set_related_resource_external_ids(&[self.inner.external_id.as_str()]);
+            }
+        }
+        let mut filter = EventFilter::default();
+        filter.set_filter(basic);
+        filter.set_limit(limit);
+        filter
+    }
 }

@@ -163,8 +163,8 @@ impl PyEvent {
 impl PyEvent {
     /// Fetch the resources this event references (its `related_resource_ids` /
     /// `related_resource_external_ids`), resolved via the resources service. Blocking;
-    /// see [`related_resources_async`] for the awaitable variant.
-    fn related_resources(&self, py: Python<'_>) -> PyResult<Vec<PyResource>> {
+    /// see [`related_resource_nodes_async`] for the awaitable variant.
+    fn related_resource_nodes(&self, py: Python<'_>) -> PyResult<Vec<PyResource>> {
         let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
         let ids = self.related_id_collections();
         if ids.is_empty() {
@@ -183,8 +183,8 @@ impl PyEvent {
         })
     }
 
-    /// Awaitable variant of [`related_resources`].
-    fn related_resources_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+    /// Awaitable variant of [`related_resource_nodes`].
+    fn related_resource_nodes_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
         let ids = self.related_id_collections();
         future_into_py(py, async move {

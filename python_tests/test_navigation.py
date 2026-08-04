@@ -1,8 +1,8 @@
 """Object-level navigation: fetching related entities directly off an object.
 
 Mirrors the Cognite-Python ergonomics added to the bindings: objects *returned by
-the API* carry a client, so `resource.related()` / `timeseries.related()` (graph
-traversal) and `event.related_resources()` (resolve the event's related-resource
+the API* carry a client, so `resource.neighbors()` / `timeseries.neighbors()` (graph
+traversal) and `event.related_resource_nodes()` (resolve the event's related-resource
 refs) — plus their `*_async` twins — can call back into the API. Locally-constructed
 objects carry no client and raise instead. Skipped if the backend is unreachable
 (the fixtures take care of that).
@@ -19,7 +19,7 @@ import datahub_sdk
 import pytest
 from datahub_sdk import DataHubException, Event, RelForm, Resource, ResourceNetwork, TimeSeries
 
-from fixtures import async_client, make_resource, sync_client, unique_id
+from fixtures import async_client, make_dataset, make_resource, sync_client, unique_id
 
 
 # The Neo4j graph is eventually-consistent with writes; a create isn't immediately
@@ -36,6 +36,14 @@ _GRAPH_PROPAGATION_SKIP = (
     "(graph-propagation lag/outage); navigation itself works on established nodes"
 )
 
+# Events are written to ClickHouse by an async consumer, so a just-created event may not be
+# returned by events.filter immediately (or at all, if that consumer is down). Skip rather
+# than fail the reverse-lookup test when the event never becomes filterable.
+_EVENT_PROPAGATION_SKIP = (
+    "created event never became visible to events.filter on this backend "
+    "(event ClickHouse-consumer lag/outage); related_events itself works when it is caught up"
+)
+
 
 # --------------------------------------------------------------------------- #
 # Missing-client: navigation on a locally-constructed object raises.
@@ -43,14 +51,48 @@ _GRAPH_PROPAGATION_SKIP = (
 
 def test_local_objects_have_no_client():
     with pytest.raises(RuntimeError):
-        Resource(name="local").related()
+        Resource(name="local").neighbors()
     with pytest.raises(RuntimeError):
-        TimeSeries(external_id=unique_id("ts")).related()
+        TimeSeries(external_id=unique_id("ts")).neighbors()
     with pytest.raises(RuntimeError):
         Event(
             external_id=unique_id("ev"),
             event_time=dt.datetime.now(dt.timezone.utc),
-        ).related_resources()
+        ).related_resource_nodes()
+    with pytest.raises(RuntimeError):
+        datahub_sdk.Dataset(external_id=unique_id("ds")).neighbors()
+    with pytest.raises(RuntimeError):
+        datahub_sdk.Function(external_id=unique_id("fn"), model_name="forecast-ema").neighbors()
+    with pytest.raises(RuntimeError):
+        datahub_sdk.INode(
+            name="local node", external_id=unique_id("nd"), path="/x", size=0,
+            related_resources=[1, 2],
+        ).related_resource_nodes()
+    # reverse lookup (node -> events) also needs a client
+    with pytest.raises(RuntimeError):
+        Resource(name="local").related_events()
+    with pytest.raises(RuntimeError):
+        TimeSeries(external_id=unique_id("ts")).related_events()
+    with pytest.raises(RuntimeError):
+        datahub_sdk.Dataset(external_id=unique_id("ds")).related_events()
+    with pytest.raises(RuntimeError):
+        datahub_sdk.Function(external_id=unique_id("fn"), model_name="forecast-ema").related_events()
+
+
+def test_navigation_methods_exist_on_classes():
+    # Guards against a future merge silently dropping the navigation methods (as the
+    # relations refactor did) — the compiled module must expose them.
+    assert hasattr(datahub_sdk.Resource, "neighbors")
+    assert hasattr(datahub_sdk.TimeSeries, "neighbors")
+    assert hasattr(datahub_sdk.Dataset, "neighbors")
+    assert hasattr(datahub_sdk.Function, "neighbors")
+    assert hasattr(datahub_sdk.Event, "related_resource_nodes")
+    assert hasattr(datahub_sdk.INode, "related_resource_nodes")
+    for cls in (datahub_sdk.Resource, datahub_sdk.TimeSeries, datahub_sdk.Dataset,
+                datahub_sdk.Function):
+        assert hasattr(cls, "neighbors_async")
+        assert hasattr(cls, "related_events")
+        assert hasattr(cls, "related_events_async")
 
 
 # --------------------------------------------------------------------------- #
@@ -69,17 +111,17 @@ def test_resource_related(sync_client, make_resource):
     a = next(r for r in sync_client.resources.by_ids([a_ext]) if r.external_id == a_ext)
 
     deadline = time.monotonic() + GRAPH_PROPAGATION_TIMEOUT
-    network = a.related()
+    network = a.neighbors()
     while b_ext not in {n.external_id for n in network.nodes} and time.monotonic() < deadline:
         time.sleep(GRAPH_POLL_INTERVAL)
-        network = a.related()
+        network = a.neighbors()
     assert isinstance(network, ResourceNetwork)
     if b_ext not in {n.external_id for n in network.nodes}:
         pytest.skip(_GRAPH_PROPAGATION_SKIP)
 
     # Nodes returned by navigation carry the client too, so navigation chains.
     b = next(n for n in network.nodes if n.external_id == b_ext)
-    assert isinstance(b.related(), ResourceNetwork)
+    assert isinstance(b.neighbors(), ResourceNetwork)
 
 
 @pytest.mark.asyncio
@@ -101,10 +143,10 @@ async def test_resource_related_async(async_client):
         a = next(r for r in fetched if r.external_id == a_ext)
 
         deadline = time.monotonic() + GRAPH_PROPAGATION_TIMEOUT
-        network = await a.related_async()
+        network = await a.neighbors_async()
         while b_ext not in {n.external_id for n in network.nodes} and time.monotonic() < deadline:
             await asyncio.sleep(GRAPH_POLL_INTERVAL)
-            network = await a.related_async()
+            network = await a.neighbors_async()
         assert isinstance(network, ResourceNetwork)
         if b_ext not in {n.external_id for n in network.nodes}:
             pytest.skip(_GRAPH_PROPAGATION_SKIP)
@@ -134,9 +176,48 @@ def test_event_related_resources(sync_client, make_resource):
     # works directly off the result.
     created = sync_client.events.create([ev])[0]
     try:
-        related = created.related_resources()
+        related = created.related_resource_nodes()
         assert isinstance(related, list)
         assert res_ext in {r.external_id for r in related}
+    finally:
+        try:
+            sync_client.events.delete([created])
+        except Exception:
+            pass
+
+
+# --------------------------------------------------------------------------- #
+# Resource.related_events — reverse lookup: events that reference this node.
+# --------------------------------------------------------------------------- #
+
+def test_resource_related_events(sync_client, make_resource):
+    res_ext = unique_id("nav_reev_res")
+    resource = Resource(external_id=res_ext, name="Nav RelEvents Res", is_root=True, labels=["ASSET"])
+    make_resource([resource])
+
+    ev_ext = unique_id("nav_reev_ev")
+    ev = Event(
+        external_id=ev_ext,
+        event_time=dt.datetime.now(dt.timezone.utc),
+        related_resource_external_ids=[res_ext],
+    )
+    created = sync_client.events.create([ev])[0]
+    try:
+        r = next(
+            x for x in sync_client.resources.by_ids([res_ext]) if x.external_id == res_ext
+        )
+        deadline = time.monotonic() + GRAPH_PROPAGATION_TIMEOUT
+        events = r.related_events()
+        while ev_ext not in {e.external_id for e in events} and time.monotonic() < deadline:
+            time.sleep(GRAPH_POLL_INTERVAL)
+            events = r.related_events()
+        assert isinstance(events, list)
+        if ev_ext not in {e.external_id for e in events}:
+            pytest.skip(_EVENT_PROPAGATION_SKIP)
+
+        # Events returned by the reverse lookup carry a client, so they can resolve back.
+        e = next(x for x in events if x.external_id == ev_ext)
+        assert res_ext in {n.external_id for n in e.related_resource_nodes()}
     finally:
         try:
             sync_client.events.delete([created])
@@ -160,10 +241,31 @@ def test_timeseries_related(sync_client):
 
     try:
         fetched = sync_client.timeseries.by_ids([created])[0]
-        network = fetched.related()
+        network = fetched.neighbors()
         assert isinstance(network, ResourceNetwork)
     finally:
         try:
             sync_client.timeseries.delete([created])
         except Exception:
             pass
+
+
+# --------------------------------------------------------------------------- #
+# Dataset.related — verifies the client is stamped on API-returned datasets.
+# --------------------------------------------------------------------------- #
+
+def test_dataset_related_is_client_stamped(sync_client, make_dataset):
+    ds = make_dataset()
+    fetched = next(
+        d for d in sync_client.datasets.by_ids([ds.external_id])
+        if d.external_id == ds.external_id
+    )
+    # A dataset returned by the API carries a client, so related() must NOT raise the
+    # missing-client RuntimeError. It may return a (possibly empty) ResourceNetwork, or raise
+    # a DataHubException if the fresh node isn't graph-resolvable yet — both prove the client
+    # is attached; only a RuntimeError would mean stamping was lost.
+    try:
+        network = fetched.neighbors()
+        assert isinstance(network, ResourceNetwork)
+    except DataHubException:
+        pass

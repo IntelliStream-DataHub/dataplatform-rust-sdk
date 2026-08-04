@@ -25,7 +25,7 @@ impl PyDatasetsServiceSync {
         let py_res: Vec<PyDataset> = result
             .get_items()
             .iter()
-            .map(|ts| PyDataset { inner: ts.clone() })
+            .map(|ts| PyDataset::with_client(ts.clone(), service.clone()))
             .collect();
         Ok(py_res)
     }
@@ -48,7 +48,7 @@ impl PyDatasetsServiceSync {
         let py_res: Vec<PyDataset> = result
             .get_items()
             .iter()
-            .map(|ts| PyDataset { inner: ts.clone() })
+            .map(|ts| PyDataset::with_client(ts.clone(), service.clone()))
             .collect();
         Ok(py_res)
     }

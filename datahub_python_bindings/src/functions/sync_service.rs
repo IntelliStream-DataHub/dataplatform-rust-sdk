@@ -25,7 +25,7 @@ impl PyFunctionsServiceSync {
                 .get_items()
                 .iter()
                 .cloned()
-                .map(PyFunction::from)
+                .map(|f| PyFunction::with_client(f, service.clone()))
                 .collect())
         })
     }
@@ -42,7 +42,7 @@ impl PyFunctionsServiceSync {
                 .get_items()
                 .iter()
                 .cloned()
-                .map(PyFunction::from)
+                .map(|f| PyFunction::with_client(f, service.clone()))
                 .collect())
         })
     }
@@ -63,7 +63,7 @@ impl PyFunctionsServiceSync {
                 .get_items()
                 .iter()
                 .cloned()
-                .map(PyFunction::from)
+                .map(|f| PyFunction::with_client(f, service.clone()))
                 .collect())
         })
     }
@@ -77,7 +77,7 @@ impl PyFunctionsServiceSync {
                 .runtime
                 .block_on(service.functions.by_external_id(&external_id))
                 .map_err(|e| crate::datahub_err(e))?;
-            Ok(PyFunction::from(function))
+            Ok(PyFunction::with_client(function, service.clone()))
         })
     }
 
