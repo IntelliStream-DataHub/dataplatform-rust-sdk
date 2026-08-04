@@ -41,7 +41,7 @@ use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::labels::Label;
 use crate::relations::RelForm;
-use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork};
+use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork, ResourceUpdate};
 use crate::timeseries::{TimeSeries, TimeSeriesUpdateCollection};
 use crate::unit::Unit;
 
@@ -205,6 +205,13 @@ impl ResourceService {
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
     {
         self.rt.block_on(self.api.resources.delete(input))
+    }
+
+    pub fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
+    where
+        for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
+    {
+        self.rt.block_on(self.api.resources.update(input))
     }
 }
 

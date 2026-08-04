@@ -35,18 +35,17 @@ impl<T> Field<T> {
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ListField<T> {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set: Option<Vec<T>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub add: Option<Vec<T>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remove: Option<Vec<T>>,
 }
 
 impl<T> ListField<T> {
     pub fn new(set: Option<Vec<T>>, add: Option<Vec<T>>, remove: Option<Vec<T>>) -> Self {
-        ListField {
-            set: None,
-            add: None,
-            remove: None,
-        }
+        ListField { set, add, remove }
     }
     pub fn default() -> Self {
         ListField {

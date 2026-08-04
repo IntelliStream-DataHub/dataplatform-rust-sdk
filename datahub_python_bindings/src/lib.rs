@@ -770,6 +770,7 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyUnitServiceAsync>()?;
     m.add_class::<PyUnit>()?;
     m.add_class::<PyResource>()?;
+    m.add_class::<crate::resources::PyResourceUpdate>()?;
     m.add_class::<crate::resources::PyResourceNetwork>()?;
     m.add_class::<PyLabel>()?;
     m.add_class::<PyLabelsServiceSync>()?;
