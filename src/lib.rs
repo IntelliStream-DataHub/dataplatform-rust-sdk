@@ -10,6 +10,9 @@ pub use crate::resources::ResourceService;
 pub use crate::timeseries::TimeSeriesService;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE};
 pub use unit::{Unit, UnitsService};
+// Only the service is re-exported at the crate root: `resources::*` already brings a
+// (different) `Label` graph DTO here, so the label entity stays addressed as `labels::Label`.
+pub use crate::labels::LabelsService;
 pub use crate::subscriptions::SubscriptionsService;
 
 #[cfg(feature = "blocking")]
@@ -27,6 +30,7 @@ pub mod filters;
 pub mod generic;
 pub mod graph_data_wrapper;
 pub mod http;
+pub mod labels;
 pub mod relations;
 pub mod resources;
 pub mod serde_helper;
@@ -64,6 +68,7 @@ pub struct ApiService {
     pub files: FileService,
     pub subscriptions: SubscriptionsService,
     pub functions: FunctionsService,
+    pub labels: LabelsService,
     pub(crate) http_client: Client,
 }
 
@@ -118,6 +123,7 @@ pub fn create_api_service() -> Arc<ApiService> {
             files: FileService::new(Weak::clone(weak_self), &base_url_clone),
             subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
             functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
+            labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
             http_client,
         }
     });
@@ -152,6 +158,7 @@ impl ApiService {
                 files: FileService::new(Weak::clone(weak_self), &base_url_clone),
                 subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
                 functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
+                labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });
@@ -187,6 +194,7 @@ impl ApiService {
                 files: FileService::new(Weak::clone(weak_self), &base_url_clone),
                 subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
                 functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
+                labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });

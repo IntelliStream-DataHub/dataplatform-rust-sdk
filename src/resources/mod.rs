@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod label_update_tests;
 
 use crate::fields::{Field, ListField, MapField};
 use crate::generic::{
@@ -95,31 +97,23 @@ impl ResourceService {
         self.execute_post_request::<ResourceNetwork, _>(&url, &form)
             .await
     }
-    pub async fn update<I>(&self, input: &I) -> Result<DataWrapper<Resource>, ResponseError>
+    /// Update resources in place (`POST /resources/update`). Each [`ResourceUpdate`] targets one
+    /// resource by id or external id and carries only the fields to change (PATCH semantics). The
+    /// server returns the resources after the update, so the returned `labels` reflect what the
+    /// backend actually stored — including the intrinsic type-label it always forces back.
+    pub async fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
     where
         for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
     {
-        todo!();
-
-        let payload = input.into();
-        let token = self.get_token().await?;
+        let mut payload = input.into();
+        // The server iterates `relations`; send an empty list rather than null when unset.
+        if payload.relations.is_none() {
+            payload.relations = Some(vec![]);
+        }
         let url = &format!("{}/update", self.base_url);
-
-        let response = self
-            .get_api_service()
-            .http_client
-            .post(url)
-            .json(&payload)
-            .bearer_auth(token)
-            .send()
+        self.execute_post_request::<GraphDataWrapper<Resource>, _>(&url, &payload)
             .await
-            .map_err(|e| ResponseError {
-                status: e.status().unwrap(),
-                message: e.to_string(),
-            })?;
-        process_response::<DataWrapper<Resource>>(response, url).await
     }
-    //
 }
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -185,27 +179,95 @@ impl Identifiable for Resource {
         &self.external_id
     }
 }
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// One node's update in `POST /resources/update`. Target the resource by `id` or `external_id`,
+/// then describe the changes in `update`. Build it fluently, e.g.
+/// `ResourceUpdate::by_external_id("pump_a").add_labels(vec!["CRITICAL"]).remove_labels(vec!["DRAFT"])`.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceUpdate {
-    //todo!()
-    pub update: Option<ResourceUpdateFields>,
-    pub relation_update: Option<Vec<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_helper::opt_string_id"
+    )]
+    pub id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    pub update: ResourceUpdateFields,
 }
 
 impl GraphNode for ResourceUpdate {}
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+impl ResourceUpdate {
+    /// Target the resource by its external id.
+    pub fn by_external_id(external_id: &str) -> Self {
+        ResourceUpdate {
+            id: None,
+            external_id: Some(external_id.to_string()),
+            update: ResourceUpdateFields::default(),
+        }
+    }
+
+    /// Target the resource by its numeric id.
+    pub fn by_id(id: u64) -> Self {
+        ResourceUpdate {
+            id: Some(id),
+            external_id: None,
+            update: ResourceUpdateFields::default(),
+        }
+    }
+
+    /// Replace the whole label set (`labels.set`).
+    pub fn set_labels(mut self, labels: Vec<&str>) -> Self {
+        self.update.labels_mut().set = Some(labels.into_iter().map(String::from).collect());
+        self
+    }
+
+    /// Add labels (`labels.add`).
+    pub fn add_labels(mut self, labels: Vec<&str>) -> Self {
+        self.update.labels_mut().add = Some(labels.into_iter().map(String::from).collect());
+        self
+    }
+
+    /// Remove labels (`labels.remove`).
+    pub fn remove_labels(mut self, labels: Vec<&str>) -> Self {
+        self.update.labels_mut().remove = Some(labels.into_iter().map(String::from).collect());
+        self
+    }
+
+    /// Rename the resource (`name.set`).
+    pub fn set_name(mut self, name: &str) -> Self {
+        self.update.name = Some(Field::new(Some(name.to_string()), false));
+        self
+    }
+}
+
+/// Field-level changes for a [`ResourceUpdate`]. Every field is optional and only the ones set are
+/// sent; the server applies just those. `labels` uses the three-way [`ListField`] (set/add/remove).
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceUpdateFields {
-    //todo!()
-    #[serde(rename = "externalId")]
-    external_id: Field<String>,
-    name: Field<String>,
-    description: Field<String>,
-    #[serde(rename = "dataSetId")]
-    data_set_id: Field<u64>,
-    metadata: MapField,
-    source: Field<String>,
-    labels: ListField<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<Field<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<Field<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<Field<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_set_id: Option<Field<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<MapField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<Field<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<ListField<String>>,
+}
+
+impl ResourceUpdateFields {
+    /// The label list-update, created empty on first access so set/add/remove can each be layered on.
+    fn labels_mut(&mut self) -> &mut ListField<String> {
+        self.labels.get_or_insert_with(ListField::default)
+    }
 }
 
 /// Request body for [`ResourceService::fetch_related`] (`POST /resources/fetch-related`).

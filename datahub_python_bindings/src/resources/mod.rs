@@ -20,6 +20,80 @@ fn geometry_from_py(obj: Bound<'_, PyAny>) -> PyResult<Geometry> {
 pub mod async_service;
 pub mod sync_service;
 
+use crate::{PyFieldStr, PyFieldU64, PyListFieldStr, PyMapField};
+use dataplatform_rust_sdk::resources::{ResourceUpdate, ResourceUpdateFields};
+
+/// One resource's update for `resources.update`. Target the resource by a `Resource`, its numeric
+/// id, or its external id; every field is optional and uses the same wrappers as elsewhere
+/// (`FieldStr` for scalars, `ListFieldStr` for labels, `MapField` for metadata). Mirrors
+/// `TimeSeriesUpdate`.
+#[pyclass(module = "datahub_sdk", name = "ResourceUpdate")]
+#[derive(Clone)]
+pub struct PyResourceUpdate {
+    pub inner: ResourceUpdate,
+}
+
+impl From<PyResourceUpdate> for ResourceUpdate {
+    fn from(v: PyResourceUpdate) -> Self {
+        v.inner
+    }
+}
+
+#[pymethods]
+impl PyResourceUpdate {
+    #[new]
+    #[pyo3(signature = (
+        resource,
+        external_id = None,
+        name = None,
+        description = None,
+        data_set_id = None,
+        metadata = None,
+        source = None,
+        labels = None,
+    ))]
+    pub fn __init__(
+        resource: ResourceIdentifiable,
+        external_id: Option<PyFieldStr>,
+        name: Option<PyFieldStr>,
+        description: Option<PyFieldStr>,
+        data_set_id: Option<PyFieldU64>,
+        metadata: Option<PyMapField>,
+        source: Option<PyFieldStr>,
+        labels: Option<PyListFieldStr>,
+    ) -> Self {
+        let ident = IdAndExtId::from(resource);
+        Self {
+            inner: ResourceUpdate {
+                id: ident.id,
+                external_id: ident.external_id,
+                update: ResourceUpdateFields {
+                    external_id: external_id.map(Into::into),
+                    name: name.map(Into::into),
+                    description: description.map(Into::into),
+                    data_set_id: data_set_id.map(Into::into),
+                    metadata: metadata.map(Into::into),
+                    source: source.map(Into::into),
+                    labels: labels.map(Into::into),
+                },
+            },
+        }
+    }
+
+    #[getter]
+    fn target_id(&self) -> Option<u64> {
+        self.inner.id
+    }
+    #[getter]
+    fn target_external_id(&self) -> Option<&str> {
+        self.inner.external_id.as_deref()
+    }
+    #[getter]
+    fn labels(&self) -> Option<PyListFieldStr> {
+        self.inner.update.labels.clone().map(PyListFieldStr::from)
+    }
+}
+
 /// Things accepted as a resource identifier when fetching by_ids or deleting.
 /// Mirrors the `FunctionIdentifyable` pattern so callers can pass a `Resource`,
 /// an external id string, or a numeric id directly.
@@ -242,34 +316,9 @@ impl PyResource {
     }
 }
 
-/// A graph label inside a [`PyResourceNetwork`].
-#[pyclass(module = "datahub_sdk", name = "Label")]
-#[derive(Clone)]
-pub struct PyLabel {
-    pub inner: dataplatform_rust_sdk::resources::Label,
-}
-
-impl From<dataplatform_rust_sdk::resources::Label> for PyLabel {
-    fn from(inner: dataplatform_rust_sdk::resources::Label) -> Self {
-        Self { inner }
-    }
-}
-
-#[pymethods]
-impl PyLabel {
-    #[getter]
-    fn id(&self) -> Option<u64> {
-        self.inner.id
-    }
-    #[getter]
-    fn name(&self) -> Option<&str> {
-        self.inner.name.as_deref()
-    }
-    #[getter]
-    fn description(&self) -> Option<&str> {
-        self.inner.description.as_deref()
-    }
-}
+// The label shape returned inside a `ResourceNetwork` is the unified `Label` entity from the
+// labels module (`crate::labels::PyLabel`); the graph DTO is widened into it via `From`.
+use crate::labels::PyLabel;
 
 /// Result of a graph traversal (`resources.fetch_related(...)`): the connected
 /// sub-graph of `nodes`, the `edges` between them, and their `labels`.

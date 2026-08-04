@@ -1,5 +1,6 @@
 use crate::relations::{PyGraphResult, PyRelForm};
-use crate::resources::{PyResourceNetwork, ResourceIdentifiable};
+use crate::resources::{PyResourceNetwork, PyResourceUpdate, ResourceIdentifiable};
+use dataplatform_rust_sdk::resources::ResourceUpdate;
 use crate::{PyResource, PySearchAndFilterForm};
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::relations::RelForm;
@@ -113,6 +114,26 @@ impl PyResourcesServiceAsync {
                 .map(|r| PyResource { inner: r.clone() })
                 .collect();
             Ok(py_res)
+        })
+    }
+
+    /// Update resources in place. Each [`ResourceUpdate`] targets one resource and carries only
+    /// the fields to change. Returns the updated graph, whose node labels reflect what the server
+    /// stored (the intrinsic type-label is always kept).
+    fn update<'py>(
+        &self,
+        py: Python<'py>,
+        input: Vec<PyResourceUpdate>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let updates: Vec<ResourceUpdate> = input.into_iter().map(ResourceUpdate::from).collect();
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .resources
+                .update(&updates)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(PyGraphResult::from_wrapper(result))
         })
     }
 

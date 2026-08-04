@@ -39,8 +39,9 @@ use crate::generic::{
 };
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
+use crate::labels::Label;
 use crate::relations::RelForm;
-use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork};
+use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork, ResourceUpdate};
 use crate::timeseries::{TimeSeries, TimeSeriesUpdateCollection};
 use crate::unit::Unit;
 
@@ -92,6 +93,7 @@ pub struct ApiService {
     pub units: UnitsService,
     pub files: FileService,
     pub functions: FunctionsService,
+    pub labels: LabelsService,
 }
 
 /// The blocking counterpart of [`crate::create_api_service`]: configuration from the
@@ -131,6 +133,7 @@ impl ApiService {
             units: service!(UnitsService),
             files: service!(FileService),
             functions: service!(FunctionsService),
+            labels: service!(LabelsService),
             api,
         }
     }
@@ -202,6 +205,13 @@ impl ResourceService {
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
     {
         self.rt.block_on(self.api.resources.delete(input))
+    }
+
+    pub fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
+    where
+        for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
+    {
+        self.rt.block_on(self.api.resources.update(input))
     }
 }
 
@@ -294,5 +304,24 @@ impl FunctionsService {
     delegate_into! { functions =>
         fn create(data: Into<DataWrapper<Function>>) -> Result<DataWrapper<Function>, ResponseError>;
         fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Function>, ResponseError>;
+    }
+}
+
+/// Blocking counterpart of [`crate::labels::LabelsService`].
+pub struct LabelsService {
+    api: Arc<crate::ApiService>,
+    rt: Arc<Runtime>,
+}
+
+impl LabelsService {
+    delegate! { labels =>
+        fn list() -> Result<DataWrapper<Label>, ResponseError>;
+        fn get(id: u64) -> Result<DataWrapper<Label>, ResponseError>;
+    }
+
+    delegate_into! { labels =>
+        fn create(data: Into<DataWrapper<Label>>) -> Result<DataWrapper<Label>, ResponseError>;
+        fn update(data: Into<DataWrapper<Label>>) -> Result<DataWrapper<Label>, ResponseError>;
+        fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Label>, ResponseError>;
     }
 }
