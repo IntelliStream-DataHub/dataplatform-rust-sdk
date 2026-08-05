@@ -617,26 +617,16 @@ impl From<PyListFieldU64> for ListField<u64> {
 }
 #[pymethods]
 impl PyListFieldU64 {
-    #[new]
-    #[pyo3(signature=(remove=None, add=None, set=None))]
-    pub fn new(
-        remove: Option<Vec<u64>>,
-        add: Option<Vec<u64>>,
-        set: Option<Vec<u64>>,
-    ) -> PyResult<Self> {
-        Ok(Self(ListField::new(set, add, remove)))
+    /// Replace the whole list.
+    #[staticmethod]
+    pub fn set(values: Vec<u64>) -> Self {
+        Self(ListField::set(values))
     }
-    #[getter]
-    pub fn set(&self) -> Option<&Vec<u64>> {
-        self.0.set.as_ref()
-    }
-    #[getter]
-    pub fn add(&self) -> Option<&Vec<u64>> {
-        self.0.add.as_ref()
-    }
-    #[getter]
-    pub fn remove(&self) -> Option<&Vec<u64>> {
-        self.0.remove.as_ref()
+    /// Add and/or remove entries, keeping the rest. Pass `add`, `remove`, or both.
+    #[staticmethod]
+    #[pyo3(signature=(add=None, remove=None))]
+    pub fn delta(add: Option<Vec<u64>>, remove: Option<Vec<u64>>) -> Self {
+        Self(ListField::delta(add, remove))
     }
 }
 #[pyclass(module = "datahub_sdk", name = "ListFieldStr")]
@@ -654,26 +644,16 @@ impl From<PyListFieldStr> for ListField<String> {
 }
 #[pymethods]
 impl PyListFieldStr {
-    #[new]
-    #[pyo3(signature=(remove=None, add=None, set=None))]
-    pub fn new(
-        remove: Option<Vec<String>>,
-        add: Option<Vec<String>>,
-        set: Option<Vec<String>>,
-    ) -> PyResult<Self> {
-        Ok(Self(ListField::new(set, add, remove)))
+    /// Replace the whole list.
+    #[staticmethod]
+    pub fn set(values: Vec<String>) -> Self {
+        Self(ListField::set(values))
     }
-    #[getter]
-    pub fn set(&self) -> Option<&Vec<String>> {
-        self.0.set.as_ref()
-    }
-    #[getter]
-    pub fn add(&self) -> Option<&Vec<String>> {
-        self.0.add.as_ref()
-    }
-    #[getter]
-    pub fn remove(&self) -> Option<&Vec<String>> {
-        self.0.remove.as_ref()
+    /// Add and/or remove entries, keeping the rest. Pass `add`, `remove`, or both.
+    #[staticmethod]
+    #[pyo3(signature=(add=None, remove=None))]
+    pub fn delta(add: Option<Vec<String>>, remove: Option<Vec<String>>) -> Self {
+        Self(ListField::delta(add, remove))
     }
 }
 
@@ -693,29 +673,19 @@ impl From<PyMapField> for MapField {
 }
 #[pymethods]
 impl PyMapField {
-    #[new]
-    #[pyo3(signature=(remove=None, add=None, set=None))]
-    pub fn new(
-        remove: Option<Vec<String>>,
+    /// Replace all entries.
+    #[staticmethod]
+    pub fn set(values: HashMap<String, String>) -> Self {
+        Self(MapField::set(values))
+    }
+    /// Add and/or remove entries, keeping the rest. Pass `add`, `remove`, or both.
+    #[staticmethod]
+    #[pyo3(signature=(add=None, remove=None))]
+    pub fn delta(
         add: Option<HashMap<String, String>>,
-        set: Option<HashMap<String, String>>,
-    ) -> PyResult<Self> {
-        let map_field = MapField::new(set, add, remove);
-
-        Ok(Self(map_field))
-    }
-
-    #[getter]
-    pub fn set(&self) -> Option<&HashMap<String, String>> {
-        self.0.set.as_ref()
-    }
-    #[getter]
-    pub fn add(&self) -> Option<&HashMap<String, String>> {
-        self.0.add.as_ref()
-    }
-    #[getter]
-    pub fn remove(&self) -> Option<&Vec<String>> {
-        self.0.remove.as_ref()
+        remove: Option<Vec<String>>,
+    ) -> Self {
+        Self(MapField::delta(add, remove))
     }
 }
 #[pyclass(module = "datahub_sdk", name = "FieldStr")]

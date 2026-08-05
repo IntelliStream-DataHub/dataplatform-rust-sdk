@@ -21,22 +21,51 @@ mod tests {
     // ----------------------------------------------------------------------------------------
 
     #[test]
-    fn set_add_remove_serialize_into_one_labels_object() {
-        // Chaining set/add/remove layers onto the *same* labels object rather than replacing it.
-        let u = ResourceUpdate::by_external_id("pump_a")
-            .set_labels(vec!["LBLA", "LBLB"])
-            .add_labels(vec!["LBLC"])
-            .remove_labels(vec!["LBLD"]);
+    fn set_labels_serializes_as_a_replace() {
+        let u = ResourceUpdate::by_external_id("pump_a").set_labels(vec!["LBLA", "LBLB"]);
         let v: serde_json::Value = serde_json::to_value(&u).unwrap();
 
         assert_eq!(v["externalId"], "pump_a");
         assert_eq!(v["update"]["labels"]["set"], serde_json::json!(["LBLA", "LBLB"]));
-        assert_eq!(v["update"]["labels"]["add"], serde_json::json!(["LBLC"]));
-        assert_eq!(v["update"]["labels"]["remove"], serde_json::json!(["LBLD"]));
+        // a replace carries no delta keys
+        assert!(v["update"]["labels"].get("add").is_none());
+        assert!(v["update"]["labels"].get("remove").is_none());
         // untouched fields are omitted entirely (PATCH semantics), and id is absent for an extId target
         assert!(v["update"].get("name").is_none());
         assert!(v["update"].get("metadata").is_none());
         assert!(v.get("id").is_none());
+    }
+
+    #[test]
+    fn add_and_remove_labels_combine_into_one_delta() {
+        // add + remove layer onto the *same* delta object (no `set`).
+        let u = ResourceUpdate::by_external_id("pump_a")
+            .add_labels(vec!["LBLC"])
+            .remove_labels(vec!["LBLD"]);
+        let v: serde_json::Value = serde_json::to_value(&u).unwrap();
+        assert_eq!(v["update"]["labels"]["add"], serde_json::json!(["LBLC"]));
+        assert_eq!(v["update"]["labels"]["remove"], serde_json::json!(["LBLD"]));
+        assert!(v["update"]["labels"].get("set").is_none());
+    }
+
+    #[test]
+    fn set_and_delta_are_mutually_exclusive() {
+        // A replace and a delta can never coexist in one labels object: the later call wins and
+        // discards the other mode. set-then-add collapses to a delta...
+        let u = ResourceUpdate::by_external_id("pump_a")
+            .set_labels(vec!["LBLA"])
+            .add_labels(vec!["LBLC"]);
+        let v: serde_json::Value = serde_json::to_value(&u).unwrap();
+        assert!(v["update"]["labels"].get("set").is_none());
+        assert_eq!(v["update"]["labels"]["add"], serde_json::json!(["LBLC"]));
+
+        // ...and add-then-set collapses to a replace.
+        let u = ResourceUpdate::by_external_id("pump_a")
+            .add_labels(vec!["LBLC"])
+            .set_labels(vec!["LBLA"]);
+        let v: serde_json::Value = serde_json::to_value(&u).unwrap();
+        assert_eq!(v["update"]["labels"]["set"], serde_json::json!(["LBLA"]));
+        assert!(v["update"]["labels"].get("add").is_none());
     }
 
     #[test]
@@ -172,72 +201,27 @@ mod tests {
         Ok(())
     }
 
-    /// set + add + remove in one request, on **disjoint** label sets:
-    /// base = set, then +add, then -remove (remove targets something not present → no-op).
+    /// A replace and a delta are mutually exclusive by construction (see the offline
+    /// `set_and_delta_are_mutually_exclusive` test), so there is no combined-`set`+`add`/`remove`
+    /// request to exercise live — the type system no longer lets one be built.
     #[tokio::test]
     #[ignore]
-    async fn combined_set_add_remove_disjoint() -> Result<(), Box<dyn std::error::Error>> {
+    async fn add_then_remove_in_one_delta() -> Result<(), Box<dyn std::error::Error>> {
         let api = create_api_service();
-        let ext = "sdk_lblupd_disjoint";
+        let ext = "sdk_lblupd_delta";
         let _guard = cleanup_resources(vec![ext.to_string()]);
         make_asset_resource(&api, ext, &["OLD"]).await?;
 
-        // set={LBLA,LBLB}, add={LBLC}, remove={LBLD}. LBLD isn't in the set, so it drops out
-        // harmlessly. Result = {LBLA,LBLB,LBLC} + forced ASSET. "OLD" is gone because `set`
-        // replaces the base. (Label names must be 3–512 chars, so no single-letter labels.)
+        // add {NEWLBL} and remove {OLD} in a single delta update.
         let r = api
             .resources
             .update(
                 &ResourceUpdate::by_external_id(ext)
-                    .set_labels(vec!["LBLA", "LBLB"])
-                    .add_labels(vec!["LBLC"])
-                    .remove_labels(vec!["LBLD"]),
+                    .add_labels(vec!["NEWLBL"])
+                    .remove_labels(vec!["OLD"]),
             )
             .await?;
-        assert_eq!(labels_of(&r), s(&["ASSET", "LBLA", "LBLB", "LBLC"]));
-
-        Ok(())
-    }
-
-    /// set + add + remove in one request, on **overlapping** sets, to pin the precedence:
-    /// base(set) ∪ add, then − remove — so remove wins over add for a label in both.
-    #[tokio::test]
-    #[ignore]
-    async fn combined_set_add_remove_overlapping() -> Result<(), Box<dyn std::error::Error>> {
-        let api = create_api_service();
-        let ext = "sdk_lblupd_overlap";
-        let _guard = cleanup_resources(vec![ext.to_string()]);
-        make_asset_resource(&api, ext, &["OLD"]).await?;
-
-        // set={LBLA,LBLB}, add={LBLB,LBLC}, remove={LBLB}: {LBLA,LBLB} ∪ {LBLB,LBLC} =
-        // {LBLA,LBLB,LBLC}, then remove LBLB => {LBLA,LBLC}. LBLB is in both add and remove →
-        // remove (applied last) wins. Plus forced ASSET.
-        let r = api
-            .resources
-            .update(
-                &ResourceUpdate::by_external_id(ext)
-                    .set_labels(vec!["LBLA", "LBLB"])
-                    .add_labels(vec!["LBLB", "LBLC"])
-                    .remove_labels(vec!["LBLB"]),
-            )
-            .await?;
-        assert_eq!(
-            labels_of(&r),
-            s(&["ASSET", "LBLA", "LBLC"]),
-            "remove applied after add: a label in both is removed"
-        );
-
-        // Degenerate overlap: set={LBLX}, add={LBLX}, remove={LBLX} => {} + forced ASSET only.
-        let r = api
-            .resources
-            .update(
-                &ResourceUpdate::by_external_id(ext)
-                    .set_labels(vec!["LBLX"])
-                    .add_labels(vec!["LBLX"])
-                    .remove_labels(vec!["LBLX"]),
-            )
-            .await?;
-        assert_eq!(labels_of(&r), s(&["ASSET"]), "everything removed leaves just the type-label");
+        assert_eq!(labels_of(&r), s(&["ASSET", "NEWLBL"]));
 
         Ok(())
     }
