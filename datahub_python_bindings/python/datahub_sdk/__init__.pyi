@@ -179,6 +179,24 @@ class SearchAndFilterForm:
     ) -> None: ...
 
 
+class TimeSeriesFilterForm:
+    """AND-combined criteria for ``timeseries.filter`` (``POST /timeseries/filter``).
+
+    ``data_set_id`` expands down the dataset hierarchy server-side, so a master dataset
+    matches the timeseries of its child datasets too. ``metadata_key``/``metadata_value``
+    work together ("that key carries that value") or alone.
+    """
+    def __init__(
+        self,
+        data_set_id: int | None = None,
+        unit: str | None = None,
+        unit_external_id: str | None = None,
+        metadata_key: str | None = None,
+        metadata_value: str | None = None,
+        limit: int | None = None,
+    ) -> None: ...
+
+
 # ====================== Field update wrappers ======================
 
 class FieldStr:
@@ -500,6 +518,7 @@ class TimeSeriesServiceSync:
     def delete(self, input: list[Identifiable]) -> None: ...
     def update(self, input: list[TimeSeriesUpdate]) -> list[TimeSeries]: ...
     def search(self, input: SearchAndFilterForm) -> list[TimeSeries]: ...
+    def filter(self, input: TimeSeriesFilterForm) -> list[TimeSeries]: ...
     def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
     def insert_from_lists(
         self,
@@ -521,6 +540,7 @@ class TimeSeriesServiceAsync:
     async def delete(self, input: list[Identifiable]) -> None: ...
     async def update(self, input: list[TimeSeriesUpdate]) -> list[TimeSeries]: ...
     async def search(self, input: SearchAndFilterForm) -> list[TimeSeries]: ...
+    async def filter(self, input: TimeSeriesFilterForm) -> list[TimeSeries]: ...
     async def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
     async def insert_from_lists(
         self,
