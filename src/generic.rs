@@ -16,6 +16,10 @@ use std::sync::{Arc, Weak};
 use crate::functions::FunctionsService;
 use crate::subscriptions::SubscriptionsService;
 
+// Deliberately NOT PartialEq: an IdAndExtId is an identity *selector*, and the same backend
+// object can be named three ways — {id, externalId}, {id, None}, {None, externalId}. A derived
+// (structural) equality would call those unequal, and a correct semantic equality is impossible
+// here without resolving against the backend. So the type simply isn't comparable.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdAndExtId {
     // todo Implement this as an enum, would allow for better validation
