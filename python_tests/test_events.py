@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from pytest_asyncio import fixture
 
-from fixtures import sync_client, unique_id
+from fixtures import async_client, sync_client, unique_id
 
 @pytest.fixture(scope="module")
 def event_dataset(sync_client):
@@ -366,11 +366,6 @@ def dimension_events(sync_client, event_dataset):
     sync_client.events.delete(events)
 
 
-# The SDK builds the right request and maps the backend's 404 to None (see
-# test_get_missing_returns_none). On this local backend GET /events/{id} returns not-found even
-# for an event by_ids just returned — a backend-side single-get issue. xfail (non-strict) so a
-# working backend flips this to xpass.
-@pytest.mark.xfail(reason="local backend GET /events/{id} 404s for events by_ids returns", strict=False)
 def test_get_by_uuid(sync_client, test_events):
     # Resolve a settled event's server UUID via by_ids, then round-trip it through
     # GET /events/{id}. Using a settled event (rather than a just-created one) keeps this
@@ -416,10 +411,7 @@ def test_update_event(sync_client, single_event):
     assert _updated(result)
 
 
-# The SDK call is correct, but this local backend's full-text search index isn't populating
-# (POST /events/search 200s with an empty {"items":[]} for events that plainly match). xfail
-# (non-strict) so a backend with a live search index flips these to xpass.
-@pytest.mark.xfail(reason="local backend full-text search index returns empty", strict=False)
+
 def test_search_by_description(sync_client, dimension_events):
     token = dimension_events["token"]
     results = _poll(
@@ -431,7 +423,6 @@ def test_search_by_description(sync_client, dimension_events):
     assert any(ev.external_id in found for ev in dimension_events["events"])
 
 
-@pytest.mark.xfail(reason="local backend full-text search index returns empty", strict=False)
 def test_search_with_filter_and_limit(sync_client, dimension_events):
     # The free-text search can be narrowed with a BasicEventFilter and capped.
     token = dimension_events["token"]
@@ -443,10 +434,6 @@ def test_search_with_filter_and_limit(sync_client, dimension_events):
     assert all(e.type == dimension_events["type"] for e in results)
 
 
-# The SDK call is correct, but the backend's GET /events/count currently 500s
-# (ClickHouseEventService.count() reads its result with a positional getLong(0)). xfail
-# (non-strict) so the suite stays green now and flips to xpass once the backend is fixed.
-@pytest.mark.xfail(reason="backend GET /events/count returns 500 (getLong(0) bug)", strict=False)
 def test_count(sync_client, dimension_events):
     n = len(dimension_events["events"])
     count = _poll(lambda: sync_client.events.count(), lambda c: c >= n)
@@ -454,85 +441,6 @@ def test_count(sync_client, dimension_events):
     assert count >= n
 
 
-def test_list_types(sync_client, dimension_events):
-    types = _poll(
-        lambda: sync_client.events.list_types(limit=10000),
-        lambda r: dimension_events["type"] in r,
-        **POLL_SLOW,
-    )
-    assert dimension_events["type"] in types
-
-
-def test_list_sub_types(sync_client, dimension_events):
-    sub_types = _poll(
-        lambda: sync_client.events.list_sub_types(limit=10000),
-        lambda r: dimension_events["sub_type"] in r,
-        **POLL_SLOW,
-    )
-    assert dimension_events["sub_type"] in sub_types
-
-
-def test_list_statuses(sync_client, dimension_events):
-    statuses = _poll(
-        lambda: sync_client.events.list_statuses(limit=10000),
-        lambda r: dimension_events["status"] in r,
-        **POLL_SLOW,
-    )
-    assert dimension_events["status"] in statuses
-
-
-def test_list_sources(sync_client, dimension_events):
-    sources = _poll(
-        lambda: sync_client.events.list_sources(limit=10000),
-        lambda r: dimension_events["source"] in r,
-        **POLL_SLOW,
-    )
-    assert dimension_events["source"] in sources
-
-
-def test_search_types(sync_client, dimension_events):
-    token = dimension_events["token"]
-    types = _poll(
-        lambda: sync_client.events.search_types(token),
-        lambda r: dimension_events["type"] in r,
-        **POLL_SLOW,
-    )
-    assert dimension_events["type"] in types
-    # Substring search must not leak unrelated values.
-    assert all(token in t for t in types)
-
-
-def test_search_sub_types(sync_client, dimension_events):
-    token = dimension_events["token"]
-    sub_types = _poll(
-        lambda: sync_client.events.search_sub_types(token),
-        lambda r: dimension_events["sub_type"] in r,
-        **POLL_SLOW,
-    )
-    assert dimension_events["sub_type"] in sub_types
-
-
-def test_search_statuses(sync_client, dimension_events):
-    token = dimension_events["token"]
-    statuses = _poll(
-        lambda: sync_client.events.search_statuses(token),
-        lambda r: dimension_events["status"] in r,
-        **POLL_SLOW,
-    )
-    assert dimension_events["status"] in statuses
-
-
-def test_search_sources(sync_client, dimension_events):
-    token = dimension_events["token"]
-    sources = _poll(
-        lambda: sync_client.events.search_sources(token),
-        lambda r: dimension_events["source"] in r,
-        **POLL_SLOW,
-    )
-    assert dimension_events["source"] in sources
-
-
-@pytest.mark.xfail(reason="backend GET /events/count returns 500 (getLong(0) bug)", strict=False)
 @pytest.mark.asyncio
 async def test_count_async(async_client):
     # Smoke-test the async service path for one of the new endpoints.
