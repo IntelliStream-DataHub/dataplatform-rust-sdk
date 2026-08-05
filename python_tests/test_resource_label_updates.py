@@ -51,7 +51,6 @@ def test_field_update_is_set_or_delta_only():
         with pytest.raises(TypeError):
             wrapper()  # no __init__
 
-
 # --------------------------------------------------------------------------- #
 # Live: label-update semantics.
 # --------------------------------------------------------------------------- #

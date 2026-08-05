@@ -618,14 +618,14 @@ impl From<PyListFieldU64> for ListField<u64> {
 #[pymethods]
 impl PyListFieldU64 {
     /// Replace the whole list.
-    #[staticmethod]
-    pub fn set(values: Vec<u64>) -> Self {
+    #[classmethod]
+    pub fn set(_cls: Py<PyType>, values: Vec<u64>) -> Self {
         Self(ListField::set(values))
     }
     /// Add and/or remove entries, keeping the rest. Pass `add`, `remove`, or both.
-    #[staticmethod]
+    #[classmethod]
     #[pyo3(signature=(add=None, remove=None))]
-    pub fn delta(add: Option<Vec<u64>>, remove: Option<Vec<u64>>) -> Self {
+    pub fn delta(_cls: Py<PyType>, add: Option<Vec<u64>>, remove: Option<Vec<u64>>) -> Self {
         Self(ListField::delta(add, remove))
     }
 }
@@ -645,14 +645,14 @@ impl From<PyListFieldStr> for ListField<String> {
 #[pymethods]
 impl PyListFieldStr {
     /// Replace the whole list.
-    #[staticmethod]
-    pub fn set(values: Vec<String>) -> Self {
+    #[classmethod]
+    pub fn set(_cls: Py<PyType>, values: Vec<String>) -> Self {
         Self(ListField::set(values))
     }
     /// Add and/or remove entries, keeping the rest. Pass `add`, `remove`, or both.
-    #[staticmethod]
+    #[classmethod]
     #[pyo3(signature=(add=None, remove=None))]
-    pub fn delta(add: Option<Vec<String>>, remove: Option<Vec<String>>) -> Self {
+    pub fn delta(_cls: Py<PyType>, add: Option<Vec<String>>, remove: Option<Vec<String>>) -> Self {
         Self(ListField::delta(add, remove))
     }
 }
@@ -674,14 +674,15 @@ impl From<PyMapField> for MapField {
 #[pymethods]
 impl PyMapField {
     /// Replace all entries.
-    #[staticmethod]
-    pub fn set(values: HashMap<String, String>) -> Self {
+    #[classmethod]
+    pub fn set(_cls: Py<PyType>, values: HashMap<String, String>) -> Self {
         Self(MapField::set(values))
     }
     /// Add and/or remove entries, keeping the rest. Pass `add`, `remove`, or both.
-    #[staticmethod]
+    #[classmethod]
     #[pyo3(signature=(add=None, remove=None))]
     pub fn delta(
+        _cls: Py<PyType>,
         add: Option<HashMap<String, String>>,
         remove: Option<Vec<String>>,
     ) -> Self {
