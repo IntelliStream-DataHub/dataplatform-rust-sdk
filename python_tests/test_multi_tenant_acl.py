@@ -2,9 +2,38 @@
 
 The Rust suite in ``src/multi_tenant_integration.rs`` is the thorough one and its module
 docs are the reference for what the backend does and how the Keycloak fixtures must be
-built. This file re-checks the parts that could plausibly break at the PyO3 boundary
-rather than in the Rust core — chiefly that ``scope=`` is forwarded from the constructor,
-since that is the *only* lever a Python caller has over which tenant they reach.
+built. This file is deliberately not a translation of it: re-asserting the same backend
+behaviour through a second client proves nothing new about the backend.
+
+What it covers instead is what the **binding layer** can break on its own, which the Rust
+tests cannot see. That is not hypothetical — ``units.list`` used to map every error to a
+bare ``PyException`` carrying only the message, and since a 401 body is empty, Python
+callers got an untyped exception with no information at all.
+
+So the selection principle is *error mapping and argument forwarding on each path*, not
+one test per backend behaviour. Most of these methods are already exercised elsewhere —
+``neighbors()`` by ``test_navigation.py``, ``datasets.create`` by ``test_datasets.py`` and
+``fixtures.py`` — but always on their happy path. What is untested there is what those
+same calls do when the *server* refuses them, which is precisely where the binding layer
+has already been caught dropping information.
+
+The load-bearing one is ``test_write_only_grant_writes_but_cannot_read``:
+``test_navigation.py`` asserts that navigation on a locally-constructed entity raises
+``RuntimeError``, and that the happy path returns a ``ResourceNetwork`` — it never sees a
+server error arrive through that path. This checks that a 403 from ``neighbors()`` surfaces
+as a typed ``DataHubException`` carrying ``status_code``, rather than the bare exception
+``units.list`` used to raise.
+
+``test_dataset_management_requires_a_blanket_write_grant`` is thinner: ``datasets.create``
+and its error mapping are well covered elsewhere, so this mostly re-asserts a backend rule
+the Rust suite already proves. Kept as a cheap guard on the denial path; drop it if this
+file starts feeling like a copy of the Rust one.
+
+One thing is knowingly not ported: the Rust suite's
+``acl_a_denied_datapoint_send_is_spooled_not_surfaced``, because ``buffered_count`` is not
+exposed in the Python API. A port could assert that the denied send does not raise, but not
+that anything reached the spool — which is the half that matters. Expose ``buffered_count``
+and it becomes portable.
 
 Every test skips when its ``MT_*`` fixture is absent from ``.env``, so a checkout without
 the realm setup is unaffected. The env contract:
@@ -276,6 +305,45 @@ def test_read_only_grant_reads_but_cannot_write(env, acl_dataset_id):
         assert "write" in excinfo.value.message
     finally:
         admin.resources.delete([seeded])
+
+
+def test_write_only_grant_writes_but_cannot_read(env, acl_dataset_id):
+    """Read and write are independent — and the read denial goes through ``neighbors()``.
+
+    ``neighbors()`` is the only single-item read the Python API offers: ``by_ids`` is a bulk
+    endpoint, and bulk reads are narrowed rather than refused, so it would answer with an
+    empty list and prove less.
+
+    ``test_navigation.py`` already covers ``neighbors()`` on its happy path and the
+    ``RuntimeError`` from a locally-constructed entity. What it never sees is a *server*
+    error arriving through that path — so the point here is that a 403 surfaces as a typed
+    ``DataHubException`` with a ``status_code``, not the bare exception ``units.list`` used
+    to raise.
+    """
+    admin = client_for(env, "MT_ORG_A")
+    writer = client_for(env, "MT_WRITEONLY")
+
+    written = unique_id("mt_acl_write")
+    created = writer.resources.create([make_resource(written, data_set_id=acl_dataset_id)])
+    try:
+        with pytest.raises(datahub_sdk.DataHubException) as excinfo:
+            created.nodes[0].neighbors()
+        assert excinfo.value.status_code == 403
+        assert "read" in excinfo.value.message
+    finally:
+        # Through the admin: the writer cannot read its own row back to delete it.
+        admin.resources.delete([written])
+
+
+def test_dataset_management_requires_a_blanket_write_grant(env):
+    """Creating a dataset needs a blanket role; a grant on one dataset is not enough."""
+    writer = client_for(env, "MT_WRITEONLY")
+
+    external_id = unique_id("mt_acl_ds")
+    with pytest.raises(datahub_sdk.DataHubException) as excinfo:
+        writer.datasets.create([datahub_sdk.Dataset(external_id=external_id, name=external_id)])
+    assert excinfo.value.status_code == 403
+    assert "manage" in excinfo.value.message or "all-datasets" in excinfo.value.message
 
 
 def test_search_omits_denied_rows_rather_than_raising(env, acl_dataset_id):
