@@ -217,21 +217,40 @@ impl ResourceUpdate {
         }
     }
 
-    /// Replace the whole label set (`labels.set`).
+    /// Replace the whole label set (`labels.set`). Mutually exclusive with add/remove: this
+    /// discards any pending `add_labels`/`remove_labels` on the same update.
     pub fn set_labels(mut self, labels: Vec<&str>) -> Self {
-        self.update.labels_mut().set = Some(labels.into_iter().map(String::from).collect());
+        self.update.labels = Some(ListField::set(labels.into_iter().map(String::from).collect()));
         self
     }
 
-    /// Add labels (`labels.add`).
+    /// Add labels (`labels.add`). Combines with a prior/subsequent `remove_labels` into one delta;
+    /// a prior `set_labels` is discarded (a delta cannot also replace).
     pub fn add_labels(mut self, labels: Vec<&str>) -> Self {
-        self.update.labels_mut().add = Some(labels.into_iter().map(String::from).collect());
+        let add = labels.into_iter().map(String::from).collect();
+        let remove = match self.update.labels.take() {
+            Some(ListField::Delta { remove, .. }) => remove,
+            _ => None,
+        };
+        self.update.labels = Some(ListField::Delta {
+            add: Some(add),
+            remove,
+        });
         self
     }
 
-    /// Remove labels (`labels.remove`).
+    /// Remove labels (`labels.remove`). Combines with a prior/subsequent `add_labels` into one
+    /// delta; a prior `set_labels` is discarded (a delta cannot also replace).
     pub fn remove_labels(mut self, labels: Vec<&str>) -> Self {
-        self.update.labels_mut().remove = Some(labels.into_iter().map(String::from).collect());
+        let remove = labels.into_iter().map(String::from).collect();
+        let add = match self.update.labels.take() {
+            Some(ListField::Delta { add, .. }) => add,
+            _ => None,
+        };
+        self.update.labels = Some(ListField::Delta {
+            add,
+            remove: Some(remove),
+        });
         self
     }
 
@@ -261,13 +280,6 @@ pub struct ResourceUpdateFields {
     pub source: Option<Field<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<ListField<String>>,
-}
-
-impl ResourceUpdateFields {
-    /// The label list-update, created empty on first access so set/add/remove can each be layered on.
-    fn labels_mut(&mut self) -> &mut ListField<String> {
-        self.labels.get_or_insert_with(ListField::default)
-    }
 }
 
 /// Request body for [`ResourceService::fetch_related`] (`POST /resources/fetch-related`).

@@ -4,8 +4,9 @@ Mirrors the Cognite-Python ergonomics added to the bindings: objects *returned b
 the API* carry a client, so `resource.neighbors()` / `timeseries.neighbors()` (graph
 traversal) and `event.related_resource_nodes()` (resolve the event's related-resource
 refs) — plus their `*_async` twins — can call back into the API. Locally-constructed
-objects carry no client and raise instead. Skipped if the backend is unreachable
-(the fixtures take care of that).
+objects carry no client and raise instead. These tests require a live backend (and its
+async projections running); they poll for eventual consistency and then assert, so they
+fail — rather than skip — if navigation never returns the expected data.
 
 Note on `depth`: the traversal defaults to the whole connected component (`depth=-1`,
 the backend default). Bounded depths are supported but the server's shallow-depth
@@ -13,36 +14,23 @@ semantics are quirky (a 1-hop bound can return nothing), so the tests use the de
 """
 import asyncio
 import datetime as dt
-import time
 
 import datahub_sdk
 import pytest
 from datahub_sdk import DataHubException, Event, RelForm, Resource, ResourceNetwork, TimeSeries
 
 from fixtures import async_client, make_dataset, make_resource, sync_client, unique_id
+from polling import poll_until, poll_until_async
 
 
-# The Neo4j graph is eventually-consistent with writes; a create isn't immediately
-# visible to a graph traversal. Poll for the expected node rather than asserting once.
-GRAPH_PROPAGATION_TIMEOUT = 10.0
-GRAPH_POLL_INTERVAL = 0.5
-
-# Some backends don't make a freshly-created resource traversable via `fetch_related` at
-# all (its node/edges never land in the graph store) — `fetch_related` still works on
-# established nodes. That's a backend graph-propagation problem, not a navigation bug, so
-# skip rather than fail when a just-created node never shows up within the timeout.
-_GRAPH_PROPAGATION_SKIP = (
-    "freshly-created resource never became visible to graph traversal on this backend "
-    "(graph-propagation lag/outage); navigation itself works on established nodes"
-)
-
-# Events are written to ClickHouse by an async consumer, so a just-created event may not be
-# returned by events.filter immediately (or at all, if that consumer is down). Skip rather
-# than fail the reverse-lookup test when the event never becomes filterable.
-_EVENT_PROPAGATION_SKIP = (
-    "created event never became visible to events.filter on this backend "
-    "(event ClickHouse-consumer lag/outage); related_events itself works when it is caught up"
-)
+# These navigation reads go through eventually-consistent async projections: the Neo4j
+# graph (for `neighbors`) and ClickHouse (for `related_events`, written by an async
+# consumer). A create isn't immediately visible to them, so the tests below POLL until
+# the expected data lands rather than asserting once. The timeout is generous on purpose:
+# these tests verify the navigation actually works end-to-end, so they wait for the
+# projection to catch up and then assert — they must NOT skip, or a genuinely broken
+# navigation path would masquerade as "propagation lag".
+GRAPH_PROPAGATION_TIMEOUT = 60.0
 
 
 # --------------------------------------------------------------------------- #
@@ -110,14 +98,16 @@ def test_resource_related(sync_client, make_resource):
     # Fetch A back from the API so it carries a client, then navigate off it.
     a = next(r for r in sync_client.resources.by_ids([a_ext]) if r.external_id == a_ext)
 
-    deadline = time.monotonic() + GRAPH_PROPAGATION_TIMEOUT
-    network = a.neighbors()
-    while b_ext not in {n.external_id for n in network.nodes} and time.monotonic() < deadline:
-        time.sleep(GRAPH_POLL_INTERVAL)
-        network = a.neighbors()
+    network = poll_until(
+        a.neighbors,
+        lambda net: b_ext in {n.external_id for n in net.nodes},
+        timeout=GRAPH_PROPAGATION_TIMEOUT,
+    )
     assert isinstance(network, ResourceNetwork)
-    if b_ext not in {n.external_id for n in network.nodes}:
-        pytest.skip(_GRAPH_PROPAGATION_SKIP)
+    assert b_ext in {n.external_id for n in network.nodes}, (
+        f"neighbor {b_ext} never appeared in the graph traversal off {a_ext} within "
+        f"{GRAPH_PROPAGATION_TIMEOUT}s"
+    )
 
     # Nodes returned by navigation carry the client too, so navigation chains.
     b = next(n for n in network.nodes if n.external_id == b_ext)
@@ -142,14 +132,16 @@ async def test_resource_related_async(async_client):
         fetched = await async_client.resources.by_ids([a_ext])
         a = next(r for r in fetched if r.external_id == a_ext)
 
-        deadline = time.monotonic() + GRAPH_PROPAGATION_TIMEOUT
-        network = await a.neighbors_async()
-        while b_ext not in {n.external_id for n in network.nodes} and time.monotonic() < deadline:
-            await asyncio.sleep(GRAPH_POLL_INTERVAL)
-            network = await a.neighbors_async()
+        network = await poll_until_async(
+            a.neighbors_async,
+            lambda net: b_ext in {n.external_id for n in net.nodes},
+            timeout=GRAPH_PROPAGATION_TIMEOUT,
+        )
         assert isinstance(network, ResourceNetwork)
-        if b_ext not in {n.external_id for n in network.nodes}:
-            pytest.skip(_GRAPH_PROPAGATION_SKIP)
+        assert b_ext in {n.external_id for n in network.nodes}, (
+            f"neighbor {b_ext} never appeared in the async graph traversal off {a_ext} "
+            f"within {GRAPH_PROPAGATION_TIMEOUT}s"
+        )
     finally:
         for ext in (b_ext, a_ext):
             try:
@@ -206,14 +198,16 @@ def test_resource_related_events(sync_client, make_resource):
         r = next(
             x for x in sync_client.resources.by_ids([res_ext]) if x.external_id == res_ext
         )
-        deadline = time.monotonic() + GRAPH_PROPAGATION_TIMEOUT
-        events = r.related_events()
-        while ev_ext not in {e.external_id for e in events} and time.monotonic() < deadline:
-            time.sleep(GRAPH_POLL_INTERVAL)
-            events = r.related_events()
+        events = poll_until(
+            r.related_events,
+            lambda evs: ev_ext in {e.external_id for e in evs},
+            timeout=GRAPH_PROPAGATION_TIMEOUT,
+        )
         assert isinstance(events, list)
-        if ev_ext not in {e.external_id for e in events}:
-            pytest.skip(_EVENT_PROPAGATION_SKIP)
+        assert ev_ext in {e.external_id for e in events}, (
+            f"event {ev_ext} referencing {res_ext} never became visible to related_events "
+            f"within {GRAPH_PROPAGATION_TIMEOUT}s"
+        )
 
         # Events returned by the reverse lookup carry a client, so they can resolve back.
         e = next(x for x in events if x.external_id == ev_ext)
@@ -231,13 +225,7 @@ def test_resource_related_events(sync_client, make_resource):
 
 def test_timeseries_related(sync_client):
     ts = TimeSeries(external_id=unique_id("nav_ts"), value_type="float", unit="a.u")
-    try:
-        created = sync_client.timeseries.create([ts])[0]
-    except DataHubException as e:
-        # Pre-existing environmental issue on some backends: the timeseries create
-        # response omits `relationsFrom`, which the SDK currently can't deserialize.
-        # That's orthogonal to navigation — skip rather than report a false failure.
-        pytest.skip(f"timeseries create unavailable on this backend: {e}")
+    created = sync_client.timeseries.create([ts])[0]
 
     try:
         fetched = sync_client.timeseries.by_ids([created])[0]

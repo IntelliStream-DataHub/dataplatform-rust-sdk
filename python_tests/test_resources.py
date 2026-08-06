@@ -11,6 +11,7 @@ import pytest
 from datahub_sdk import DataHubException, EdgeProxy, GraphResult, RelForm, Resource
 
 from fixtures import sync_client, unique_id
+from polling import poll_until
 
 
 # The search index is eventually-consistent with writes; give it a moment.
@@ -136,13 +137,12 @@ def test_geolocation_round_trips_through_backend(sync_client):
     sync_client.resources.create([resource])
     try:
         # by_ids reads Postgres (written synchronously on create); retry briefly for safety.
-        fetched = None
-        for _ in range(10):
-            nodes = sync_client.resources.by_ids([ext_id])
-            fetched = next((r for r in nodes if r.external_id == ext_id), None)
-            if fetched is not None:
-                break
-            time.sleep(0.5)
+        nodes = poll_until(
+            lambda: sync_client.resources.by_ids([ext_id]),
+            lambda ns: any(r.external_id == ext_id for r in ns),
+            timeout=5,
+        )
+        fetched = next((r for r in nodes if r.external_id == ext_id), None)
         assert fetched is not None, "resource should be readable via by_ids after create"
 
         assert fetched.geolocation is not None, "geolocation should round-trip from the backend"

@@ -5,13 +5,14 @@ Mirrors ``src/resources/label_update_tests.rs``. The privileged **type-labels**
 stay exactly the node's own type — no update may add, remove, or swap one — while ordinary
 labels follow ``base(set|current) + add - remove``.
 
-Updates go through the ``ResourceUpdate`` object with the shared ``ListFieldStr`` (set/add/remove)
-wrapper, the same shape as the other update APIs (e.g. ``TimeSeriesUpdate``).
+A label update is **either** a replace (``ListFieldStr.set([...])``) **or** a delta
+(``ListFieldStr.delta(add=[...], remove=[...])``), never both — the two classmethods are the only
+way to build one, so the illegal mix is unrepresentable rather than rejected at runtime.
 """
 import time
 
 import pytest
-from datahub_sdk import ListFieldStr, Resource, ResourceUpdate
+from datahub_sdk import ListFieldStr, ListFieldU64, MapField, Resource, ResourceUpdate
 
 from fixtures import async_client, make_resource, sync_client, unique_id
 
@@ -34,7 +35,7 @@ def _make_asset(make_resource, ext: str, extra: list[str]):
 
 
 # --------------------------------------------------------------------------- #
-# Binding validation — no backend call needed.
+# Binding shape — no backend call needed.
 # --------------------------------------------------------------------------- #
 
 def test_resource_update_requires_a_target():
@@ -42,6 +43,13 @@ def test_resource_update_requires_a_target():
     with pytest.raises(TypeError):
         ResourceUpdate()
 
+
+def test_field_update_is_set_or_delta_only():
+    # `set` and `delta` are the only constructors; there is no bare initializer, so a replace can
+    # never be built carrying an add/remove delta — the illegal mix is simply not expressible.
+    for wrapper in (ListFieldStr, ListFieldU64, MapField):
+        with pytest.raises(TypeError):
+            wrapper()  # no __init__
 
 # --------------------------------------------------------------------------- #
 # Live: label-update semantics.
@@ -52,16 +60,16 @@ def test_special_type_label_is_preserved(sync_client, make_resource):
     _make_asset(make_resource, ext, ["PUMP"])
 
     # removing the type-label: forced back, PUMP untouched
-    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr(remove=["ASSET"]))])
+    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr.delta(remove=["ASSET"]))])
     assert _labels(r) == ["ASSET", "PUMP"]
 
     # adding a foreign type-label: stripped
-    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr(add=["DATASET"]))])
+    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr.delta(add=["DATASET"]))])
     assert "DATASET" not in (r.nodes[0].labels or [])
     assert "ASSET" in (r.nodes[0].labels or [])
 
     # set to a foreign set: own type-label forced back, non-type labels replaced
-    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr(set=["SENSOR"]))])
+    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr.set(["SENSOR"]))])
     assert _labels(r) == ["ASSET", "SENSOR"]
 
 
@@ -69,47 +77,26 @@ def test_set_add_remove_individually(sync_client, make_resource):
     ext = unique_id("res_lblupd_basic")
     _make_asset(make_resource, ext, ["PUMP"])
 
-    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr(add=["CRITICAL"]))])
+    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr.delta(add=["CRITICAL"]))])
     assert _labels(r) == ["ASSET", "CRITICAL", "PUMP"]
 
-    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr(remove=["PUMP"]))])
+    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr.delta(remove=["PUMP"]))])
     assert _labels(r) == ["ASSET", "CRITICAL"]
 
     # set replaces the whole non-type set; type-label forced back
-    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr(set=["ALPHA", "BETA"]))])
+    r = sync_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr.set(["ALPHA", "BETA"]))])
     assert _labels(r) == ["ALPHA", "ASSET", "BETA"]
 
 
-def test_combined_set_add_remove_disjoint(sync_client, make_resource):
-    ext = unique_id("res_lblupd_disjoint")
+def test_add_and_remove_together_is_a_valid_delta(sync_client, make_resource):
+    # add + remove in one delta applies in a single update.
+    ext = unique_id("res_lblupd_delta")
     _make_asset(make_resource, ext, ["OLD"])
 
-    # set={LBLA,LBLB}, add={LBLC}, remove={LBLD}: base=set, +add, -remove(absent) =>
-    # {LBLA,LBLB,LBLC} + forced ASSET. "OLD" is gone because `set` replaces the base.
-    # (Label names must be 3-512 chars, so no single-letter labels.)
     r = sync_client.resources.update(
-        [ResourceUpdate(ext, labels=ListFieldStr(set=["LBLA", "LBLB"], add=["LBLC"], remove=["LBLD"]))]
+        [ResourceUpdate(ext, labels=ListFieldStr.delta(add=["NEWLBL"], remove=["OLD"]))]
     )
-    assert _labels(r) == ["ASSET", "LBLA", "LBLB", "LBLC"]
-
-
-def test_combined_set_add_remove_overlapping(sync_client, make_resource):
-    ext = unique_id("res_lblupd_overlap")
-    _make_asset(make_resource, ext, ["OLD"])
-
-    # set={LBLA,LBLB}, add={LBLB,LBLC}, remove={LBLB}: {LBLA,LBLB} ∪ {LBLB,LBLC} =
-    # {LBLA,LBLB,LBLC}, then remove LBLB => {LBLA,LBLC}. LBLB is in both add and remove →
-    # remove (applied last) wins. Plus forced ASSET.
-    r = sync_client.resources.update(
-        [ResourceUpdate(ext, labels=ListFieldStr(set=["LBLA", "LBLB"], add=["LBLB", "LBLC"], remove=["LBLB"]))]
-    )
-    assert _labels(r) == ["ASSET", "LBLA", "LBLC"]
-
-    # degenerate overlap: set={LBLX}, add={LBLX}, remove={LBLX} => {} + forced ASSET only.
-    r = sync_client.resources.update(
-        [ResourceUpdate(ext, labels=ListFieldStr(set=["LBLX"], add=["LBLX"], remove=["LBLX"]))]
-    )
-    assert _labels(r) == ["ASSET"]
+    assert _labels(r) == ["ASSET", "NEWLBL"]
 
 
 @pytest.mark.asyncio
@@ -121,9 +108,9 @@ async def test_update_async(async_client, sync_client):
     )
     time.sleep(WRITE_SETTLE)
     try:
-        r = await async_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr(add=["ASYNCLBL"]))])
+        r = await async_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr.delta(add=["ASYNCLBL"]))])
         assert _labels(r) == ["ASSET", "ASYNCLBL"]
-        r = await async_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr(remove=["ASYNCLBL"]))])
+        r = await async_client.resources.update([ResourceUpdate(ext, labels=ListFieldStr.delta(remove=["ASYNCLBL"]))])
         assert _labels(r) == ["ASSET"]
     finally:
         sync_client.resources.delete([ext])
