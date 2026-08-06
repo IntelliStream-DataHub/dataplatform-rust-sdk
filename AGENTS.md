@@ -20,6 +20,17 @@ Most tests are integration tests that call a live backend via `create_api_servic
 
 Tests that mutate backend state (create/delete) often `sleep` a few seconds between operations and are sensitive to race conditions — prefer running them serially or isolating by unique external IDs.
 
+### Multi-tenant / ACL tests
+
+`src/multi_tenant_integration.rs` (Rust) and `python_tests/test_multi_tenant_acl.py` cover what happens across organizations: a principal belonging to more than one, tenant isolation, per-dataset read/write grants, and how an ACL denial interacts with durable buffering.
+
+```
+cargo test multi_tenant_integration -- --ignored --nocapture --test-threads=1
+./run_python_tests.sh -k multi_tenant
+```
+
+They need six purpose-built Keycloak principals beyond the usual `.env` (a two-organization one, read-only/write-only/no-grant ones, and a full-access one per organization), configured through `MT_*` variables. Each test skips with a printed note when its fixture is absent, so a checkout without that realm setup is unaffected. **The Rust module's `//!` doc is the reference** — it carries the env contract, the organization-group naming convention, the realm-level mapper prerequisites, and the reason 401s here can only be asserted on status (the API drops the explanation before it reaches any client).
+
 ## Backend
 
 The DataHub REST API this SDK targets is a separate Spring Boot project; the HTTP endpoints are defined in its `datahub-api` module. Check that source when endpoint shapes, field names, or error responses are unclear. If you have a local checkout, record its path in `CLAUDE.local.md` (gitignored) so future Claude sessions on your machine can read it directly.

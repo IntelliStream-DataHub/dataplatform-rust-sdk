@@ -2,7 +2,6 @@ use crate::PyIdCollection;
 use crate::units::PyUnit;
 use dataplatform_rust_sdk::ApiService;
 use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
-use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -20,13 +19,12 @@ impl PyUnitServiceSync {
 
         // 1. Only do the non-Python work inside allow_threads
         let result = py
-            .detach(|| {
-                self.runtime
-                    .block_on(service.units.list())
-                    // Map the error to a String or a thread-safe Send error here
-                    .map_err(|e| e.get_message())
-            })
-            .map_err(|e_msg| PyException::new_err(e_msg))?; // 2. Convert to PyException once back in GIL
+            .detach(|| self.runtime.block_on(service.units.list()))
+            // 2. Back under the GIL, raise the same DataHubException every sibling method and
+            //    the async twin raise. Mapping to a bare PyException here used to drop the
+            //    status code, which is the only thing that makes a 401 or 403 diagnosable —
+            //    and for those the message is empty, so the exception carried nothing at all.
+            .map_err(crate::datahub_err)?;
 
         // 3. Now that we are back in the GIL-protected zone,
         // we can safely create PyUnit objects.

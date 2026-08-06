@@ -20,9 +20,10 @@ pub mod cleanup {
     //! during the unwind; driving an HTTP request through it from another
     //! runtime hangs or fails silently. A runtime-local client sidesteps that.
 
-    use crate::create_api_service;
+    use crate::datahub::DataHubConfig;
     use crate::events::EventIdCollection;
     use crate::generic::{DataWrapper, IdAndExtId};
+    use crate::{create_api_service, ApiService};
     use std::future::Future;
     use std::pin::Pin;
 
@@ -125,6 +126,83 @@ pub mod cleanup {
                 if let Err(e) = api.resources.delete(&ids).await {
                     eprintln!(
                         "CleanupGuard: resource delete failed during teardown: {}",
+                        e.get_message()
+                    );
+                }
+            })
+        })
+    }
+
+    /// Like [`cleanup_resources`], but deletes as the principal described by `config`
+    /// instead of the `.env` identity.
+    ///
+    /// [`cleanup_resources`] builds its service with [`create_api_service`], which reads
+    /// `.env` — right for the single-identity suites, wrong for a multi-tenant test where
+    /// the data belongs to some other org and the default identity cannot even see it (a
+    /// cross-tenant delete is a 404, not an error worth reading). The config is cloned into
+    /// the closure and turned into a service on the teardown runtime, so the runtime-local
+    /// client property described in the module docs still holds.
+    pub fn cleanup_resources_as(config: DataHubConfig, external_ids: Vec<String>) -> CleanupGuard {
+        CleanupGuard::new(move || {
+            Box::pin(async move {
+                if external_ids.is_empty() {
+                    return;
+                }
+                let api = ApiService::new(config);
+                let ids: Vec<IdAndExtId> = external_ids
+                    .iter()
+                    .map(|e| IdAndExtId::from_external_id(e))
+                    .collect();
+                if let Err(e) = api.resources.delete(&ids).await {
+                    eprintln!(
+                        "CleanupGuard: resource delete failed during teardown: {}",
+                        e.get_message()
+                    );
+                }
+            })
+        })
+    }
+
+    /// Like [`cleanup_timeseries`], but deletes as the principal described by `config`.
+    /// See [`cleanup_resources_as`] for why the multi-tenant tests need this.
+    pub fn cleanup_timeseries_as(config: DataHubConfig, external_ids: Vec<String>) -> CleanupGuard {
+        CleanupGuard::new(move || {
+            Box::pin(async move {
+                if external_ids.is_empty() {
+                    return;
+                }
+                let api = ApiService::new(config);
+                let ids: Vec<IdAndExtId> = external_ids
+                    .iter()
+                    .map(|e| IdAndExtId::from_external_id(e))
+                    .collect();
+                let coll = DataWrapper::from_vec(ids);
+                if let Err(e) = api.time_series.delete(&coll).await {
+                    eprintln!(
+                        "CleanupGuard: timeseries delete failed during teardown: {}",
+                        e.get_message()
+                    );
+                }
+            })
+        })
+    }
+
+    /// Like [`cleanup_datasets`], but deletes as the principal described by `config`.
+    /// See [`cleanup_resources_as`] for why the multi-tenant tests need this.
+    pub fn cleanup_datasets_as(config: DataHubConfig, external_ids: Vec<String>) -> CleanupGuard {
+        CleanupGuard::new(move || {
+            Box::pin(async move {
+                if external_ids.is_empty() {
+                    return;
+                }
+                let api = ApiService::new(config);
+                let ids: Vec<IdAndExtId> = external_ids
+                    .iter()
+                    .map(|e| IdAndExtId::from_external_id(e))
+                    .collect();
+                if let Err(e) = api.datasets.delete(&ids).await {
+                    eprintln!(
+                        "CleanupGuard: dataset delete failed during teardown: {}",
                         e.get_message()
                     );
                 }
