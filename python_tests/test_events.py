@@ -8,6 +8,7 @@ import pytest
 from pytest_asyncio import fixture
 
 from fixtures import sync_client, unique_id
+from polling import poll_until
 
 @pytest.fixture(scope="module")
 def event_dataset(sync_client):
@@ -86,17 +87,25 @@ def test_events_func_scope(sync_client,event_dataset):
 
 def test_by_ids(sync_client, test_events):
     # Pick a handful spread across the fixture and verify by_ids round-trips them.
+    # by_ids reads ClickHouse (eventually consistent), so poll until all targets land.
     targets = [test_events[0], test_events[33], test_events[99]]
-    fetched = sync_client.events.by_ids(targets)
-    fetched_ext_ids = {e.external_id for e in fetched}
-    for t in targets:
-        assert t.external_id in fetched_ext_ids
+    want = {t.external_id for t in targets}
+    fetched = poll_until(
+        lambda: sync_client.events.by_ids(targets),
+        lambda r: want <= {e.external_id for e in r},
+        timeout=10,
+    )
+    assert want <= {e.external_id for e in fetched}
 
 
 def test_by_ids_with_external_id_strings(sync_client, test_events):
     # EventIdentifyable also accepts raw external_id strings.
     targets = [test_events[5].external_id, test_events[50].external_id]
-    fetched = sync_client.events.by_ids(targets)
+    fetched = poll_until(
+        lambda: sync_client.events.by_ids(targets),
+        lambda r: {e.external_id for e in r} == set(targets),
+        timeout=10,
+    )
     assert {e.external_id for e in fetched} == set(targets)
 
 
@@ -312,17 +321,6 @@ def test_filter_by_last_updated_time(sync_client, test_events, event_dataset):
 # Ingestion is eventually consistent, so id lookups poll rather than sleep once.
 # ---------------------------------------------------------------------------
 
-def _poll(fn, ok, tries=20, delay=0.5):
-    """Call fn() until ok(result) is true or we run out of tries; return the last result."""
-    result = fn()
-    for _ in range(tries - 1):
-        if ok(result):
-            return result
-        sleep(delay)
-        result = fn()
-    return result
-
-
 @pytest.fixture(scope="function")
 def single_event(sync_client, event_dataset):
     external_id = f"{event_dataset.external_id}_uuid_event_{uuid.uuid4().hex}"
@@ -345,7 +343,7 @@ def test_created_event_has_uuid_v7_id(single_event):
 
 def test_by_ids_with_uuid_collection(sync_client, single_event):
     selector = datahub_sdk.EventIdCollection(id=single_event.id)
-    fetched = _poll(lambda: sync_client.events.by_ids([selector]), lambda r: len(r) == 1)
+    fetched = poll_until(lambda: sync_client.events.by_ids([selector]), lambda r: len(r) == 1, timeout=10)
     assert len(fetched) == 1
     assert fetched[0].id == single_event.id
     assert fetched[0].external_id == single_event.external_id
@@ -353,16 +351,16 @@ def test_by_ids_with_uuid_collection(sync_client, single_event):
 
 def test_by_ids_with_bare_uuid(sync_client, single_event):
     # A bare uuid.UUID is also accepted as an event identifier.
-    fetched = _poll(lambda: sync_client.events.by_ids([single_event.id]), lambda r: len(r) == 1)
+    fetched = poll_until(lambda: sync_client.events.by_ids([single_event.id]), lambda r: len(r) == 1, timeout=10)
     assert len(fetched) == 1
     assert fetched[0].id == single_event.id
 
 
 def test_delete_by_uuid(sync_client, single_event):
     # Confirm the event is queryable (read-after-write), then delete it by its UUID.
-    _poll(lambda: sync_client.events.by_ids([single_event.id]), lambda r: len(r) == 1)
+    poll_until(lambda: sync_client.events.by_ids([single_event.id]), lambda r: len(r) == 1, timeout=10)
     sync_client.events.delete([datahub_sdk.EventIdCollection(id=single_event.id)])
-    remaining = _poll(lambda: sync_client.events.by_ids([single_event.id]), lambda r: r == [])
+    remaining = poll_until(lambda: sync_client.events.by_ids([single_event.id]), lambda r: r == [], timeout=10)
     assert remaining == []
 
 
