@@ -51,13 +51,19 @@
 //! let beta = ApiService::new(config); // a second client, a second tenant
 //! ```
 //!
-//! **The reason never reaches the client.** The API installs a custom authentication entry point
-//! that emits a bare `WWW-Authenticate: Bearer realm="Restricted Content"` with no
+//! **The server's reason never reaches the client.** The API installs a custom authentication
+//! entry point that emits a bare `WWW-Authenticate: Bearer realm="Restricted Content"` with no
 //! `error_description`, and a body that is Spring's generic error JSON; the descriptive message
-//! only goes to the server log. Every 401 assertion below is therefore on the **status alone**, and
-//! the cases are told apart by how the fixture is built. Don't waste time trying to assert on the
-//! message — there isn't one. (403s are different: those carry an RFC 9457 `problem+json` body,
-//! which these tests do assert on.)
+//! goes only to the server log. So nothing these tests assert about a 401 comes from the response.
+//!
+//! What the SDK does instead is reconstruct the reason from the token it just sent — see
+//! [`crate::auth_diagnostics`], which decodes the `organization` claim and reports which of the
+//! validator's branches it would have hit. That is why the multi-organization test can assert on a
+//! message naming both organizations even though the wire carries none. Everything else is
+//! asserted on **status alone**, with the cases told apart by how the fixture is built.
+//!
+//! (403s are different: those carry a real RFC 9457 `problem+json` body from the server, with
+//! `dataSetId` and `permission`, which the ACL tests assert on directly.)
 //!
 //! Tenant isolation is physical — one Postgres database per organization, no tenant column
 //! anywhere. Two organizations can therefore each own the same `externalId`, and numeric ids are
@@ -434,12 +440,35 @@ async fn multi_tenant_multi_org_principal_with_wildcard_scope_is_rejected(
         return Ok(());
     };
 
-    // Status only — the API deliberately drops the "Ambiguous organization context" description
-    // before it reaches us. See the module docs.
-    assert_status(
+    let error = assert_status(
         multi.service.units.list().await,
         401,
         "a token naming two organizations",
+    );
+
+    // The server sends no reason at all, so this message is one the SDK reconstructs from the
+    // token it just used (`crate::auth_diagnostics`). Asserting it here — against a real
+    // two-organization token from a real realm — is what proves the diagnosis fires on the path
+    // that actually matters, rather than only on the hand-built tokens in its unit tests.
+    let message = error.get_message();
+    assert!(
+        message.contains("names 2 organizations"),
+        "an unexplained 401 should be given a reason by the SDK — got {message:?}"
+    );
+    for alias in [
+        env_var("MT_ORG_A_ALIAS").unwrap_or_default(),
+        env_var("MT_ORG_B_ALIAS").unwrap_or_default(),
+    ] {
+        if !alias.is_empty() {
+            assert!(
+                message.contains(&alias),
+                "the message should name the organizations in play, missing '{alias}': {message:?}"
+            );
+        }
+    }
+    assert!(
+        message.contains("SCOPE=organization:<alias>"),
+        "the message should say what to change — got {message:?}"
     );
     Ok(())
 }

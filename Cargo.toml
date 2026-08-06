@@ -26,6 +26,9 @@ infer = { version = "0.19", default-features = false, features = ["std"] }
 thiserror = "2.0.17"
 zstd = "0.13"
 geojson = "1"
+# Reading (never verifying) the payload of a JWT the SDK already holds, to explain an
+# otherwise-unexplained 401 — see `auth_diagnostics`.
+base64 = "0.22"
 
 
 #[lib]
