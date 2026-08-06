@@ -231,7 +231,7 @@ def test_update_metadata_add_merges_and_overwrites(sync_client, make_ts):
     ts = make_ts(metadata={"keep": "1", "overwrite": "old"})
 
     update = datahub_sdk.TimeSeriesUpdate(
-        ts, metadata=datahub_sdk.MapField(add={"overwrite": "new", "added": "2"})
+        ts, metadata=datahub_sdk.MapField.delta(add={"overwrite": "new", "added": "2"})
     )
     md = sync_client.timeseries.update([update])[0].metadata or {}
 
@@ -244,7 +244,7 @@ def test_update_metadata_set_replaces_whole_map(sync_client, make_ts):
     ts = make_ts(metadata={"a": "1", "b": "2", "c": "3"})
 
     update = datahub_sdk.TimeSeriesUpdate(
-        ts, metadata=datahub_sdk.MapField(set={"only": "9"})
+        ts, metadata=datahub_sdk.MapField.set({"only": "9"})
     )
     md = sync_client.timeseries.update([update])[0].metadata or {}
 
@@ -256,7 +256,7 @@ def test_update_metadata_remove_keys(sync_client, make_ts):
     ts = make_ts(metadata={"a": "1", "b": "2", "c": "3"})
 
     update = datahub_sdk.TimeSeriesUpdate(
-        ts, metadata=datahub_sdk.MapField(remove=["b", "c"])
+        ts, metadata=datahub_sdk.MapField.delta(remove=["b", "c"])
     )
     md = sync_client.timeseries.update([update])[0].metadata or {}
 
@@ -287,7 +287,7 @@ def test_update_security_categories_set(sync_client, make_ts):
     ts = make_ts(security_categories=[1, 2])
 
     update = datahub_sdk.TimeSeriesUpdate(
-        ts, security_categories=datahub_sdk.ListFieldU64(set=[3, 4])
+        ts, security_categories=datahub_sdk.ListFieldU64.set([3, 4])
     )
     updated = sync_client.timeseries.update([update])[0]
     assert sorted(updated.security_categories or []) == [3, 4]
@@ -298,7 +298,7 @@ def test_update_security_categories_add(sync_client, make_ts):
     ts = make_ts(security_categories=[1, 2])
 
     update = datahub_sdk.TimeSeriesUpdate(
-        ts, security_categories=datahub_sdk.ListFieldU64(add=[3])
+        ts, security_categories=datahub_sdk.ListFieldU64.delta(add=[3])
     )
     updated = sync_client.timeseries.update([update])[0]
     assert set(updated.security_categories or []) >= {1, 2, 3}
@@ -309,7 +309,7 @@ def test_update_security_categories_remove(sync_client, make_ts):
     ts = make_ts(security_categories=[1, 2, 3])
 
     update = datahub_sdk.TimeSeriesUpdate(
-        ts, security_categories=datahub_sdk.ListFieldU64(remove=[2])
+        ts, security_categories=datahub_sdk.ListFieldU64.delta(remove=[2])
     )
     updated = sync_client.timeseries.update([update])[0]
     cats = set(updated.security_categories or [])
@@ -410,7 +410,7 @@ def test_update_multiple_fields_in_one_call(sync_client, make_ts):
         name=datahub_sdk.FieldStr(value="multi name"),
         description=datahub_sdk.FieldStr(value="multi desc"),
         unit=datahub_sdk.FieldStr(value="multi unit"),
-        metadata=datahub_sdk.MapField(add={"k2": "v2"}),
+        metadata=datahub_sdk.MapField.delta(add={"k2": "v2"}),
     )
     updated = sync_client.timeseries.update([update])[0]
 
