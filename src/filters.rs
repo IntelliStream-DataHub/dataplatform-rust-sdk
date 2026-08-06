@@ -3,23 +3,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Combine the two ergonomic id/external-id lists into the backend's `relatedResources` shape.
-fn related_resource_refs(
-    ids: Option<Vec<u64>>,
-    external_ids: Option<Vec<String>>,
-) -> Vec<IdAndExtId> {
-    ids.into_iter()
-        .flatten()
-        .map(IdAndExtId::from_id)
-        .chain(
-            external_ids
-                .into_iter()
-                .flatten()
-                .map(|ext| IdAndExtId::from_external_id(&ext)),
-        )
-        .collect()
-}
-
 // Not PartialEq: it carries `Vec<IdAndExtId>`, which is intentionally non-comparable (see
 // `IdAndExtId`). Nothing compares filters by value; equality here would be meaningless anyway.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -74,8 +57,7 @@ impl BasicEventFilter {
         data_set_ids: Option<Vec<u64>>,
         event_time: Option<TimeFilter>,
         metadata: Option<HashMap<String, String>>,
-        related_resource_ids: Option<Vec<u64>>,
-        related_resource_external_ids: Option<Vec<String>>,
+        related_resources: Option<Vec<IdAndExtId>>,
         created_time: Option<TimeFilter>,
         last_updated_time: Option<TimeFilter>,
     ) -> Self {
@@ -90,10 +72,7 @@ impl BasicEventFilter {
                 .map(|ids| ids.into_iter().map(IdAndExtId::from_id).collect()),
             event_time,
             metadata,
-            related_resources: related_resource_refs(
-                related_resource_ids,
-                related_resource_external_ids,
-            ),
+            related_resources: related_resources.unwrap_or_default(),
             created_time,
             last_updated_time,
         }
@@ -133,6 +112,13 @@ impl BasicEventFilter {
     }
     pub fn set_metadata(&mut self, metadata: &HashMap<String, String>) -> &mut Self {
         self.metadata = Some(metadata.clone());
+        self
+    }
+    /// Select events referencing these resources, each named by id, external id, or both.
+    /// Replaces any selectors already set; the backend matches with `hasAll`, so all of them must
+    /// be present on an event.
+    pub fn set_related_resources(&mut self, related_resources: &[IdAndExtId]) -> &mut Self {
+        self.related_resources = related_resources.to_vec();
         self
     }
     /// Select events referencing these resource ids. Appends to `related_resources`; the backend
@@ -207,8 +193,7 @@ impl EventFilter {
         data_set_ids: Option<Vec<u64>>,
         event_time: Option<TimeFilter>,
         metadata: Option<HashMap<String, String>>,
-        related_resource_ids: Option<Vec<u64>>,
-        related_resource_external_ids: Option<Vec<String>>,
+        related_resources: Option<Vec<IdAndExtId>>,
         created_time: Option<TimeFilter>,
         last_updated_time: Option<TimeFilter>,
     ) -> Self {
@@ -561,11 +546,12 @@ mod tests {
 
     #[test]
     fn basic_event_filter_new_maps_related_resources() {
-        // The ergonomic two-list constructor still populates the single wire field.
         let filter = BasicEventFilter::new(
             None, None, None, None, None, None, None, None, None,
-            Some(vec![5]),
-            Some(vec!["asset_b".to_string()]),
+            Some(vec![
+                IdAndExtId::from_id(5),
+                IdAndExtId::from_external_id("asset_b"),
+            ]),
             None, None,
         );
         let value: serde_json::Value =
