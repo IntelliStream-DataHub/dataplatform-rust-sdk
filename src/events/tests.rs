@@ -436,3 +436,114 @@ mod uuid_serde {
         assert_eq!(json, format!("{{\"items\":[{{\"id\":\"{}\"}}]}}", id));
     }
 }
+
+/// Serde round-trips for the request bodies added for the event update/search endpoints. These
+/// pin the wire shape (`camelCase`, `type` not `r#type`, `set`/`add`/`remove`) without a backend.
+mod update_search_serde {
+    use crate::events::{EventSearch, EventUpdate};
+    use crate::fields::{Field, ListField, MapField};
+    use crate::filters::BasicEventFilter;
+    use crate::generic::DataWrapper;
+    use serde_json::{json, Value};
+    use uuid::Uuid;
+
+    fn to_value<T: serde::Serialize>(v: &T) -> Value {
+        serde_json::to_value(v).unwrap()
+    }
+
+    #[test]
+    fn event_update_by_external_id_serializes_only_touched_fields() {
+        let upd = EventUpdate::by_external_id("alarm_x")
+            .status(Field::value("acknowledged"))
+            .metadata(MapField::new_add(Some(
+                [("acked_by".to_string(), "olav".to_string())].into(),
+            )));
+
+        assert_eq!(
+            to_value(&upd),
+            json!({
+                "externalId": "alarm_x",
+                "update": {
+                    "status": { "set": "acknowledged", "setNull": false },
+                    "metadata": { "set": null, "add": { "acked_by": "olav" }, "remove": null }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn event_update_null_clears_a_field() {
+        let upd = EventUpdate::by_external_id("alarm_x").description(Field::<String>::null());
+        assert_eq!(
+            to_value(&upd)["update"]["description"],
+            json!({ "set": null, "setNull": true })
+        );
+    }
+
+    #[test]
+    fn event_update_type_field_serializes_as_type_not_rust_raw_ident() {
+        let upd = EventUpdate::by_id(Uuid::nil())
+            .event_type(Field::value("alarm"))
+            .sub_type(Field::value("overpressure"));
+        let v = to_value(&upd);
+        let update = &v["update"];
+        assert_eq!(update["type"], json!({ "set": "alarm", "setNull": false }));
+        assert_eq!(
+            update["subType"],
+            json!({ "set": "overpressure", "setNull": false })
+        );
+        // The UUID target lands as a JSON string, and `externalId` is omitted.
+        assert_eq!(v["id"], json!(Uuid::nil().to_string()));
+        assert_eq!(v.get("externalId"), None);
+    }
+
+    #[test]
+    fn event_update_related_resource_lists_use_add_remove() {
+        let upd = EventUpdate::by_external_id("alarm_x")
+            .related_resource_ids(ListField::new_add(vec![1, 2]))
+            .related_resource_external_ids(ListField::new_remove(vec!["old_pump".to_string()]));
+        let update = &to_value(&upd)["update"];
+        assert_eq!(update["relatedResourceIds"], json!({ "add": [1, 2] }));
+        assert_eq!(
+            update["relatedResourceExternalIds"],
+            json!({ "remove": ["old_pump"] })
+        );
+    }
+
+    #[test]
+    fn event_update_round_trips() {
+        let upd = EventUpdate::by_external_id("alarm_x").description(Field::value("resolved"));
+        let back: EventUpdate =
+            serde_json::from_str(&serde_json::to_string(&upd).unwrap()).unwrap();
+        assert_eq!(back.external_id.as_deref(), Some("alarm_x"));
+        assert_eq!(
+            back.update.description.and_then(|f| f.set).as_deref(),
+            Some("resolved")
+        );
+    }
+
+    #[test]
+    fn event_update_wraps_into_items() {
+        let wrapper: DataWrapper<EventUpdate> =
+            (&vec![EventUpdate::by_external_id("alarm_x").status(Field::value("ok"))]).into();
+        let v = to_value(&wrapper);
+        assert_eq!(v["items"][0]["externalId"], json!("alarm_x"));
+        assert_eq!(
+            v["items"][0]["update"]["status"],
+            json!({ "set": "ok", "setNull": false })
+        );
+    }
+
+    #[test]
+    fn event_search_serializes_query_filter_and_limit() {
+        let mut search = EventSearch::from_query("overpressure");
+        search
+            .set_filter(BasicEventFilter::default().set_type("alarm").build())
+            .set_limit(25);
+
+        let v = to_value(&search.build());
+        assert_eq!(v["search"]["query"], json!("overpressure"));
+        assert_eq!(v["filter"]["type"], json!("alarm"));
+        assert_eq!(v["limit"], json!(25));
+    }
+}
