@@ -31,7 +31,7 @@ async fn poll_events_by_uuid(service: &ApiService, id: Uuid, want: usize) -> Vec
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn temp_dir() -> PathBuf {
+pub(crate) fn temp_dir() -> PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
