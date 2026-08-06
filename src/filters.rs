@@ -41,10 +41,13 @@ pub struct BasicEventFilter {
     pub r#type: Option<String>,
     //#[serde(skip_serializing_if = "Option::is_none")]
     pub sub_type: Option<String>,
-    // Backend `EventFilter.dataSetIds` is a plain `List<Long>`, so a flat id array is what it wants.
-    // Kept `Option` because the backend only skips the filter when the field is *absent*; an empty
-    // `[]` would become `IN ()` and match nothing.
-    pub data_set_ids: Option<Vec<u64>>,
+    // Backend `EventFilter.dataSetIds` is a `Collection<IdCollection>` (`[{"id": ...}]`), matching
+    // `relatedResources`. `IdAndExtId::from_id` serializes to exactly `{"id": ...}` (external id
+    // omitted). Omitted from the request when unset so the backend keeps its default (no dataset
+    // filter) — sending `null` or `[]` risks an NPE or an `IN ()` that matches nothing, depending
+    // on how the field is guarded server-side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_set_ids: Option<Vec<IdAndExtId>>,
     //#[serde(skip_serializing_if = "Option::is_none")]
     pub event_time: Option<TimeFilter>,
     //#[serde(skip_serializing_if = "Option::is_none")]
@@ -83,7 +86,8 @@ impl BasicEventFilter {
             source,
             r#type,
             sub_type,
-            data_set_ids,
+            data_set_ids: data_set_ids
+                .map(|ids| ids.into_iter().map(IdAndExtId::from_id).collect()),
             event_time,
             metadata,
             related_resources: related_resource_refs(
@@ -120,7 +124,7 @@ impl BasicEventFilter {
         self
     }
     pub fn set_data_set_ids(&mut self, data_set_ids: &[u64]) -> &mut Self {
-        self.data_set_ids = Some(data_set_ids.to_vec());
+        self.data_set_ids = Some(data_set_ids.iter().map(|id| IdAndExtId::from_id(*id)).collect());
         self
     }
     pub fn set_event_time(&mut self, event_time: &TimeFilter) -> &mut Self {
@@ -573,19 +577,19 @@ mod tests {
     }
 
     #[test]
-    fn basic_event_filter_serializes_data_set_ids_as_flat_array() {
-        // Backend dataSetIds is a plain List<Long>, so a flat number array is correct. When absent
-        // it must be null (not []), or the backend applies `IN ()` and matches nothing.
+    fn basic_event_filter_serializes_data_set_ids_as_id_collection() {
+        // Backend dataSetIds is a Collection<IdCollection> ([{"id": ...}]), matching relatedResources.
+        // When unset the key must be omitted entirely (not null or []) so the backend keeps its default.
         let mut filter = BasicEventFilter::default();
         assert!(
-            serde_json::to_value(&filter).unwrap()["dataSetIds"].is_null(),
-            "unset dataSetIds must serialize as null, not []"
+            serde_json::to_value(&filter).unwrap().get("dataSetIds").is_none(),
+            "unset dataSetIds must be omitted from the payload"
         );
 
         filter.set_data_set_ids(&[42, 7]);
         assert_eq!(
             serde_json::to_value(&filter).unwrap()["dataSetIds"],
-            json!([42, 7])
+            json!([{"id": "42"}, {"id": "7"}])
         );
     }
 
