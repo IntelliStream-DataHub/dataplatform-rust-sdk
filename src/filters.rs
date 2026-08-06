@@ -41,7 +41,9 @@ pub struct BasicEventFilter {
     pub r#type: Option<String>,
     //#[serde(skip_serializing_if = "Option::is_none")]
     pub sub_type: Option<String>,
-    //#[serde(skip_serializing_if = "Option::is_none")]
+    // Backend `EventFilter.dataSetIds` is a plain `List<Long>`, so a flat id array is what it wants.
+    // Kept `Option` because the backend only skips the filter when the field is *absent*; an empty
+    // `[]` would become `IN ()` and match nothing.
     pub data_set_ids: Option<Vec<u64>>,
     //#[serde(skip_serializing_if = "Option::is_none")]
     pub event_time: Option<TimeFilter>,
@@ -567,6 +569,23 @@ mod tests {
         assert_eq!(
             value["relatedResources"],
             json!([{"id": "5"}, {"externalId": "asset_b"}])
+        );
+    }
+
+    #[test]
+    fn basic_event_filter_serializes_data_set_ids_as_flat_array() {
+        // Backend dataSetIds is a plain List<Long>, so a flat number array is correct. When absent
+        // it must be null (not []), or the backend applies `IN ()` and matches nothing.
+        let mut filter = BasicEventFilter::default();
+        assert!(
+            serde_json::to_value(&filter).unwrap()["dataSetIds"].is_null(),
+            "unset dataSetIds must serialize as null, not []"
+        );
+
+        filter.set_data_set_ids(&[42, 7]);
+        assert_eq!(
+            serde_json::to_value(&filter).unwrap()["dataSetIds"],
+            json!([42, 7])
         );
     }
 

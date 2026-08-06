@@ -212,6 +212,100 @@ def test_filter_with_limit(sync_client, test_events,event_dataset):
     assert len(results) == 5
 
 
+def test_filter_by_data_set_ids(sync_client, test_events, event_dataset):
+    # dataSetIds must go over the wire as the backend's List<IdObject> ([{"id": ...}]); a flat id
+    # array is rejected with HTTP 400. All fixture events live in event_dataset.
+    target = test_events[0]
+    basic_filter = datahub_sdk.BasicEventFilter(data_set_ids=[event_dataset.id])
+    filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
+
+    results = _poll(
+        lambda: sync_client.events.filter(filt),
+        lambda r: target.external_id in {e.external_id for e in r},
+    )
+    assert target.external_id in {e.external_id for e in results}
+    # Every returned event really belongs to the filtered dataset.
+    assert all(e.data_set_id == event_dataset.id for e in results)
+
+
+def test_filter_by_related_resources(sync_client, event_dataset):
+    # relatedResourceIds / relatedResourceExternalIds collapse into the backend's single
+    # relatedResources IdCollection array, matched with hasAll. Create a resource + an event
+    # referencing it, then filter by both the numeric id and the external id.
+    res_ext = unique_id("evfilt_res")
+    sync_client.resources.delete([res_ext])
+    sync_client.resources.create([datahub_sdk.Resource(
+        external_id=res_ext, name="ev filter res", is_root=True, labels=["ASSET"])])
+    res = next(r for r in sync_client.resources.by_ids([res_ext]) if r.external_id == res_ext)
+
+    ev_ext = unique_id("evfilt_ev")
+    # Create by external id; the backend resolves it and stores both the id and external-id arrays.
+    sync_client.events.create([datahub_sdk.Event(
+        external_id=ev_ext, event_time=pd.Timestamp.now(tz="UTC"),
+        data_set_id=event_dataset.id, related_resource_external_ids=[res_ext])])
+    try:
+        by_id = datahub_sdk.EventFilter(
+            basic_filter=datahub_sdk.BasicEventFilter(related_resource_ids=[res.id]))
+        r1 = _poll(lambda: sync_client.events.filter(by_id),
+                   lambda r: ev_ext in {e.external_id for e in r})
+        assert ev_ext in {e.external_id for e in r1}, "filter by related_resource_ids did not find the event"
+
+        by_ext = datahub_sdk.EventFilter(
+            basic_filter=datahub_sdk.BasicEventFilter(related_resource_external_ids=[res_ext]))
+        r2 = _poll(lambda: sync_client.events.filter(by_ext),
+                   lambda r: ev_ext in {e.external_id for e in r})
+        assert ev_ext in {e.external_id for e in r2}, "filter by related_resource_external_ids did not find the event"
+    finally:
+        sync_client.events.delete([ev_ext])
+        sync_client.resources.delete([res_ext])
+
+
+def test_filter_by_created_time(sync_client, test_events, event_dataset):
+    # createdTime is server-assigned at create; the fixture events were just made. Scope by the
+    # unique prefix so only these events are in play.
+    target = test_events[0]
+    now = pd.Timestamp.now(tz="UTC")
+    day = pd.Timedelta(days=1)
+
+    after = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
+        external_id_prefix=event_dataset.external_id,
+        created_time=datahub_sdk.TimeFilter(start=now - day)))
+    r = _poll(lambda: sync_client.events.filter(after),
+              lambda r: target.external_id in {e.external_id for e in r})
+    assert target.external_id in {e.external_id for e in r}, "created_time (after) filter did not find the event"
+
+    # Now that we know it's propagated, the complementary window must exclude it.
+    before = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
+        external_id_prefix=event_dataset.external_id,
+        created_time=datahub_sdk.TimeFilter(end=now - day)))
+    r_before = sync_client.events.filter(before)
+    assert target.external_id not in {e.external_id for e in r_before}, (
+        "created_time (before yesterday) must not return a just-created event"
+    )
+
+
+def test_filter_by_last_updated_time(sync_client, test_events, event_dataset):
+    # lastUpdatedTime is also server-assigned at create; same shape as event_time/created_time.
+    target = test_events[0]
+    now = pd.Timestamp.now(tz="UTC")
+    day = pd.Timedelta(days=1)
+
+    after = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
+        external_id_prefix=event_dataset.external_id,
+        last_updated_time=datahub_sdk.TimeFilter(start=now - day)))
+    r = _poll(lambda: sync_client.events.filter(after),
+              lambda r: target.external_id in {e.external_id for e in r})
+    assert target.external_id in {e.external_id for e in r}, "last_updated_time (after) filter did not find the event"
+
+    before = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
+        external_id_prefix=event_dataset.external_id,
+        last_updated_time=datahub_sdk.TimeFilter(end=now - day)))
+    r_before = sync_client.events.filter(before)
+    assert target.external_id not in {e.external_id for e in r_before}, (
+        "last_updated_time (before yesterday) must not return a just-created event"
+    )
+
+
 # ---------------------------------------------------------------------------
 # UUID event ids: events are keyed by a client-generated UUID v7, and that id
 # must be usable to get / delete / filter the event (not just its external_id).
