@@ -179,6 +179,24 @@ class SearchAndFilterForm:
     ) -> None: ...
 
 
+class TimeSeriesFilterForm:
+    """AND-combined criteria for ``timeseries.filter`` (``POST /timeseries/filter``).
+
+    ``data_set_id`` expands down the dataset hierarchy server-side, so a master dataset
+    matches the timeseries of its child datasets too. ``metadata_key``/``metadata_value``
+    work together ("that key carries that value") or alone.
+    """
+    def __init__(
+        self,
+        data_set_id: int | None = None,
+        unit: str | None = None,
+        unit_external_id: str | None = None,
+        metadata_key: str | None = None,
+        metadata_value: str | None = None,
+        limit: int | None = None,
+    ) -> None: ...
+
+
 # ====================== Field update wrappers ======================
 
 class FieldStr:
@@ -197,49 +215,27 @@ class FieldU64:
     def set_null(self) -> bool: ...
 
 
+# An update is either a replace (`set`) or a delta (`add`/`remove`), never both. The two
+# constructors make the illegal mix unrepresentable; there is no bare initializer.
 class ListFieldU64:
-    def __init__(
-        self,
-        remove: list[int] | None = None,
-        add: list[int] | None = None,
-        set: list[int] | None = None,
-    ) -> None: ...
-    @property
-    def set(self) -> list[int] | None: ...
-    @property
-    def add(self) -> list[int] | None: ...
-    @property
-    def remove(self) -> list[int] | None: ...
+    @classmethod
+    def set(cls, values: list[int]) -> ListFieldU64: ...
+    @classmethod
+    def delta(cls, add: list[int] | None = None, remove: list[int] | None = None) -> ListFieldU64: ...
 
 
 class ListFieldStr:
-    def __init__(
-        self,
-        remove: list[str] | None = None,
-        add: list[str] | None = None,
-        set: list[str] | None = None,
-    ) -> None: ...
-    @property
-    def set(self) -> list[str] | None: ...
-    @property
-    def add(self) -> list[str] | None: ...
-    @property
-    def remove(self) -> list[str] | None: ...
+    @classmethod
+    def set(cls, values: list[str]) -> ListFieldStr: ...
+    @classmethod
+    def delta(cls, add: list[str] | None = None, remove: list[str] | None = None) -> ListFieldStr: ...
 
 
 class MapField:
-    def __init__(
-        self,
-        remove: list[str] | None = None,
-        add: dict[str, str] | None = None,
-        set: dict[str, str] | None = None,
-    ) -> None: ...
-    @property
-    def set(self) -> dict[str, str] | None: ...
-    @property
-    def add(self) -> dict[str, str] | None: ...
-    @property
-    def remove(self) -> list[str] | None: ...
+    @classmethod
+    def set(cls, values: dict[str, str]) -> MapField: ...
+    @classmethod
+    def delta(cls, add: dict[str, str] | None = None, remove: list[str] | None = None) -> MapField: ...
 
 
 # ====================== Time series ======================
@@ -500,6 +496,7 @@ class TimeSeriesServiceSync:
     def delete(self, input: list[Identifiable]) -> None: ...
     def update(self, input: list[TimeSeriesUpdate]) -> list[TimeSeries]: ...
     def search(self, input: SearchAndFilterForm) -> list[TimeSeries]: ...
+    def filter(self, input: TimeSeriesFilterForm) -> list[TimeSeries]: ...
     def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
     def insert_from_lists(
         self,
@@ -521,6 +518,7 @@ class TimeSeriesServiceAsync:
     async def delete(self, input: list[Identifiable]) -> None: ...
     async def update(self, input: list[TimeSeriesUpdate]) -> list[TimeSeries]: ...
     async def search(self, input: SearchAndFilterForm) -> list[TimeSeries]: ...
+    async def filter(self, input: TimeSeriesFilterForm) -> list[TimeSeries]: ...
     async def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
     async def insert_from_lists(
         self,

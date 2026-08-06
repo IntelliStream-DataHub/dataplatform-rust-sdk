@@ -40,6 +40,7 @@ use dataplatform_rust_sdk::datahub::DataHubConfig;
 use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
 use dataplatform_rust_sdk::generic::*;
 use dataplatform_rust_sdk::http::ResponseError;
+use dataplatform_rust_sdk::{TimeSeriesFilter, TimeSeriesFilterForm};
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
@@ -553,6 +554,51 @@ impl PySearchAndFilterForm {
     }
 }
 
+#[pyclass(module = "datahub_sdk", name = "TimeSeriesFilterForm")]
+#[derive(Clone)]
+pub struct PyTimeSeriesFilterForm {
+    pub inner: TimeSeriesFilterForm,
+}
+impl From<TimeSeriesFilterForm> for PyTimeSeriesFilterForm {
+    fn from(form: TimeSeriesFilterForm) -> Self {
+        Self { inner: form }
+    }
+}
+impl From<PyTimeSeriesFilterForm> for TimeSeriesFilterForm {
+    fn from(value: PyTimeSeriesFilterForm) -> Self {
+        value.inner
+    }
+}
+#[pymethods]
+impl PyTimeSeriesFilterForm {
+    /// AND-combined criteria for `timeseries.filter`. `data_set_id` expands down the dataset
+    /// hierarchy server-side (a master dataset matches its children's timeseries too);
+    /// `metadata_key`/`metadata_value` work together or alone.
+    #[new]
+    #[pyo3(signature = (data_set_id=None, unit=None, unit_external_id=None, metadata_key=None, metadata_value=None, limit=None))]
+    pub fn new(
+        data_set_id: Option<u64>,
+        unit: Option<String>,
+        unit_external_id: Option<String>,
+        metadata_key: Option<String>,
+        metadata_value: Option<String>,
+        limit: Option<u64>,
+    ) -> Self {
+        Self {
+            inner: TimeSeriesFilterForm {
+                filter: TimeSeriesFilter {
+                    data_set_id,
+                    unit,
+                    unit_external_id,
+                    metadata_key,
+                    metadata_value,
+                },
+                limit,
+            },
+        }
+    }
+}
+
 #[derive(FromPyObject)]
 pub enum Identifiable {
     #[pyo3(transparent)]
@@ -617,26 +663,16 @@ impl From<PyListFieldU64> for ListField<u64> {
 }
 #[pymethods]
 impl PyListFieldU64 {
-    #[new]
-    #[pyo3(signature=(remove=None, add=None, set=None))]
-    pub fn new(
-        remove: Option<Vec<u64>>,
-        add: Option<Vec<u64>>,
-        set: Option<Vec<u64>>,
-    ) -> PyResult<Self> {
-        Ok(Self(ListField::new(set, add, remove)))
+    /// Replace the whole list.
+    #[classmethod]
+    pub fn set(_cls: Py<PyType>, values: Vec<u64>) -> Self {
+        Self(ListField::set(values))
     }
-    #[getter]
-    pub fn set(&self) -> Option<&Vec<u64>> {
-        self.0.set.as_ref()
-    }
-    #[getter]
-    pub fn add(&self) -> Option<&Vec<u64>> {
-        self.0.add.as_ref()
-    }
-    #[getter]
-    pub fn remove(&self) -> Option<&Vec<u64>> {
-        self.0.remove.as_ref()
+    /// Add and/or remove entries, keeping the rest. Pass `add`, `remove`, or both.
+    #[classmethod]
+    #[pyo3(signature=(add=None, remove=None))]
+    pub fn delta(_cls: Py<PyType>, add: Option<Vec<u64>>, remove: Option<Vec<u64>>) -> Self {
+        Self(ListField::delta(add, remove))
     }
 }
 #[pyclass(module = "datahub_sdk", name = "ListFieldStr")]
@@ -654,26 +690,16 @@ impl From<PyListFieldStr> for ListField<String> {
 }
 #[pymethods]
 impl PyListFieldStr {
-    #[new]
-    #[pyo3(signature=(remove=None, add=None, set=None))]
-    pub fn new(
-        remove: Option<Vec<String>>,
-        add: Option<Vec<String>>,
-        set: Option<Vec<String>>,
-    ) -> PyResult<Self> {
-        Ok(Self(ListField::new(set, add, remove)))
+    /// Replace the whole list.
+    #[classmethod]
+    pub fn set(_cls: Py<PyType>, values: Vec<String>) -> Self {
+        Self(ListField::set(values))
     }
-    #[getter]
-    pub fn set(&self) -> Option<&Vec<String>> {
-        self.0.set.as_ref()
-    }
-    #[getter]
-    pub fn add(&self) -> Option<&Vec<String>> {
-        self.0.add.as_ref()
-    }
-    #[getter]
-    pub fn remove(&self) -> Option<&Vec<String>> {
-        self.0.remove.as_ref()
+    /// Add and/or remove entries, keeping the rest. Pass `add`, `remove`, or both.
+    #[classmethod]
+    #[pyo3(signature=(add=None, remove=None))]
+    pub fn delta(_cls: Py<PyType>, add: Option<Vec<String>>, remove: Option<Vec<String>>) -> Self {
+        Self(ListField::delta(add, remove))
     }
 }
 
@@ -693,29 +719,20 @@ impl From<PyMapField> for MapField {
 }
 #[pymethods]
 impl PyMapField {
-    #[new]
-    #[pyo3(signature=(remove=None, add=None, set=None))]
-    pub fn new(
-        remove: Option<Vec<String>>,
+    /// Replace all entries.
+    #[classmethod]
+    pub fn set(_cls: Py<PyType>, values: HashMap<String, String>) -> Self {
+        Self(MapField::set(values))
+    }
+    /// Add and/or remove entries, keeping the rest. Pass `add`, `remove`, or both.
+    #[classmethod]
+    #[pyo3(signature=(add=None, remove=None))]
+    pub fn delta(
+        _cls: Py<PyType>,
         add: Option<HashMap<String, String>>,
-        set: Option<HashMap<String, String>>,
-    ) -> PyResult<Self> {
-        let map_field = MapField::new(set, add, remove);
-
-        Ok(Self(map_field))
-    }
-
-    #[getter]
-    pub fn set(&self) -> Option<&HashMap<String, String>> {
-        self.0.set.as_ref()
-    }
-    #[getter]
-    pub fn add(&self) -> Option<&HashMap<String, String>> {
-        self.0.add.as_ref()
-    }
-    #[getter]
-    pub fn remove(&self) -> Option<&Vec<String>> {
-        self.0.remove.as_ref()
+        remove: Option<Vec<String>>,
+    ) -> Self {
+        Self(MapField::delta(add, remove))
     }
 }
 #[pyclass(module = "datahub_sdk", name = "FieldStr")]
@@ -805,6 +822,7 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyListFieldStr>()?;
     m.add_class::<PyMapField>()?;
     m.add_class::<PySearchAndFilterForm>()?;
+    m.add_class::<PyTimeSeriesFilterForm>()?;
     timeseries::register(m)?;
     events::register(m)?;
     datasets::register(m)?;

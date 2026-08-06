@@ -6,6 +6,7 @@ use crate::timeseries::{
 };
 use crate::{
     DatahubIdentity, Identifiable, PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm,
+    PyTimeSeriesFilterForm,
 };
 use crate::datetime::py_datetime_to_utc;
 use dataplatform_rust_sdk::generic::{
@@ -152,6 +153,29 @@ impl PyTimeSeriesServiceAsync {
             let result = service
                 .time_series
                 .search(&input.into())
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+
+            let py_ts: Vec<PyTimeSeries> = result
+                .get_items()
+                .iter()
+                .map(|ts| PyTimeSeries::with_client(ts.clone(), service.clone()))
+                .collect();
+            Ok(py_ts)
+        })
+    }
+
+    fn filter<'p>(
+        &self,
+        py: Python<'p>,
+        input: PyTimeSeriesFilterForm,
+    ) -> PyResult<Bound<'p, PyAny>> {
+        let service = self.api_service.clone();
+
+        future_into_py(py, async move {
+            let result = service
+                .time_series
+                .filter(&input.into())
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
 

@@ -216,7 +216,7 @@ def test_timeseries_update_with_fields(sync_client, make_ts):
     # Note: TimeSeriesUpdate.__init__ expects these types for specific fields
     new_name = datahub_sdk.FieldStr(value="Updated Name")
     new_unit = datahub_sdk.FieldStr(value="Updated Unit")
-    new_metadata = datahub_sdk.MapField(add={"status": "updated", "version": "2"})
+    new_metadata = datahub_sdk.MapField.delta(add={"status": "updated", "version": "2"})
 
     # 3. Create the Update object
     # The first argument 'ts' is the Identifyable (the created_ts itself)

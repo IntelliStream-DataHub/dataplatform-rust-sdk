@@ -48,116 +48,152 @@ impl<T> Field<T> {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ListField<T> {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub set: Option<Vec<T>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub add: Option<Vec<T>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub remove: Option<Vec<T>>,
+/// A list update: **either** replace the whole list (`set`) **or** apply an `add`/`remove` delta.
+/// The two are mutually exclusive by construction — there is no way to build one carrying both.
+/// Create one with [`ListField::set`] or [`ListField::delta`] (or the [`add`](ListField::add) /
+/// [`remove`](ListField::remove) shortcuts). Serializes as `{"set": [...]}` or
+/// `{"add": [...], "remove": [...]}`.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(untagged)]
+pub enum ListField<T> {
+    /// Replace the whole list.
+    Set { set: Vec<T> },
+    /// Add and/or remove entries, keeping the rest.
+    Delta {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        add: Option<Vec<T>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        remove: Option<Vec<T>>,
+    },
+}
+
+impl<T> Default for ListField<T> {
+    /// An empty delta — applies no change.
+    fn default() -> Self {
+        ListField::Delta {
+            add: None,
+            remove: None,
+        }
+    }
 }
 
 impl<T> ListField<T> {
-    pub fn new(set: Option<Vec<T>>, add: Option<Vec<T>>, remove: Option<Vec<T>>) -> Self {
-        ListField { set, add, remove }
+    /// Replace the whole list with `values`.
+    pub fn set(values: Vec<T>) -> Self {
+        ListField::Set { set: values }
     }
-    pub fn default() -> Self {
-        ListField {
-            set: None,
-            add: None,
+    /// Add and/or remove entries, keeping the rest.
+    pub fn delta(add: Option<Vec<T>>, remove: Option<Vec<T>>) -> Self {
+        ListField::Delta { add, remove }
+    }
+    /// Add entries, keeping the rest (an add-only delta).
+    pub fn add(values: Vec<T>) -> Self {
+        ListField::Delta {
+            add: Some(values),
             remove: None,
         }
     }
-
-    /// Replace the whole list (`{ "set": [...] }`).
-    pub fn new_set(set: Vec<T>) -> Self {
-        ListField {
-            set: Some(set),
+    /// Remove entries, keeping the rest (a remove-only delta).
+    pub fn remove(values: Vec<T>) -> Self {
+        ListField::Delta {
             add: None,
-            remove: None,
+            remove: Some(values),
         }
     }
 
-    /// Add to the list, keeping existing entries (`{ "add": [...] }`).
-    pub fn new_add(add: Vec<T>) -> Self {
-        ListField {
-            set: None,
-            add: Some(add),
-            remove: None,
+    /// The replacement list, when this is a `set`.
+    pub fn get_set(&self) -> Option<&Vec<T>> {
+        match self {
+            ListField::Set { set } => Some(set),
+            ListField::Delta { .. } => None,
         }
     }
-
-    /// Remove entries from the list (`{ "remove": [...] }`).
-    pub fn new_remove(remove: Vec<T>) -> Self {
-        ListField {
-            set: None,
-            add: None,
-            remove: Some(remove),
+    /// The added entries, when this is a delta carrying `add`.
+    pub fn get_add(&self) -> Option<&Vec<T>> {
+        match self {
+            ListField::Delta { add, .. } => add.as_ref(),
+            ListField::Set { .. } => None,
         }
     }
-
-    pub fn set(&mut self, s: Vec<T>) {
-        self.set = Some(s);
-    }
-
-    pub fn add(&mut self, s: Vec<T>) {
-        self.add = Some(s);
-    }
-
-    pub fn remove(&mut self, s: Vec<T>) {
-        self.remove = Some(s);
+    /// The removed entries, when this is a delta carrying `remove`.
+    pub fn get_remove(&self) -> Option<&Vec<T>> {
+        match self {
+            ListField::Delta { remove, .. } => remove.as_ref(),
+            ListField::Set { .. } => None,
+        }
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct MapField {
-    pub set: Option<HashMap<String, String>>,
-    pub add: Option<HashMap<String, String>>,
-    pub remove: Option<Vec<String>>,
+/// A map update: **either** replace all entries (`set`) **or** apply an `add`/`remove` delta.
+/// Mutually exclusive by construction, mirroring [`ListField`]. Create one with [`MapField::set`]
+/// or [`MapField::delta`] (or the [`add`](MapField::add) / [`remove`](MapField::remove) shortcuts).
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(untagged)]
+pub enum MapField {
+    /// Replace all entries.
+    Set { set: HashMap<String, String> },
+    /// Add and/or remove entries, keeping the rest.
+    Delta {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        add: Option<HashMap<String, String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        remove: Option<Vec<String>>,
+    },
+}
+
+impl Default for MapField {
+    /// An empty delta — applies no change.
+    fn default() -> Self {
+        MapField::Delta {
+            add: None,
+            remove: None,
+        }
+    }
 }
 
 impl MapField {
-    pub fn new(
-        set: Option<HashMap<String, String>>,
-        add: Option<HashMap<String, String>>,
-        remove: Option<Vec<String>>,
-    ) -> Self {
-        MapField { set, add, remove }
+    /// Replace all entries with `values`.
+    pub fn set(values: HashMap<String, String>) -> Self {
+        MapField::Set { set: values }
     }
-    pub fn new_set(s: Option<HashMap<String, String>>) -> Self {
-        Self {
-            set: s,
-            add: None,
+    /// Add and/or remove entries, keeping the rest.
+    pub fn delta(add: Option<HashMap<String, String>>, remove: Option<Vec<String>>) -> Self {
+        MapField::Delta { add, remove }
+    }
+    /// Add entries, keeping the rest (an add-only delta).
+    pub fn add(values: HashMap<String, String>) -> Self {
+        MapField::Delta {
+            add: Some(values),
             remove: None,
         }
     }
-    pub fn new_add(s: Option<HashMap<String, String>>) -> Self {
-        Self {
-            set: None,
-            add: s,
-            remove: None,
-        }
-    }
-    pub fn new_remove(s: Option<Vec<String>>) -> Self {
-        Self {
-            set: None,
+    /// Remove entries by key, keeping the rest (a remove-only delta).
+    pub fn remove(keys: Vec<String>) -> Self {
+        MapField::Delta {
             add: None,
-            remove: s,
+            remove: Some(keys),
         }
     }
 
-    pub fn set(&mut self, s: HashMap<String, String>) {
-        self.set = Some(s);
+    /// The replacement entries, when this is a `set`.
+    pub fn get_set(&self) -> Option<&HashMap<String, String>> {
+        match self {
+            MapField::Set { set } => Some(set),
+            MapField::Delta { .. } => None,
+        }
     }
-
-    pub fn add(&mut self, s: HashMap<String, String>) {
-        self.add = Some(s);
+    /// The added entries, when this is a delta carrying `add`.
+    pub fn get_add(&self) -> Option<&HashMap<String, String>> {
+        match self {
+            MapField::Delta { add, .. } => add.as_ref(),
+            MapField::Set { .. } => None,
+        }
     }
-
-    pub fn remove(&mut self, s: Vec<String>) {
-        self.remove = Some(s);
+    /// The removed keys, when this is a delta carrying `remove`.
+    pub fn get_remove(&self) -> Option<&Vec<String>> {
+        match self {
+            MapField::Delta { remove, .. } => remove.as_ref(),
+            MapField::Set { .. } => None,
+        }
     }
 }

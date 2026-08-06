@@ -406,8 +406,8 @@ mod uuid_serde {
     #[test]
     fn event_with_absent_id_deserializes_to_none() {
         // A payload that omits `id` entirely (e.g. a list projection) must not fail to parse.
-        // `eventTime` is a required field on every event the API returns, so it stays present;
-        // only the optional `id` is absent here.
+        // `eventTime` is required on every event the API returns, so it stays present; only the
+        // optional `id` is absent here.
         let json = r#"{"externalId":"evt_no_id","eventTime":"2025-01-01T00:00:00Z","relatedResourceIds":[],"relatedResourceExternalIds":[]}"#;
         let ev: Event = serde_json::from_str(json).unwrap();
         assert_eq!(ev.id, None);

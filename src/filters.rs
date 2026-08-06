@@ -1,8 +1,28 @@
+use crate::generic::IdAndExtId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+/// Combine the two ergonomic id/external-id lists into the backend's `relatedResources` shape.
+fn related_resource_refs(
+    ids: Option<Vec<u64>>,
+    external_ids: Option<Vec<String>>,
+) -> Vec<IdAndExtId> {
+    ids.into_iter()
+        .flatten()
+        .map(IdAndExtId::from_id)
+        .chain(
+            external_ids
+                .into_iter()
+                .flatten()
+                .map(|ext| IdAndExtId::from_external_id(&ext)),
+        )
+        .collect()
+}
+
+// Not PartialEq: it carries `Vec<IdAndExtId>`, which is intentionally non-comparable (see
+// `IdAndExtId`). Nothing compares filters by value; equality here would be meaningless anyway.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BasicEventFilter {
     //#[serde(skip_serializing_if = "Option::is_none")]
@@ -21,16 +41,22 @@ pub struct BasicEventFilter {
     pub r#type: Option<String>,
     //#[serde(skip_serializing_if = "Option::is_none")]
     pub sub_type: Option<String>,
-    //#[serde(skip_serializing_if = "Option::is_none")]
-    pub data_set_ids: Option<Vec<u64>>,
+    // Backend `EventFilter.dataSetIds` is a `Collection<IdCollection>` (`[{"id": ...}]`), matching
+    // `relatedResources`. `IdAndExtId::from_id` serializes to exactly `{"id": ...}` (external id
+    // omitted). Omitted from the request when unset so the backend keeps its default (no dataset
+    // filter) — sending `null` or `[]` risks an NPE or an `IN ()` that matches nothing, depending
+    // on how the field is guarded server-side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_set_ids: Option<Vec<IdAndExtId>>,
     //#[serde(skip_serializing_if = "Option::is_none")]
     pub event_time: Option<TimeFilter>,
     //#[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
-    //#[serde(skip_serializing_if = "Option::is_none")]
-    pub related_resource_ids: Option<Vec<u64>>,
-    //#[serde(skip_serializing_if = "Option::is_none")]
-    pub related_resource_external_ids: Option<Vec<String>>,
+    // The backend event filter reads related-resource selectors as a single `relatedResources`
+    // array of `{id}` / `{externalId}` objects (its `Collection<IdCollection>`), matched with
+    // `hasAll`. `IdAndExtId` serializes to exactly that shape (id as string, unset key omitted).
+    #[serde(default)]
+    pub related_resources: Vec<IdAndExtId>,
     //#[serde(skip_serializing_if = "Option::is_none")]//todo implement IdCollection
     pub created_time: Option<TimeFilter>,
     //#[serde(skip_serializing_if = "Option::is_none")]
@@ -60,11 +86,14 @@ impl BasicEventFilter {
             source,
             r#type,
             sub_type,
-            data_set_ids,
+            data_set_ids: data_set_ids
+                .map(|ids| ids.into_iter().map(IdAndExtId::from_id).collect()),
             event_time,
             metadata,
-            related_resource_ids,
-            related_resource_external_ids,
+            related_resources: related_resource_refs(
+                related_resource_ids,
+                related_resource_external_ids,
+            ),
             created_time,
             last_updated_time,
         }
@@ -95,7 +124,7 @@ impl BasicEventFilter {
         self
     }
     pub fn set_data_set_ids(&mut self, data_set_ids: &[u64]) -> &mut Self {
-        self.data_set_ids = Some(data_set_ids.to_vec());
+        self.data_set_ids = Some(data_set_ids.iter().map(|id| IdAndExtId::from_id(*id)).collect());
         self
     }
     pub fn set_event_time(&mut self, event_time: &TimeFilter) -> &mut Self {
@@ -106,20 +135,22 @@ impl BasicEventFilter {
         self.metadata = Some(metadata.clone());
         self
     }
+    /// Select events referencing these resource ids. Appends to `related_resources`; the backend
+    /// matches with `hasAll`, so all selectors must be present on an event.
     pub fn set_related_resource_ids(&mut self, related_resource_ids: &[u64]) -> &mut Self {
-        self.related_resource_ids = Some(related_resource_ids.to_vec());
+        self.related_resources
+            .extend(related_resource_ids.iter().map(|id| IdAndExtId::from_id(*id)));
         self
     }
+    /// Select events referencing these resource external ids. Appends to `related_resources`.
     pub fn set_related_resource_external_ids(
         &mut self,
         related_resource_external_ids: &[&str],
     ) -> &mut Self {
-        self.related_resource_external_ids = Some(
+        self.related_resources.extend(
             related_resource_external_ids
                 .iter()
-                .copied()
-                .map(String::from)
-                .collect(),
+                .map(|ext| IdAndExtId::from_external_id(ext)),
         );
         self
     }
@@ -145,7 +176,8 @@ pub enum TimeFilter {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+// Not PartialEq: holds `Option<BasicEventFilter>`, which is non-comparable (see `IdAndExtId`).
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EventFilter {
     pub filter: Option<BasicEventFilter>,
     pub limit: u64,
@@ -501,5 +533,73 @@ mod tests {
             .unwrap(),
             expected_json3.to_string()
         )
+    }
+
+    // The backend event filter reads a single `relatedResources: [{id}|{externalId}]` array
+    // (`Collection<IdCollection>`), NOT flat `relatedResourceIds` / `relatedResourceExternalIds`
+    // arrays. Serializing the flat keys silently disabled related-resource filtering, so lock the
+    // wire shape here.
+    #[test]
+    fn basic_event_filter_serializes_related_resources_as_id_collection() {
+        let mut filter = BasicEventFilter::default();
+        filter.set_related_resource_ids(&[42, 7]);
+        filter.set_related_resource_external_ids(&["asset_a"]);
+
+        let value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&filter).unwrap()).unwrap();
+
+        // The flat keys the backend ignores must be gone.
+        assert!(value.get("relatedResourceIds").is_none());
+        assert!(value.get("relatedResourceExternalIds").is_none());
+
+        // Ids go over the wire as strings (IdAndExtId), each entry carrying only its populated key.
+        assert_eq!(
+            value["relatedResources"],
+            json!([{"id": "42"}, {"id": "7"}, {"externalId": "asset_a"}])
+        );
+    }
+
+    #[test]
+    fn basic_event_filter_new_maps_related_resources() {
+        // The ergonomic two-list constructor still populates the single wire field.
+        let filter = BasicEventFilter::new(
+            None, None, None, None, None, None, None, None, None,
+            Some(vec![5]),
+            Some(vec!["asset_b".to_string()]),
+            None, None,
+        );
+        let value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&filter).unwrap()).unwrap();
+        assert_eq!(
+            value["relatedResources"],
+            json!([{"id": "5"}, {"externalId": "asset_b"}])
+        );
+    }
+
+    #[test]
+    fn basic_event_filter_serializes_data_set_ids_as_id_collection() {
+        // Backend dataSetIds is a Collection<IdCollection> ([{"id": ...}]), matching relatedResources.
+        // When unset the key must be omitted entirely (not null or []) so the backend keeps its default.
+        let mut filter = BasicEventFilter::default();
+        assert!(
+            serde_json::to_value(&filter).unwrap().get("dataSetIds").is_none(),
+            "unset dataSetIds must be omitted from the payload"
+        );
+
+        filter.set_data_set_ids(&[42, 7]);
+        assert_eq!(
+            serde_json::to_value(&filter).unwrap()["dataSetIds"],
+            json!([{"id": "42"}, {"id": "7"}])
+        );
+    }
+
+    #[test]
+    fn basic_event_filter_omits_empty_related_resources() {
+        // A filter that doesn't select by related resources still emits an (empty) array, and never
+        // the flat keys.
+        let value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&BasicEventFilter::default()).unwrap())
+                .unwrap();
+        assert_eq!(value["relatedResources"], json!([]));
     }
 }
