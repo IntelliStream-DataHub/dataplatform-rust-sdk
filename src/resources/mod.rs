@@ -114,6 +114,46 @@ impl ResourceService {
         self.execute_post_request::<GraphDataWrapper<Resource>, _>(&url, &payload)
             .await
     }
+
+    /// `GET /resources/{id}` — one resource by its numeric id.
+    ///
+    /// Unlike [`by_ids`](Self::by_ids), which omits what it cannot find, this is a 404 when the
+    /// resource does not exist.
+    pub async fn get_by_id(&self, id: u64) -> Result<DataWrapper<Resource>, ResponseError> {
+        let url = &format!("{}/{}", self.base_url, id);
+        self.execute_get_request::<DataWrapper<Resource>, ()>(url, None)
+            .await
+    }
+
+    /// `POST /resources/filter` — structured lookup. Every criterion is combined with AND.
+    ///
+    /// Prefer this to [`search`](Self::search) whenever the question is structured: an exact
+    /// external id, a metadata value, a data set, a time range. It is faster and its results are
+    /// predictable, where search ranks by fuzzy relevance.
+    pub async fn filter(
+        &self,
+        retriever: &ResourceRetreiver,
+    ) -> Result<DataWrapper<Resource>, ResponseError> {
+        let url = &format!("{}/filter", self.base_url);
+        self.execute_post_request::<DataWrapper<Resource>, _>(url, retriever)
+            .await
+    }
+
+    /// `POST /resources/fetch-nearest` — the closest `limit` nodes carrying one of `end_labels`,
+    /// plus the sub-graph connecting them back to the start.
+    ///
+    /// Where [`fetch_related`](Self::fetch_related) caps on hop depth and total nodes, this caps on
+    /// the number of *matching* end-nodes, so "the 10 nearest TIMESERIES" is exactly ten however
+    /// many intermediate nodes lie between them. You name what you want and the radius follows,
+    /// rather than guessing a radius and seeing what falls inside it.
+    pub async fn fetch_nearest(
+        &self,
+        form: &FetchNearestResourcesForm,
+    ) -> Result<ResourceNetwork, ResponseError> {
+        let url = &format!("{}/fetch-nearest", self.base_url);
+        self.execute_post_request::<ResourceNetwork, _>(url, form)
+            .await
+    }
 }
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -386,5 +426,140 @@ impl DataWrapperDeserialization for ResourceNetwork {
             return Ok(ResourceNetwork::default());
         }
         serde_json::from_str(body)
+    }
+}
+
+/// Body of `POST /resources/filter`: the criteria, plus how many to return and in what order.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceRetreiver {
+    pub filter: ResourceFilter,
+    /// Defaults to 1000 server-side and is capped at 10000. A zero or negative value falls back to
+    /// the default rather than returning nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort: Option<crate::filters::DataSort>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+impl ResourceRetreiver {
+    pub fn new(filter: ResourceFilter) -> Self {
+        Self {
+            filter,
+            limit: None,
+            sort: None,
+            cursor: None,
+        }
+    }
+
+    pub fn with_limit(mut self, limit: u64) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn with_sort(mut self, sort: crate::filters::DataSort) -> Self {
+        self.sort = Some(sort);
+        self
+    }
+
+    pub fn with_cursor(mut self, cursor: &str) -> Self {
+        self.cursor = Some(cursor.to_string());
+        self
+    }
+}
+
+/// Criteria for `POST /resources/filter`. Everything set is combined with AND.
+///
+/// `name` and `source` are case-insensitive **substring** matches and accept `%` as a wildcard;
+/// `external_id` and `id` are exact.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceFilter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
+    pub id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_root: Option<bool>,
+    /// Ids only — unlike the event filter, this endpoint does not accept a data set's external id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_set_ids: Option<Vec<IdObject>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_time: Option<crate::filters::TimeFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_updated_time: Option<crate::filters::TimeFilter>,
+}
+
+/// An id-only reference, the shape `ResourceFilter::data_set_ids` expects.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct IdObject {
+    #[serde(with = "crate::serde_helper::string_id")]
+    pub id: u64,
+}
+
+impl IdObject {
+    pub fn new(id: u64) -> Self {
+        Self { id }
+    }
+}
+
+/// Request body for [`ResourceService::fetch_nearest`] (`POST /resources/fetch-nearest`).
+///
+/// Note the endpoint reads `id` only: it does not resolve `external_id`, so start from a numeric
+/// id (resolve one with [`by_ids`](ResourceService::by_ids) if that is all you have).
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchNearestResourcesForm {
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
+    pub id: Option<u64>,
+    /// Labels that qualify as a match, e.g. `["TIMESERIES"]`. Traversal continues past them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_labels: Option<Vec<String>>,
+    /// How many matching end-nodes to return. Defaults to 10 server-side.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+    /// Relationship types the traversal may follow. `None` or empty = all types.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationship_types: Option<Vec<String>>,
+    /// Labels the traversal neither passes through nor returns, e.g. `["POLICY"]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub excluded_labels: Option<Vec<String>>,
+}
+
+impl FetchNearestResourcesForm {
+    pub fn from_id(id: u64) -> Self {
+        Self {
+            id: Some(id),
+            ..Default::default()
+        }
+    }
+
+    pub fn with_end_labels(mut self, labels: Vec<String>) -> Self {
+        self.end_labels = Some(labels);
+        self
+    }
+
+    pub fn with_limit(mut self, limit: u64) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn with_relationship_types(mut self, types: Vec<String>) -> Self {
+        self.relationship_types = Some(types);
+        self
+    }
+
+    pub fn with_excluded_labels(mut self, labels: Vec<String>) -> Self {
+        self.excluded_labels = Some(labels);
+        self
     }
 }

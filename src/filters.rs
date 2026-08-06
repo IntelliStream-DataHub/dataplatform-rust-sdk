@@ -176,26 +176,68 @@ pub enum TimeFilter {
     },
 }
 
+/// How the backend should order a result page: the properties to order by, and the direction.
+///
+/// Mirrors the api's `DataSort`. Sortable event properties are `eventTime`, `createdTime`,
+/// `lastUpdatedTime`, `externalId`, `type`, `subType`, `status`, `source` and `dataSetId`; an
+/// unsortable one is ignored server-side rather than rejected. Anything that is not exactly
+/// `desc` sorts ascending, so a malformed order degrades to the default instead of silently
+/// reversing the page.
+///
+/// Note that setting a [cursor](EventFilter::set_cursor) overrides this: a page is only
+/// meaningful against the order it was produced in.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DataSort {
+    pub property: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<String>,
+}
+
+impl DataSort {
+    /// Ascending by one property, e.g. `DataSort::asc("eventTime")`.
+    pub fn asc(property: &str) -> Self {
+        Self {
+            property: vec![property.to_string()],
+            order: Some("asc".to_string()),
+        }
+    }
+
+    /// Descending by one property, e.g. `DataSort::desc("eventTime")`.
+    pub fn desc(property: &str) -> Self {
+        Self {
+            property: vec![property.to_string()],
+            order: Some("desc".to_string()),
+        }
+    }
+}
+
 // Not PartialEq: holds `Option<BasicEventFilter>`, which is non-comparable (see `IdAndExtId`).
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct EventFilter {
     pub filter: Option<BasicEventFilter>,
     pub limit: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sort: Option<DataSort>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     advanced_filter: Option<AdvancedEventFilter>,
 }
 
 impl EventFilter {
-    
+
     pub fn default() -> Self {
         Self {
             filter: None,
             limit: 100,
             cursor: None,
+            sort: None,
             advanced_filter: None,
         }
     }
-    
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: Option<u64>,
@@ -212,10 +254,28 @@ impl EventFilter {
         created_time: Option<TimeFilter>,
         last_updated_time: Option<TimeFilter>,
     ) -> Self {
+        // Every argument used to be dropped on the floor here, so `new(...)` returned the same
+        // unfiltered filter as `default()` and quietly matched every event in the tenant. The
+        // arguments are the fields of a BasicEventFilter, so build one.
         Self {
-            filter: None,
+            filter: Some(BasicEventFilter::new(
+                id,
+                external_id_prefix,
+                description,
+                source,
+                r#type,
+                sub_type,
+                data_set_ids,
+                event_time,
+                metadata,
+                related_resource_ids,
+                related_resource_external_ids,
+                created_time,
+                last_updated_time,
+            )),
             limit: 100,
             cursor: None,
+            sort: None,
             advanced_filter: None,
         }
     }
@@ -225,6 +285,36 @@ impl EventFilter {
     }
     pub fn filter(&self) -> Option<&BasicEventFilter> {
         self.filter.as_ref()
+    }
+    /// Resume a walk from where the previous page stopped.
+    ///
+    /// The value is `<eventTime epoch millis>_<event id>` taken from the last event of that page —
+    /// build it with [`Event::page_cursor`](crate::events::Event::page_cursor) rather than by hand.
+    /// Both halves are required: event times are not unique, so a position on the timestamp alone
+    /// would either skip the events sharing that millisecond or repeat them forever.
+    ///
+    /// Setting this fixes the order to `(eventTime, id)` ascending, overriding [`set_sort`](Self::set_sort).
+    pub fn set_cursor(&mut self, cursor: impl Into<String>) -> &mut Self {
+        self.cursor = Some(cursor.into());
+        self
+    }
+    /// Drop the paging position, restarting the walk from the beginning.
+    pub fn clear_cursor(&mut self) -> &mut Self {
+        self.cursor = None;
+        self
+    }
+    pub fn sort(&self) -> Option<&DataSort> {
+        self.sort.as_ref()
+    }
+    /// Order the result page. Ignored when a [cursor](Self::set_cursor) is set.
+    pub fn set_sort(&mut self, sort: DataSort) -> &mut Self {
+        self.sort = Some(sort);
+        self
+    }
+    /// Drop the ordering, letting the backend return the page in no particular order.
+    pub fn clear_sort(&mut self) -> &mut Self {
+        self.sort = None;
+        self
     }
     pub fn cursor(&self) -> Option<&str> {
         self.cursor.as_deref()
@@ -601,5 +691,73 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&BasicEventFilter::default()).unwrap())
                 .unwrap();
         assert_eq!(value["relatedResources"], json!([]));
+    }
+
+    /// `advanced_filter` used to serialize under its snake_case Rust name, which the api does not
+    /// read — the filter was silently ignored and the query came back unfiltered.
+    #[test]
+    fn advanced_filter_serializes_as_camel_case() {
+        let mut filter = EventFilter::default();
+        filter.set_advanced_filter(AdvancedEventFilter::new());
+
+        let value = serde_json::to_value(filter.build()).unwrap();
+        assert!(
+            value.get("advancedFilter").is_some(),
+            "expected advancedFilter, got: {value}"
+        );
+        assert!(value.get("advanced_filter").is_none());
+    }
+
+    #[test]
+    fn sort_and_cursor_are_settable_and_on_the_wire() {
+        let mut filter = EventFilter::default();
+        filter
+            .set_sort(DataSort::asc("eventTime"))
+            .set_cursor("1754476522104_0195f3a2-4c1b-7f9e-9c3a-1b2d4e6f8a90")
+            .set_limit(200);
+
+        let value = serde_json::to_value(filter.build()).unwrap();
+        assert_eq!(value["sort"]["property"][0], "eventTime");
+        assert_eq!(value["sort"]["order"], "asc");
+        assert_eq!(
+            value["cursor"],
+            "1754476522104_0195f3a2-4c1b-7f9e-9c3a-1b2d4e6f8a90"
+        );
+        assert_eq!(value["limit"], 200);
+    }
+
+    /// Unset paging and sort must be absent rather than explicit nulls, so an ordinary filter keeps
+    /// the body it had before these fields existed.
+    #[test]
+    fn unset_sort_and_cursor_are_omitted() {
+        let value = serde_json::to_value(EventFilter::default()).unwrap();
+        assert!(value.get("sort").is_none());
+        assert!(value.get("cursor").is_none());
+        assert!(value.get("advancedFilter").is_none());
+    }
+
+    /// `EventFilter::new` used to drop all thirteen arguments and return an unfiltered filter,
+    /// which matched every event in the tenant instead of the ones asked for.
+    #[test]
+    fn new_keeps_its_arguments() {
+        let filter = EventFilter::new(
+            None,
+            None,
+            None,
+            Some("SAP".to_string()),
+            Some("alarm".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let basic = filter.filter().expect("filter should be populated");
+        assert_eq!(basic.r#type.as_deref(), Some("alarm"));
+        assert_eq!(basic.source.as_deref(), Some("SAP"));
     }
 }

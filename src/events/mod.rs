@@ -332,6 +332,16 @@ impl Event {
         self.id.map(EventIdCollection::from_uuid)
     }
 
+    /// The paging position to resume from *after* this event:
+    /// `<eventTime epoch millis>_<id>`, for [`EventFilter::set_cursor`](crate::filters::EventFilter::set_cursor).
+    ///
+    /// Take it from the **last** event of a page. Returns `None` for an event with no id, which
+    /// cannot be a page boundary because it has never been stored.
+    pub fn page_cursor(&self) -> Option<String> {
+        self.id
+            .map(|id| format!("{}_{}", self.event_time.timestamp_millis(), id))
+    }
+
     pub fn get_external_id(&self) -> &str {
         &self.external_id.as_str()
     }

@@ -455,9 +455,9 @@ mod update_search_serde {
     fn event_update_by_external_id_serializes_only_touched_fields() {
         let upd = EventUpdate::by_external_id("alarm_x")
             .status(Field::value("acknowledged"))
-            .metadata(MapField::new_add(Some(
+            .metadata(MapField::add(
                 [("acked_by".to_string(), "olav".to_string())].into(),
-            )));
+            ));
 
         assert_eq!(
             to_value(&upd),
@@ -500,8 +500,8 @@ mod update_search_serde {
     #[test]
     fn event_update_related_resource_lists_use_add_remove() {
         let upd = EventUpdate::by_external_id("alarm_x")
-            .related_resource_ids(ListField::new_add(vec![1, 2]))
-            .related_resource_external_ids(ListField::new_remove(vec!["old_pump".to_string()]));
+            .related_resource_ids(ListField::add(vec![1, 2]))
+            .related_resource_external_ids(ListField::remove(vec!["old_pump".to_string()]));
         let update = &to_value(&upd)["update"];
         assert_eq!(update["relatedResourceIds"], json!({ "add": [1, 2] }));
         assert_eq!(
