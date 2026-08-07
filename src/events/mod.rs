@@ -537,7 +537,7 @@ impl Default for EventSearch {
 /// One event's update in `POST /events/update`. Target the event by UUID `id` or `external_id`,
 /// then layer on the field changes. Each setter takes the field-change struct directly, so one
 /// method per field covers every operation that field supports — [`Field::value`] / [`Field::null`]
-/// for scalars, [`MapField`] / [`ListField`] (`new_set` / `new_add` / `new_remove`) for the
+/// for scalars, [`MapField`] / [`ListField`] (`set` / `add` / `remove`) for the
 /// collection fields. For example:
 ///
 /// ```
@@ -547,7 +547,7 @@ impl Default for EventSearch {
 /// EventUpdate::by_external_id("alarm_x")
 ///     .status(Field::value("acknowledged"))
 ///     .description(Field::null())
-///     .metadata(MapField::new_add(Some([("acked_by".into(), "olav".into())].into())));
+///     .metadata(MapField::add([("acked_by".into(), "olav".into())].into()));
 /// ```
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
