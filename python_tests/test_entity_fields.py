@@ -20,6 +20,11 @@ import datahub_sdk as dh
 import pytest
 
 
+def _refs(id_collections):
+    """`IdCollection` has no `__eq__`, so compare the pairs it carries instead."""
+    return [(c.id, c.external_id) for c in id_collections]
+
+
 # --------------------------------------------------------------------------- #
 # TimeSeries
 # --------------------------------------------------------------------------- #
@@ -147,8 +152,7 @@ class TestEvent:
         # event_time has no default: it is required by the constructor
         assert ev.event_time == event_time
         # list-valued fields default to empty lists, not None
-        assert ev.related_resource_ids == []
-        assert ev.related_resource_external_ids == []
+        assert ev.related_resources == []
 
     def test_full_constructor_round_trips_through_getters(self):
         event_time = datetime.datetime(2023, 6, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
@@ -161,8 +165,12 @@ class TestEvent:
             source="sensor",
             metadata={"k": "v"},
             data_set_id=7,
-            related_resource_ids=[1, 2],
-            related_resource_external_ids=["r1", "r2"],
+            # An entry may name a resource by id, by external id, or by both.
+            related_resources=[
+                dh.IdCollection(id=1),
+                dh.IdCollection(external_id="r1"),
+                dh.IdCollection(id=2, external_id="r2"),
+            ],
             event_time=event_time,
         )
         assert ev.external_id == "ev1"
@@ -173,8 +181,7 @@ class TestEvent:
         assert ev.source == "sensor"
         assert ev.metadata == {"k": "v"}
         assert ev.data_set_id == 7
-        assert ev.related_resource_ids == [1, 2]
-        assert ev.related_resource_external_ids == ["r1", "r2"]
+        assert _refs(ev.related_resources) == [(1, None), (None, "r1"), (2, "r2")]
         assert ev.event_time == event_time
 
     def test_external_id_is_required(self):
@@ -192,8 +199,7 @@ class TestEvent:
         ev.source = "sensor"
         ev.metadata = {"k": "v"}
         ev.data_set_id = 7
-        ev.related_resource_ids = [1, 2]
-        ev.related_resource_external_ids = ["r1", "r2"]
+        ev.related_resources = [dh.IdCollection(id=1), dh.IdCollection(external_id="r1")]
         ev.event_time = event_time
 
         assert ev.external_id == "ev2"
@@ -204,8 +210,7 @@ class TestEvent:
         assert ev.source == "sensor"
         assert ev.metadata == {"k": "v"}
         assert ev.data_set_id == 7
-        assert ev.related_resource_ids == [1, 2]
-        assert ev.related_resource_external_ids == ["r1", "r2"]
+        assert _refs(ev.related_resources) == [(1, None), (None, "r1")]
         assert ev.event_time == event_time
 
     def test_optional_setters_accept_none(self):

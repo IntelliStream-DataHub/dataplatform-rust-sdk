@@ -767,9 +767,6 @@ pub trait ApiServiceProvider {
             .http_client
             .get(path)
             .bearer_auth(token.clone())
-            // The client's default `Accept: application/json` has to be overridden here: the
-            // download endpoint only `produces` `application/octet-stream`, so Spring answers a
-            // JSON-only Accept with 406 before the handler ever runs.
             .header(http::header::ACCEPT, "*/*")
             .send()
             .await

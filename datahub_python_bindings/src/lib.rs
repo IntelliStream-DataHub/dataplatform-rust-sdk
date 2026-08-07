@@ -703,6 +703,45 @@ impl PyListFieldStr {
     }
 }
 
+/// The related-resource list of an `EventUpdate`. Entries are `IdCollection`s, so a resource can
+/// be named by id, external_id, or both; `remove` matches on whichever side is given.
+#[pyclass(module = "datahub_sdk", name = "ListFieldIdCollection")]
+#[derive(Clone, Debug)]
+pub struct PyListFieldIdCollection(ListField<IdAndExtId>);
+impl From<ListField<IdAndExtId>> for PyListFieldIdCollection {
+    fn from(ts: ListField<IdAndExtId>) -> Self {
+        Self(ts)
+    }
+}
+impl From<PyListFieldIdCollection> for ListField<IdAndExtId> {
+    fn from(ts: PyListFieldIdCollection) -> Self {
+        ts.0
+    }
+}
+#[pymethods]
+impl PyListFieldIdCollection {
+    /// Replace the whole list.
+    #[classmethod]
+    pub fn set(_cls: Py<PyType>, values: Vec<PyIdCollection>) -> Self {
+        Self(ListField::set(
+            values.into_iter().map(IdAndExtId::from).collect(),
+        ))
+    }
+    /// Add and/or remove entries, keeping the rest. Pass `add`, `remove`, or both.
+    #[classmethod]
+    #[pyo3(signature=(add=None, remove=None))]
+    pub fn delta(
+        _cls: Py<PyType>,
+        add: Option<Vec<PyIdCollection>>,
+        remove: Option<Vec<PyIdCollection>>,
+    ) -> Self {
+        let conv = |v: Vec<PyIdCollection>| -> Vec<IdAndExtId> {
+            v.into_iter().map(IdAndExtId::from).collect()
+        };
+        Self(ListField::delta(add.map(conv), remove.map(conv)))
+    }
+}
+
 #[pyclass(module = "datahub_sdk", name = "MapField")]
 #[derive(Clone, Debug)]
 pub struct PyMapField(pub MapField);
@@ -820,6 +859,7 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyListFieldU64>()?;
     m.add_class::<PyFieldStr>()?;
     m.add_class::<PyListFieldStr>()?;
+    m.add_class::<PyListFieldIdCollection>()?;
     m.add_class::<PyMapField>()?;
     m.add_class::<PySearchAndFilterForm>()?;
     m.add_class::<PyTimeSeriesFilterForm>()?;

@@ -5,8 +5,8 @@ use crate::timeseries::datapoints::{
     PyRetrieveFilter,
 };
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
-use crate::{PyFieldStr, PyFieldU64, PyListFieldStr, PyListFieldU64, PyMapField};
-use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter, TimeFilter};
+use crate::{PyFieldStr, PyFieldU64, PyListFieldIdCollection, PyMapField};
+use dataplatform_rust_sdk::filters::{BasicEventFilter, DataSort, EventFilter, TimeFilter};
 use dataplatform_rust_sdk::events::{EventIdCollection, EventSearch, EventUpdate, EventUpdateFields};
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::{ApiService, Event, TimeSeries};
@@ -57,23 +57,9 @@ impl PyEvent {
         }
     }
 
-    /// The event's related-resource references as id selectors: numeric
-    /// `related_resource_ids` first, then `related_resource_external_ids`.
+    /// The event's related-resource references as id selectors, in the order they were attached.
     pub(crate) fn related_id_collections(&self) -> Vec<IdAndExtId> {
-        let mut ids = Vec::new();
-        for id in self.inner.get_related_resource_ids() {
-            ids.push(IdAndExtId {
-                id: Some(*id),
-                external_id: None,
-            });
-        }
-        for ext in self.inner.get_related_resource_external_ids() {
-            ids.push(IdAndExtId {
-                id: None,
-                external_id: Some(ext.clone()),
-            });
-        }
-        ids
+        self.inner.get_related_resources().clone()
     }
 }
 
@@ -96,11 +82,26 @@ impl From<PyEventFilter> for EventFilter {
 #[pymethods]
 impl PyEventFilter {
     #[new]
-    #[pyo3(signature=(basic_filter,limit=None))]
-    fn new(basic_filter: PyBasicEventFilter, limit: Option<u64>) -> Self {
+    #[pyo3(signature=(basic_filter,limit=None,sort_by=None,sort_order=None,cursor=None))]
+    fn new(
+        basic_filter: PyBasicEventFilter,
+        limit: Option<u64>,
+        sort_by: Option<Vec<String>>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
+    ) -> Self {
         let mut filter = EventFilter::default();
         filter.set_filter(basic_filter.into());
         filter.set_limit(limit.unwrap_or(100));
+        if let Some(property) = sort_by {
+            filter.set_sort(DataSort {
+                property,
+                order: sort_order,
+            });
+        }
+        if let Some(cursor) = cursor {
+            filter.set_cursor(cursor);
+        }
         Self {
             inner: filter.build(),
         }
@@ -120,6 +121,57 @@ impl PyEventFilter {
     #[getter]
     pub fn cursor(&self) -> Option<&str> {
         self.inner.cursor()
+    }
+
+    /// Resume a walk from where the previous page stopped: `<eventTime epoch millis>_<event id>`,
+    /// taken from the last event of that page (see `Event.page_cursor`).
+    ///
+    /// Setting this fixes the order to `(eventTime, id)` ascending, overriding `sort_by`.
+    #[setter]
+    pub fn set_cursor(&mut self, cursor: Option<String>) {
+        match cursor {
+            Some(cursor) => {
+                self.inner.set_cursor(cursor);
+            }
+            None => {
+                self.inner.clear_cursor();
+            }
+        }
+    }
+
+    /// The properties this page is ordered by, if any.
+    #[getter]
+    pub fn sort_by(&self) -> Option<Vec<String>> {
+        self.inner.sort().map(|s| s.property.clone())
+    }
+
+    #[setter]
+    pub fn set_sort_by(&mut self, property: Option<Vec<String>>) {
+        let order = self.inner.sort().and_then(|s| s.order.clone());
+        match property {
+            Some(property) => {
+                self.inner.set_sort(DataSort { property, order });
+            }
+            None => {
+                self.inner.clear_sort();
+            }
+        }
+    }
+
+    /// `"asc"` or `"desc"`. Anything that is not exactly `desc` sorts ascending server-side.
+    #[getter]
+    pub fn sort_order(&self) -> Option<String> {
+        self.inner.sort().and_then(|s| s.order.clone())
+    }
+
+    #[setter]
+    pub fn set_sort_order(&mut self, order: Option<String>) {
+        let property = self
+            .inner
+            .sort()
+            .map(|s| s.property.clone())
+            .unwrap_or_default();
+        self.inner.set_sort(DataSort { property, order });
     }
 }
 
@@ -155,8 +207,7 @@ impl PyBasicEventFilter {
         data_set_ids=None,
         event_time=None,
         metadata=None,
-        related_resource_ids=None,
-        related_resource_external_ids=None,
+        related_resources=None,
         created_time=None,
         last_updated_time=None,
     ))]
@@ -170,8 +221,7 @@ impl PyBasicEventFilter {
         data_set_ids: Option<Vec<u64>>,
         event_time: Option<PyTimeFilter>,
         metadata: Option<HashMap<String, String>>,
-        related_resource_ids: Option<Vec<u64>>,
-        related_resource_external_ids: Option<Vec<String>>,
+        related_resources: Option<Vec<PyIdCollection>>,
         created_time: Option<PyTimeFilter>,
         last_updated_time: Option<PyTimeFilter>,
     ) -> Self {
@@ -186,8 +236,8 @@ impl PyBasicEventFilter {
                 data_set_ids,
                 event_time.map(|f| f.inner),
                 metadata,
-                related_resource_ids,
-                related_resource_external_ids,
+                related_resources
+                    .map(|rr| rr.into_iter().map(IdAndExtId::from).collect()),
                 created_time.map(|f| f.inner),
                 last_updated_time.map(|f| f.inner),
             ),
@@ -354,8 +404,7 @@ impl PyEventUpdate {
         data_set_id = None,
         metadata = None,
         source = None,
-        related_resource_ids = None,
-        related_resource_external_ids = None,
+        related_resources = None,
         event_time = None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -369,8 +418,7 @@ impl PyEventUpdate {
         data_set_id: Option<PyFieldU64>,
         metadata: Option<PyMapField>,
         source: Option<PyFieldStr>,
-        related_resource_ids: Option<PyListFieldU64>,
-        related_resource_external_ids: Option<PyListFieldStr>,
+        related_resources: Option<PyListFieldIdCollection>,
         event_time: Option<PyFieldStr>,
     ) -> Self {
         let ident = EventIdCollection::from(event);
@@ -387,8 +435,7 @@ impl PyEventUpdate {
                     data_set_id: data_set_id.map(Into::into),
                     metadata: metadata.map(Into::into),
                     source: source.map(Into::into),
-                    related_resource_ids: related_resource_ids.map(Into::into),
-                    related_resource_external_ids: related_resource_external_ids.map(Into::into),
+                    related_resources: related_resources.map(Into::into),
                     event_time: event_time.map(Into::into),
                 },
             },
