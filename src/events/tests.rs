@@ -8,7 +8,10 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use maplit::hashmap;
 use std::collections::HashMap;
 
-async fn delete_events(api_service: &ApiService, events: Vec<EventIdCollection>) -> Result<(), Box<dyn std::error::Error>> {
+async fn delete_events(
+    api_service: &ApiService,
+    events: Vec<EventIdCollection>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let delete_result = api_service.events.delete(&events).await;
     match delete_result {
         Ok(events) => {
@@ -108,12 +111,19 @@ async fn sweep_events_by_prefix(api_service: &ApiService, prefix: &str) {
     for _ in 0..20 {
         let mut filter = EventFilter::default();
         filter
-            .set_filter(BasicEventFilter::default().set_external_id_prefix(prefix).build())
+            .set_filter(
+                BasicEventFilter::default()
+                    .set_external_id_prefix(prefix)
+                    .build(),
+            )
             .set_limit(PAGE);
         let found = match api_service.events.filter(&filter).await {
             Ok(f) => f,
             Err(e) => {
-                eprintln!("sweep: filter failed, leaving residue in place: {}", e.get_message());
+                eprintln!(
+                    "sweep: filter failed, leaving residue in place: {}",
+                    e.get_message()
+                );
                 return;
             }
         };
@@ -127,14 +137,20 @@ async fn sweep_events_by_prefix(api_service: &ApiService, prefix: &str) {
         }
         println!("sweep: deleting {} leftover '{}' events", ids.len(), prefix);
         if let Err(e) = api_service.events.delete(&ids).await {
-            eprintln!("sweep: delete failed, leaving residue in place: {}", e.get_message());
+            eprintln!(
+                "sweep: delete failed, leaving residue in place: {}",
+                e.get_message()
+            );
             return;
         }
         // Deletes land in ClickHouse asynchronously; give the projection a moment before
         // re-reading, else the next page repeats rows that are already gone.
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
-    eprintln!("sweep: gave up after 20 pages of '{}' — residue may remain", prefix);
+    eprintln!(
+        "sweep: gave up after 20 pages of '{}' — residue may remain",
+        prefix
+    );
 }
 
 //tests create, read delete all field of the basic filter.
@@ -448,11 +464,17 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     // permanent residue.
     match api_service.events.delete(&created_event_ids).await {
         Ok(_) => event_cleanup.disarm(),
-        Err(e) => eprintln!("explicit event delete failed ({}), leaving the guard armed", e.get_message()),
+        Err(e) => eprintln!(
+            "explicit event delete failed ({}), leaving the guard armed",
+            e.get_message()
+        ),
     }
     match api_service.datasets.delete(&ds_ext_id_collection).await {
         Ok(_) => dataset_cleanup.disarm(),
-        Err(e) => eprintln!("explicit dataset delete failed ({}), leaving the guard armed", e.get_message()),
+        Err(e) => eprintln!(
+            "explicit dataset delete failed ({}), leaving the guard armed",
+            e.get_message()
+        ),
     }
     Ok(())
 }
@@ -583,11 +605,10 @@ mod update_search_serde {
     fn event_update_related_resources_use_add_remove() {
         // One list, same IdCollection entries as the entity — `remove` matches on whichever
         // side is named.
-        let upd = EventUpdate::by_external_id("alarm_x")
-            .related_resources(ListField::add(vec![
-                IdAndExtId::from_id(1),
-                IdAndExtId::from_external_id("pump_b"),
-            ]));
+        let upd = EventUpdate::by_external_id("alarm_x").related_resources(ListField::add(vec![
+            IdAndExtId::from_id(1),
+            IdAndExtId::from_external_id("pump_b"),
+        ]));
         let update = &to_value(&upd)["update"];
         assert_eq!(
             update["relatedResources"],
@@ -596,10 +617,10 @@ mod update_search_serde {
         assert!(update.get("relatedResourceIds").is_none());
         assert!(update.get("relatedResourceExternalIds").is_none());
 
-        let removal = EventUpdate::by_external_id("alarm_x")
-            .related_resources(ListField::remove(vec![IdAndExtId::from_external_id(
-                "old_pump",
-            )]));
+        let removal =
+            EventUpdate::by_external_id("alarm_x").related_resources(ListField::remove(vec![
+                IdAndExtId::from_external_id("old_pump"),
+            ]));
         assert_eq!(
             to_value(&removal)["update"]["relatedResources"],
             json!({ "remove": [{"externalId": "old_pump"}] })
@@ -699,5 +720,151 @@ mod related_resources_serde {
         assert_eq!(ev.related_resources.len(), 1);
         ev.remove_related_resource_external_id("a".to_string());
         assert!(ev.related_resources.is_empty());
+    }
+}
+
+mod vocabulary {
+    use crate::create_api_service;
+    use crate::events::EventDimension;
+
+    /// The four list endpoints: distinct values, alphabetical, honouring `limit`.
+    #[tokio::test]
+    async fn test_list_dimensions() -> Result<(), Box<dyn std::error::Error>> {
+        let api = create_api_service();
+
+        for dim in [
+            EventDimension::Type,
+            EventDimension::SubType,
+            EventDimension::Status,
+            EventDimension::Source,
+        ] {
+            let all = api.events.list_dimension(dim, None, None).await?;
+            assert_eq!(all.get_http_status_code(), Some(200), "{:?}", dim);
+
+            let items: Vec<String> = all.get_items().to_vec();
+            // Distinctness is the guarantee worth pinning. The endpoint also documents alphabetical
+            // ordering, but that ordering is the database's — a Postgres collation that is
+            // case-insensitive and treats punctuation differently from a byte comparison, and that
+            // varies with the deployment's locale. Asserting it exactly would make this test fail
+            // on a differently-configured database rather than on a real regression.
+            let mut deduped = items.clone();
+            deduped.sort();
+            deduped.dedup();
+            assert_eq!(deduped.len(), items.len(), "{:?} should be distinct", dim);
+
+            if items.len() > 1 {
+                let capped = api.events.list_dimension(dim, None, Some(1)).await?;
+                assert_eq!(capped.get_items().len(), 1, "{:?} should honour limit", dim);
+            }
+        }
+        Ok(())
+    }
+
+    /// The search variants filter the same vocabulary by case-insensitive substring.
+    #[tokio::test]
+    async fn test_search_dimensions_is_case_insensitive_substring(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let api = create_api_service();
+
+        // Pick a real value to search for so the test doesn't depend on any particular tenant data.
+        let types = api.events.list_types(None).await?;
+        let Some(sample) = types.get_items().first().cloned() else {
+            println!("SKIP test_search_dimensions: this tenant has no events with a type");
+            return Ok(());
+        };
+
+        let exact = api.events.search_types(&sample, None).await?;
+        assert!(
+            exact.get_items().contains(&sample),
+            "searching for {sample:?} should find it"
+        );
+
+        // Same query in the opposite case must match the same value.
+        let flipped = if sample.chars().any(|c| c.is_lowercase()) {
+            sample.to_uppercase()
+        } else {
+            sample.to_lowercase()
+        };
+        let insensitive = api.events.search_types(&flipped, None).await?;
+        assert!(
+            insensitive.get_items().contains(&sample),
+            "matching is case-insensitive, so {flipped:?} should still find {sample:?}"
+        );
+
+        // A substring of it matches too.
+        if sample.len() > 2 {
+            let part = &sample[..sample.len() - 1];
+            assert!(
+                api.events
+                    .search_types(part, None)
+                    .await?
+                    .get_items()
+                    .contains(&sample),
+                "a substring should match"
+            );
+        }
+
+        // Every result is a subset of the full list — search filters, it does not invent values.
+        let all = types.get_items();
+        for found in exact.get_items() {
+            assert!(all.contains(&found), "{found:?} is not in the full list");
+        }
+
+        // No match is an empty list, not an error.
+        let none = api
+            .events
+            .search_types("zzz_no_such_type_zzz", None)
+            .await?;
+        assert_eq!(none.get_http_status_code(), Some(200));
+        assert!(none.get_items().is_empty());
+        Ok(())
+    }
+
+    /// `limit` is clamped server-side rather than rejected, so an absurd value still succeeds.
+    #[tokio::test]
+    async fn test_limit_is_clamped_not_rejected() -> Result<(), Box<dyn std::error::Error>> {
+        let api = create_api_service();
+        let huge = api.events.list_types(Some(999_999)).await?;
+        assert_eq!(huge.get_http_status_code(), Some(200));
+        let zero = api.events.list_types(Some(0)).await?;
+        assert_eq!(zero.get_http_status_code(), Some(200));
+        assert!(
+            !zero.get_items().is_empty() || huge.get_items().is_empty(),
+            "limit 0 is clamped up to 1, so it must not return an empty list when values exist"
+        );
+        Ok(())
+    }
+
+    /// The two route families spell their segments differently — plural to list, singular to
+    /// search. Pinned because a typo there is a 404 that only shows up at runtime.
+    #[tokio::test]
+    async fn test_both_route_families_resolve() -> Result<(), Box<dyn std::error::Error>> {
+        let api = create_api_service();
+        for dim in [
+            EventDimension::Type,
+            EventDimension::SubType,
+            EventDimension::Status,
+            EventDimension::Source,
+        ] {
+            assert_eq!(
+                api.events
+                    .list_dimension(dim, None, Some(1))
+                    .await?
+                    .get_http_status_code(),
+                Some(200),
+                "list route for {:?} should resolve",
+                dim
+            );
+            assert_eq!(
+                api.events
+                    .list_dimension(dim, Some("a"), Some(1))
+                    .await?
+                    .get_http_status_code(),
+                Some(200),
+                "search route for {:?} should resolve",
+                dim
+            );
+        }
+        Ok(())
     }
 }

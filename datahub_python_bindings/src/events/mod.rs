@@ -7,7 +7,9 @@ use crate::timeseries::datapoints::{
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
 use crate::{PyFieldStr, PyFieldU64, PyListFieldIdCollection, PyMapField};
 use dataplatform_rust_sdk::filters::{BasicEventFilter, DataSort, EventFilter, TimeFilter};
-use dataplatform_rust_sdk::events::{EventIdCollection, EventSearch, EventUpdate, EventUpdateFields};
+use dataplatform_rust_sdk::events::{
+    EventDimension, EventIdCollection, EventSearch, EventUpdate, EventUpdateFields,
+};
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::{ApiService, Event, TimeSeries};
 use std::sync::Arc;
@@ -487,7 +489,33 @@ impl PyEventSearch {
     }
 }
 
+/// The categorical event fields that have a queryable vocabulary.
+///
+/// Served from dimension tables the write path maintains, not from a scan of the events — cheap
+/// enough for a typeahead, but *eventually consistent*: a new value appears once the write path
+/// records it, and a value no event carries any more lingers until the server's reconcile.
+#[pyclass(module = "datahub_sdk", name = "EventDimension", eq, eq_int, frozen, hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum PyEventDimension {
+    TYPE,
+    SUB_TYPE,
+    STATUS,
+    SOURCE,
+}
+
+impl From<PyEventDimension> for EventDimension {
+    fn from(d: PyEventDimension) -> Self {
+        match d {
+            PyEventDimension::TYPE => EventDimension::Type,
+            PyEventDimension::SUB_TYPE => EventDimension::SubType,
+            PyEventDimension::STATUS => EventDimension::Status,
+            PyEventDimension::SOURCE => EventDimension::Source,
+        }
+    }
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyEventDimension>()?;
     m.add_class::<PyEvent>()?;
     m.add_class::<PyEventIdCollection>()?;
     m.add_class::<PyEventFilter>()?;

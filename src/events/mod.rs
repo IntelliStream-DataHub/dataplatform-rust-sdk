@@ -221,6 +221,158 @@ impl EventsService {
         Ok(res.count)
     }
 
+    /// The distinct values an event field actually takes in this tenant.
+    ///
+    /// `GET /events/list/{dimension}` when `query` is `None`, `GET /events/search/{dimension}` when
+    /// it is `Some` — the server runs the same lookup either way, the query just adds a
+    /// case-insensitive substring filter. Results are alphabetical and restricted to the datasets
+    /// your token can read.
+    ///
+    /// The eight wrappers below ([`list_types`](Self::list_types),
+    /// [`search_types`](Self::search_types), …) are the ones to reach for; this is the generic form
+    /// behind them.
+    ///
+    /// `limit` defaults to 1000 server-side and is clamped to 1..=10000, so an out-of-range value
+    /// is silently corrected rather than rejected.
+    pub async fn list_dimension(
+        &self,
+        dimension: EventDimension,
+        query: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        let path = match query {
+            Some(_) => format!("{}/search/{}", self.base_url, dimension.search_segment()),
+            None => format!("{}/list/{}", self.base_url, dimension.list_segment()),
+        };
+        let mut params: Vec<(&str, String)> = Vec::new();
+        if let Some(q) = query {
+            params.push(("q", q.to_string()));
+        }
+        if let Some(limit) = limit {
+            params.push(("limit", limit.to_string()));
+        }
+        let params = if params.is_empty() {
+            None
+        } else {
+            Some(params)
+        };
+        self.execute_get_request(path.as_str(), params.as_ref())
+            .await
+    }
+
+    /// Every distinct `type` on events you can read. See [`list_dimension`](Self::list_dimension).
+    pub async fn list_types(
+        &self,
+        limit: Option<u32>,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        self.list_dimension(EventDimension::Type, None, limit).await
+    }
+
+    /// Distinct `type` values containing `query` (case-insensitive substring).
+    pub async fn search_types(
+        &self,
+        query: &str,
+        limit: Option<u32>,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        self.list_dimension(EventDimension::Type, Some(query), limit)
+            .await
+    }
+
+    /// Every distinct `subType` on events you can read.
+    pub async fn list_sub_types(
+        &self,
+        limit: Option<u32>,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        self.list_dimension(EventDimension::SubType, None, limit)
+            .await
+    }
+
+    /// Distinct `subType` values containing `query` (case-insensitive substring).
+    pub async fn search_sub_types(
+        &self,
+        query: &str,
+        limit: Option<u32>,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        self.list_dimension(EventDimension::SubType, Some(query), limit)
+            .await
+    }
+
+    /// Every distinct `status` on events you can read.
+    pub async fn list_statuses(
+        &self,
+        limit: Option<u32>,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        self.list_dimension(EventDimension::Status, None, limit)
+            .await
+    }
+
+    /// Distinct `status` values containing `query` (case-insensitive substring).
+    pub async fn search_statuses(
+        &self,
+        query: &str,
+        limit: Option<u32>,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        self.list_dimension(EventDimension::Status, Some(query), limit)
+            .await
+    }
+
+    /// Every distinct `source` on events you can read.
+    pub async fn list_sources(
+        &self,
+        limit: Option<u32>,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        self.list_dimension(EventDimension::Source, None, limit)
+            .await
+    }
+
+    /// Distinct `source` values containing `query` (case-insensitive substring).
+    pub async fn search_sources(
+        &self,
+        query: &str,
+        limit: Option<u32>,
+    ) -> Result<DataWrapper<String>, ResponseError> {
+        self.list_dimension(EventDimension::Source, Some(query), limit)
+            .await
+    }
+}
+
+/// The categorical event fields that have a queryable vocabulary.
+///
+/// These are served from small dimension tables the write path maintains, not from a scan of the
+/// events themselves — which is what makes them cheap enough for a typeahead. The trade-off is that
+/// they are *eventually consistent* with the events: a brand-new value appears once the write path
+/// has recorded it, and a value no longer carried by any event lingers until the server's periodic
+/// reconcile. Good enough for populating a picker; not a source of truth for "does any event have
+/// this type right now".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EventDimension {
+    Type,
+    SubType,
+    Status,
+    Source,
+}
+
+impl EventDimension {
+    /// Path segment under `/events/list/` — plural, since it lists every value.
+    fn list_segment(&self) -> &'static str {
+        match self {
+            EventDimension::Type => "types",
+            EventDimension::SubType => "sub-types",
+            EventDimension::Status => "statuses",
+            EventDimension::Source => "sources",
+        }
+    }
+
+    /// Path segment under `/events/search/` — singular, unlike the list route. The asymmetry is
+    /// the server's, not ours.
+    fn search_segment(&self) -> &'static str {
+        match self {
+            EventDimension::Type => "type",
+            EventDimension::SubType => "sub-type",
+            EventDimension::Status => "status",
+            EventDimension::Source => "source",
+        }
+    }
 }
 
 /// Minimal `{ "count": N }` body returned by `GET /events/count`.
@@ -230,7 +382,10 @@ struct EventCount {
 }
 
 impl DataWrapperDeserialization for EventCount {
-    fn deserialize_and_set_status(body: &str, _status_code: u16) -> Result<Self, serde_json::Error> {
+    fn deserialize_and_set_status(
+        body: &str,
+        _status_code: u16,
+    ) -> Result<Self, serde_json::Error> {
         serde_json::from_str(body)
     }
 }
@@ -471,11 +626,17 @@ pub struct EventIdCollection {
 
 impl EventIdCollection {
     pub fn from_uuid(id: Uuid) -> Self {
-        EventIdCollection { id: Some(id), external_id: None }
+        EventIdCollection {
+            id: Some(id),
+            external_id: None,
+        }
     }
 
     pub fn from_external_id(external_id: &str) -> Self {
-        EventIdCollection { id: None, external_id: Some(external_id.to_string()) }
+        EventIdCollection {
+            id: None,
+            external_id: Some(external_id.to_string()),
+        }
     }
 }
 
