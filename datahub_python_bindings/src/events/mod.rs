@@ -6,7 +6,7 @@ use crate::timeseries::datapoints::{
 };
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
 use crate::{PyFieldStr, PyFieldU64, PyListFieldIdCollection, PyMapField};
-use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter, TimeFilter};
+use dataplatform_rust_sdk::filters::{BasicEventFilter, DataSort, EventFilter, TimeFilter};
 use dataplatform_rust_sdk::events::{EventIdCollection, EventSearch, EventUpdate, EventUpdateFields};
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::{ApiService, Event, TimeSeries};
@@ -82,11 +82,26 @@ impl From<PyEventFilter> for EventFilter {
 #[pymethods]
 impl PyEventFilter {
     #[new]
-    #[pyo3(signature=(basic_filter,limit=None))]
-    fn new(basic_filter: PyBasicEventFilter, limit: Option<u64>) -> Self {
+    #[pyo3(signature=(basic_filter,limit=None,sort_by=None,sort_order=None,cursor=None))]
+    fn new(
+        basic_filter: PyBasicEventFilter,
+        limit: Option<u64>,
+        sort_by: Option<Vec<String>>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
+    ) -> Self {
         let mut filter = EventFilter::default();
         filter.set_filter(basic_filter.into());
         filter.set_limit(limit.unwrap_or(100));
+        if let Some(property) = sort_by {
+            filter.set_sort(DataSort {
+                property,
+                order: sort_order,
+            });
+        }
+        if let Some(cursor) = cursor {
+            filter.set_cursor(cursor);
+        }
         Self {
             inner: filter.build(),
         }
@@ -106,6 +121,57 @@ impl PyEventFilter {
     #[getter]
     pub fn cursor(&self) -> Option<&str> {
         self.inner.cursor()
+    }
+
+    /// Resume a walk from where the previous page stopped: `<eventTime epoch millis>_<event id>`,
+    /// taken from the last event of that page (see `Event.page_cursor`).
+    ///
+    /// Setting this fixes the order to `(eventTime, id)` ascending, overriding `sort_by`.
+    #[setter]
+    pub fn set_cursor(&mut self, cursor: Option<String>) {
+        match cursor {
+            Some(cursor) => {
+                self.inner.set_cursor(cursor);
+            }
+            None => {
+                self.inner.clear_cursor();
+            }
+        }
+    }
+
+    /// The properties this page is ordered by, if any.
+    #[getter]
+    pub fn sort_by(&self) -> Option<Vec<String>> {
+        self.inner.sort().map(|s| s.property.clone())
+    }
+
+    #[setter]
+    pub fn set_sort_by(&mut self, property: Option<Vec<String>>) {
+        let order = self.inner.sort().and_then(|s| s.order.clone());
+        match property {
+            Some(property) => {
+                self.inner.set_sort(DataSort { property, order });
+            }
+            None => {
+                self.inner.clear_sort();
+            }
+        }
+    }
+
+    /// `"asc"` or `"desc"`. Anything that is not exactly `desc` sorts ascending server-side.
+    #[getter]
+    pub fn sort_order(&self) -> Option<String> {
+        self.inner.sort().and_then(|s| s.order.clone())
+    }
+
+    #[setter]
+    pub fn set_sort_order(&mut self, order: Option<String>) {
+        let property = self
+            .inner
+            .sort()
+            .map(|s| s.property.clone())
+            .unwrap_or_default();
+        self.inner.set_sort(DataSort { property, order });
     }
 }
 
