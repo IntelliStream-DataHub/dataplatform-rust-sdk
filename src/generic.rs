@@ -749,6 +749,48 @@ pub trait ApiServiceProvider {
             .await
             .map_err(|e| explain_auth_failure(e, &token))
     }
+
+    /// `GET` an endpoint that answers with bytes rather than JSON (currently only
+    /// `/files/download/{id}`).
+    ///
+    /// The body is *not* passed through [`process_response`] — there is no `DataWrapper` to
+    /// deserialize and no reason to print a binary body to stdout. Non-2xx responses still surface
+    /// as a [`ResponseError`] carrying the server's text explanation, so error handling matches the
+    /// JSON helpers.
+    async fn execute_get_stream_request(
+        &self,
+        path: &str,
+    ) -> Result<reqwest::Response, ResponseError> {
+        let token = self.get_token().await?;
+        let response = self
+            .get_api_service()
+            .http_client
+            .get(path)
+            .bearer_auth(token.clone())
+            .header(http::header::ACCEPT, "*/*")
+            .send()
+            .await
+            .map_err(|err| {
+                eprintln!("HTTP request failed: {}", err);
+                ResponseError::from_err(err)
+            })?;
+
+        let status = response.status();
+        if status.is_success() {
+            return Ok(response);
+        }
+        eprintln!("Request failed with status: {status}");
+        Err(explain_auth_failure(
+            ResponseError {
+                status,
+                message: response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Failed to read response body".to_string()),
+            },
+            &token,
+        ))
+    }
 }
 
 /// Add a reason to a 401 that arrived without one.

@@ -30,7 +30,7 @@ use tokio::runtime::Runtime;
 use crate::datahub::DataHubConfig;
 use crate::datasets::{Dataset, DatasetFilter, DatasetSearch};
 use crate::events::{Event, EventIdCollection};
-use crate::files::FileUpload;
+use crate::files::{FileDownload, FileUpdate, FileUpload};
 use crate::filters::EventFilter;
 use crate::functions::Function;
 use crate::generic::{
@@ -284,7 +284,27 @@ impl FileService {
         fn upload_file(file_upload: FileUpload) -> Result<DataWrapper<INode>, ResponseError>;
         fn list_root_directory() -> Result<DataWrapper<INode>, ResponseError>;
         fn list_directory_by_path(path: &str) -> Result<DataWrapper<INode>, ResponseError>;
-        fn delete(id_collection: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<Event>, ResponseError>;
+        fn delete(id_collection: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<INode>, ResponseError>;
+        fn get_by_id(id: u64) -> Result<DataWrapper<INode>, ResponseError>;
+        fn get_by_external_id(external_id: &str) -> Result<DataWrapper<INode>, ResponseError>;
+        fn search(query: &str) -> Result<DataWrapper<INode>, ResponseError>;
+        fn list_trash() -> Result<DataWrapper<INode>, ResponseError>;
+        fn restore(id_collection: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<INode>, ResponseError>;
+        fn update(update: &FileUpdate) -> Result<DataWrapper<INode>, ResponseError>;
+        fn download(id: u64) -> Result<FileDownload, ResponseError>;
+    }
+
+    /// Blocking counterpart of [`crate::files::FileService::download_to_path`].
+    ///
+    /// Spelled out rather than delegated because the async signature takes an
+    /// `impl AsRef<Path>`, which the `delegate!` macro cannot reproduce.
+    pub fn download_to_path(
+        &self,
+        id: u64,
+        destination: impl AsRef<std::path::Path>,
+    ) -> Result<u64, ResponseError> {
+        self.rt
+            .block_on(self.api.files.download_to_path(id, destination))
     }
 }
 

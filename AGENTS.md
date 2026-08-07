@@ -44,7 +44,7 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 - `events` (`src/events/`)
 - `resources` (`src/resources/`) — hierarchical asset-like entities; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`)
 - `datasets` (`src/datasets/`)
-- `files` (`src/files/`) — multipart upload via `execute_file_upload_request`
+- `files` (`src/files/`) — raw-`PUT` upload via `execute_file_upload_request` (content is the body, metadata rides in `X-Datahub-*` headers), plus directory listing, get/search, `FileUpdate` (rename/move/re-dataset), trash + restore, delete, and download (`download` in memory, `download_to_path` streamed)
 - `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`)
 - `functions` (`src/functions/`)
 - `labels` (`src/labels/`) — label CRUD (`list`/`get`/`create`/`update`/`delete`). Note the entity type is `labels::Label`, deliberately *not* re-exported at the crate root because `resources::*` already brings a different graph-DTO `Label` there.
@@ -59,7 +59,9 @@ When a datapoint/event send can't get through, ingestion spools to a segmented, 
 
 ### The `ApiServiceProvider` trait (`src/generic.rs`)
 
-Every subservice implements `ApiServiceProvider`, which owns the HTTP plumbing: token acquisition, `execute_get_request`, `execute_post_request`, `execute_file_upload_request`. Subservice methods should go through these helpers rather than calling `reqwest` directly — a few early methods (e.g. `TimeSeriesService::list`) still bypass the trait and should be migrated when touched.
+Every subservice implements `ApiServiceProvider`, which owns the HTTP plumbing: token acquisition, `execute_get_request`, `execute_post_request`, `execute_file_upload_request`, `execute_get_stream_request`. Subservice methods should go through these helpers rather than calling `reqwest` directly — a few early methods (e.g. `TimeSeriesService::list`) still bypass the trait and should be migrated when touched.
+
+`execute_get_stream_request` is the odd one out: it returns the raw `reqwest::Response` instead of a `DataWrapper`, for endpoints that answer with bytes (currently only `/files/download/{id}`). It also overrides the client's default `Accept: application/json` with `*/*` — that endpoint only `produces` `application/octet-stream`, and Spring answers a JSON-only `Accept` with 406 before the handler runs.
 
 ### Response shape: `DataWrapper<T>`
 
