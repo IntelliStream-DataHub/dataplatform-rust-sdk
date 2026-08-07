@@ -29,13 +29,13 @@ use tokio::runtime::Runtime;
 
 use crate::datahub::DataHubConfig;
 use crate::datasets::{Dataset, DatasetFilter, DatasetSearch};
-use crate::events::{Event, EventIdCollection};
+use crate::events::{Event, EventDimension, EventIdCollection};
 use crate::files::{FileDownload, FileUpdate, FileUpload};
 use crate::filters::EventFilter;
 use crate::functions::Function;
 use crate::generic::{
-    DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, INode,
-    IdAndExtId, RetrieveFilter, SearchAndFilterForm,
+    DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, INode, IdAndExtId,
+    RetrieveFilter, SearchAndFilterForm,
 };
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
@@ -115,9 +115,8 @@ impl ApiService {
     }
 
     fn wrap(api: Arc<crate::ApiService>) -> ApiService {
-        let rt = Arc::new(
-            Runtime::new().expect("failed to build the blocking client's Tokio runtime"),
-        );
+        let rt =
+            Arc::new(Runtime::new().expect("failed to build the blocking client's Tokio runtime"));
         macro_rules! service {
             ($name:ident) => {
                 $name {
@@ -225,6 +224,15 @@ pub struct EventsService {
 
 impl EventsService {
     delegate! { events =>
+        fn list_dimension(dimension: EventDimension, query: Option<&str>, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn list_types(limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn search_types(query: &str, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn list_sub_types(limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn search_sub_types(query: &str, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn list_statuses(limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn search_statuses(query: &str, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn list_sources(limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn search_sources(query: &str, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
         fn filter(filter: &EventFilter) -> Result<DataWrapper<Event>, ResponseError>;
     }
 
