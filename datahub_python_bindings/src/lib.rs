@@ -3,6 +3,7 @@ mod datetime;
 mod events;
 mod files;
 mod labels;
+mod policies;
 mod relations;
 mod resources;
 mod subscriptions;
@@ -24,6 +25,8 @@ use crate::resources::sync_service::PyResourcesServiceSync;
 use crate::labels::PyLabel;
 use crate::labels::async_service::PyLabelsServiceAsync;
 use crate::labels::sync_service::PyLabelsServiceSync;
+use crate::policies::async_service::PyPoliciesServiceAsync;
+use crate::policies::sync_service::PyPoliciesServiceSync;
 use crate::subscriptions::async_service::PySubscriptionsServiceAsync;
 use crate::subscriptions::sync_service::PySubscriptionsServiceSync;
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
@@ -330,6 +333,14 @@ impl PySyncClient {
         }
     }
 
+    #[getter]
+    fn policies(&self) -> PyPoliciesServiceSync {
+        PyPoliciesServiceSync {
+            api_service: self.inner.clone(),
+            runtime: self.runtime.clone(),
+        }
+    }
+
 }
 
 #[pyclass(module = "datahub_sdk", name = "AsyncDataHubClient")]
@@ -470,6 +481,13 @@ impl PyAsyncClient {
     #[getter]
     fn labels(&self) -> PyLabelsServiceAsync {
         PyLabelsServiceAsync {
+            api_service: self.inner.clone(),
+        }
+    }
+
+    #[getter]
+    fn policies(&self) -> PyPoliciesServiceAsync {
+        PyPoliciesServiceAsync {
             api_service: self.inner.clone(),
         }
     }
@@ -870,5 +888,6 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     subscriptions::register(m)?;
     functions::register(m)?;
     relations::register(m)?;
+    policies::register(m)?;
     Ok(())
 }

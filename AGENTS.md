@@ -48,6 +48,7 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 - `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`)
 - `functions` (`src/functions/`)
 - `labels` (`src/labels/`) — label CRUD (`list`/`get`/`create`/`update`/`delete`). Note the entity type is `labels::Label`, deliberately *not* re-exported at the crate root because `resources::*` already brings a different graph-DTO `Label` there.
+- `policies` (`src/policies/`) — policy CRUD plus `types()` (the `PolicyType` templates) and `check_naming()`. Three things differ from the other services: `update` takes a whole `Policy` rather than a set-of-changes block and only reads the *first* item; `get` answers an unknown id with 200-and-no-items rather than 404; and `check_naming` returns `{"findings": [...]}`, not the usual `{"items": [...]}`, so `NamingCheck` implements `DataWrapperDeserialization` itself. `PolicyType::scope()` mirrors the server's scope table — every type except `NAMING_CONVENTION` is `DATASET_ONLY` and is rejected with a 400 if created without a `data_set_id`.
 
 ### Blocking client (`src/blocking.rs`)
 

@@ -13,6 +13,7 @@ pub use unit::{Unit, UnitsService};
 // Only the service is re-exported at the crate root: `resources::*` already brings a
 // (different) `Label` graph DTO here, so the label entity stays addressed as `labels::Label`.
 pub use crate::labels::LabelsService;
+pub use crate::policies::PoliciesService;
 pub use crate::subscriptions::SubscriptionsService;
 
 /// Explaining an unexplained 401 from the token the SDK already holds.
@@ -33,6 +34,7 @@ pub mod generic;
 pub mod graph_data_wrapper;
 pub mod http;
 pub mod labels;
+pub mod policies;
 #[cfg(test)]
 mod multi_tenant_integration;
 pub mod relations;
@@ -73,6 +75,7 @@ pub struct ApiService {
     pub subscriptions: SubscriptionsService,
     pub functions: FunctionsService,
     pub labels: LabelsService,
+    pub policies: PoliciesService,
     pub(crate) http_client: Client,
 }
 
@@ -128,6 +131,7 @@ pub fn create_api_service() -> Arc<ApiService> {
             subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
             functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
             labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
+            policies: PoliciesService::new(Weak::clone(weak_self), &base_url_clone),
             http_client,
         }
     });
@@ -163,6 +167,7 @@ impl ApiService {
                 subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
                 functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
                 labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
+                policies: PoliciesService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });
@@ -199,6 +204,7 @@ impl ApiService {
                 subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
                 functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
                 labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
+                policies: PoliciesService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });
