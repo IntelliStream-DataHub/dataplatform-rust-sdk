@@ -40,7 +40,7 @@ use crate::generic::{
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::labels::Label;
-use crate::relations::RelForm;
+use crate::relations::{EdgeProxy, RelForm, RelTypeForm, RelationshipType};
 use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork, ResourceUpdate};
 use crate::timeseries::{TimeSeries, TimeSeriesUpdateCollection};
 use crate::unit::Unit;
@@ -94,6 +94,7 @@ pub struct ApiService {
     pub files: FileService,
     pub functions: FunctionsService,
     pub labels: LabelsService,
+    pub edges: EdgesService,
 }
 
 /// The blocking counterpart of [`crate::create_api_service`]: configuration from the
@@ -134,6 +135,7 @@ impl ApiService {
             files: service!(FileService),
             functions: service!(FunctionsService),
             labels: service!(LabelsService),
+            edges: service!(EdgesService),
             api,
         }
     }
@@ -343,5 +345,25 @@ impl LabelsService {
         fn create(data: Into<DataWrapper<Label>>) -> Result<DataWrapper<Label>, ResponseError>;
         fn update(data: Into<DataWrapper<Label>>) -> Result<DataWrapper<Label>, ResponseError>;
         fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Label>, ResponseError>;
+    }
+}
+
+/// Blocking counterpart of [`crate::relations::EdgesService`].
+pub struct EdgesService {
+    api: Arc<crate::ApiService>,
+    rt: Arc<Runtime>,
+}
+
+impl EdgesService {
+    delegate! { edges =>
+        fn get(id: u64) -> Result<DataWrapper<EdgeProxy>, ResponseError>;
+        fn types() -> Result<DataWrapper<RelationshipType>, ResponseError>;
+    }
+
+    delegate_into! { edges =>
+        fn by_ids(input: Into<DataWrapper<IdAndExtId>>) -> Result<GraphDataWrapper<Resource>, ResponseError>;
+        fn create(data: Into<DataWrapper<RelForm>>) -> Result<DataWrapper<EdgeProxy>, ResponseError>;
+        fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<EdgeProxy>, ResponseError>;
+        fn create_types(data: Into<DataWrapper<RelTypeForm>>) -> Result<DataWrapper<RelationshipType>, ResponseError>;
     }
 }
