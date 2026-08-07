@@ -40,6 +40,7 @@ use crate::generic::{
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::labels::Label;
+use crate::policies::{NamingCheck, NamingCheckForm, Policy};
 use crate::relations::RelForm;
 use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork, ResourceUpdate};
 use crate::timeseries::{TimeSeries, TimeSeriesUpdateCollection};
@@ -94,6 +95,7 @@ pub struct ApiService {
     pub files: FileService,
     pub functions: FunctionsService,
     pub labels: LabelsService,
+    pub policies: PoliciesService,
 }
 
 /// The blocking counterpart of [`crate::create_api_service`]: configuration from the
@@ -134,6 +136,7 @@ impl ApiService {
             files: service!(FileService),
             functions: service!(FunctionsService),
             labels: service!(LabelsService),
+            policies: service!(PoliciesService),
             api,
         }
     }
@@ -323,5 +326,26 @@ impl LabelsService {
         fn create(data: Into<DataWrapper<Label>>) -> Result<DataWrapper<Label>, ResponseError>;
         fn update(data: Into<DataWrapper<Label>>) -> Result<DataWrapper<Label>, ResponseError>;
         fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Label>, ResponseError>;
+    }
+}
+
+/// Blocking counterpart of [`crate::policies::PoliciesService`].
+pub struct PoliciesService {
+    api: Arc<crate::ApiService>,
+    rt: Arc<Runtime>,
+}
+
+impl PoliciesService {
+    delegate! { policies =>
+        fn list() -> Result<DataWrapper<Policy>, ResponseError>;
+        fn types() -> Result<DataWrapper<Policy>, ResponseError>;
+        fn get(id: u64) -> Result<DataWrapper<Policy>, ResponseError>;
+        fn check_naming(form: &NamingCheckForm) -> Result<NamingCheck, ResponseError>;
+    }
+
+    delegate_into! { policies =>
+        fn create(data: Into<DataWrapper<Policy>>) -> Result<DataWrapper<Policy>, ResponseError>;
+        fn update(data: Into<DataWrapper<Policy>>) -> Result<DataWrapper<Policy>, ResponseError>;
+        fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Policy>, ResponseError>;
     }
 }
