@@ -222,6 +222,10 @@ mod live {
     use crate::resources::Resource;
     use crate::tests::cleanup::cleanup_resources;
 
+    /// Relationship types cannot be deleted through the API, so this one is seeded once and
+    /// then reused — every run after the first sees it as an existing type.
+    const SEEDED_TYPE_NAME: &str = "Sdk Test Rel Type";
+
     fn node(external_id: &str, name: &str) -> Resource {
         let mut r = Resource::new();
         r.external_id = external_id.to_string();
@@ -346,19 +350,24 @@ mod live {
         );
 
         // Names normalise to uppercase snake case, so this lands on SDK_TEST_REL_TYPE.
-        let name = "Sdk Test Rel Type";
-        let first = api
+        // There is no delete-type endpoint, so the type survives between runs: the first run
+        // creates it, later runs find it already there (a duplicate, see the test below).
+        match api
             .edges
             .create_types(&vec![
-                RelTypeForm::new(name).with_description("from the SDK tests")
+                RelTypeForm::new(SEEDED_TYPE_NAME).with_description("from the SDK tests")
             ])
-            .await?;
-        assert_eq!(first.get_http_status_code(), Some(200));
-
-        // Either it was created now, or a previous run made it — in which case the response is
-        // empty. Both are fine; what matters is that it exists afterwards.
-        if let Some(created) = first.get_items().first() {
-            assert_eq!(created.name, "SDK_TEST_REL_TYPE", "names are normalised");
+            .await
+        {
+            Ok(created) => {
+                assert_eq!(created.get_http_status_code(), Some(200));
+                if let Some(t) = created.get_items().first() {
+                    assert_eq!(t.name, "SDK_TEST_REL_TYPE", "names are normalised");
+                }
+            }
+            // Seeded by an earlier run.
+            Err(e) if e.get_status().as_u16() == 409 => {}
+            Err(e) => return Err(e.into()),
         }
         assert!(
             api.edges
@@ -369,15 +378,6 @@ mod live {
                 .any(|t| t.name == "SDK_TEST_REL_TYPE"),
             "the type should be in the catalogue after create"
         );
-
-        // Creating it again is accepted but returns nothing — the existing type is omitted rather
-        // than echoed back, so this response cannot be used to resolve its id.
-        let second = api
-            .edges
-            .create_types(&vec![RelTypeForm::new(name)])
-            .await?;
-        assert_eq!(second.get_http_status_code(), Some(200));
-        assert!(second.get_items().is_empty());
 
         // A name that normalises to nothing is refused.
         let bad = api
@@ -451,6 +451,67 @@ mod live {
             .await?;
         api.resources.delete(&sel).await?;
         cleanup.disarm();
+        Ok(())
+    }
+
+    /// Re-registering a relationship type that already exists must conflict, the way every other
+    /// duplicate in this API does.
+    ///
+    /// **Currently red, on purpose.** `EdgeService.saveRelationshipType` has no find-or-create: it
+    /// builds a fresh entity and saves it unconditionally, so a duplicate name collides on
+    /// `relationship_hash_key` at *commit* time — after the handler has returned. The
+    /// `DataIntegrityViolationException` escapes past the handler's `catch`, and the caller gets a
+    /// **200 with an empty body**: the status of a success with the body of a crash.
+    ///
+    /// The batch case is the damaging one. `createRelationshipTypes` saves every form in one
+    /// transaction, so a single duplicate rolls the whole thing back — valid new types in the same
+    /// request are discarded too, and the response still says 200. Nothing tells the caller.
+    ///
+    /// This test encodes the intended behaviour (409, like `POST /edges/create` on a duplicate
+    /// edge) and will pass once the server-side fix lands.
+    #[tokio::test]
+    async fn test_duplicate_relationship_type_conflicts() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let api = create_api_service();
+
+        // Make sure the type is there, whichever run this is.
+        let _ = api
+            .edges
+            .create_types(&vec![RelTypeForm::new(SEEDED_TYPE_NAME)])
+            .await;
+
+        let dup = api
+            .edges
+            .create_types(&vec![RelTypeForm::new(SEEDED_TYPE_NAME)])
+            .await
+            .expect_err("re-registering an existing relationship type should conflict");
+        assert_eq!(
+            dup.get_status().as_u16(),
+            409,
+            "a duplicate type should answer 409, not a bodyless 200"
+        );
+
+        // A batch carrying one duplicate must not quietly swallow the valid entries beside it.
+        let fresh = "Sdk Test Rel Type Batch";
+        let batch = api
+            .edges
+            .create_types(&vec![
+                RelTypeForm::new(fresh),
+                RelTypeForm::new(SEEDED_TYPE_NAME),
+            ])
+            .await
+            .expect_err("a batch containing an existing type should conflict");
+        assert_eq!(batch.get_status().as_u16(), 409);
+        assert!(
+            !api.edges
+                .types()
+                .await?
+                .get_items()
+                .iter()
+                .any(|t| t.name == "SDK_TEST_REL_TYPE_BATCH"),
+            "the rejected batch is all-or-nothing, so the new type must not have been created"
+        );
+
         Ok(())
     }
 }
