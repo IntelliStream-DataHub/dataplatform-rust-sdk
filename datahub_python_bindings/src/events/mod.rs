@@ -5,7 +5,7 @@ use crate::timeseries::datapoints::{
     PyRetrieveFilter,
 };
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
-use crate::{PyFieldStr, PyFieldU64, PyListFieldStr, PyListFieldU64, PyMapField};
+use crate::{PyFieldStr, PyFieldU64, PyListFieldIdCollection, PyMapField};
 use dataplatform_rust_sdk::filters::{BasicEventFilter, DataSort, EventFilter, TimeFilter};
 use dataplatform_rust_sdk::events::{EventIdCollection, EventSearch, EventUpdate, EventUpdateFields};
 use dataplatform_rust_sdk::generic::IdAndExtId;
@@ -57,23 +57,9 @@ impl PyEvent {
         }
     }
 
-    /// The event's related-resource references as id selectors: numeric
-    /// `related_resource_ids` first, then `related_resource_external_ids`.
+    /// The event's related-resource references as id selectors, in the order they were attached.
     pub(crate) fn related_id_collections(&self) -> Vec<IdAndExtId> {
-        let mut ids = Vec::new();
-        for id in self.inner.get_related_resource_ids() {
-            ids.push(IdAndExtId {
-                id: Some(*id),
-                external_id: None,
-            });
-        }
-        for ext in self.inner.get_related_resource_external_ids() {
-            ids.push(IdAndExtId {
-                id: None,
-                external_id: Some(ext.clone()),
-            });
-        }
-        ids
+        self.inner.get_related_resources().clone()
     }
 }
 
@@ -221,8 +207,7 @@ impl PyBasicEventFilter {
         data_set_ids=None,
         event_time=None,
         metadata=None,
-        related_resource_ids=None,
-        related_resource_external_ids=None,
+        related_resources=None,
         created_time=None,
         last_updated_time=None,
     ))]
@@ -236,8 +221,7 @@ impl PyBasicEventFilter {
         data_set_ids: Option<Vec<u64>>,
         event_time: Option<PyTimeFilter>,
         metadata: Option<HashMap<String, String>>,
-        related_resource_ids: Option<Vec<u64>>,
-        related_resource_external_ids: Option<Vec<String>>,
+        related_resources: Option<Vec<PyIdCollection>>,
         created_time: Option<PyTimeFilter>,
         last_updated_time: Option<PyTimeFilter>,
     ) -> Self {
@@ -252,8 +236,8 @@ impl PyBasicEventFilter {
                 data_set_ids,
                 event_time.map(|f| f.inner),
                 metadata,
-                related_resource_ids,
-                related_resource_external_ids,
+                related_resources
+                    .map(|rr| rr.into_iter().map(IdAndExtId::from).collect()),
                 created_time.map(|f| f.inner),
                 last_updated_time.map(|f| f.inner),
             ),
@@ -420,8 +404,7 @@ impl PyEventUpdate {
         data_set_id = None,
         metadata = None,
         source = None,
-        related_resource_ids = None,
-        related_resource_external_ids = None,
+        related_resources = None,
         event_time = None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -435,8 +418,7 @@ impl PyEventUpdate {
         data_set_id: Option<PyFieldU64>,
         metadata: Option<PyMapField>,
         source: Option<PyFieldStr>,
-        related_resource_ids: Option<PyListFieldU64>,
-        related_resource_external_ids: Option<PyListFieldStr>,
+        related_resources: Option<PyListFieldIdCollection>,
         event_time: Option<PyFieldStr>,
     ) -> Self {
         let ident = EventIdCollection::from(event);
@@ -453,8 +435,7 @@ impl PyEventUpdate {
                     data_set_id: data_set_id.map(Into::into),
                     metadata: metadata.map(Into::into),
                     source: source.map(Into::into),
-                    related_resource_ids: related_resource_ids.map(Into::into),
-                    related_resource_external_ids: related_resource_external_ids.map(Into::into),
+                    related_resources: related_resources.map(Into::into),
                     event_time: event_time.map(Into::into),
                 },
             },

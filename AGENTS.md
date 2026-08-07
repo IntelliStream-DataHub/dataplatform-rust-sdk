@@ -89,6 +89,8 @@ Two error types, used in different layers:
 
 Two parallel filter styles coexist: `BasicEventFilter` (builder-style, legacy) and `EventFilter` + `AdvancedFilter` (richer, added more recently). When adding endpoints, prefer the advanced filter type — some advanced-filter endpoints are not yet wired up server-side and are currently tested only via serde round-trips.
 
+Related resources are one field, not two: both `Event` and `BasicEventFilter` carry `relatedResources`, an array of the backend's `IdCollection` (`[{"id": "34"}, {"externalId": "sensor_abc"}]`, modelled by `IdAndExtId`). An entry may name a resource by id, external id, or both; the backend resolves the missing side and returns both. `dataSetIds` on the filter uses the same shape. There are no aliases for the retired flat `relatedResourceIds` / `relatedResourceExternalIds` arrays — the backend drops unknown keys silently, so sending them loses the relations without an error.
+
 ## Python bindings (`datahub_python_bindings/`)
 
 A PyO3 crate (built with maturin) that wraps this SDK as the Python package `datahub-sdk` (import name `datahub_sdk`). Binding modules in `datahub_python_bindings/src/` mirror the Rust subservices; the pure-Python side lives in `datahub_python_bindings/python/datahub_sdk`. The platform's `datahub-ml` worker consumes this package, so binding-visible API changes ripple there.

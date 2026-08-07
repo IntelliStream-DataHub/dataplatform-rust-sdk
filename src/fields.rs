@@ -55,6 +55,10 @@ impl<T> Field<T> {
 /// `{"add": [...], "remove": [...]}`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(untagged)]
+// The field-level `#[serde(default)]`s below make the derive infer a `T: Default` bound, which the
+// code never needs — `Option<Vec<T>>::default()` is `None` for any `T`. Spell out the real bound so
+// element types that have no sensible default (e.g. `IdAndExtId`, an id *selector*) still work.
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
 pub enum ListField<T> {
     /// Replace the whole list.
     Set { set: Vec<T> },

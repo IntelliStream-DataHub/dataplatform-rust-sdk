@@ -6,7 +6,8 @@ use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubConfig
 use crate::fields::{Field, ListField, MapField};
 use crate::filters::{BasicEventFilter, EventFilter};
 use crate::generic::{
-    ApiServiceProvider, DataHubEntity, DataWrapper, DataWrapperDeserialization, SearchForm,
+    ApiServiceProvider, DataHubEntity, DataWrapper, DataWrapperDeserialization, IdAndExtId,
+    SearchForm,
 };
 use crate::http::ResponseError;
 use crate::ApiService;
@@ -242,7 +243,10 @@ fn buffered_wrapper() -> DataWrapper<Event> {
     w
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+// Not PartialEq: it carries `Vec<IdAndExtId>`, which is intentionally non-comparable (see
+// `IdAndExtId`) — the same resource can be named as {id}, {externalId} or both. Same reasoning as
+// `BasicEventFilter`.
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Event {
     pub id: Option<Uuid>,
@@ -258,8 +262,12 @@ pub struct Event {
     pub created_time: Option<DateTime<Utc>>,
     #[serde(skip_serializing)]
     pub last_updated_time: Option<DateTime<Utc>>,
-    pub related_resource_ids: Vec<u64>,
-    pub related_resource_external_ids: Vec<String>,
+    /// Resources this event is attached to. Each entry names a resource by `id`, `externalId`, or
+    /// both; the backend resolves the missing side and returns both. Serializes as the backend's
+    /// `relatedResources: [{"id": "34"}, {"externalId": "sensor_abc"}]` — the same `IdCollection`
+    /// shape the event filter uses (see `BasicEventFilter::related_resources`).
+    #[serde(default)]
+    pub related_resources: Vec<IdAndExtId>,
     pub source: Option<String>,
     pub event_time: DateTime<Utc>,
 }
@@ -285,8 +293,7 @@ impl Event {
             data_set_id: None,
             created_time: None,
             last_updated_time: None,
-            related_resource_ids: vec![],
-            related_resource_external_ids: vec![],
+            related_resources: vec![],
             source: None,
             event_time,
         }
@@ -305,21 +312,30 @@ impl Event {
         }
     }
 
-    pub fn add_related_resource_id(&mut self, id: u64) {
-        self.related_resource_ids.push(id);
+    /// Attach a resource named by id, external id, or both.
+    pub fn add_related_resource(&mut self, resource: IdAndExtId) {
+        self.related_resources.push(resource);
     }
 
+    pub fn add_related_resource_id(&mut self, id: u64) {
+        self.related_resources.push(IdAndExtId::from_id(id));
+    }
+
+    /// Drop every entry naming this resource id. Entries that name the resource only by its
+    /// external id are left alone — this cannot resolve one to the other.
     pub fn remove_related_resource_id(&mut self, id: u64) {
-        self.related_resource_ids.retain(|&x| x != id);
+        self.related_resources.retain(|r| r.id != Some(id));
     }
 
     pub fn add_related_resource_external_id(&mut self, external_id: String) {
-        self.related_resource_external_ids.push(external_id);
+        self.related_resources
+            .push(IdAndExtId::from_external_id(&external_id));
     }
 
+    /// Drop every entry naming this resource external id. See [`Event::remove_related_resource_id`].
     pub fn remove_related_resource_external_id(&mut self, external_id: String) {
-        self.related_resource_external_ids
-            .retain(|x| x != &external_id);
+        self.related_resources
+            .retain(|r| r.external_id.as_deref() != Some(external_id.as_str()));
     }
 
     pub fn get_id(&self) -> Option<&Uuid> {
@@ -414,12 +430,8 @@ impl Event {
         self.event_time = event_time;
     }
 
-    pub fn get_related_resource_ids(&self) -> &Vec<u64> {
-        &self.related_resource_ids
-    }
-
-    pub fn get_related_resource_external_ids(&self) -> &Vec<String> {
-        &self.related_resource_external_ids
+    pub fn get_related_resources(&self) -> &Vec<IdAndExtId> {
+        &self.related_resources
     }
 
     pub fn get_metadata_keys(&self) -> Option<Vec<&str>> {
@@ -547,7 +559,7 @@ impl Default for EventSearch {
 /// One event's update in `POST /events/update`. Target the event by UUID `id` or `external_id`,
 /// then layer on the field changes. Each setter takes the field-change struct directly, so one
 /// method per field covers every operation that field supports — [`Field::value`] / [`Field::null`]
-/// for scalars, [`MapField`] / [`ListField`] (`new_set` / `new_add` / `new_remove`) for the
+/// for scalars, [`MapField`] / [`ListField`] (`set` / `add` / `remove`) for the
 /// collection fields. For example:
 ///
 /// ```
@@ -557,7 +569,7 @@ impl Default for EventSearch {
 /// EventUpdate::by_external_id("alarm_x")
 ///     .status(Field::value("acknowledged"))
 ///     .description(Field::null())
-///     .metadata(MapField::new_add(Some([("acked_by".into(), "olav".into())].into())));
+///     .metadata(MapField::add([("acked_by".into(), "olav".into())].into()));
 /// ```
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -643,22 +655,17 @@ impl EventUpdate {
         self
     }
 
-    /// Change the event `relatedResourceIds` (`set` / `add` / `remove` via [`ListField`]).
-    pub fn related_resource_ids(mut self, field: ListField<u64>) -> Self {
-        self.update.related_resource_ids = Some(field);
-        self
-    }
-
-    /// Change the event `relatedResourceExternalIds` (`set` / `add` / `remove` via [`ListField`]).
-    pub fn related_resource_external_ids(mut self, field: ListField<String>) -> Self {
-        self.update.related_resource_external_ids = Some(field);
+    /// Change the event `relatedResources` (`set` / `add` / `remove` via [`ListField`]). Entries
+    /// name a resource by id, external id, or both; `remove` matches on whichever side is given.
+    pub fn related_resources(mut self, field: ListField<IdAndExtId>) -> Self {
+        self.update.related_resources = Some(field);
         self
     }
 }
 
 /// Field-level changes for an [`EventUpdate`]. Every field is optional and only the ones set are
 /// serialized; the server applies just those. String/number fields use the two-way [`Field`]
-/// (`set` / `setNull`); `metadata` and the related-resource lists use the three-way
+/// (`set` / `setNull`); `metadata` and the related-resource list use the three-way
 /// [`MapField`] / [`ListField`] (`set` / `add` / `remove`).
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -680,9 +687,7 @@ pub struct EventUpdateFields {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<Field<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub related_resource_ids: Option<ListField<u64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub related_resource_external_ids: Option<ListField<String>>,
+    pub related_resources: Option<ListField<IdAndExtId>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_time: Option<Field<String>>,
 }

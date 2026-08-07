@@ -657,7 +657,7 @@ pub trait ApiServiceProvider {
             self.get_api_service()
                 .http_client
                 .get(path)
-                .bearer_auth(token)
+                .bearer_auth(token.clone())
                 .query(param)
                 .send()
                 .await
@@ -669,7 +669,7 @@ pub trait ApiServiceProvider {
             self.get_api_service()
                 .http_client
                 .get(path)
-                .bearer_auth(token)
+                .bearer_auth(token.clone())
                 .send()
                 .await
                 .map_err(|err| {
@@ -677,7 +677,9 @@ pub trait ApiServiceProvider {
                     ResponseError::from_err(err)
                 })?
         };
-        process_response::<T>(response, path).await
+        process_response::<T>(response, path)
+            .await
+            .map_err(|e| explain_auth_failure(e, &token))
     }
 
     async fn execute_post_request<
@@ -694,7 +696,7 @@ pub trait ApiServiceProvider {
             .http_client
             .post(path)
             .json(json)
-            .bearer_auth(token)
+            .bearer_auth(token.clone())
             .send()
             .await
             .map_err(|err| {
@@ -711,7 +713,9 @@ pub trait ApiServiceProvider {
                 }
             })
         } else {
-            process_response::<T>(response, path).await
+            process_response::<T>(response, path)
+                .await
+                .map_err(|e| explain_auth_failure(e, &token))
         }
     }
 
@@ -732,7 +736,7 @@ pub trait ApiServiceProvider {
             .http_client
             .put(path)
             .body(body)
-            .bearer_auth(token);
+            .bearer_auth(token.clone());
         for (name, value) in headers {
             request = request.header(name, value);
         }
@@ -741,7 +745,39 @@ pub trait ApiServiceProvider {
             eprintln!("HTTP file upload request failed: {}", err);
             ResponseError::from_err(err)
         })?;
-        process_response::<T>(response, path).await
+        process_response::<T>(response, path)
+            .await
+            .map_err(|e| explain_auth_failure(e, &token))
+    }
+}
+
+/// Add a reason to a 401 that arrived without one.
+///
+/// The API rejects a token whose `organization` claim is missing, malformed or ambiguous, but its
+/// authentication entry point sends no `error_description` and an empty body — so the caller gets
+/// `401` and nothing else, which reads as a bad credential. The token the SDK just sent carries
+/// enough to say which it was; see [`crate::auth_diagnostics`] for why reading it discloses
+/// nothing.
+///
+/// Anything already explained is left alone: a non-401, or a 401 that did come with a body, keeps
+/// its own message, and a well-formed claim adds nothing (the 401 then has a cause this cannot
+/// see — expiry, revocation, audience, signature).
+fn explain_auth_failure(error: ResponseError, token: &str) -> ResponseError {
+    if error.get_status() != http::StatusCode::UNAUTHORIZED {
+        return error;
+    }
+    let Some(hint) = crate::auth_diagnostics::organization_hint(token) else {
+        return error;
+    };
+    let existing = error.get_message();
+    let message = if existing.trim().is_empty() {
+        hint
+    } else {
+        format!("{existing} — {hint}")
+    };
+    ResponseError {
+        status: error.get_status(),
+        message,
     }
 }
 
@@ -889,4 +925,77 @@ pub struct INode {
     pub related_resources: Option<Vec<i64>>,
     #[serde(rename = "securityCategories")]
     pub security_categories: Option<Vec<i32>>,
+}
+
+#[cfg(test)]
+mod auth_failure_tests {
+    use super::explain_auth_failure;
+    use crate::http::ResponseError;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    use oauth2::http::StatusCode;
+
+    fn jwt(payload: &str) -> String {
+        format!("aGVhZGVy.{}.c2ln", URL_SAFE_NO_PAD.encode(payload))
+    }
+
+    fn error(code: u16, message: &str) -> ResponseError {
+        ResponseError {
+            status: StatusCode::from_u16(code).unwrap(),
+            message: message.to_string(),
+        }
+    }
+
+    #[test]
+    fn an_unexplained_401_gains_the_reason_the_server_withheld() {
+        // What a caller in two organizations actually gets back: 401, empty body, no
+        // `WWW-Authenticate` detail. Without this the only signal is "401", which reads as a bad
+        // secret and sends people off to rotate credentials.
+        let token = jwt(r#"{"organization":{"beta":{"id":"2"},"acme":{"id":"1"}}}"#);
+        let explained = explain_auth_failure(error(401, ""), &token);
+
+        assert_eq!(explained.get_status(), StatusCode::UNAUTHORIZED, "status is untouched");
+        let message = explained.get_message();
+        assert!(message.contains("names 2 organizations"), "{message}");
+        assert!(message.contains("acme, beta"), "{message}");
+        assert!(message.contains("SCOPE=organization:<alias>"), "{message}");
+    }
+
+    #[test]
+    fn a_401_that_came_with_a_body_keeps_it() {
+        // Should the API ever start explaining itself, its words win and ours are appended —
+        // never replace a real server message with a guess.
+        let token = jwt(r#"{"organization":{"acme":{"id":"1"},"beta":{"id":"2"}}}"#);
+        let explained = explain_auth_failure(error(401, "Bearer token expired"), &token);
+        let message = explained.get_message();
+        assert!(message.starts_with("Bearer token expired"), "{message}");
+        assert!(message.contains("names 2 organizations"), "{message}");
+    }
+
+    #[test]
+    fn a_well_formed_token_is_left_alone() {
+        // Exactly one organization, so the 401 has some other cause (expiry, revocation, audience,
+        // signature). Volunteering an organization explanation here would misdirect the reader.
+        let token = jwt(r#"{"organization":{"acme":{"id":"1"}}}"#);
+        let explained = explain_auth_failure(error(401, ""), &token);
+        assert_eq!(explained.get_message(), "");
+    }
+
+    #[test]
+    fn an_opaque_token_is_left_alone() {
+        // A user-supplied `TOKEN=` need not be a JWT at all.
+        let explained = explain_auth_failure(error(401, ""), "an-opaque-api-key");
+        assert_eq!(explained.get_message(), "");
+    }
+
+    #[test]
+    fn only_401s_are_touched() {
+        // A dataset-ACL 403 already carries a problem+json body explaining itself; appending
+        // organization advice to it would be noise, and wrong.
+        let token = jwt(r#"{"organization":{"acme":{"id":"1"},"beta":{"id":"2"}}}"#);
+        for code in [400u16, 403, 404, 500] {
+            let explained = explain_auth_failure(error(code, "original"), &token);
+            assert_eq!(explained.get_message(), "original", "{code} should pass through");
+        }
+    }
 }

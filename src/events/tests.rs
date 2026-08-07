@@ -112,7 +112,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
             && rhs
                 .iter()
                 .all(|e| lhs.iter().any(|r| r.external_id == e.external_id))
-    } // helper function. Events derive PartialEq but that doesnt really work whe id is None.
+    } // helper function. Events aren't comparable by value, and ids are None before a send anyway.
 
     let mut basic_filter = BasicEventFilter::default();
     let mut eventfilter = EventFilter::default();
@@ -400,7 +400,8 @@ mod uuid_serde {
 
         let back: Event = serde_json::from_str(&json).unwrap();
         assert_eq!(back.id, Some(id));
-        assert_eq!(back, ev);
+        assert_eq!(back.external_id, ev.external_id);
+        assert_eq!(back.event_time, ev.event_time);
     }
 
     #[test]
@@ -408,7 +409,7 @@ mod uuid_serde {
         // A payload that omits `id` entirely (e.g. a list projection) must not fail to parse.
         // `eventTime` is required on every event the API returns, so it stays present; only the
         // optional `id` is absent here.
-        let json = r#"{"externalId":"evt_no_id","eventTime":"2025-01-01T00:00:00Z","relatedResourceIds":[],"relatedResourceExternalIds":[]}"#;
+        let json = r#"{"externalId":"evt_no_id","eventTime":"2025-01-01T00:00:00Z","relatedResources":[]}"#;
         let ev: Event = serde_json::from_str(json).unwrap();
         assert_eq!(ev.id, None);
         assert_eq!(ev.external_id, "evt_no_id");
@@ -443,7 +444,7 @@ mod update_search_serde {
     use crate::events::{EventSearch, EventUpdate};
     use crate::fields::{Field, ListField, MapField};
     use crate::filters::BasicEventFilter;
-    use crate::generic::DataWrapper;
+    use crate::generic::{DataWrapper, IdAndExtId};
     use serde_json::{json, Value};
     use uuid::Uuid;
 
@@ -465,7 +466,8 @@ mod update_search_serde {
                 "externalId": "alarm_x",
                 "update": {
                     "status": { "set": "acknowledged", "setNull": false },
-                    "metadata": { "set": null, "add": { "acked_by": "olav" }, "remove": null }
+                    // An add-only delta carries just `add`: `set`/`remove` are skipped, not null.
+                    "metadata": { "add": { "acked_by": "olav" } }
                 }
             })
         );
@@ -498,15 +500,29 @@ mod update_search_serde {
     }
 
     #[test]
-    fn event_update_related_resource_lists_use_add_remove() {
+    fn event_update_related_resources_use_add_remove() {
+        // One list, same IdCollection entries as the entity — `remove` matches on whichever
+        // side is named.
         let upd = EventUpdate::by_external_id("alarm_x")
-            .related_resource_ids(ListField::add(vec![1, 2]))
-            .related_resource_external_ids(ListField::remove(vec!["old_pump".to_string()]));
+            .related_resources(ListField::add(vec![
+                IdAndExtId::from_id(1),
+                IdAndExtId::from_external_id("pump_b"),
+            ]));
         let update = &to_value(&upd)["update"];
-        assert_eq!(update["relatedResourceIds"], json!({ "add": [1, 2] }));
         assert_eq!(
-            update["relatedResourceExternalIds"],
-            json!({ "remove": ["old_pump"] })
+            update["relatedResources"],
+            json!({ "add": [{"id": "1"}, {"externalId": "pump_b"}] })
+        );
+        assert!(update.get("relatedResourceIds").is_none());
+        assert!(update.get("relatedResourceExternalIds").is_none());
+
+        let removal = EventUpdate::by_external_id("alarm_x")
+            .related_resources(ListField::remove(vec![IdAndExtId::from_external_id(
+                "old_pump",
+            )]));
+        assert_eq!(
+            to_value(&removal)["update"]["relatedResources"],
+            json!({ "remove": [{"externalId": "old_pump"}] })
         );
     }
 
@@ -545,5 +561,63 @@ mod update_search_serde {
         assert_eq!(v["search"]["query"], json!("overpressure"));
         assert_eq!(v["filter"]["type"], json!("alarm"));
         assert_eq!(v["limit"], json!(25));
+    }
+}
+
+/// The entity-side `relatedResources` wire shape. Events and the event filter must agree: one array
+/// of `IdCollection` objects, each naming a resource by id, external id, or both. The backend drops
+/// unknown keys silently, so a regression here loses relations without any error.
+mod related_resources_serde {
+    use crate::events::Event;
+    use crate::generic::IdAndExtId;
+    use chrono::Utc;
+    use serde_json::json;
+
+    #[test]
+    fn event_serializes_related_resources_as_id_collections() {
+        let mut ev = Event::new("evt_rr".to_string(), Utc::now());
+        ev.add_related_resource_id(34);
+        ev.add_related_resource_external_id("a".to_string());
+        ev.add_related_resource(IdAndExtId {
+            id: Some(7),
+            external_id: Some("b".to_string()),
+        });
+
+        let value = serde_json::to_value(&ev).unwrap();
+
+        // The legacy parallel arrays must be gone — the backend ignores them.
+        assert!(value.get("relatedResourceIds").is_none());
+        assert!(value.get("relatedResourceExternalIds").is_none());
+        // Ids go over the wire as strings; unset sides are omitted.
+        assert_eq!(
+            value["relatedResources"],
+            json!([{"id": "34"}, {"externalId": "a"}, {"id": "7", "externalId": "b"}])
+        );
+    }
+
+    #[test]
+    fn event_reads_back_resolved_related_resources() {
+        // What the server returns: both sides populated on every entry.
+        let json = r#"{"externalId":"evt_rr","eventTime":"2026-01-01T00:00:00Z",
+            "relatedResources":[{"id":"34","externalId":"sensor_abc"}]}"#;
+        let ev: Event = serde_json::from_str(json).unwrap();
+        assert_eq!(ev.related_resources.len(), 1);
+        assert_eq!(ev.related_resources[0].id, Some(34));
+        assert_eq!(
+            ev.related_resources[0].external_id.as_deref(),
+            Some("sensor_abc")
+        );
+    }
+
+    #[test]
+    fn removing_a_related_resource_matches_on_the_named_side() {
+        let mut ev = Event::new("evt_rr".to_string(), Utc::now());
+        ev.add_related_resource_id(34);
+        ev.add_related_resource_external_id("a".to_string());
+
+        ev.remove_related_resource_id(34);
+        assert_eq!(ev.related_resources.len(), 1);
+        ev.remove_related_resource_external_id("a".to_string());
+        assert!(ev.related_resources.is_empty());
     }
 }

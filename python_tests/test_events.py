@@ -8,7 +8,14 @@ import pytest
 from pytest_asyncio import fixture
 
 from fixtures import async_client, sync_client, unique_id
-from polling import poll_until, _poll
+from polling import poll_until
+
+# Read paths that lag further behind a write than the poll_until defaults allow: the
+# event get/by_ids projection, and the search index behind it. Spelled as kwargs so a
+# call site reads `poll_until(..., **POLL_SLOW)`.
+POLL_SLOW = {"timeout": 30.0, "interval": 1.0}
+POLL_SEARCH = {"timeout": 60.0, "interval": 1.0}
+
 
 @pytest.fixture(scope="module")
 def event_dataset(sync_client):
@@ -32,8 +39,7 @@ def test_events(sync_client,event_dataset):
         description = f"{event_dataset.external_id}_test_event_{i}_description"
         type = f"{event_dataset.external_id}_test_event_{i}_type"
         sub_type = f"{event_dataset.external_id}_test_event_{i}_sub_type"
-        related_resource_ids = []
-        related_resource_external_ids = []
+        related_resources = []
         source = f"{event_dataset.external_id}_test_event_{i} source"
         events.append(datahub_sdk.Event(
             external_id=external_id,
@@ -42,8 +48,7 @@ def test_events(sync_client,event_dataset):
             type=type,
             sub_type=sub_type,
             data_set_id=event_dataset.id,
-            related_resource_ids=related_resource_ids,
-            related_resource_external_ids=related_resource_external_ids,
+            related_resources=related_resources,
             source=source,
             event_time=event_times[i]
         ))
@@ -65,8 +70,7 @@ def test_events_func_scope(sync_client,event_dataset):
         type = f"{event_dataset.external_id}_func_scope_test_event_{i}_type"
         sub_type = f"{event_dataset.external_id}_func_scope_test_event_{i}_sub_type"
         data_set_id = event_dataset_id
-        related_resource_ids = []
-        related_resource_external_ids = []
+        related_resources = []
         source = f"{event_dataset.external_id}_func_scope_test_event_{i} source"
         events.append(datahub_sdk.Event(
             external_id=external_id,
@@ -75,8 +79,7 @@ def test_events_func_scope(sync_client,event_dataset):
             type=type,
             sub_type=sub_type,
             data_set_id=data_set_id,
-            related_resource_ids=related_resource_ids,
-            related_resource_external_ids=related_resource_external_ids,
+            related_resources=related_resources,
             source=source,
             event_time=event_times[i]
         ))
@@ -129,7 +132,7 @@ def test_filter_by_external_id_prefix(sync_client, test_events,event_dataset):
     basic_filter = datahub_sdk.BasicEventFilter(external_id_prefix=target_string)
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = _poll(lambda: sync_client.events.filter(filt), lambda r: len(r) >= 1)
+    results = poll_until(lambda: sync_client.events.filter(filt), lambda r: len(r) >= 1)
     assert len(results) >= 1
     assert all(e.external_id.startswith(target_string) for e in results)
 
@@ -144,7 +147,7 @@ def test_filter_by_type(sync_client, test_events):
     )
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = _poll(
+    results = poll_until(
         lambda: sync_client.events.filter(filt),
         lambda r: target.external_id in {e.external_id for e in r},
     )
@@ -157,7 +160,7 @@ def test_filter_by_sub_type(sync_client, test_events):
     )
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = _poll(
+    results = poll_until(
         lambda: sync_client.events.filter(filt),
         lambda r: target.external_id in {e.external_id for e in r},
     )
@@ -182,7 +185,7 @@ def test_filter_by_event_time_range(sync_client, test_events,time_filter,expecte
 
     # The time filter isn't dataset-scoped, so we only assert the window returns something
     # (poll past ingestion lag) rather than pinning exact membership.
-    results = _poll(lambda: sync_client.events.filter(filt), lambda r: len(r) >= 1)
+    results = poll_until(lambda: sync_client.events.filter(filt), lambda r: len(r) >= 1)
     assert len(results) >= 1
 
 @pytest.mark.parametrize("target_idx", [7])
@@ -194,7 +197,7 @@ def test_filter_by_metadata(sync_client, test_events,target_idx):
     basic_filter = datahub_sdk.BasicEventFilter(metadata=target_metadata)
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = _poll(
+    results = poll_until(
         lambda: sync_client.events.filter(filt),
         lambda r: target.external_id in {e.external_id for e in r},
     )
@@ -215,7 +218,7 @@ def test_filter_by_source_and_description(sync_client, test_events):
     )
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = _poll(
+    results = poll_until(
         lambda: sync_client.events.filter(filt),
         lambda r: target.external_id in {e.external_id for e in r},
     )
@@ -230,7 +233,7 @@ def test_filter_with_limit(sync_client, test_events,event_dataset):
     # Using the EventFilter limit field
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter, limit=5)
 
-    results = _poll(lambda: sync_client.events.filter(filt), lambda r: len(r) == 5)
+    results = poll_until(lambda: sync_client.events.filter(filt), lambda r: len(r) == 5)
     assert len(results) == 5
 
 
@@ -241,7 +244,7 @@ def test_filter_by_data_set_ids(sync_client, test_events, event_dataset):
     basic_filter = datahub_sdk.BasicEventFilter(data_set_ids=[event_dataset.id])
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = _poll(
+    results = poll_until(
         lambda: sync_client.events.filter(filt),
         lambda r: target.external_id in {e.external_id for e in r},
     )
@@ -251,9 +254,9 @@ def test_filter_by_data_set_ids(sync_client, test_events, event_dataset):
 
 
 def test_filter_by_related_resources(sync_client, event_dataset):
-    # relatedResourceIds / relatedResourceExternalIds collapse into the backend's single
-    # relatedResources IdCollection array, matched with hasAll. Create a resource + an event
-    # referencing it, then filter by both the numeric id and the external id.
+    # Events and the event filter share one relatedResources IdCollection array, matched with
+    # hasAll. Create a resource + an event referencing it, then filter by both the numeric id and
+    # the external id.
     res_ext = unique_id("evfilt_res")
     sync_client.resources.delete([res_ext])
     sync_client.resources.create([datahub_sdk.Resource(
@@ -261,22 +264,29 @@ def test_filter_by_related_resources(sync_client, event_dataset):
     res = next(r for r in sync_client.resources.by_ids([res_ext]) if r.external_id == res_ext)
 
     ev_ext = unique_id("evfilt_ev")
-    # Create by external id; the backend resolves it and stores both the id and external-id arrays.
+    # Attach by external id only; the backend resolves the numeric id and returns both sides.
     sync_client.events.create([datahub_sdk.Event(
         external_id=ev_ext, event_time=pd.Timestamp.now(tz="UTC"),
-        data_set_id=event_dataset.id, related_resource_external_ids=[res_ext])])
+        data_set_id=event_dataset.id,
+        related_resources=[datahub_sdk.IdCollection(external_id=res_ext)])])
     try:
         by_id = datahub_sdk.EventFilter(
-            basic_filter=datahub_sdk.BasicEventFilter(related_resource_ids=[res.id]))
-        r1 = _poll(lambda: sync_client.events.filter(by_id),
+            basic_filter=datahub_sdk.BasicEventFilter(
+                related_resources=[datahub_sdk.IdCollection(id=res.id)]))
+        r1 = poll_until(lambda: sync_client.events.filter(by_id),
                    lambda r: ev_ext in {e.external_id for e in r})
-        assert ev_ext in {e.external_id for e in r1}, "filter by related_resource_ids did not find the event"
+        assert ev_ext in {e.external_id for e in r1}, "filter by related resource id did not find the event"
 
         by_ext = datahub_sdk.EventFilter(
-            basic_filter=datahub_sdk.BasicEventFilter(related_resource_external_ids=[res_ext]))
-        r2 = _poll(lambda: sync_client.events.filter(by_ext),
+            basic_filter=datahub_sdk.BasicEventFilter(
+                related_resources=[datahub_sdk.IdCollection(external_id=res_ext)]))
+        r2 = poll_until(lambda: sync_client.events.filter(by_ext),
                    lambda r: ev_ext in {e.external_id for e in r})
-        assert ev_ext in {e.external_id for e in r2}, "filter by related_resource_external_ids did not find the event"
+        assert ev_ext in {e.external_id for e in r2}, "filter by related resource external id did not find the event"
+
+        # The event we get back names the resource on both sides, resolved server-side.
+        fetched = next(e for e in r2 if e.external_id == ev_ext)
+        assert [r.external_id for r in fetched.related_resources] == [res_ext]
     finally:
         sync_client.events.delete([ev_ext])
         sync_client.resources.delete([res_ext])
@@ -292,7 +302,7 @@ def test_filter_by_created_time(sync_client, test_events, event_dataset):
     after = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
         external_id_prefix=event_dataset.external_id,
         created_time=datahub_sdk.TimeFilter(start=now - day)))
-    r = _poll(lambda: sync_client.events.filter(after),
+    r = poll_until(lambda: sync_client.events.filter(after),
               lambda r: target.external_id in {e.external_id for e in r})
     assert target.external_id in {e.external_id for e in r}, "created_time (after) filter did not find the event"
 
@@ -315,7 +325,7 @@ def test_filter_by_last_updated_time(sync_client, test_events, event_dataset):
     after = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
         external_id_prefix=event_dataset.external_id,
         last_updated_time=datahub_sdk.TimeFilter(start=now - day)))
-    r = _poll(lambda: sync_client.events.filter(after),
+    r = poll_until(lambda: sync_client.events.filter(after),
               lambda r: target.external_id in {e.external_id for e in r})
     assert target.external_id in {e.external_id for e in r}, "last_updated_time (after) filter did not find the event"
 
@@ -437,14 +447,14 @@ def test_get_by_uuid(sync_client, test_events):
     # GET /events/{id}. Using a settled event (rather than a just-created one) keeps this
     # about the get endpoint, not ingestion lag.
     target_ext = test_events[0].external_id
-    fetched = _poll(
+    fetched = poll_until(
         lambda: sync_client.events.by_ids([target_ext]),
         lambda r: len(r) == 1,
         **POLL_SLOW,
     )
     ev = fetched[0]
     assert ev.id is not None
-    got = _poll(lambda: sync_client.events.get(ev.id), lambda e: e is not None, **POLL_SLOW)
+    got = poll_until(lambda: sync_client.events.get(ev.id), lambda e: e is not None, **POLL_SLOW)
     assert got is not None
     assert got.id == ev.id
     assert got.external_id == target_ext
@@ -457,7 +467,7 @@ def test_get_missing_returns_none(sync_client):
 
 def test_update_event(sync_client, single_event):
     # Make sure the event is queryable before updating it.
-    _poll(lambda: sync_client.events.get(single_event.id), lambda e: e is not None)
+    poll_until(lambda: sync_client.events.get(single_event.id), lambda e: e is not None)
     update = datahub_sdk.EventUpdate(
         single_event,
         status=datahub_sdk.FieldStr(value="acknowledged"),
@@ -473,14 +483,14 @@ def test_update_event(sync_client, single_event):
 
     # Under write lag the update can momentarily not find the event and echo nothing back;
     # the update is idempotent, so retry until the change is reflected.
-    result = _poll(lambda: sync_client.events.update([update]), _updated)
+    result = poll_until(lambda: sync_client.events.update([update]), _updated)
     assert _updated(result)
 
 
 
 def test_search_by_description(sync_client, dimension_events):
     token = dimension_events["token"]
-    results = _poll(
+    results = poll_until(
         lambda: sync_client.events.search(datahub_sdk.EventSearch(query=token)),
         lambda r: len(r) >= 1,
         **POLL_SEARCH,
@@ -494,7 +504,7 @@ def test_search_with_filter_and_limit(sync_client, dimension_events):
     token = dimension_events["token"]
     basic_filter = datahub_sdk.BasicEventFilter(type=dimension_events["type"])
     search = datahub_sdk.EventSearch(query=token, filter=basic_filter, limit=2)
-    results = _poll(lambda: sync_client.events.search(search), lambda r: len(r) >= 1, **POLL_SEARCH)
+    results = poll_until(lambda: sync_client.events.search(search), lambda r: len(r) >= 1, **POLL_SEARCH)
     assert len(results) >= 1  # not a vacuous pass on an empty result
     assert len(results) <= 2
     assert all(e.type == dimension_events["type"] for e in results)
@@ -502,7 +512,7 @@ def test_search_with_filter_and_limit(sync_client, dimension_events):
 
 def test_count(sync_client, dimension_events):
     n = len(dimension_events["events"])
-    count = _poll(lambda: sync_client.events.count(), lambda c: c >= n)
+    count = poll_until(lambda: sync_client.events.count(), lambda c: c >= n)
     assert isinstance(count, int)
     assert count >= n
 

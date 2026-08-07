@@ -231,6 +231,18 @@ class ListFieldStr:
     def delta(cls, add: list[str] | None = None, remove: list[str] | None = None) -> ListFieldStr: ...
 
 
+# Entries name a resource by id, external_id, or both; `remove` matches on whichever side is given.
+class ListFieldIdCollection:
+    @classmethod
+    def set(cls, values: list[IdCollection]) -> ListFieldIdCollection: ...
+    @classmethod
+    def delta(
+        cls,
+        add: list[IdCollection] | None = None,
+        remove: list[IdCollection] | None = None,
+    ) -> ListFieldIdCollection: ...
+
+
 class MapField:
     @classmethod
     def set(cls, values: dict[str, str]) -> MapField: ...
@@ -549,8 +561,7 @@ class Event:
         source: str | None = None,
         metadata: dict[str, str] | None = None,
         data_set_id: int | None = None,
-        related_resource_ids: list[int] | None = None,
-        related_resource_external_ids: list[str] | None = None,
+        related_resources: list[IdCollection] | None = None,
         id: UUID | None = None,
     ) -> None: ...
     @property
@@ -587,14 +598,12 @@ class Event:
     def data_set_id(self) -> int | None: ...
     @data_set_id.setter
     def data_set_id(self, value: int | None) -> None: ...
+    # Resources this event is attached to, each named by id, external_id, or both.
+    # Events returned by the API carry both sides, resolved server-side.
     @property
-    def related_resource_ids(self) -> list[int]: ...
-    @related_resource_ids.setter
-    def related_resource_ids(self, value: list[int]) -> None: ...
-    @property
-    def related_resource_external_ids(self) -> list[str]: ...
-    @related_resource_external_ids.setter
-    def related_resource_external_ids(self, value: list[str]) -> None: ...
+    def related_resources(self) -> list[IdCollection]: ...
+    @related_resources.setter
+    def related_resources(self, value: list[IdCollection]) -> None: ...
     @property
     def event_time(self) -> datetime.datetime: ...
     @event_time.setter
@@ -628,8 +637,7 @@ class BasicEventFilter:
         data_set_ids: list[int] | None = None,
         event_time: TimeFilter | None = None,
         metadata: dict[str, str] | None = None,
-        related_resource_ids: list[int] | None = None,
-        related_resource_external_ids: list[str] | None = None,
+        related_resources: list[IdCollection] | None = None,
         created_time: TimeFilter | None = None,
         last_updated_time: TimeFilter | None = None,
     ) -> None: ...
@@ -674,8 +682,7 @@ class EventUpdate:
         data_set_id: FieldU64 | None = None,
         metadata: MapField | None = None,
         source: FieldStr | None = None,
-        related_resource_ids: ListFieldU64 | None = None,
-        related_resource_external_ids: ListFieldStr | None = None,
+        related_resources: ListFieldIdCollection | None = None,
         event_time: FieldStr | None = None,
     ) -> None: ...
     @property
