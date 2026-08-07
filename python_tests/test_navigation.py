@@ -17,7 +17,15 @@ import datetime as dt
 
 import datahub_sdk
 import pytest
-from datahub_sdk import DataHubException, Event, RelForm, Resource, ResourceNetwork, TimeSeries
+from datahub_sdk import (
+    DataHubException,
+    Event,
+    IdCollection,
+    RelForm,
+    Resource,
+    ResourceNetwork,
+    TimeSeries,
+)
 
 from fixtures import async_client, make_dataset, make_resource, sync_client, unique_id
 from polling import poll_until, poll_until_async
@@ -162,7 +170,7 @@ def test_event_related_resources(sync_client, make_resource):
     ev = Event(
         external_id=unique_id("nav_ev"),
         event_time=dt.datetime.now(dt.timezone.utc),
-        related_resource_external_ids=[res_ext],
+        related_resources=[IdCollection(external_id=res_ext)],
     )
     # create() returns the stored event *with a client stamped on it*, so navigation
     # works directly off the result.
@@ -191,7 +199,7 @@ def test_resource_related_events(sync_client, make_resource):
     ev = Event(
         external_id=ev_ext,
         event_time=dt.datetime.now(dt.timezone.utc),
-        related_resource_external_ids=[res_ext],
+        related_resources=[IdCollection(external_id=res_ext)],
     )
     created = sync_client.events.create([ev])[0]
     try:

@@ -1,7 +1,9 @@
 use crate::PyEvent;
+use crate::PyIdCollection;
 use crate::datetime::py_datetime_to_utc;
 use crate::resources::PyResource;
 use chrono::{DateTime, Utc};
+use dataplatform_rust_sdk::generic::IdAndExtId;
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
@@ -19,8 +21,7 @@ impl PyEvent {
     sub_type=None,
     status=None,
     data_set_id=None,
-    related_resource_ids=None,
-    related_resource_external_ids=None,
+    related_resources=None,
     source=None,
     ))]
     pub fn __init__(
@@ -32,8 +33,7 @@ impl PyEvent {
         sub_type: Option<String>,
         status: Option<String>,
         data_set_id: Option<u64>,
-        related_resource_ids: Option<Vec<u64>>,
-        related_resource_external_ids: Option<Vec<String>>,
+        related_resources: Option<Vec<PyIdCollection>>,
         source: Option<String>,
     ) -> PyResult<Self> {
         let mut ev = dataplatform_rust_sdk::Event::new(external_id, py_datetime_to_utc(&event_time)?);
@@ -43,8 +43,11 @@ impl PyEvent {
         ev.sub_type = sub_type;
         ev.status = status;
         ev.data_set_id = data_set_id;
-        ev.related_resource_ids = related_resource_ids.unwrap_or_default();
-        ev.related_resource_external_ids = related_resource_external_ids.unwrap_or_default();
+        ev.related_resources = related_resources
+            .unwrap_or_default()
+            .into_iter()
+            .map(IdAndExtId::from)
+            .collect();
         ev.source = source;
         Ok(Self {
             inner: ev,
@@ -122,21 +125,20 @@ impl PyEvent {
     pub fn set_data_set_id(&mut self, value: Option<u64>) {
         self.inner.data_set_id = value;
     }
+    /// The resources this event is attached to, each named by `id`, `external_id`, or both.
+    /// Events returned by the API carry both sides, resolved server-side.
     #[getter]
-    pub fn related_resource_ids(&self) -> &Vec<u64> {
-        self.inner.get_related_resource_ids()
+    pub fn related_resources(&self) -> Vec<PyIdCollection> {
+        self.inner
+            .get_related_resources()
+            .iter()
+            .cloned()
+            .map(PyIdCollection::from)
+            .collect()
     }
     #[setter]
-    pub fn set_related_resource_ids(&mut self, value: Vec<u64>) {
-        self.inner.related_resource_ids = value;
-    }
-    #[getter]
-    pub fn related_resource_external_ids(&self) -> &Vec<String> {
-        self.inner.get_related_resource_external_ids()
-    }
-    #[setter]
-    pub fn set_related_resource_external_ids(&mut self, value: Vec<String>) {
-        self.inner.related_resource_external_ids = value;
+    pub fn set_related_resources(&mut self, value: Vec<PyIdCollection>) {
+        self.inner.related_resources = value.into_iter().map(IdAndExtId::from).collect();
     }
     #[getter]
     pub fn source(&self) -> Option<&str> {
@@ -161,9 +163,8 @@ impl PyEvent {
 /// client); calling these on a locally-constructed `Event` raises a clear error.
 #[pymethods]
 impl PyEvent {
-    /// Fetch the resources this event references (its `related_resource_ids` /
-    /// `related_resource_external_ids`), resolved via the resources service. Blocking;
-    /// see [`related_resource_nodes_async`] for the awaitable variant.
+    /// Fetch the resources this event references (its `related_resources`), resolved via the
+    /// resources service. Blocking; see [`related_resource_nodes_async`] for the awaitable variant.
     fn related_resource_nodes(&self, py: Python<'_>) -> PyResult<Vec<PyResource>> {
         let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
         let ids = self.related_id_collections();

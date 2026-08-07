@@ -459,7 +459,7 @@ impl PyResource {
 /// resources returned by the API; calling on a locally-constructed one raises.
 #[pymethods]
 impl PyResource {
-    /// Fetch events whose `related_resource_ids` / `related_resource_external_ids` include this
+    /// Fetch events whose `related_resources` include this
     /// resource (matched by graph-node id when present, else external id), via `events.filter`.
     /// `limit` caps the results (default 100). Blocking; see [`related_events_async`].
     #[pyo3(signature = (limit=100))]
