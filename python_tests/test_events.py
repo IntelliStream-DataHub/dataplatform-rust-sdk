@@ -7,8 +7,15 @@ import pandas as pd
 import pytest
 from pytest_asyncio import fixture
 
-from fixtures import sync_client, unique_id
+from fixtures import async_client, sync_client, unique_id
 from polling import poll_until
+
+# Read paths that lag further behind a write than the poll_until defaults allow: the
+# event get/by_ids projection, and the search index behind it. Spelled as kwargs so a
+# call site reads `poll_until(..., **POLL_SLOW)`.
+POLL_SLOW = {"timeout": 30.0, "interval": 1.0}
+POLL_SEARCH = {"timeout": 60.0, "interval": 1.0}
+
 
 @pytest.fixture(scope="module")
 def event_dataset(sync_client):
@@ -129,7 +136,7 @@ def test_filter_by_external_id_prefix(sync_client, test_events,event_dataset):
     basic_filter = datahub_sdk.BasicEventFilter(external_id_prefix=target_string)
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = sync_client.events.filter(filt)
+    results = poll_until(lambda: sync_client.events.filter(filt), lambda r: len(r) >= 1)
     assert len(results) >= 1
     assert all(e.external_id.startswith(target_string) for e in results)
 
@@ -144,7 +151,10 @@ def test_filter_by_type(sync_client, test_events):
     )
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = sync_client.events.filter(filt)
+    results = poll_until(
+        lambda: sync_client.events.filter(filt),
+        lambda r: target.external_id in {e.external_id for e in r},
+    )
     assert target.external_id in {e.external_id for e in results}
     assert all(e.type == target.type for e in results)
 def test_filter_by_sub_type(sync_client, test_events):
@@ -154,7 +164,10 @@ def test_filter_by_sub_type(sync_client, test_events):
     )
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = sync_client.events.filter(filt)
+    results = poll_until(
+        lambda: sync_client.events.filter(filt),
+        lambda r: target.external_id in {e.external_id for e in r},
+    )
     assert target.external_id in {e.external_id for e in results}
     assert all(e.sub_type == target.sub_type for e in results)
 
@@ -174,9 +187,10 @@ def test_filter_by_event_time_range(sync_client, test_events,time_filter,expecte
     basic_filter = datahub_sdk.BasicEventFilter(event_time=time_filter)
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = sync_client.events.filter(filt)
-    # Depending on whether "end" is inclusive:
-    assert [res.external_id  in [test_event.external_id for test_event in test_events[expected_idx]] for res in results]
+    # The time filter isn't dataset-scoped, so we only assert the window returns something
+    # (poll past ingestion lag) rather than pinning exact membership.
+    results = poll_until(lambda: sync_client.events.filter(filt), lambda r: len(r) >= 1)
+    assert len(results) >= 1
 
 @pytest.mark.parametrize("target_idx", [7])
 def test_filter_by_metadata(sync_client, test_events,target_idx):
@@ -187,7 +201,10 @@ def test_filter_by_metadata(sync_client, test_events,target_idx):
     basic_filter = datahub_sdk.BasicEventFilter(metadata=target_metadata)
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = sync_client.events.filter(filt)
+    results = poll_until(
+        lambda: sync_client.events.filter(filt),
+        lambda r: target.external_id in {e.external_id for e in r},
+    )
     assert target.external_id in {e.external_id for e in results}
     # Every result must carry all of the target's metadata pairs (the unique
     # key{i} entry pins this to the one logical event); dedup tolerates the
@@ -205,7 +222,10 @@ def test_filter_by_source_and_description(sync_client, test_events):
     )
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = sync_client.events.filter(filt)
+    results = poll_until(
+        lambda: sync_client.events.filter(filt),
+        lambda r: target.external_id in {e.external_id for e in r},
+    )
     assert target.external_id in {e.external_id for e in results}
     assert all(
         e.source == target.source and e.description == target.description
@@ -217,7 +237,7 @@ def test_filter_with_limit(sync_client, test_events,event_dataset):
     # Using the EventFilter limit field
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter, limit=5)
 
-    results = sync_client.events.filter(filt)
+    results = poll_until(lambda: sync_client.events.filter(filt), lambda r: len(r) == 5)
     assert len(results) == 5
 
 
@@ -228,7 +248,7 @@ def test_filter_by_data_set_ids(sync_client, test_events, event_dataset):
     basic_filter = datahub_sdk.BasicEventFilter(data_set_ids=[event_dataset.id])
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
-    results = _poll(
+    results = poll_until(
         lambda: sync_client.events.filter(filt),
         lambda r: target.external_id in {e.external_id for e in r},
     )
@@ -255,13 +275,13 @@ def test_filter_by_related_resources(sync_client, event_dataset):
     try:
         by_id = datahub_sdk.EventFilter(
             basic_filter=datahub_sdk.BasicEventFilter(related_resource_ids=[res.id]))
-        r1 = _poll(lambda: sync_client.events.filter(by_id),
+        r1 = poll_until(lambda: sync_client.events.filter(by_id),
                    lambda r: ev_ext in {e.external_id for e in r})
         assert ev_ext in {e.external_id for e in r1}, "filter by related_resource_ids did not find the event"
 
         by_ext = datahub_sdk.EventFilter(
             basic_filter=datahub_sdk.BasicEventFilter(related_resource_external_ids=[res_ext]))
-        r2 = _poll(lambda: sync_client.events.filter(by_ext),
+        r2 = poll_until(lambda: sync_client.events.filter(by_ext),
                    lambda r: ev_ext in {e.external_id for e in r})
         assert ev_ext in {e.external_id for e in r2}, "filter by related_resource_external_ids did not find the event"
     finally:
@@ -279,7 +299,7 @@ def test_filter_by_created_time(sync_client, test_events, event_dataset):
     after = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
         external_id_prefix=event_dataset.external_id,
         created_time=datahub_sdk.TimeFilter(start=now - day)))
-    r = _poll(lambda: sync_client.events.filter(after),
+    r = poll_until(lambda: sync_client.events.filter(after),
               lambda r: target.external_id in {e.external_id for e in r})
     assert target.external_id in {e.external_id for e in r}, "created_time (after) filter did not find the event"
 
@@ -302,7 +322,7 @@ def test_filter_by_last_updated_time(sync_client, test_events, event_dataset):
     after = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
         external_id_prefix=event_dataset.external_id,
         last_updated_time=datahub_sdk.TimeFilter(start=now - day)))
-    r = _poll(lambda: sync_client.events.filter(after),
+    r = poll_until(lambda: sync_client.events.filter(after),
               lambda r: target.external_id in {e.external_id for e in r})
     assert target.external_id in {e.external_id for e in r}, "last_updated_time (after) filter did not find the event"
 
@@ -373,3 +393,130 @@ def test_event_id_collection_requires_an_identifier():
     # Constructing with neither an id nor an external_id is a usage error.
     with pytest.raises(ValueError):
         datahub_sdk.EventIdCollection()
+
+
+# ---------------------------------------------------------------------------
+# get / update / search / count and the type/sub-type/status/source dimension
+# endpoints. Ingestion + the search/dimension indexes are eventually consistent,
+# so these poll rather than sleep a fixed amount.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def dimension_events(sync_client, event_dataset):
+    """A small batch of events sharing a unique letters+digits token in their
+    type / sub_type / status / source / description, so the list_* / search_* /
+    search endpoints can be pinned to exactly these events.
+
+    The token is hex (``[0-9a-f]``) on purpose: the free-text search's `query`
+    only accepts letters/digits/spaces, so an underscore-free token keeps the
+    same value usable across every endpoint."""
+    token = uuid.uuid4().hex[:10]
+    dim = {
+        "token": token,
+        "type": f"evtype{token}",
+        "sub_type": f"evsubtype{token}",
+        "status": f"evstatus{token}",
+        "source": f"evsource{token}",
+    }
+    events = []
+    base = pd.Timestamp("2024-06-01", tz="UTC")
+    for i in range(3):
+        events.append(datahub_sdk.Event(
+            external_id=f"{event_dataset.external_id}_dim_event_{token}_{i}",
+            description=f"dimension event {token} number {i}",
+            type=dim["type"],
+            sub_type=dim["sub_type"],
+            status=dim["status"],
+            source=dim["source"],
+            data_set_id=event_dataset.id,
+            event_time=base + timedelta(days=i),
+        ))
+    sync_client.events.create(events)
+    sleep(1)
+    dim["events"] = events
+    yield dim
+    sync_client.events.delete(events)
+
+
+def test_get_by_uuid(sync_client, test_events):
+    # Resolve a settled event's server UUID via by_ids, then round-trip it through
+    # GET /events/{id}. Using a settled event (rather than a just-created one) keeps this
+    # about the get endpoint, not ingestion lag.
+    target_ext = test_events[0].external_id
+    fetched = poll_until(
+        lambda: sync_client.events.by_ids([target_ext]),
+        lambda r: len(r) == 1,
+        **POLL_SLOW,
+    )
+    ev = fetched[0]
+    assert ev.id is not None
+    got = poll_until(lambda: sync_client.events.get(ev.id), lambda e: e is not None, **POLL_SLOW)
+    assert got is not None
+    assert got.id == ev.id
+    assert got.external_id == target_ext
+
+
+def test_get_missing_returns_none(sync_client):
+    # An id that doesn't exist yields None (the backend 404 is mapped to None).
+    assert sync_client.events.get(uuid.uuid4()) is None
+
+
+def test_update_event(sync_client, single_event):
+    # Make sure the event is queryable before updating it.
+    poll_until(lambda: sync_client.events.get(single_event.id), lambda e: e is not None)
+    update = datahub_sdk.EventUpdate(
+        single_event,
+        status=datahub_sdk.FieldStr(value="acknowledged"),
+        description=datahub_sdk.FieldStr(value="updated by test"),
+    )
+
+    def _updated(result):
+        # The update response echoes the events with their new field values.
+        return any(
+            e.status == "acknowledged" and e.description == "updated by test"
+            for e in result
+        )
+
+    # Under write lag the update can momentarily not find the event and echo nothing back;
+    # the update is idempotent, so retry until the change is reflected.
+    result = poll_until(lambda: sync_client.events.update([update]), _updated)
+    assert _updated(result)
+
+
+
+def test_search_by_description(sync_client, dimension_events):
+    token = dimension_events["token"]
+    results = poll_until(
+        lambda: sync_client.events.search(datahub_sdk.EventSearch(query=token)),
+        lambda r: len(r) >= 1,
+        **POLL_SEARCH,
+    )
+    found = {e.external_id for e in results}
+    assert any(ev.external_id in found for ev in dimension_events["events"])
+
+
+def test_search_with_filter_and_limit(sync_client, dimension_events):
+    # The free-text search can be narrowed with a BasicEventFilter and capped.
+    token = dimension_events["token"]
+    basic_filter = datahub_sdk.BasicEventFilter(type=dimension_events["type"])
+    search = datahub_sdk.EventSearch(query=token, filter=basic_filter, limit=2)
+    results = poll_until(lambda: sync_client.events.search(search), lambda r: len(r) >= 1, **POLL_SEARCH)
+    assert len(results) >= 1  # not a vacuous pass on an empty result
+    assert len(results) <= 2
+    assert all(e.type == dimension_events["type"] for e in results)
+
+
+def test_count(sync_client, dimension_events):
+    n = len(dimension_events["events"])
+    count = poll_until(lambda: sync_client.events.count(), lambda c: c >= n)
+    assert isinstance(count, int)
+    assert count >= n
+
+
+@pytest.mark.asyncio
+async def test_count_async(async_client):
+    # Smoke-test the async service path for one of the new endpoints.
+    count = await async_client.events.count()
+    assert isinstance(count, int)
+    assert count >= 0

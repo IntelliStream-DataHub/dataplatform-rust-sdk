@@ -16,6 +16,22 @@ impl<T> Field<T> {
         }
     }
 
+    /// Set the field to `value` (`{ "set": value, "setNull": false }`).
+    pub fn value(value: impl Into<T>) -> Self {
+        Field {
+            set: Some(value.into()),
+            set_null: false,
+        }
+    }
+
+    /// Clear the field (`{ "setNull": true }`).
+    pub fn null() -> Self {
+        Field {
+            set: None,
+            set_null: true,
+        }
+    }
+
     pub fn set(&mut self, value: T)
     where
         T: Clone,

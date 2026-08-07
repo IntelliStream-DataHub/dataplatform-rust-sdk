@@ -5,8 +5,9 @@ use crate::timeseries::datapoints::{
     PyRetrieveFilter,
 };
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
+use crate::{PyFieldStr, PyFieldU64, PyListFieldStr, PyListFieldU64, PyMapField};
 use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter, TimeFilter};
-use dataplatform_rust_sdk::events::EventIdCollection;
+use dataplatform_rust_sdk::events::{EventIdCollection, EventSearch, EventUpdate, EventUpdateFields};
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::{ApiService, Event, TimeSeries};
 use std::sync::Arc;
@@ -324,11 +325,128 @@ impl From<EventIdentifyable> for EventIdCollection {
     }
 }
 
+/// One event's update for `events.update`. Target the event by an `Event`, its UUID `id`, or its
+/// `external_id`; every field is optional and uses the same wrappers as the other services
+/// (`FieldStr`/`FieldU64` for scalars, `ListFieldU64`/`ListFieldStr` for the related-resource
+/// lists, `MapField` for metadata). Mirrors `ResourceUpdate`.
+#[pyclass(module = "datahub_sdk", name = "EventUpdate")]
+#[derive(Clone)]
+pub struct PyEventUpdate {
+    pub inner: EventUpdate,
+}
+
+impl From<PyEventUpdate> for EventUpdate {
+    fn from(v: PyEventUpdate) -> Self {
+        v.inner
+    }
+}
+
+#[pymethods]
+impl PyEventUpdate {
+    #[new]
+    #[pyo3(signature = (
+        event,
+        external_id = None,
+        description = None,
+        r#type = None,
+        sub_type = None,
+        status = None,
+        data_set_id = None,
+        metadata = None,
+        source = None,
+        related_resource_ids = None,
+        related_resource_external_ids = None,
+        event_time = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn __init__(
+        event: EventIdentifyable,
+        external_id: Option<PyFieldStr>,
+        description: Option<PyFieldStr>,
+        r#type: Option<PyFieldStr>,
+        sub_type: Option<PyFieldStr>,
+        status: Option<PyFieldStr>,
+        data_set_id: Option<PyFieldU64>,
+        metadata: Option<PyMapField>,
+        source: Option<PyFieldStr>,
+        related_resource_ids: Option<PyListFieldU64>,
+        related_resource_external_ids: Option<PyListFieldStr>,
+        event_time: Option<PyFieldStr>,
+    ) -> Self {
+        let ident = EventIdCollection::from(event);
+        Self {
+            inner: EventUpdate {
+                id: ident.id,
+                external_id: ident.external_id,
+                update: EventUpdateFields {
+                    external_id: external_id.map(Into::into),
+                    description: description.map(Into::into),
+                    r#type: r#type.map(Into::into),
+                    sub_type: sub_type.map(Into::into),
+                    status: status.map(Into::into),
+                    data_set_id: data_set_id.map(Into::into),
+                    metadata: metadata.map(Into::into),
+                    source: source.map(Into::into),
+                    related_resource_ids: related_resource_ids.map(Into::into),
+                    related_resource_external_ids: related_resource_external_ids.map(Into::into),
+                    event_time: event_time.map(Into::into),
+                },
+            },
+        }
+    }
+
+    #[getter]
+    fn target_id(&self) -> Option<Uuid> {
+        self.inner.id
+    }
+    #[getter]
+    fn target_external_id(&self) -> Option<&str> {
+        self.inner.external_id.as_deref()
+    }
+}
+
+/// Request body for `events.search`. `query` is the free-text phrase matched against event
+/// descriptions; `filter` optionally narrows the candidate set (same fields as `BasicEventFilter`),
+/// and `limit` caps the result (server max 1000).
+#[pyclass(module = "datahub_sdk", name = "EventSearch")]
+#[derive(Clone)]
+pub struct PyEventSearch {
+    pub inner: EventSearch,
+}
+
+impl From<PyEventSearch> for EventSearch {
+    fn from(v: PyEventSearch) -> Self {
+        v.inner
+    }
+}
+
+#[pymethods]
+impl PyEventSearch {
+    #[new]
+    #[pyo3(signature = (query, filter = None, limit = None))]
+    pub fn __init__(
+        query: String,
+        filter: Option<PyBasicEventFilter>,
+        limit: Option<usize>,
+    ) -> Self {
+        let mut search = EventSearch::from_query(&query);
+        if let Some(filter) = filter {
+            search.set_filter(filter.into());
+        }
+        search.set_limit(limit.unwrap_or(100));
+        Self {
+            inner: search.build(),
+        }
+    }
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEvent>()?;
     m.add_class::<PyEventIdCollection>()?;
     m.add_class::<PyEventFilter>()?;
     m.add_class::<PyBasicEventFilter>()?;
     m.add_class::<PyTimeFilter>()?;
+    m.add_class::<PyEventUpdate>()?;
+    m.add_class::<PyEventSearch>()?;
     Ok(())
 }
