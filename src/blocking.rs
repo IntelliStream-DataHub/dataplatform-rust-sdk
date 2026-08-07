@@ -28,7 +28,7 @@ use chrono::{DateTime, Utc};
 use tokio::runtime::Runtime;
 
 use crate::datahub::DataHubConfig;
-use crate::datasets::{Dataset, DatasetFilter, DatasetSearch, DatasetUpdate};
+use crate::datasets::{Dataset, DatasetSearch, DatasetUpdate};
 use crate::events::{Event, EventIdCollection};
 use crate::files::FileUpload;
 use crate::filters::EventFilter;
@@ -259,15 +259,6 @@ impl DatasetsService {
         fn update(data: Into<DataWrapper<DatasetUpdate>>) -> Result<DataWrapper<Dataset>, ResponseError>;
     }
 
-    /// Blocking counterpart of the deprecated [`crate::datasets::DatasetsService::filter`].
-    #[deprecated(
-        since = "0.1.0",
-        note = "the server ignores the criteria and returns every dataset; use `list()` so that is explicit"
-    )]
-    pub fn filter(&self, filter: &DatasetFilter) -> Result<DataWrapper<Dataset>, ResponseError> {
-        #[allow(deprecated)]
-        self.rt.block_on(self.api.datasets.filter(filter))
-    }
 }
 
 /// Blocking counterpart of [`crate::UnitsService`].

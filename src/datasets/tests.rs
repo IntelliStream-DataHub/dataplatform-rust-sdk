@@ -1,5 +1,5 @@
 use crate::create_api_service;
-use crate::datasets::{BasicDatasetFilter, Dataset, DatasetUpdate};
+use crate::datasets::{Dataset, DatasetUpdate};
 use crate::fields::{Field, MapField};
 use crate::generic::IdAndExtId;
 use crate::http::ResponseError;
@@ -40,11 +40,6 @@ async fn test_dataset_crud() -> Result<(), ResponseError> {
         .iter()
         .map(|dt| IdAndExtId::from_external_id(dt.external_id()))
         .collect::<Vec<IdAndExtId>>();
-    let basicfilter = BasicDatasetFilter::new()
-        .set_external_id_prefix("test_dataset".to_string())
-        .set_policies(vec!["test_policy".to_string()])
-        .build();
-
     api_service.datasets.delete(&test_ids).await?;
     assert!(equal_external_ids(
         api_service.datasets.by_ids(&test_ids).await?.get_items(),

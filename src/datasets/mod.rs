@@ -3,11 +3,7 @@ mod tests;
 
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::fields::{Field, ListField, MapField};
-use crate::filters::{AdvancedEventFilter, BasicEventFilter, TimeFilter};
-use crate::generic::{
-    ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, SearchAndFilterForm,
-    SearchForm,
-};
+use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, SearchForm};
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::ResponseError;
 use crate::resources::Resource;
@@ -57,28 +53,13 @@ impl DatasetsService {
 
     /// `POST /datasets/list` — every dataset in the tenant.
     ///
-    /// The endpoint takes a body (criteria + `limit` + `cursor`) but **the server currently
-    /// ignores it**: the handler is a bare `dataSetRepository.findAll()`. This method therefore
-    /// takes no criteria, and the result is not paged. Filtering has to happen client-side until
-    /// the backend honours the form.
+    /// The endpoint declares a body of criteria + `limit` + `cursor`, but the handler is a bare
+    /// `dataSetRepository.findAll()` that never reads it, so this sends `{}` and takes no
+    /// arguments. There is no server-side dataset filtering or paging: narrow the result
+    /// client-side. When the backend honours the form, this grows a criteria argument.
     pub async fn list(&self) -> Result<DataWrapper<Dataset>, ResponseError> {
         let path = &format!("{}/list", self.base_url);
-        self.execute_post_request(path, &DatasetFilter::new()).await
-    }
-
-    /// Previously posted to `/datasets/filter`, which does not exist — every call failed. It now
-    /// goes to `/datasets/list`, but the server ignores the criteria, so this returns *every*
-    /// dataset regardless of what you pass.
-    #[deprecated(
-        since = "0.1.0",
-        note = "the server ignores the criteria and returns every dataset; use `list()` so that is explicit"
-    )]
-    pub async fn filter(
-        &self,
-        filter: &DatasetFilter,
-    ) -> Result<DataWrapper<Dataset>, ResponseError> {
-        let path = &format!("{}/list", self.base_url);
-        self.execute_post_request(path, &filter).await
+        self.execute_post_request(path, &serde_json::json!({})).await
     }
 
     pub async fn by_ids<I>(&self, id_collection: &I) -> Result<DataWrapper<Dataset>, ResponseError>
@@ -376,121 +357,20 @@ impl From<&Vec<DatasetUpdate>> for DataWrapper<DatasetUpdate> {
     }
 }
 
+/// Body of `POST /datasets/search`.
+///
+/// The server reads exactly one thing: `search.query`. It carried `filter`, `limit` and `cursor`
+/// fields too, but `DataSetService.search` passes only `form.getSearch().getQuery()` to the
+/// repository, so those were setters that silently did nothing — they are gone rather than
+/// misleading. Add them back when the handler honours them.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DatasetFilter {
-    // use in /list, and search?
-    advanced_filter: Option<AdvancedEventFilter>,
-    filter: BasicDatasetFilter,
-    cursor: Option<String>,
-    limit: usize,
-}
-
-impl DatasetFilter {
-    pub fn set_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self {
-        self.filter = filter;
-        self
-    }
-    pub(crate) fn set_advanced_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self {
-        self.filter = filter;
-        self
-    }
-    pub fn set_limit(&mut self, limit: usize) -> &mut Self {
-        self.limit = limit;
-        self
-    }
-    pub fn cursor(&self) -> Option<&String> {
-        self.cursor.as_ref()
-    }
-    pub fn new() -> Self {
-        Self {
-            filter: BasicDatasetFilter::new(),
-            cursor: None,
-            limit: 100,
-            advanced_filter: None,
-        }
-    }
-    pub fn build(&self) -> Self {
-        self.clone()
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct BasicDatasetFilter {
-    metadata: Option<HashMap<String, String>>,
-    created_time: Option<TimeFilter>,
-    last_updated_time: Option<TimeFilter>,
-    external_id_prefix: Option<String>,
-    id: Option<u64>,
-    description: Option<String>,
-    policies: Option<Vec<String>>,
-    active: Option<bool>,
-}
-
-impl BasicDatasetFilter {
-    pub fn new() -> Self {
-        Self {
-            id: None,
-            external_id_prefix: None,
-            description: None,
-            metadata: None,
-            created_time: None,
-            last_updated_time: None,
-            policies: None,
-            active: None,
-        }
-    }
-    pub fn set_id(&mut self, id: u64) -> &mut Self {
-        self.id = Some(id);
-        self
-    }
-    pub fn set_external_id_prefix(&mut self, external_id: String) -> &mut Self {
-        self.external_id_prefix = Some(external_id);
-        self
-    }
-    pub fn set_description(&mut self, external_id: String) -> &mut Self {
-        self.description = Some(external_id);
-        self
-    }
-    pub fn set_policies(&mut self, policies: Vec<String>) -> &mut Self {
-        self.policies = Some(policies);
-        self
-    }
-    pub fn set_active(&mut self, active: bool) -> &mut Self {
-        self.active = Some(active);
-        self
-    }
-    pub fn set_metadata(&mut self, metadata: HashMap<String, String>) -> &mut Self {
-        self.metadata = Some(metadata);
-        self
-    }
-    pub fn set_created_time(&mut self, created_time: TimeFilter) -> &mut Self {
-        self.created_time = Some(created_time);
-        self
-    }
-    pub fn set_last_updated_time(&mut self, last_updated_time: TimeFilter) -> &mut Self {
-        self.created_time = Some(last_updated_time);
-        self
-    }
-    pub fn build(&self) -> Self {
-        self.clone()
-    }
-}
-#[derive(Debug, Serialize, Deserialize, Clone)]
-
 pub struct DatasetSearch {
-    filter: BasicDatasetFilter,
     search: SearchForm,
-    limit: usize,
-    cursor: Option<String>,
 }
 impl DatasetSearch {
     pub fn new() -> Self {
         Self {
-            filter: BasicDatasetFilter::new(),
             search: SearchForm::new(),
-            limit: 100,
-            cursor: None,
         }
     }
 
@@ -499,25 +379,11 @@ impl DatasetSearch {
     pub fn from_query(query: &str) -> Self {
         let mut search = SearchForm::new();
         search.query = Some(query.to_string());
-        Self {
-            search,
-            ..Self::new()
-        }
-    }
-    pub fn set_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self {
-        self.filter = filter;
-        self
+        Self { search }
     }
     pub fn set_search(&mut self, search: SearchForm) -> &mut Self {
         self.search = search;
         self
-    }
-    pub fn set_limit(&mut self, limit: usize) -> &mut Self {
-        self.limit = limit;
-        self
-    }
-    pub fn cursor(&self) -> Option<&String> {
-        self.cursor.as_ref()
     }
     pub fn build(&self) -> Self {
         self.clone()
