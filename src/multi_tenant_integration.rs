@@ -1026,8 +1026,9 @@ async fn acl_a_parent_dataset_grant_covers_descendants() -> Result<(), ResponseE
         ds_guard.disarm();
         eprintln!(
             "SKIP {TEST}: creating a dataset with `connectedDataSets` set is a silent no-op \
-             (200, empty body, nothing created) and `datasets.update` is unimplemented, so this \
-             SDK cannot build a dataset hierarchy to test the closure against."
+             (200, empty body, nothing created) and `datasets.update` does not accept \
+             `connectedDataSets` either, so this SDK cannot build a dataset hierarchy to test \
+             the closure against."
         );
         return Ok(());
     };
