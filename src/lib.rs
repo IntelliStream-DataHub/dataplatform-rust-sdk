@@ -13,6 +13,7 @@ pub use unit::{Unit, UnitsService};
 // Only the service is re-exported at the crate root: `resources::*` already brings a
 // (different) `Label` graph DTO here, so the label entity stays addressed as `labels::Label`.
 pub use crate::labels::LabelsService;
+pub use crate::relations::EdgesService;
 pub use crate::subscriptions::SubscriptionsService;
 
 /// Explaining an unexplained 401 from the token the SDK already holds.
@@ -73,6 +74,7 @@ pub struct ApiService {
     pub subscriptions: SubscriptionsService,
     pub functions: FunctionsService,
     pub labels: LabelsService,
+    pub edges: EdgesService,
     pub(crate) http_client: Client,
 }
 
@@ -128,6 +130,7 @@ pub fn create_api_service() -> Arc<ApiService> {
             subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
             functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
             labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
+            edges: EdgesService::new(Weak::clone(weak_self), &base_url_clone),
             http_client,
         }
     });
@@ -163,6 +166,7 @@ impl ApiService {
                 subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
                 functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
                 labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
+                edges: EdgesService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });
@@ -199,6 +203,7 @@ impl ApiService {
                 subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
                 functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
                 labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
+                edges: EdgesService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });

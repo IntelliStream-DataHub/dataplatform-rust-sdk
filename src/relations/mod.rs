@@ -1,6 +1,11 @@
 #[cfg(test)]
 mod tests;
 
+mod service;
+
+pub use service::EdgesService;
+
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -162,5 +167,82 @@ impl RelForm {
             data_set_id: None,
             description: None,
         }
+    }
+}
+
+/// A relationship type in the tenant's catalogue (`GET /edges/types`).
+///
+/// Types are normally created on demand the first time a name is used; this is what one looks
+/// like once stored. `hash` is the server's lookup key for the normalised name.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RelationshipType {
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
+    pub id: Option<u64>,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub i18n_code: Option<String>,
+    #[serde(default, with = "crate::serde_helper::opt_string_id_i64")]
+    pub hash: Option<i64>,
+    #[serde(default)]
+    pub date_created: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub last_updated: Option<DateTime<Utc>>,
+}
+
+/// Request form for `POST /edges/types/create`.
+///
+/// `name` is required and must not be blank. The server uppercase-snake-cases it, so `"Flows To"`
+/// and `"flows_to"` both land on `FLOWS_TO`; a name that normalises to nothing (only symbols) is
+/// rejected with a 400.
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RelTypeForm {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
+    pub id: Option<u64>,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl RelTypeForm {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    pub fn with_i18n_code(mut self, i18n_code: impl Into<String>) -> Self {
+        self.i18n_code = Some(i18n_code.into());
+        self
+    }
+}
+
+impl crate::generic::DataHubEntity for RelTypeForm {
+    fn ext_id(&self) -> &String {
+        &self.name
+    }
+}
+
+impl crate::generic::DataHubEntity for RelForm {
+    fn ext_id(&self) -> &String {
+        // Edges are identified by their endpoints, not by an external id of their own. The
+        // `From<T> for DataWrapper<T>` impls only need *some* borrow, and the from-side external
+        // id is the closest thing an edge form has to a name.
+        static EMPTY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        self.from_external_id
+            .as_ref()
+            .unwrap_or_else(|| EMPTY.get_or_init(String::new))
     }
 }

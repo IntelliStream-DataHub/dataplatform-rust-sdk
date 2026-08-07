@@ -42,7 +42,8 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 - `time_series` (`src/timeseries/`) — `TimeSeries` + datapoint ingestion/retrieval
 - `units` (`src/unit/`)
 - `events` (`src/events/`)
-- `resources` (`src/resources/`) — hierarchical asset-like entities; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`)
+- `resources` (`src/resources/`) — hierarchical asset-like entities; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`, `RelatedNode`)
+- `edges` (`src/relations/service.rs`) — the `/edges` endpoints: `get`/`by_ids`/`create`/`delete` plus the relationship-type catalogue (`types`/`create_types`). Edges normally come into being through `resources.create(nodes, relations)`; this service is for linking resources that already exist and for reading or deleting an edge on its own. Three server behaviours contradict its OpenAPI and are documented at each call site: `get` and `by_ids` answer an unknown id with 200-and-nothing rather than the documented 404, and `create_types` fails silently on a duplicate name — the unique-hash collision surfaces at commit, after the handler returned, so the caller gets a 200 with an empty *body*, and in a batch the valid new types are rolled back with it. `test_duplicate_relationship_type_conflicts` encodes the intended 409 and is red until the server-side fix lands.
 - `datasets` (`src/datasets/`)
 - `files` (`src/files/`) — raw-`PUT` upload via `execute_file_upload_request` (content is the body, metadata rides in `X-Datahub-*` headers), plus directory listing, get/search, `FileUpdate` (rename/move/re-dataset), trash + restore, delete, and download (`download` in memory, `download_to_path` streamed)
 - `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`)
