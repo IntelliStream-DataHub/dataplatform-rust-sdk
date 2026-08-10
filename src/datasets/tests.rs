@@ -144,7 +144,7 @@ async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError>
         "limit above 10000 should be rejected by the server's @Max"
     );
 
-    // --- search: free-text over names. Only the query reaches the server. ---
+    // --- search: full-text over name, external id and description. `filter` is ignored. ---
     let found = api_service
         .datasets
         .search_by_query("sdk test dataset for list search")
@@ -152,7 +152,7 @@ async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError>
     assert_eq!(found.get_http_status_code(), Some(200));
     assert!(
         found.get_items().iter().any(|d| d.external_id() == ext_id),
-        "search should surface the dataset by its name"
+        "search should surface the dataset by a phrase from its name"
     );
 
     // A query under the server's 3-character minimum fails validation rather than matching loosely.

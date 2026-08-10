@@ -84,11 +84,18 @@ impl DatasetsService {
             .await
     }
 
-    /// `POST /datasets/search` — free-text search across dataset names, ranked by relevance.
+    /// `POST /datasets/search` — Postgres full-text search over a dataset's name, external id and
+    /// description at once, so a hit on any of the three matches. The last term is a prefix match
+    /// (the query is `websearch_to_tsquery` with `:*` appended), which is what makes this usable
+    /// from a search box mid-word.
     ///
-    /// Only `search.query` reaches the server; the form's `filter`, `limit` and `cursor` are
-    /// accepted and then ignored by the handler. The query is validated at 3–140 characters, so a
-    /// shorter one comes back 400. No match is an empty item list, not an error.
+    /// Results are **not ranked** — the query has no `ORDER BY`, so row order is whatever the
+    /// index scan produced. Do not read the first item as the best match.
+    ///
+    /// The form's `search.query` and `limit` both reach the server; its `filter` is accepted and
+    /// then ignored, so use [`filter`](Self::filter) for criteria. The query is validated at
+    /// 3–140 characters, so a shorter one comes back 400. No match is an empty item list, not an
+    /// error — the 404 the OpenAPI annotation still advertises was removed server-side.
     ///
     /// [`search_by_query`](Self::search_by_query) is the shorthand for the common case.
     pub async fn search(
@@ -99,8 +106,8 @@ impl DatasetsService {
         self.execute_post_request(path, &search).await
     }
 
-    /// [`search`](Self::search) with just a query string — the only part of the form the server
-    /// reads. `query` must be 3–140 characters.
+    /// [`search`](Self::search) with just a query string, leaving `limit` at the default 100.
+    /// `query` must be 3–140 characters.
     pub async fn search_by_query(
         &self,
         query: &str,
@@ -129,9 +136,11 @@ impl DatasetsService {
     /// Policies come back as graph [`Resource`]s, not datasets — the server runs them through the
     /// same resource transformer. Intended for populating a picker for [`Dataset::set_policies`].
     ///
-    /// **Observed to return an empty list even when policies exist.** Against a backend whose
-    /// `GET /policies` returned three, this endpoint returned none, despite both reading
-    /// `PolicyRepository.findAll()`. That looks like a server-side bug rather than something the
+    /// **Observed to answer 200 with no body at all** — `Content-Length: 0` and no `Content-Type`,
+    /// not even `{"items":[]}`. Against a backend whose `GET /policies` returned three policies,
+    /// this endpoint returned that empty response, despite both reading `PolicyRepository
+    /// .findAll()`. The empty body means callers see zero items, so treat the result as
+    /// unreliable rather than authoritative. That is a server-side bug rather than something the
     /// SDK can work around, so this is wired to the documented endpoint and left alone. If you
     /// need the actual policy list today, `GET /policies` has it — the SDK does not cover that
     /// endpoint yet.
