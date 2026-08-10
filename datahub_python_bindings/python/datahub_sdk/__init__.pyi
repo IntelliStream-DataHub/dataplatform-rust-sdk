@@ -161,6 +161,8 @@ class AsyncDataHubClient:
     def labels(self) -> LabelsServiceAsync: ...
     @property
     def edges(self) -> EdgesServiceAsync: ...
+    @property
+    def datasets(self) -> DatasetsServiceAsync: ...
 
 
 # ====================== Identifiers & search ======================
@@ -215,6 +217,14 @@ class FieldU64:
     def __init__(self, value: int | None = None, set_null: bool = False) -> None: ...
     @property
     def value(self) -> int | None: ...
+    @property
+    def set_null(self) -> bool: ...
+
+
+class FieldBool:
+    def __init__(self, value: bool | None = None, set_null: bool = False) -> None: ...
+    @property
+    def value(self) -> bool | None: ...
     @property
     def set_null(self) -> bool: ...
 
@@ -825,17 +835,88 @@ class Dataset:
     async def related_events_async(self, limit: int = 100) -> list[Event]: ...
 
 
+# Criteria for `datasets.filter`. Every field is optional and they AND together, so an
+# argument-free BasicDatasetFilter() places no restriction. An *empty* list or dict is likewise
+# no restriction rather than "match nothing".
+#
+# `names` and `source` are ILIKE patterns — you place the `%`. `external_ids` match exactly but
+# case-insensitively; `external_id_prefix` is anchored at the start. All `metadata` pairs must be
+# present. `write_protected`/`deactivated` are absent-until-set, so False matches "never set, or
+# set to false" — most datasets.
+class BasicDatasetFilter:
+    def __init__(
+        self,
+        ids: list[int] | None = None,
+        external_ids: list[str] | None = None,
+        names: list[str] | None = None,
+        source: str | None = None,
+        metadata: dict[str, str] | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        external_id_prefix: str | None = None,
+        write_protected: bool | None = None,
+        deactivated: bool | None = None,
+    ) -> None: ...
+
+
+# `limit` defaults to the server's 100 and may not exceed 10000. There is no paging, so a filter
+# broad enough to exceed the cap is truncated — narrow it instead.
+class DatasetFilter:
+    def __init__(
+        self,
+        filter: BasicDatasetFilter | None = None,
+        limit: int | None = None,
+    ) -> None: ...
+
+
+# A partial update for one dataset. `dataset` names the target; only the fields you pass are sent,
+# anything omitted is left untouched. There is deliberately no `policies` or `connected_data_sets`
+# — the update endpoint does not accept them, whatever a Dataset can carry on create.
+class DatasetUpdate:
+    def __init__(
+        self,
+        dataset: Identifiable,
+        external_id: FieldStr | None = None,
+        name: FieldStr | None = None,
+        description: FieldStr | None = None,
+        metadata: MapField | None = None,
+        labels: ListFieldStr | None = None,
+        write_protected: FieldBool | None = None,
+        deactivated: FieldBool | None = None,
+    ) -> None: ...
+    @property
+    def target_id(self) -> int | None: ...
+    @property
+    def target_external_id(self) -> str | None: ...
+
+
+# `search(query, ...)`: query is 3-140 chars and Latin letters/spaces/digits only, so an external
+# id with underscores is a 400 — search on words and use filter() to look up by id. Results are
+# unranked.
+#
+# `update(...)`: do not set write_protected/deactivated in the same DatasetUpdate as a metadata
+# change — the server stores those flags as metadata and silently drops the metadata delta. Send
+# two updates.
 class DatasetsServiceSync:
+    def list(self, limit: int | None = None) -> list[Dataset]: ...
     def create(self, input: list[Dataset]) -> list[Dataset]: ...
     def by_ids(self, input: list[Identifiable]) -> list[Dataset]: ...
     def delete(self, input: list[Identifiable]) -> None: ...
+    def filter(self, input: DatasetFilter) -> list[Dataset]: ...
+    def search(self, query: str, limit: int | None = None) -> list[Dataset]: ...
+    def update(self, input: list[DatasetUpdate]) -> list[Dataset]: ...
+    def policies(self) -> list[Resource]: ...
 
 
 class DatasetsServiceAsync:
-    async def list(self) -> list[Dataset]: ...
+    async def list(self, limit: int | None = None) -> list[Dataset]: ...
     async def create(self, input: list[Dataset]) -> list[Dataset]: ...
     async def by_ids(self, input: list[Identifiable]) -> list[Dataset]: ...
     async def delete(self, input: list[Identifiable]) -> None: ...
+    async def filter(self, input: DatasetFilter) -> list[Dataset]: ...
+    async def search(self, query: str, limit: int | None = None) -> list[Dataset]: ...
+    async def update(self, input: list[DatasetUpdate]) -> list[Dataset]: ...
+    async def policies(self) -> list[Resource]: ...
 
 
 # ====================== Resources ======================

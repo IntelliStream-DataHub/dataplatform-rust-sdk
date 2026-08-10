@@ -28,7 +28,7 @@ use chrono::{DateTime, Utc};
 use tokio::runtime::Runtime;
 
 use crate::datahub::DataHubConfig;
-use crate::datasets::{Dataset, DatasetFilter, DatasetSearch};
+use crate::datasets::{Dataset, DatasetFilter, DatasetSearch, DatasetUpdate};
 use crate::events::{Event, EventDimension, EventIdCollection};
 use crate::files::{FileDownload, FileUpdate, FileUpload};
 use crate::filters::EventFilter;
@@ -249,8 +249,6 @@ impl EventsService {
 }
 
 /// Blocking counterpart of [`crate::datasets::DatasetsService`].
-/// (`list`, `update` and `policies` are unimplemented on the async service and so
-/// have no blocking mirror yet.)
 pub struct DatasetsService {
     api: Arc<crate::ApiService>,
     rt: Arc<Runtime>,
@@ -258,14 +256,18 @@ pub struct DatasetsService {
 
 impl DatasetsService {
     delegate! { datasets =>
+        fn list(limit: Option<u64>) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn filter(filter: &DatasetFilter) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn search(search: &DatasetSearch) -> Result<DataWrapper<Dataset>, ResponseError>;
+        fn search_by_query(query: &str) -> Result<DataWrapper<Dataset>, ResponseError>;
+        fn policies() -> Result<DataWrapper<Resource>, ResponseError>;
     }
 
     delegate_into! { datasets =>
         fn create(data: Into<DataWrapper<Dataset>>) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn by_ids(id_collection: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Dataset>, ResponseError>;
+        fn update(data: Into<DataWrapper<DatasetUpdate>>) -> Result<DataWrapper<Dataset>, ResponseError>;
     }
 }
 
