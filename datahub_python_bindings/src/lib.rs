@@ -24,6 +24,8 @@ use crate::resources::sync_service::PyResourcesServiceSync;
 use crate::labels::PyLabel;
 use crate::labels::async_service::PyLabelsServiceAsync;
 use crate::labels::sync_service::PyLabelsServiceSync;
+use crate::relations::async_service::PyEdgesServiceAsync;
+use crate::relations::sync_service::PyEdgesServiceSync;
 use crate::subscriptions::async_service::PySubscriptionsServiceAsync;
 use crate::subscriptions::sync_service::PySubscriptionsServiceSync;
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
@@ -61,6 +63,20 @@ create_exception!(
 /// Convert an SDK `ResponseError` into a `DataHubException` that exposes the HTTP
 /// `status_code` and `message` as attributes, so Python callers can branch on the
 /// status code (e.g. `except DataHubException as e: if e.status_code == 409: ...`).
+/// Map a "not found" into Python's `None`.
+///
+/// Every single-resource `GET` in the API answers an unknown id with **404** (batch `/byids`
+/// endpoints instead return an empty collection). A `get()` that raises for "it isn't there" is
+/// unpythonic and contradicts the `X | None` signatures these bindings already publish, so the
+/// 404 is absorbed here and every other error still propagates.
+pub(crate) fn none_on_404<T>(result: Result<T, ResponseError>) -> PyResult<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(e) if e.get_status().as_u16() == 404 => Ok(None),
+        Err(e) => Err(datahub_err(e)),
+    }
+}
+
 pub(crate) fn datahub_err(e: ResponseError) -> PyErr {
     Python::attach(|py| {
         let err = DataHubException::new_err(e.get_message());
@@ -330,6 +346,14 @@ impl PySyncClient {
         }
     }
 
+    #[getter]
+    fn edges(&self) -> PyEdgesServiceSync {
+        PyEdgesServiceSync {
+            api_service: self.inner.clone(),
+            runtime: self.runtime.clone(),
+        }
+    }
+
 }
 
 #[pyclass(module = "datahub_sdk", name = "AsyncDataHubClient")]
@@ -470,6 +494,13 @@ impl PyAsyncClient {
     #[getter]
     fn labels(&self) -> PyLabelsServiceAsync {
         PyLabelsServiceAsync {
+            api_service: self.inner.clone(),
+        }
+    }
+
+    #[getter]
+    fn edges(&self) -> PyEdgesServiceAsync {
+        PyEdgesServiceAsync {
             api_service: self.inner.clone(),
         }
     }
