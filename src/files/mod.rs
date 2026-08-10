@@ -1,7 +1,6 @@
 mod test;
 
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
-use crate::events::Event;
 use crate::generic::{ApiServiceProvider, DataWrapper, INode, IdAndExtId};
 use crate::http::ResponseError;
 use crate::ApiService;
@@ -13,6 +12,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Weak;
 use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio_util::codec::{BytesCodec, FramedRead};
 
 pub struct FileService {
@@ -60,10 +60,281 @@ impl FileService {
     pub async fn delete(
         &self,
         id_collection: &DataWrapper<IdAndExtId>,
-    ) -> Result<DataWrapper<Event>, ResponseError> {
+    ) -> Result<DataWrapper<INode>, ResponseError> {
         let full_path = format!("{}/delete", self.base_url.as_str());
         self.execute_post_request(full_path.as_str(), id_collection)
             .await
+    }
+
+    /// `GET /files?id=` — metadata for a single file or folder.
+    ///
+    /// A node the caller cannot read answers 404 rather than 403, so a hidden file's existence
+    /// isn't leaked; both arrive here as a [`ResponseError`] with that status.
+    pub async fn get_by_id(&self, id: u64) -> Result<DataWrapper<INode>, ResponseError> {
+        self.execute_get_request(self.base_url.as_str(), Some(&[("id", id.to_string())]))
+            .await
+    }
+
+    /// `GET /files?externalId=` — metadata for a single file or folder.
+    ///
+    /// See [`get_by_id`](Self::get_by_id) for how an unreadable node is reported.
+    pub async fn get_by_external_id(
+        &self,
+        external_id: &str,
+    ) -> Result<DataWrapper<INode>, ResponseError> {
+        self.execute_get_request(
+            self.base_url.as_str(),
+            Some(&[("externalId", external_id.to_string())]),
+        )
+        .await
+    }
+
+    /// `GET /files/search?q=` — case-insensitive full-text search over file and folder names and
+    /// descriptions, across the whole tree, narrowed to the caller's readable datasets.
+    ///
+    /// A blank query is answered with an empty item list rather than an error.
+    pub async fn search(&self, query: &str) -> Result<DataWrapper<INode>, ResponseError> {
+        let full_path = format!("{}/search", self.base_url.as_str());
+        self.execute_get_request(full_path.as_str(), Some(&[("q", query.to_string())]))
+            .await
+    }
+
+    /// `GET /files/trash` — the soft-deleted files the caller can read.
+    ///
+    /// Folders are never listed: only files are soft-deleted. `name` and `path` are the
+    /// pre-deletion values, while the `external_id` has been rewritten to
+    /// `DELETED_<checksum>_<id>_<epochMillis>`. Use the `id` to [`restore`](Self::restore) —
+    /// see there for why the rewritten external id does not round-trip.
+    pub async fn list_trash(&self) -> Result<DataWrapper<INode>, ResponseError> {
+        let full_path = format!("{}/trash", self.base_url.as_str());
+        self.execute_get_request(full_path.as_str(), None::<&str>)
+            .await
+    }
+
+    /// `POST /files/restore` — move soft-deleted files out of the trash back to their original
+    /// location.
+    ///
+    /// **Identify each file by numeric id.** The external-id route does not currently work for
+    /// trashed files: the server hashes the supplied id through `ExternalIds.hash`, which
+    /// lowercases, while the stored hash for a `DELETED_<checksum>_<id>_<epochMillis>` id was not
+    /// lowercased — so the lookup misses and the call answers 404. That is a server-side bug; the
+    /// id route sidesteps the hash entirely.
+    ///
+    /// The call never overwrites: if a file's original path or external id is taken, or its
+    /// original folder is gone, the whole request is refused with 409 and nothing is restored.
+    pub async fn restore(
+        &self,
+        id_collection: &DataWrapper<IdAndExtId>,
+    ) -> Result<DataWrapper<INode>, ResponseError> {
+        let full_path = format!("{}/restore", self.base_url.as_str());
+        self.execute_post_request(full_path.as_str(), id_collection)
+            .await
+    }
+
+    /// `POST /files/update` — partial update of one file or folder.
+    ///
+    /// Only the fields set on the [`FileUpdate`] are applied; everything left unset is untouched.
+    /// See [`FileUpdate`] for what each field does.
+    pub async fn update(&self, update: &FileUpdate) -> Result<DataWrapper<INode>, ResponseError> {
+        let full_path = format!("{}/update", self.base_url.as_str());
+        self.execute_post_request(full_path.as_str(), update).await
+    }
+
+    /// `GET /files/download/{id}` — the file's content, in memory.
+    ///
+    /// Suitable for files that comfortably fit in RAM; for anything larger use
+    /// [`download_to_path`](Self::download_to_path), which streams straight to disk.
+    pub async fn download(&self, id: u64) -> Result<FileDownload, ResponseError> {
+        let full_path = format!("{}/download/{}", self.base_url.as_str(), id);
+        let response = self.execute_get_stream_request(full_path.as_str()).await?;
+
+        let file_name = filename_from_content_disposition(&response);
+        let mime_type = header_value(&response, reqwest::header::CONTENT_TYPE);
+        let status = response.status();
+        let bytes = response.bytes().await.map_err(|err| {
+            eprintln!("Failed to read download body: {}", err);
+            ResponseError {
+                status,
+                message: err.to_string(),
+            }
+        })?;
+
+        Ok(FileDownload {
+            file_name,
+            mime_type,
+            bytes: bytes.to_vec(),
+        })
+    }
+
+    /// `GET /files/download/{id}`, streamed to `destination` without buffering the whole file in
+    /// memory. Returns the number of bytes written.
+    ///
+    /// The destination is created if missing and truncated if it already exists.
+    pub async fn download_to_path(
+        &self,
+        id: u64,
+        destination: impl AsRef<Path>,
+    ) -> Result<u64, ResponseError> {
+        let full_path = format!("{}/download/{}", self.base_url.as_str(), id);
+        let mut response = self.execute_get_stream_request(full_path.as_str()).await?;
+        let status = response.status();
+
+        let io_error = |err: std::io::Error| ResponseError {
+            status,
+            message: err.to_string(),
+        };
+
+        let mut file = File::create(destination.as_ref()).await.map_err(io_error)?;
+        let mut written: u64 = 0;
+        while let Some(chunk) = response.chunk().await.map_err(|err| {
+            eprintln!("Download stream failed: {}", err);
+            ResponseError {
+                status,
+                message: err.to_string(),
+            }
+        })? {
+            file.write_all(&chunk).await.map_err(io_error)?;
+            written += chunk.len() as u64;
+        }
+        file.flush().await.map_err(io_error)?;
+        Ok(written)
+    }
+}
+
+/// The response of [`FileService::download`]: the file content plus what the server said it is.
+#[derive(Debug, Clone)]
+pub struct FileDownload {
+    /// The name from the `Content-Disposition` header, when the server sent a parseable one.
+    pub file_name: Option<String>,
+    /// The `Content-Type` header. The server falls back to `application/octet-stream` whenever the
+    /// stored MIME type is missing or malformed, so this is rarely absent.
+    pub mime_type: Option<String>,
+    pub bytes: Vec<u8>,
+}
+
+/// The `filename="..."` of a `Content-Disposition` header, if there is one.
+///
+/// The server writes `attachment; filename="<name>"` with the name unencoded, so this only has to
+/// handle the quoted form it actually produces.
+fn filename_from_content_disposition(response: &reqwest::Response) -> Option<String> {
+    let value = header_value(response, reqwest::header::CONTENT_DISPOSITION)?;
+    filename_from_content_disposition_value(&value)
+}
+
+pub(crate) fn filename_from_content_disposition_value(value: &str) -> Option<String> {
+    let start = value.find("filename=")? + "filename=".len();
+    let rest = value[start..].trim();
+    let name = match rest.strip_prefix('"') {
+        Some(quoted) => quoted.split('"').next()?,
+        None => rest.split(';').next()?.trim(),
+    };
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+fn header_value(response: &reqwest::Response, name: reqwest::header::HeaderName) -> Option<String> {
+    response
+        .headers()
+        .get(name)?
+        .to_str()
+        .ok()
+        .map(|s| s.to_string())
+}
+
+/// A partial update for one file or folder (`POST /files/update`).
+///
+/// The node is identified by external id or numeric id — build with [`FileUpdate::by_external_id`]
+/// or [`FileUpdate::by_id`]. Every other field is optional and only applied when set; an unset
+/// field means "leave unchanged", so there is no way to clear a value back to null through this
+/// endpoint.
+///
+/// The mutations are applied in a fixed order — dataset, then metadata-ish fields, then the
+/// rename/move — so a failed move is the only step that can leave disk and database diverged.
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FileUpdate {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
+    pub id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, with = "crate::serde_helper::opt_string_id")]
+    pub data_set_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub related_resources: Option<Vec<u64>>,
+}
+
+impl FileUpdate {
+    /// Target the node with this external id.
+    pub fn by_external_id(external_id: &str) -> Self {
+        Self {
+            external_id: Some(external_id.to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// Target the node with this numeric id.
+    pub fn by_id(id: u64) -> Self {
+        Self {
+            id: Some(id),
+            ..Default::default()
+        }
+    }
+
+    /// Rename the node, keeping it in its current folder.
+    pub fn with_name(mut self, name: &str) -> Self {
+        self.name = Some(name.to_string());
+        self
+    }
+
+    /// Move the node into this folder, creating the folder hierarchy if it doesn't exist. `"/"`
+    /// moves it to the root.
+    pub fn with_path(mut self, path: &str) -> Self {
+        self.path = Some(path.to_string());
+        self
+    }
+
+    /// Assign a dataset. On a folder this also fills the dataset in on every descendant that
+    /// currently has none; already-governed subtrees are left alone.
+    pub fn with_data_set_id(mut self, data_set_id: u64) -> Self {
+        self.data_set_id = Some(data_set_id);
+        self
+    }
+
+    pub fn with_description(mut self, description: &str) -> Self {
+        self.description = Some(description.to_string());
+        self
+    }
+
+    pub fn with_source(mut self, source: &str) -> Self {
+        self.source = Some(source.to_string());
+        self
+    }
+
+    /// Replace the metadata map wholesale — this is not a merge.
+    pub fn with_metadata(mut self, metadata: HashMap<String, String>) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// Replace the set of related resource ids wholesale.
+    pub fn with_related_resources(mut self, related_resources: Vec<u64>) -> Self {
+        self.related_resources = Some(related_resources);
+        self
     }
 }
 

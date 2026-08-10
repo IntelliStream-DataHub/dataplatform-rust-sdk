@@ -1,6 +1,8 @@
-use crate::events::{EventIdentifyable, PyEvent, PyEventFilter, PyEventSearch, PyEventUpdate};
+use crate::events::{
+    EventIdentifyable, PyEvent, PyEventDimension, PyEventFilter, PyEventSearch, PyEventUpdate,
+};
 use crate::{PyIdCollection, PySearchAndFilterForm};
-use dataplatform_rust_sdk::events::{EventIdCollection, EventUpdate};
+use dataplatform_rust_sdk::events::{EventDimension, EventIdCollection, EventUpdate};
 use dataplatform_rust_sdk::filters::EventFilter;
 use dataplatform_rust_sdk::generic::DataWrapper;
 use dataplatform_rust_sdk::{
@@ -153,5 +155,94 @@ impl PyEventsServiceSync {
                 .block_on(service.events.count())
                 .map_err(crate::datahub_err)
         })
+    }
+    /// Distinct values an event field takes in this tenant. `query` filters by case-insensitive
+    /// substring; omit it to list everything. `limit` defaults to 1000 server-side and is clamped
+    /// to 1..=10000. Alphabetical, and restricted to your readable datasets.
+    #[pyo3(signature = (dimension, query = None, limit = None))]
+    fn list_dimension(
+        &self,
+        py: Python<'_>,
+        dimension: PyEventDimension,
+        query: Option<String>,
+        limit: Option<u32>,
+    ) -> PyResult<Vec<String>> {
+        let service = self.api_service.clone();
+        let dim: EventDimension = dimension.into();
+        py.detach(|| {
+            let r = self
+                .runtime
+                .block_on(service.events.list_dimension(dim, query.as_deref(), limit))
+                .map_err(crate::datahub_err)?;
+            Ok(r.get_items().to_vec())
+        })
+    }
+
+    /// Every distinct `type` on events you can read.
+    #[pyo3(signature = (limit = None))]
+    fn list_types(&self, py: Python<'_>, limit: Option<u32>) -> PyResult<Vec<String>> {
+        self.list_dimension(py, PyEventDimension::TYPE, None, limit)
+    }
+
+    /// Distinct `type` values containing `query` (case-insensitive substring).
+    #[pyo3(signature = (query, limit = None))]
+    fn search_types(
+        &self,
+        py: Python<'_>,
+        query: String,
+        limit: Option<u32>,
+    ) -> PyResult<Vec<String>> {
+        self.list_dimension(py, PyEventDimension::TYPE, Some(query), limit)
+    }
+
+    /// Every distinct `subType` on events you can read.
+    #[pyo3(signature = (limit = None))]
+    fn list_sub_types(&self, py: Python<'_>, limit: Option<u32>) -> PyResult<Vec<String>> {
+        self.list_dimension(py, PyEventDimension::SUB_TYPE, None, limit)
+    }
+
+    /// Distinct `subType` values containing `query` (case-insensitive substring).
+    #[pyo3(signature = (query, limit = None))]
+    fn search_sub_types(
+        &self,
+        py: Python<'_>,
+        query: String,
+        limit: Option<u32>,
+    ) -> PyResult<Vec<String>> {
+        self.list_dimension(py, PyEventDimension::SUB_TYPE, Some(query), limit)
+    }
+
+    /// Every distinct `status` on events you can read.
+    #[pyo3(signature = (limit = None))]
+    fn list_statuses(&self, py: Python<'_>, limit: Option<u32>) -> PyResult<Vec<String>> {
+        self.list_dimension(py, PyEventDimension::STATUS, None, limit)
+    }
+
+    /// Distinct `status` values containing `query` (case-insensitive substring).
+    #[pyo3(signature = (query, limit = None))]
+    fn search_statuses(
+        &self,
+        py: Python<'_>,
+        query: String,
+        limit: Option<u32>,
+    ) -> PyResult<Vec<String>> {
+        self.list_dimension(py, PyEventDimension::STATUS, Some(query), limit)
+    }
+
+    /// Every distinct `source` on events you can read.
+    #[pyo3(signature = (limit = None))]
+    fn list_sources(&self, py: Python<'_>, limit: Option<u32>) -> PyResult<Vec<String>> {
+        self.list_dimension(py, PyEventDimension::SOURCE, None, limit)
+    }
+
+    /// Distinct `source` values containing `query` (case-insensitive substring).
+    #[pyo3(signature = (query, limit = None))]
+    fn search_sources(
+        &self,
+        py: Python<'_>,
+        query: String,
+        limit: Option<u32>,
+    ) -> PyResult<Vec<String>> {
+        self.list_dimension(py, PyEventDimension::SOURCE, Some(query), limit)
     }
 }

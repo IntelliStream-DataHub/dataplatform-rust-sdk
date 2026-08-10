@@ -29,18 +29,18 @@ use tokio::runtime::Runtime;
 
 use crate::datahub::DataHubConfig;
 use crate::datasets::{Dataset, DatasetFilter, DatasetSearch, DatasetUpdate};
-use crate::events::{Event, EventIdCollection};
-use crate::files::FileUpload;
+use crate::events::{Event, EventDimension, EventIdCollection};
+use crate::files::{FileDownload, FileUpdate, FileUpload};
 use crate::filters::EventFilter;
 use crate::functions::Function;
 use crate::generic::{
-    DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, INode,
-    IdAndExtId, RetrieveFilter, SearchAndFilterForm,
+    DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, INode, IdAndExtId,
+    RetrieveFilter, SearchAndFilterForm,
 };
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::labels::Label;
-use crate::relations::RelForm;
+use crate::relations::{EdgeProxy, RelForm, RelTypeForm, RelationshipType};
 use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork, ResourceUpdate};
 use crate::timeseries::{TimeSeries, TimeSeriesUpdateCollection};
 use crate::unit::Unit;
@@ -94,6 +94,7 @@ pub struct ApiService {
     pub files: FileService,
     pub functions: FunctionsService,
     pub labels: LabelsService,
+    pub edges: EdgesService,
 }
 
 /// The blocking counterpart of [`crate::create_api_service`]: configuration from the
@@ -114,9 +115,8 @@ impl ApiService {
     }
 
     fn wrap(api: Arc<crate::ApiService>) -> ApiService {
-        let rt = Arc::new(
-            Runtime::new().expect("failed to build the blocking client's Tokio runtime"),
-        );
+        let rt =
+            Arc::new(Runtime::new().expect("failed to build the blocking client's Tokio runtime"));
         macro_rules! service {
             ($name:ident) => {
                 $name {
@@ -134,6 +134,7 @@ impl ApiService {
             files: service!(FileService),
             functions: service!(FunctionsService),
             labels: service!(LabelsService),
+            edges: service!(EdgesService),
             api,
         }
     }
@@ -223,6 +224,15 @@ pub struct EventsService {
 
 impl EventsService {
     delegate! { events =>
+        fn list_dimension(dimension: EventDimension, query: Option<&str>, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn list_types(limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn search_types(query: &str, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn list_sub_types(limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn search_sub_types(query: &str, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn list_statuses(limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn search_statuses(query: &str, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn list_sources(limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
+        fn search_sources(query: &str, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
         fn filter(filter: &EventFilter) -> Result<DataWrapper<Event>, ResponseError>;
     }
 
@@ -287,7 +297,27 @@ impl FileService {
         fn upload_file(file_upload: FileUpload) -> Result<DataWrapper<INode>, ResponseError>;
         fn list_root_directory() -> Result<DataWrapper<INode>, ResponseError>;
         fn list_directory_by_path(path: &str) -> Result<DataWrapper<INode>, ResponseError>;
-        fn delete(id_collection: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<Event>, ResponseError>;
+        fn delete(id_collection: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<INode>, ResponseError>;
+        fn get_by_id(id: u64) -> Result<DataWrapper<INode>, ResponseError>;
+        fn get_by_external_id(external_id: &str) -> Result<DataWrapper<INode>, ResponseError>;
+        fn search(query: &str) -> Result<DataWrapper<INode>, ResponseError>;
+        fn list_trash() -> Result<DataWrapper<INode>, ResponseError>;
+        fn restore(id_collection: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<INode>, ResponseError>;
+        fn update(update: &FileUpdate) -> Result<DataWrapper<INode>, ResponseError>;
+        fn download(id: u64) -> Result<FileDownload, ResponseError>;
+    }
+
+    /// Blocking counterpart of [`crate::files::FileService::download_to_path`].
+    ///
+    /// Spelled out rather than delegated because the async signature takes an
+    /// `impl AsRef<Path>`, which the `delegate!` macro cannot reproduce.
+    pub fn download_to_path(
+        &self,
+        id: u64,
+        destination: impl AsRef<std::path::Path>,
+    ) -> Result<u64, ResponseError> {
+        self.rt
+            .block_on(self.api.files.download_to_path(id, destination))
     }
 }
 
@@ -326,5 +356,25 @@ impl LabelsService {
         fn create(data: Into<DataWrapper<Label>>) -> Result<DataWrapper<Label>, ResponseError>;
         fn update(data: Into<DataWrapper<Label>>) -> Result<DataWrapper<Label>, ResponseError>;
         fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Label>, ResponseError>;
+    }
+}
+
+/// Blocking counterpart of [`crate::relations::EdgesService`].
+pub struct EdgesService {
+    api: Arc<crate::ApiService>,
+    rt: Arc<Runtime>,
+}
+
+impl EdgesService {
+    delegate! { edges =>
+        fn get(id: u64) -> Result<DataWrapper<EdgeProxy>, ResponseError>;
+        fn types() -> Result<DataWrapper<RelationshipType>, ResponseError>;
+    }
+
+    delegate_into! { edges =>
+        fn by_ids(input: Into<DataWrapper<IdAndExtId>>) -> Result<GraphDataWrapper<Resource>, ResponseError>;
+        fn create(data: Into<DataWrapper<RelForm>>) -> Result<DataWrapper<EdgeProxy>, ResponseError>;
+        fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<EdgeProxy>, ResponseError>;
+        fn create_types(data: Into<DataWrapper<RelTypeForm>>) -> Result<DataWrapper<RelationshipType>, ResponseError>;
     }
 }

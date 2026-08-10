@@ -4,10 +4,11 @@ pub mod sync_service;
 use crate::datetime::opt_py_datetime_to_utc;
 use crate::resources::PyResource;
 use chrono::{DateTime, Utc};
+use dataplatform_rust_sdk::files::{FileDownload, FileUpdate};
 use dataplatform_rust_sdk::generic::{INode, IdAndExtId};
 use dataplatform_rust_sdk::{ApiService, FileUpload};
 use pyo3::prelude::*;
-use pyo3::types::PyType;
+use pyo3::types::{PyBytes, PyType};
 use pyo3_async_runtimes::tokio::future_into_py;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -427,9 +428,140 @@ impl From<PyFileIdentifiable> for IdAndExtId {
     }
 }
 
+/// A partial update for one file or folder. Identify the node with `id` or `external_id`; every
+/// other argument is optional and only sent when given, so an omitted field is left unchanged.
+#[pyclass(module = "datahub_sdk", name = "FileUpdate", from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyFileUpdate {
+    pub inner: FileUpdate,
+}
+
+impl From<PyFileUpdate> for FileUpdate {
+    fn from(u: PyFileUpdate) -> Self {
+        u.inner
+    }
+}
+
+#[pymethods]
+impl PyFileUpdate {
+    #[new]
+    #[pyo3(signature = (
+        external_id = None,
+        id = None,
+        name = None,
+        path = None,
+        data_set_id = None,
+        description = None,
+        source = None,
+        metadata = None,
+        related_resources = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn __init__(
+        external_id: Option<&str>,
+        id: Option<u64>,
+        name: Option<&str>,
+        path: Option<&str>,
+        data_set_id: Option<u64>,
+        description: Option<&str>,
+        source: Option<&str>,
+        metadata: Option<HashMap<String, String>>,
+        related_resources: Option<Vec<u64>>,
+    ) -> PyResult<Self> {
+        let mut inner = match (external_id, id) {
+            (Some(external_id), _) => FileUpdate::by_external_id(external_id),
+            (None, Some(id)) => FileUpdate::by_id(id),
+            (None, None) => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "FileUpdate needs an external_id or an id",
+                ));
+            }
+        };
+        if let Some(name) = name {
+            inner = inner.with_name(name);
+        }
+        if let Some(path) = path {
+            inner = inner.with_path(path);
+        }
+        if let Some(data_set_id) = data_set_id {
+            inner = inner.with_data_set_id(data_set_id);
+        }
+        if let Some(description) = description {
+            inner = inner.with_description(description);
+        }
+        if let Some(source) = source {
+            inner = inner.with_source(source);
+        }
+        if let Some(metadata) = metadata {
+            inner = inner.with_metadata(metadata);
+        }
+        if let Some(related_resources) = related_resources {
+            inner = inner.with_related_resources(related_resources);
+        }
+        Ok(Self { inner })
+    }
+
+    #[getter]
+    fn external_id(&self) -> Option<String> {
+        self.inner.external_id.clone()
+    }
+
+    #[getter]
+    fn id(&self) -> Option<u64> {
+        self.inner.id
+    }
+}
+
+/// The result of a download: the file's bytes plus what the server said they are.
+#[pyclass(module = "datahub_sdk", name = "FileDownload")]
+#[derive(Clone, Debug)]
+pub struct PyFileDownload {
+    pub inner: FileDownload,
+}
+
+impl From<FileDownload> for PyFileDownload {
+    fn from(d: FileDownload) -> Self {
+        Self { inner: d }
+    }
+}
+
+#[pymethods]
+impl PyFileDownload {
+    #[getter]
+    fn file_name(&self) -> Option<String> {
+        self.inner.file_name.clone()
+    }
+
+    #[getter]
+    fn mime_type(&self) -> Option<String> {
+        self.inner.mime_type.clone()
+    }
+
+    /// The file content as `bytes`.
+    #[getter]
+    fn content<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.inner.bytes)
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.bytes.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "FileDownload(file_name={:?}, mime_type={:?}, {} bytes)",
+            self.inner.file_name,
+            self.inner.mime_type,
+            self.inner.bytes.len()
+        )
+    }
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyINode>()?;
     m.add_class::<PyFileUpload>()?;
+    m.add_class::<PyFileUpdate>()?;
+    m.add_class::<PyFileDownload>()?;
     m.add_class::<sync_service::PyFilesServiceSync>()?;
     m.add_class::<async_service::PyFilesServiceAsync>()?;
     Ok(())

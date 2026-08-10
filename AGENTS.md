@@ -41,10 +41,11 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 
 - `time_series` (`src/timeseries/`) — `TimeSeries` + datapoint ingestion/retrieval
 - `units` (`src/unit/`)
-- `events` (`src/events/`)
-- `resources` (`src/resources/`) — hierarchical asset-like entities; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`)
+- `events` (`src/events/`) — event CRUD, filter/search, plus the vocabulary endpoints (`list_types`/`search_types` and the same pair for sub-types, statuses and sources, over `EventDimension`). Those answer "what values does this tenant actually use" for the four categorical fields and back filter dropdowns; they read small server-side dimension tables rather than scanning events, so they are cheap but *eventually consistent* with the events. Note the route asymmetry the SDK hides: `/events/list/{plural}` but `/events/search/{singular}`.
+- `resources` (`src/resources/`) — hierarchical asset-like entities; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`, `RelatedNode`)
+- `edges` (`src/relations/service.rs`) — the `/edges` endpoints: `get`/`by_ids`/`create`/`delete` plus the relationship-type catalogue (`types`/`create_types`). Edges normally come into being through `resources.create(nodes, relations)`; this service is for linking resources that already exist and for reading or deleting an edge on its own. Three server behaviours contradict its OpenAPI and are documented at each call site: `get` and `by_ids` answer an unknown id with 200-and-nothing rather than the documented 404, and `create_types` fails silently on a duplicate name — the unique-hash collision surfaces at commit, after the handler returned, so the caller gets a 200 with an empty *body*, and in a batch the valid new types are rolled back with it. `test_duplicate_relationship_type_conflicts` encodes the intended 409 and is red until the server-side fix lands.
 - `datasets` (`src/datasets/`)
-- `files` (`src/files/`) — multipart upload via `execute_file_upload_request`
+- `files` (`src/files/`) — raw-`PUT` upload via `execute_file_upload_request` (content is the body, metadata rides in `X-Datahub-*` headers), plus directory listing, get/search, `FileUpdate` (rename/move/re-dataset), trash + restore, delete, and download (`download` in memory, `download_to_path` streamed)
 - `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`)
 - `functions` (`src/functions/`)
 - `labels` (`src/labels/`) — label CRUD (`list`/`get`/`create`/`update`/`delete`). Note the entity type is `labels::Label`, deliberately *not* re-exported at the crate root because `resources::*` already brings a different graph-DTO `Label` there.
@@ -59,7 +60,9 @@ When a datapoint/event send can't get through, ingestion spools to a segmented, 
 
 ### The `ApiServiceProvider` trait (`src/generic.rs`)
 
-Every subservice implements `ApiServiceProvider`, which owns the HTTP plumbing: token acquisition, `execute_get_request`, `execute_post_request`, `execute_file_upload_request`. Subservice methods should go through these helpers rather than calling `reqwest` directly — a few early methods (e.g. `TimeSeriesService::list`) still bypass the trait and should be migrated when touched.
+Every subservice implements `ApiServiceProvider`, which owns the HTTP plumbing: token acquisition, `execute_get_request`, `execute_post_request`, `execute_file_upload_request`, `execute_get_stream_request`. Subservice methods should go through these helpers rather than calling `reqwest` directly — a few early methods (e.g. `TimeSeriesService::list`) still bypass the trait and should be migrated when touched.
+
+`execute_get_stream_request` is the odd one out: it returns the raw `reqwest::Response` instead of a `DataWrapper`, for endpoints that answer with bytes (currently only `/files/download/{id}`). It also overrides the client's default `Accept: application/json` with `*/*` — that endpoint only `produces` `application/octet-stream`, and Spring answers a JSON-only `Accept` with 406 before the handler runs.
 
 ### Response shape: `DataWrapper<T>`
 

@@ -236,6 +236,32 @@ pub mod cleanup {
         })
     }
 
+    /// Guard that deletes the given events **by UUID** on drop.
+    ///
+    /// Prefer this over [`cleanup_events`] for tests that create events. An external id does not
+    /// identify one event: the backend treats events sharing an external id as the lifecycle of
+    /// one logical event, and every `create` stamps a fresh UUID v7 (see `EventsService::create`).
+    /// So a test that re-runs with fixed external ids adds a row each time, and deleting by
+    /// external id does not reclaim the earlier ones — they pile up and eventually break
+    /// count-sensitive filter assertions. Take the ids from the `create` response.
+    pub fn cleanup_events_by_uuid(ids: Vec<EventIdCollection>) -> CleanupGuard {
+        CleanupGuard::new(move || {
+            Box::pin(async move {
+                if ids.is_empty() {
+                    return;
+                }
+                // Fresh, runtime-local service — see the module docs.
+                let api = create_api_service();
+                if let Err(e) = api.events.delete(&ids).await {
+                    eprintln!(
+                        "CleanupGuard: event delete failed during teardown: {}",
+                        e.get_message()
+                    );
+                }
+            })
+        })
+    }
+
     /// Guard that deletes the given datasets (by external id) on drop.
     pub fn cleanup_datasets(external_ids: Vec<String>) -> CleanupGuard {
         CleanupGuard::new(move || {

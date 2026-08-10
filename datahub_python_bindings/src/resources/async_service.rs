@@ -8,6 +8,7 @@ use dataplatform_rust_sdk::resources::RelatedResourcesForm;
 use dataplatform_rust_sdk::{ApiService, Resource};
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[pyclass(module = "datahub_sdk", name = "ResourcesServiceAsync")]
@@ -134,6 +135,83 @@ impl PyResourcesServiceAsync {
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(PyGraphResult::from_wrapper(result, service.clone()))
+        })
+    }
+
+    /// `GET /resources/{id}` — one resource by numeric id. Raises when it does not exist,
+    /// unlike `by_ids`, which silently omits what it cannot find.
+    fn get_by_id<'py>(&self, py: Python<'py>, id: u64) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .resources
+                .get_by_id(id)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(result
+                .get_items()
+                .first()
+                .map(|r| PyResource::with_client(r.clone(), service.clone())))
+        })
+    }
+
+    /// `POST /resources/filter` — structured lookup; every criterion is combined with AND.
+    #[pyo3(signature = (id=None, external_id=None, name=None, source=None, is_root=None,
+                        data_set_ids=None, metadata=None, limit=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn filter<'py>(
+        &self,
+        py: Python<'py>,
+        id: Option<u64>,
+        external_id: Option<String>,
+        name: Option<String>,
+        source: Option<String>,
+        is_root: Option<bool>,
+        data_set_ids: Option<Vec<u64>>,
+        metadata: Option<HashMap<String, String>>,
+        limit: Option<u64>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let retriever = crate::resources::sync_service::build_resource_retriever(
+            id, external_id, name, source, is_root, data_set_ids, metadata, limit,
+        );
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .resources
+                .filter(&retriever)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(result
+                .get_items()
+                .iter()
+                .map(|r| PyResource::with_client(r.clone(), service.clone()))
+                .collect::<Vec<PyResource>>())
+        })
+    }
+
+    /// `POST /resources/fetch-nearest` — the closest `limit` nodes carrying one of `end_labels`,
+    /// plus the sub-graph connecting them back to the start. Starts from a numeric `id` only.
+    #[pyo3(signature = (id, end_labels=None, limit=None, relationship_types=None, excluded_labels=None))]
+    fn fetch_nearest<'py>(
+        &self,
+        py: Python<'py>,
+        id: u64,
+        end_labels: Option<Vec<String>>,
+        limit: Option<u64>,
+        relationship_types: Option<Vec<String>>,
+        excluded_labels: Option<Vec<String>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let form = crate::resources::sync_service::build_nearest_form(
+            id, end_labels, limit, relationship_types, excluded_labels,
+        );
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .resources
+                .fetch_nearest(&form)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(PyResourceNetwork::from_network(result, service.clone()))
         })
     }
 
