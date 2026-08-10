@@ -137,10 +137,22 @@ async fn test_search_resources() -> Result<(), ResponseError> {
     let search_result2 = api_service.resources.search(&query2).await?;
     println!("{:?}", search_result2.get_items().len());
     assert!(search_result.get_items().len() <= 5);
-    assert!(search_result
-        .get_items()
-        .iter()
-        .all(|r| r.name.contains("test") || r.external_id.contains("test")));
+    // Case-insensitively, and against description too. The server's full-text index covers
+    // `name || external_id || description` and matches case-insensitively, so a hit need not carry
+    // the query verbatim in any one field. This assertion used to compare lowercase "test" against
+    // the fixture's "Rust SDK Test Resource", and only passed because external ids were silently
+    // lowercased server-side; the naming-policy work stopped that rewriting, so they are now
+    // stored verbatim and the old comparison rejected the test's own fixture.
+    assert!(search_result.get_items().iter().all(|r| {
+        let haystack = format!(
+            "{} {} {}",
+            r.name,
+            r.external_id,
+            r.description.as_deref().unwrap_or("")
+        )
+        .to_lowercase();
+        haystack.contains("test")
+    }));
     let resulting_ids = test_data
         .nodes()
         .unwrap()
@@ -330,8 +342,15 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     assert_eq!(a.source.as_deref(), Some("probe_source"));
     assert_eq!(a.data_set_id, Some(ds_id));
     assert!(a.id.is_some(), "server-assigned id should be present");
-    assert!(a.labels.as_deref().unwrap_or_default().contains(&"ASSET".to_string()));
-    assert!(a.created_time.is_some(), "createdTime should round-trip from Neo4j");
+    assert!(a
+        .labels
+        .as_deref()
+        .unwrap_or_default()
+        .contains(&"ASSET".to_string()));
+    assert!(
+        a.created_time.is_some(),
+        "createdTime should round-trip from Neo4j"
+    );
     // metadata is NOT reassembled by fromNode — pin that projection gap.
     assert!(
         a.metadata.as_ref().map(|m| m.is_empty()).unwrap_or(true),
@@ -346,16 +365,26 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
         .expect("asset should carry a related_resources entry for the timeseries");
     assert_eq!(a_to_ts.relationship_type.as_deref(), Some("MEASURES"));
     assert_eq!(a_to_ts.direction, Some(RelationDirection::Outbound));
-    assert!(a_to_ts.edge_id.is_some(), "related_resources entry should carry the edge id");
+    assert!(
+        a_to_ts.edge_id.is_some(),
+        "related_resources entry should carry the edge id"
+    );
 
     // --- timeseries node ---
     let t = find(&ts_ext);
     assert_eq!(t.name, "Neo Fields TS");
     assert_eq!(t.description.as_deref(), Some("ts description"));
     assert!(!t.is_root, "a timeseries is never a root node");
-    assert_eq!(t.source, None, "source is a resource-only field; null for timeseries");
+    assert_eq!(
+        t.source, None,
+        "source is a resource-only field; null for timeseries"
+    );
     assert_eq!(t.data_set_id, Some(ds_id));
-    assert!(t.labels.as_deref().unwrap_or_default().contains(&"TIMESERIES".to_string()));
+    assert!(t
+        .labels
+        .as_deref()
+        .unwrap_or_default()
+        .contains(&"TIMESERIES".to_string()));
     assert!(t.created_time.is_some());
     // mirror direction: the asset->ts edge is INBOUND from the timeseries' perspective.
     let t_from_asset = t
@@ -365,13 +394,20 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
         .expect("timeseries should carry a related_resources entry for the asset");
     assert_eq!(t_from_asset.relationship_type.as_deref(), Some("MEASURES"));
     assert_eq!(t_from_asset.direction, Some(RelationDirection::Inbound));
-    assert_eq!(t_from_asset.edge_id, a_to_ts.edge_id, "both ends reference the same edge id");
+    assert_eq!(
+        t_from_asset.edge_id, a_to_ts.edge_id,
+        "both ends reference the same edge id"
+    );
 
     // --- function node ---
     let f = find(&func_ext);
     assert_eq!(f.name, "Neo Fields Fn");
     assert!(!f.is_root);
-    assert!(f.labels.as_deref().unwrap_or_default().contains(&"FUNCTION".to_string()));
+    assert!(f
+        .labels
+        .as_deref()
+        .unwrap_or_default()
+        .contains(&"FUNCTION".to_string()));
     assert!(f.created_time.is_some());
     let f_from_asset = f
         .related_resources
@@ -382,10 +418,16 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     assert_eq!(f_from_asset.direction, Some(RelationDirection::Inbound));
 
     // cleanup (best-effort; end nodes first so edge auto-deletes don't block start nodes)
-    let _ = api.functions.delete(&vec![IdAndExtId::from_external_id(&func_ext)]).await;
+    let _ = api
+        .functions
+        .delete(&vec![IdAndExtId::from_external_id(&func_ext)])
+        .await;
     let ts_del: DataWrapper<IdAndExtId> = vec![IdAndExtId::from_external_id(&ts_ext)].into();
     let _ = api.time_series.delete(&ts_del).await;
-    let _ = api.resources.delete(&vec![IdAndExtId::from_external_id(&asset_ext)]).await;
+    let _ = api
+        .resources
+        .delete(&vec![IdAndExtId::from_external_id(&asset_ext)])
+        .await;
     let _ = api.datasets.delete(&vec![IdAndExtId::from_id(ds_id)]).await;
     Ok(())
 }
@@ -451,7 +493,8 @@ fn geolocation_serializes_as_geojson_object() {
     let v = serde_json::to_value(&r).unwrap();
     // Correct wire key (camelCase `geoLocation`, not the Rust field name) and nested object.
     assert_eq!(
-        v.get("geoLocation").expect("wire key `geoLocation` should be present"),
+        v.get("geoLocation")
+            .expect("wire key `geoLocation` should be present"),
         &serde_json::json!({"type": "Point", "coordinates": [10.75, 59.91]})
     );
 
@@ -478,7 +521,10 @@ fn geolocation_serializes_as_geojson_object() {
     none.external_id = "geo_none".to_string();
     none.name = "Geo None".to_string();
     let nv = serde_json::to_value(&none).unwrap();
-    assert!(nv.get("geoLocation").is_none(), "None must omit the `geoLocation` key");
+    assert!(
+        nv.get("geoLocation").is_none(),
+        "None must omit the `geoLocation` key"
+    );
 }
 
 /// End-to-end: create a resource carrying a GeoJSON Point, read it back through `by_ids`
@@ -506,7 +552,12 @@ async fn test_resource_geolocation_round_trips() -> Result<(), ResponseError> {
     // by_ids reads Postgres (synchronous on create); retry briefly to absorb any lag.
     let mut fetched: Option<Resource> = None;
     for _ in 0..10 {
-        let nodes = api.resources.by_ids(&ids).await?.nodes().unwrap_or_default();
+        let nodes = api
+            .resources
+            .by_ids(&ids)
+            .await?
+            .nodes()
+            .unwrap_or_default();
         if let Some(r) = nodes.into_iter().find(|r| r.external_id == ext) {
             fetched = Some(r);
             break;
@@ -520,8 +571,16 @@ async fn test_resource_geolocation_round_trips() -> Result<(), ResponseError> {
         .expect("geolocation should round-trip back from the backend");
     match geom.value {
         geojson::GeometryValue::Point { coordinates } => {
-            assert!((coordinates[0] - 10.5).abs() < 1e-9, "lon round-trips: {}", coordinates[0]);
-            assert!((coordinates[1] - 59.25).abs() < 1e-9, "lat round-trips: {}", coordinates[1]);
+            assert!(
+                (coordinates[0] - 10.5).abs() < 1e-9,
+                "lon round-trips: {}",
+                coordinates[0]
+            );
+            assert!(
+                (coordinates[1] - 59.25).abs() < 1e-9,
+                "lat round-trips: {}",
+                coordinates[1]
+            );
         }
         other => panic!("expected a Point geometry, got {other:?}"),
     }
