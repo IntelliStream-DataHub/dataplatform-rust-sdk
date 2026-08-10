@@ -473,6 +473,13 @@ impl PyAsyncClient {
             api_service: self.inner.clone(),
         }
     }
+
+    #[getter]
+    fn datasets(&self) -> PyDatasetsServiceAsync {
+        PyDatasetsServiceAsync {
+            api_service: self.inner.clone(),
+        }
+    }
 }
 
 #[pyclass(module = "datahub_sdk", name = "IdCollection")]
