@@ -291,11 +291,12 @@ mod live {
             .await?;
         assert_eq!(deleted.get_http_status_code(), Some(204));
 
-        let after = api.edges.get(edge_id).await?;
-        assert!(
-            after.get_items().is_empty(),
-            "a deleted edge reads back as 200-with-no-items, not 404"
-        );
+        let gone = api
+            .edges
+            .get(edge_id)
+            .await
+            .expect_err("a deleted edge should read back as 404");
+        assert_eq!(gone.get_status().as_u16(), 404);
         assert_eq!(
             api.resources
                 .by_ids(&sel)
@@ -319,16 +320,21 @@ mod live {
         Ok(())
     }
 
-    /// An unknown id is answered 200-with-nothing on both read paths, despite both documenting a
-    /// 404. Pinned because the difference decides how callers check for "not found".
+    /// The two read paths report "not found" differently, and deliberately so: a single fetch
+    /// 404s, a batch lookup answers 200 with an empty collection. Pinned because the difference
+    /// decides how callers check for absence.
     #[tokio::test]
-    async fn test_unknown_edge_id_is_empty_not_404() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_unknown_edge_id_404s_but_byids_is_empty() -> Result<(), Box<dyn std::error::Error>>
+    {
         let api = create_api_service();
         let missing = vec![IdAndExtId::from_id(999_999_999)];
 
-        let one = api.edges.get(999_999_999).await?;
-        assert_eq!(one.get_http_status_code(), Some(200));
-        assert!(one.get_items().is_empty());
+        let err = api
+            .edges
+            .get(999_999_999)
+            .await
+            .expect_err("a single fetch of an unknown id should 404");
+        assert_eq!(err.get_status().as_u16(), 404);
 
         let graph = api.edges.by_ids(&missing).await?;
         assert!(graph.relations().map(|r| r.is_empty()).unwrap_or(true));

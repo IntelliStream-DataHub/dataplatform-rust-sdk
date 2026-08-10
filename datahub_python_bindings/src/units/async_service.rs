@@ -57,15 +57,13 @@ impl PyUnitServiceAsync {
         let service = self.api_service.clone();
 
         future_into_py(py, async move {
-            let result = service
-                .units
-                .by_external_id(&input)
-                .await
-                .map_err(|e| crate::datahub_err(e))?;
+            // A unit that does not exist is a 404; report it as an empty list rather than raising,
+            // matching what this returned before the API standardised on 404.
+            let result = crate::none_on_404(service.units.by_external_id(&input).await)?;
 
             let py_units: Vec<PyUnit> = result
-                .get_items()
                 .iter()
+                .flat_map(|w| w.get_items())
                 .map(|u| PyUnit { inner: u.clone() })
                 .collect();
             Ok(py_units)

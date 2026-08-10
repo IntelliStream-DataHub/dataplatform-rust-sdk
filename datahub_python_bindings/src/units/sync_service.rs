@@ -63,14 +63,14 @@ impl PyUnitServiceSync {
     fn by_external_ids<'py>(&self, py: Python<'py>, input: &str) -> PyResult<Vec<PyUnit>> {
         let service = self.api_service.clone();
         py.detach(|| {
-            let result = self
-                .runtime
-                .block_on(service.units.by_external_id(input))
-                .map_err(|e| crate::datahub_err(e))?;
+            // A unit that does not exist is a 404; report it as an empty list rather than
+            // raising, matching what this returned before the API standardised on 404.
+            let result =
+                crate::none_on_404(self.runtime.block_on(service.units.by_external_id(input)))?;
 
             let py_units: Vec<PyUnit> = result
-                .get_items()
                 .iter()
+                .flat_map(|w| w.get_items())
                 .map(|u| PyUnit { inner: u.clone() })
                 .collect();
 

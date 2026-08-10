@@ -1,6 +1,12 @@
+pub(crate) mod async_service;
+pub(crate) mod sync_service;
+
 use crate::resources::PyResource;
 use dataplatform_rust_sdk::graph_data_wrapper::GraphDataWrapper;
-use dataplatform_rust_sdk::relations::{EdgeProxy, RelForm, RelatedNode, RelationDirection};
+use dataplatform_rust_sdk::generic::IdAndExtId;
+use dataplatform_rust_sdk::relations::{
+    EdgeProxy, RelForm, RelTypeForm, RelatedNode, RelationDirection, RelationshipType,
+};
 use dataplatform_rust_sdk::{ApiService, Resource};
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, pyclass, pymethods};
@@ -382,7 +388,118 @@ impl PyGraphResult {
     }
 }
 
+/// A relationship type in the tenant's catalogue (`client.edges.types()`).
+///
+/// Types are normally created on demand the first time a name is used; this is what one looks
+/// like once stored.
+#[pyclass(module = "datahub_sdk", name = "RelationshipType")]
+#[derive(Clone)]
+pub struct PyRelationshipType {
+    pub inner: RelationshipType,
+}
+
+impl From<RelationshipType> for PyRelationshipType {
+    fn from(r: RelationshipType) -> Self {
+        Self { inner: r }
+    }
+}
+
+#[pymethods]
+impl PyRelationshipType {
+    #[getter]
+    fn id(&self) -> Option<u64> {
+        self.inner.id
+    }
+    #[getter]
+    fn name(&self) -> &str {
+        self.inner.name.as_str()
+    }
+    #[getter]
+    fn description(&self) -> Option<&str> {
+        self.inner.description.as_deref()
+    }
+    #[getter]
+    fn i18n_code(&self) -> Option<&str> {
+        self.inner.i18n_code.as_deref()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "RelationshipType(id={:?}, name={:?})",
+            self.inner.id, self.inner.name
+        )
+    }
+}
+
+/// Request form for registering a relationship type up front.
+///
+/// The server uppercase-snake-cases `name`, so `"Flows To"` and `"flows_to"` both land on
+/// `FLOWS_TO`. A name that normalises to nothing (only symbols) is rejected with status 400.
+#[pyclass(module = "datahub_sdk", name = "RelTypeForm", from_py_object)]
+#[derive(Clone)]
+pub struct PyRelTypeForm {
+    pub inner: RelTypeForm,
+}
+
+impl From<PyRelTypeForm> for RelTypeForm {
+    fn from(r: PyRelTypeForm) -> Self {
+        r.inner
+    }
+}
+
+#[pymethods]
+impl PyRelTypeForm {
+    #[new]
+    #[pyo3(signature = (name, description = None, i18n_code = None))]
+    fn new(name: String, description: Option<String>, i18n_code: Option<String>) -> Self {
+        let mut inner = RelTypeForm::new(name);
+        inner.description = description;
+        inner.i18n_code = i18n_code;
+        Self { inner }
+    }
+
+    #[getter]
+    fn name(&self) -> &str {
+        self.inner.name.as_str()
+    }
+    #[getter]
+    fn description(&self) -> Option<&str> {
+        self.inner.description.as_deref()
+    }
+    #[getter]
+    fn i18n_code(&self) -> Option<&str> {
+        self.inner.i18n_code.as_deref()
+    }
+}
+
+/// Things accepted as an edge identifier: an `EdgeProxy` or its numeric id. Edges have no
+/// external id, so — unlike other identifiables here — a string is not accepted.
+#[derive(Clone, FromPyObject)]
+pub enum EdgeIdentifiable {
+    Edge(PyEdgeProxy),
+    Id(u64),
+}
+
+impl From<EdgeIdentifiable> for IdAndExtId {
+    fn from(value: EdgeIdentifiable) -> Self {
+        match value {
+            EdgeIdentifiable::Edge(e) => Self {
+                id: e.inner.id,
+                external_id: None,
+            },
+            EdgeIdentifiable::Id(id) => Self {
+                id: Some(id),
+                external_id: None,
+            },
+        }
+    }
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyRelationshipType>()?;
+    m.add_class::<PyRelTypeForm>()?;
+    m.add_class::<sync_service::PyEdgesServiceSync>()?;
+    m.add_class::<async_service::PyEdgesServiceAsync>()?;
     m.add_class::<PyEdgeProxy>()?;
     m.add_class::<PyRelatedNode>()?;
     m.add_class::<PyRelForm>()?;
