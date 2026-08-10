@@ -34,9 +34,8 @@ impl EdgesService {
 
     /// `GET /edges/{id}` — one relationship by numeric id.
     ///
-    /// The endpoint documents a 404 for an unknown id, but does not produce one: `findById`
-    /// returns an empty wrapper rather than throwing, so an unknown or deleted id comes back as
-    /// **200 with no items**. Check the item count, not the status.
+    /// An unknown or deleted id is a **404**, in line with every other single-resource `GET` in
+    /// the API. Batch lookups differ — see [`by_ids`](Self::by_ids).
     pub async fn get(&self, id: u64) -> Result<DataWrapper<EdgeProxy>, ResponseError> {
         let path = &format!("{}/{}", self.base_url, id);
         self.execute_get_request(path, None::<&str>).await
@@ -47,8 +46,9 @@ impl EdgesService {
     /// The response is a graph, not a list: `nodes()` holds the resources at both ends and
     /// `relations()` the edges themselves, so no follow-up call is needed to resolve endpoints.
     ///
-    /// As with [`get`](Self::get), the documented 404 for "none of the ids match" does not fire —
-    /// unmatched ids come back as 200 with empty `nodes` and `relations`.
+    /// Unlike [`get`](Self::get), this does **not** 404 on unmatched ids: a batch lookup answers
+    /// 200 with empty `nodes` and `relations`, the same as every other `/byids` endpoint. "Absent
+    /// from the result" is the only coherent answer when some of a batch exist and some do not.
     pub async fn by_ids<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,

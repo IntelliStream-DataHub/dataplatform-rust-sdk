@@ -21,12 +21,13 @@ impl PyLabelsServiceSync {
         Ok(result.get_items().iter().map(|l| PyLabel { inner: l.clone() }).collect())
     }
 
-    /// A single label by numeric id, or `None` if it doesn't exist.
+    /// A single label by numeric id, or `None` if it doesn't exist (the server answers an
+    /// unknown id with 404; that is absorbed into `None`).
     fn get<'py>(&self, py: Python<'py>, id: u64) -> PyResult<Option<PyLabel>> {
         let service = self.api_service.clone();
         let result = py.detach(|| self.runtime.block_on(service.labels.get(id)));
-        let result = result.map_err(|e| crate::datahub_err(e))?;
-        Ok(result.get_items().first().map(|l| PyLabel { inner: l.clone() }))
+        let result = crate::none_on_404(result)?;
+        Ok(result.and_then(|w| w.get_items().first().map(|l| PyLabel { inner: l.clone() })))
     }
 
     /// Create labels (each needs a unique `name`). A duplicate name raises with status 409.

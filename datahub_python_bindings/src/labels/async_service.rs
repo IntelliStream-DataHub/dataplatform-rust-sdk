@@ -24,12 +24,13 @@ impl PyLabelsServiceAsync {
         })
     }
 
-    /// A single label by numeric id, or `None` if it doesn't exist.
+    /// A single label by numeric id, or `None` if it doesn't exist (the server answers an
+    /// unknown id with 404; that is absorbed into `None`).
     fn get<'py>(&self, py: Python<'py>, id: u64) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         future_into_py(py, async move {
-            let result = service.labels.get(id).await.map_err(|e| crate::datahub_err(e))?;
-            Ok(result.get_items().first().map(|l| PyLabel { inner: l.clone() }))
+            let result = crate::none_on_404(service.labels.get(id).await)?;
+            Ok(result.and_then(|w| w.get_items().first().map(|l| PyLabel { inner: l.clone() })))
         })
     }
 
