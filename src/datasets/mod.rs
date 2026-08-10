@@ -99,9 +99,17 @@ impl DatasetsService {
     /// index scan produced. Do not read the first item as the best match.
     ///
     /// The form's `search.query` and `limit` both reach the server; its `filter` is accepted and
-    /// then ignored, so use [`filter`](Self::filter) for criteria. The query is validated at
-    /// 3–140 characters, so a shorter one comes back 400. No match is an empty item list, not an
-    /// error — the 404 the OpenAPI annotation still advertises was removed server-side.
+    /// then ignored, so use [`filter`](Self::filter) for criteria. No match is an empty item list,
+    /// not an error — the 404 the OpenAPI annotation still advertises was removed server-side.
+    ///
+    /// # The query charset is narrow
+    ///
+    /// `query` is validated at 3–140 characters **and** against
+    /// `^[\p{IsLatin}\p{Zs}\p{Nd}]+` — Latin letters, space separators and decimal digits only.
+    /// Anything else, an underscore included, is a 400. So an external id is usually *not* a legal
+    /// query even though the index covers it: `sap_work_orders` is rejected, `work orders` is not.
+    /// Search on words, and use [`filter`](Self::filter)'s `external_ids` or `external_id_prefix`
+    /// to look something up by id.
     ///
     /// [`search_by_query`](Self::search_by_query) is the shorthand for the common case.
     pub async fn search(
@@ -129,6 +137,19 @@ impl DatasetsService {
     /// A dataset is the unit access is granted on, so the server treats editing one as an operator
     /// action: this requires an all-datasets write grant and answers **403** without one, even for
     /// a caller who can write the dataset's contents.
+    ///
+    /// # Do not combine a metadata change with `write_protected` / `deactivated`
+    ///
+    /// Those two flags are not columns — the server stores them as node metadata under
+    /// `property:is_write_protected` / `property:is_deactivated`. Setting either in the *same*
+    /// update as a `metadata` delta silently drops the delta: the flag write replaces the map the
+    /// delta was applied to, and the call still answers 200 with no hint that half of it was lost.
+    /// Send two updates instead. `test_write_protected_clobbers_metadata_in_one_call` in
+    /// `python_tests/test_datasets.py` encodes the intended behaviour and is marked xfail until the
+    /// server is fixed.
+    ///
+    /// The same storage choice means those keys are *visible* in [`Dataset::metadata`] — code that
+    /// iterates a dataset's metadata will see them next to its own entries.
     pub async fn update<I>(&self, data: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<DatasetUpdate>>,

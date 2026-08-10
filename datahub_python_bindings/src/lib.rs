@@ -876,6 +876,38 @@ impl PyFieldU64 {
     }
 }
 
+#[pyclass(module = "datahub_sdk", name = "FieldBool", from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyFieldBool(Field<bool>);
+
+impl From<Field<bool>> for PyFieldBool {
+    fn from(field: Field<bool>) -> Self {
+        PyFieldBool(field)
+    }
+}
+impl From<PyFieldBool> for Field<bool> {
+    fn from(field: PyFieldBool) -> Self {
+        field.0
+    }
+}
+
+#[pymethods]
+impl PyFieldBool {
+    #[new]
+    #[pyo3(signature=(value=None,set_null=false))]
+    pub fn new(value: Option<bool>, set_null: bool) -> PyResult<Self> {
+        Ok(Self(Field::new(value, set_null)))
+    }
+    #[getter]
+    pub fn value(&self) -> Option<bool> {
+        self.0.set
+    }
+    #[getter]
+    pub fn set_null(&self) -> bool {
+        self.0.set_null
+    }
+}
+
 // --- Resources ---
 
 #[pymodule]
@@ -899,6 +931,10 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyListFieldStr>()?;
     m.add_class::<PyListFieldIdCollection>()?;
     m.add_class::<PyMapField>()?;
+    m.add_class::<PyFieldBool>()?;
+    m.add_class::<crate::datasets::PyBasicDatasetFilter>()?;
+    m.add_class::<crate::datasets::PyDatasetFilter>()?;
+    m.add_class::<crate::datasets::PyDatasetUpdate>()?;
     m.add_class::<PySearchAndFilterForm>()?;
     m.add_class::<PyTimeSeriesFilterForm>()?;
     timeseries::register(m)?;

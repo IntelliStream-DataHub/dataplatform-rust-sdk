@@ -2,13 +2,14 @@ pub(crate) mod async_service;
 pub(crate) mod sync_service;
 
 use crate::PyIdCollection;
-use crate::events::{
-    PyBasicEventFilter, PyEvent, PyEventFilter, PyEventIdCollection, PyTimeFilter,
-};
+use crate::events::{PyEvent, PyTimeFilter};
 use crate::resources::PyResourceNetwork;
+use crate::{PyFieldBool, PyFieldStr, PyListFieldStr, PyMapField};
 use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter};
 use dataplatform_rust_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
-use dataplatform_rust_sdk::datasets::Dataset;
+use dataplatform_rust_sdk::datasets::{
+    BasicDatasetFilter, Dataset, DatasetFilter, DatasetSearch, DatasetUpdate, DatasetUpdateFields,
+};
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::resources::RelatedResourcesForm;
 use dataplatform_rust_sdk::ApiService;
@@ -349,4 +350,228 @@ impl PyDataset {
         filter.set_limit(limit);
         filter
     }
+}
+
+// --------------------------------------------------------------------------- //
+// Filter, search and update forms
+// --------------------------------------------------------------------------- //
+
+/// Criteria for `datasets.filter`. Every field is optional and they AND together, so an
+/// argument-free `BasicDatasetFilter()` places no restriction at all.
+///
+/// An **empty** list or dict is also no restriction rather than "match nothing" — the backend
+/// reads a list it was handed with nothing in it as "I had no ids to filter on".
+#[pyclass(module = "datahub_sdk", name = "BasicDatasetFilter", from_py_object)]
+#[derive(Clone)]
+pub struct PyBasicDatasetFilter {
+    pub inner: BasicDatasetFilter,
+}
+
+impl From<BasicDatasetFilter> for PyBasicDatasetFilter {
+    fn from(f: BasicDatasetFilter) -> Self {
+        Self { inner: f }
+    }
+}
+impl From<PyBasicDatasetFilter> for BasicDatasetFilter {
+    fn from(f: PyBasicDatasetFilter) -> Self {
+        f.inner
+    }
+}
+
+#[pymethods]
+impl PyBasicDatasetFilter {
+    /// `names` entries are ILIKE patterns — you place the `%`, so `"SAP%"` is a prefix match and
+    /// `"SAP work orders"` an exact one. They OR together. `source` is a pattern too.
+    /// `external_ids` match exactly but case-insensitively; `external_id_prefix` is anchored at
+    /// the start. `metadata` pairs must all be present on the dataset.
+    ///
+    /// `write_protected` / `deactivated` are stored as metadata absent until first set, so
+    /// `False` matches "never set, or set to false" — which is most datasets.
+    #[new]
+    #[pyo3(signature = (
+        ids = None,
+        external_ids = None,
+        names = None,
+        source = None,
+        metadata = None,
+        created_time = None,
+        last_updated_time = None,
+        external_id_prefix = None,
+        write_protected = None,
+        deactivated = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        ids: Option<Vec<u64>>,
+        external_ids: Option<Vec<String>>,
+        names: Option<Vec<String>>,
+        source: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+        created_time: Option<PyTimeFilter>,
+        last_updated_time: Option<PyTimeFilter>,
+        external_id_prefix: Option<String>,
+        write_protected: Option<bool>,
+        deactivated: Option<bool>,
+    ) -> Self {
+        let mut filter = BasicDatasetFilter::new();
+        if let Some(ids) = ids {
+            filter.set_ids(ids);
+        }
+        if let Some(external_ids) = external_ids {
+            filter.set_external_ids(external_ids);
+        }
+        if let Some(names) = names {
+            filter.set_names(names);
+        }
+        if let Some(source) = source {
+            filter.set_source(source);
+        }
+        if let Some(metadata) = metadata {
+            filter.set_metadata(metadata);
+        }
+        if let Some(created_time) = created_time {
+            filter.set_created_time(created_time.into());
+        }
+        if let Some(last_updated_time) = last_updated_time {
+            filter.set_last_updated_time(last_updated_time.into());
+        }
+        if let Some(prefix) = external_id_prefix {
+            filter.set_external_id_prefix(prefix);
+        }
+        if let Some(write_protected) = write_protected {
+            filter.set_write_protected(write_protected);
+        }
+        if let Some(deactivated) = deactivated {
+            filter.set_deactivated(deactivated);
+        }
+        Self {
+            inner: filter.build(),
+        }
+    }
+}
+
+/// Body of `datasets.filter`: criteria plus a cap.
+///
+/// `limit` defaults to the server's 100 and may not exceed 10000 — above that the request is
+/// rejected. There is no paging, so a filter broad enough to exceed the cap is truncated;
+/// narrow it rather than trying to page.
+#[pyclass(module = "datahub_sdk", name = "DatasetFilter", from_py_object)]
+#[derive(Clone)]
+pub struct PyDatasetFilter {
+    pub inner: DatasetFilter,
+}
+
+impl From<DatasetFilter> for PyDatasetFilter {
+    fn from(f: DatasetFilter) -> Self {
+        Self { inner: f }
+    }
+}
+impl From<PyDatasetFilter> for DatasetFilter {
+    fn from(f: PyDatasetFilter) -> Self {
+        f.inner
+    }
+}
+
+#[pymethods]
+impl PyDatasetFilter {
+    #[new]
+    #[pyo3(signature = (filter = None, limit = None))]
+    fn new(filter: Option<PyBasicDatasetFilter>, limit: Option<u64>) -> Self {
+        let mut form = DatasetFilter::new();
+        if let Some(filter) = filter {
+            form.set_filter(filter.into());
+        }
+        if let Some(limit) = limit {
+            form.set_limit(limit);
+        }
+        Self {
+            inner: form.build(),
+        }
+    }
+}
+
+/// A partial update for one dataset, mirroring the server's update form.
+///
+/// `dataset` names the target — a `Dataset`, an `IdCollection`, an external id or a numeric id.
+/// Every other argument is a field wrapper and only the ones you pass are sent; anything omitted
+/// is left untouched.
+///
+/// There is deliberately no `policies` or `connected_data_sets` here: the update endpoint does not
+/// accept them, whatever a `Dataset` can carry on create.
+#[pyclass(module = "datahub_sdk", name = "DatasetUpdate", from_py_object)]
+#[derive(Clone)]
+pub struct PyDatasetUpdate {
+    pub inner: DatasetUpdate,
+}
+
+impl From<PyDatasetUpdate> for DatasetUpdate {
+    fn from(u: PyDatasetUpdate) -> Self {
+        u.inner
+    }
+}
+
+#[pymethods]
+impl PyDatasetUpdate {
+    #[new]
+    #[pyo3(signature = (
+        dataset,
+        external_id = None,
+        name = None,
+        description = None,
+        metadata = None,
+        labels = None,
+        write_protected = None,
+        deactivated = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        dataset: DatasetIdentifiable,
+        external_id: Option<PyFieldStr>,
+        name: Option<PyFieldStr>,
+        description: Option<PyFieldStr>,
+        metadata: Option<PyMapField>,
+        labels: Option<PyListFieldStr>,
+        write_protected: Option<PyFieldBool>,
+        deactivated: Option<PyFieldBool>,
+    ) -> Self {
+        // Target by numeric id when we have one, else by external id — the server accepts either
+        // and `DatasetUpdate` carries exactly one.
+        let mut update = match dataset.id() {
+            Some(id) => DatasetUpdate::by_id(id),
+            None => DatasetUpdate::by_external_id(dataset.external_id().unwrap_or_default()),
+        };
+        update.update = DatasetUpdateFields {
+            external_id: external_id.map(Into::into),
+            name: name.map(Into::into),
+            description: description.map(Into::into),
+            metadata: metadata.map(Into::into),
+            labels: labels.map(Into::into),
+            write_protected: write_protected.map(Into::into),
+            deactivated: deactivated.map(Into::into),
+        };
+        Self { inner: update }
+    }
+
+    #[getter]
+    fn target_id(&self) -> Option<u64> {
+        self.inner.id
+    }
+    #[getter]
+    fn target_external_id(&self) -> Option<&str> {
+        self.inner.external_id.as_deref()
+    }
+}
+
+/// Build the `datasets.search` body from a query and optional cap.
+///
+/// The Rust SDK has both `search(&DatasetSearch)` and the `search_by_query` shorthand, but the
+/// server reads only the query and the limit off that form — its `filter` is accepted and ignored.
+/// So Python gets one `search(query, limit=None)` rather than a form class whose only useful
+/// fields are the two arguments here.
+pub(crate) fn dataset_search_form(query: &str, limit: Option<u64>) -> DatasetSearch {
+    let mut form = DatasetSearch::from_query(query);
+    if let Some(limit) = limit {
+        form.set_limit(limit);
+    }
+    form.build()
 }
