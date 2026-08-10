@@ -8,59 +8,118 @@ import datahub_sdk
 import pytest
 
 from fixtures import async_client, sync_client, unique_id
+from polling import poll_until
 
 
-def _node(external_id: str, name: str) -> datahub_sdk.Resource:
-    # The create endpoint rejects a node with null labels.
-    return datahub_sdk.Resource(external_id=external_id, name=name, labels=["ASSET"])
+def _await_graph(sync_client, from_ext, what, predicate):
+    """Wait until the graph projection reachable from ``from_ext`` satisfies ``predicate``.
+
+    `edges.delete` refuses anything that would strand a node, and that check runs against the
+    graph projection, which lags the write. Acting too early gets the *wrong* answer rather than
+    an error — a delete that should be refused succeeds, because the projection cannot yet see
+    what the edge was holding up.
+    """
+    network = poll_until(
+        lambda: sync_client.resources.fetch_related(from_ext, depth=-1),
+        predicate,
+    )
+    assert predicate(network), f"graph projection did not catch up: {what}"
+    return network
 
 
 def test_get_by_ids_and_delete(sync_client):
-    a, b = unique_id("edge_a"), unique_id("edge_b")
+    """Read an edge back, resolve it to its endpoints, then delete it — allowed and refused.
+
+    Mirrors `test_edge_get_by_ids_and_delete` in `src/relations/tests.rs`. The shape is a
+    triangle because two nodes cannot express the rule: on a bare ``a -> b`` pair the single edge
+    is the only thing holding ``b`` to the graph root, so every delete is refused and the allowed
+    case is untestable. With ``a -> b``, ``b -> c``, ``a -> c``, dropping ``a -> c`` leaves ``c``
+    reachable through ``b``, and dropping ``b -> c`` afterwards would strand it.
+    """
+    a, b, c = unique_id("edge_a"), unique_id("edge_b"), unique_id("edge_c")
     created = sync_client.resources.create(
-        [_node(a, "python edge node a"), _node(b, "python edge node b")],
+        [
+            # `labels` may not be null on create. `is_root` anchors the component to the graph
+            # root: without one the projection picks an anchor itself, non-deterministically, so
+            # the stranding check below would name a different victim between runs.
+            datahub_sdk.Resource(
+                external_id=a, name="python edge node a", labels=["ASSET"], is_root=True
+            ),
+            datahub_sdk.Resource(
+                external_id=b, name="python edge node b", labels=["ASSET"]
+            ),
+            datahub_sdk.Resource(
+                external_id=c, name="python edge node c", labels=["ASSET"]
+            ),
+        ],
         [
             datahub_sdk.RelForm(
-                relationship_type="SDK_TEST_LINK",
-                from_external_id=a,
-                to_external_id=b,
-            )
+                relationship_type="SDK_TEST_LINK", from_external_id=a, to_external_id=b
+            ),
+            datahub_sdk.RelForm(
+                relationship_type="SDK_TEST_LINK", from_external_id=b, to_external_id=c
+            ),
+            datahub_sdk.RelForm(
+                relationship_type="SDK_TEST_LINK", from_external_id=a, to_external_id=c
+            ),
         ],
     )
-    assert len(created.relations) == 1
-    edge = created.relations[0]
-    edge_id = edge.id
-    assert edge_id is not None
-    assert edge.relationship_type == "SDK_TEST_LINK"
+    assert len(created.relations) == 3
+
+    node_id = {n.external_id: n.id for n in created.nodes}
+    def edge_between(frm, to):
+        for e in created.relations:
+            if e.start == node_id[frm] and e.end == node_id[to]:
+                return e.id
+        raise AssertionError(f"no edge {frm} -> {to} in the create response")
+
+    a_to_c = edge_between(a, c)
+    b_to_c = edge_between(b, c)
 
     try:
-        fetched = sync_client.edges.get(edge_id)
+        fetched = sync_client.edges.get(a_to_c)
         assert fetched is not None
-        assert fetched.id == edge_id
-        assert fetched.start == edge.start
-        assert fetched.end == edge.end
+        assert fetched.id == a_to_c
+        assert fetched.relationship_type == "SDK_TEST_LINK"
 
         # by_ids resolves both endpoints in the same response.
-        graph = sync_client.edges.by_ids([edge_id])
+        graph = sync_client.edges.by_ids([a_to_c])
         assert len(graph.relations) == 1
-        external_ids = {n.external_id for n in graph.nodes}
-        assert {a, b} <= external_ids
+        assert {n.external_id for n in graph.nodes} == {a, c}
 
         # An EdgeProxy is accepted wherever an id is.
-        assert len(sync_client.edges.by_ids([edge]).relations) == 1
+        assert len(sync_client.edges.by_ids([fetched]).relations) == 1
 
-        sync_client.edges.delete([edge_id])
+        _await_graph(
+            sync_client, a, "all three links visible", lambda n: len(n.edges) >= 3
+        )
 
-        # A deleted edge is a 404 server-side, which the binding absorbs into None. The
-        # resources it connected survive.
-        assert sync_client.edges.get(edge_id) is None
-        # resources.by_ids returns a plain list in the bindings, not a GraphResult.
-        assert len(sync_client.resources.by_ids([a, b])) == 2
+        # --- delete, allowed: c keeps its route to the root through b ---
+        sync_client.edges.delete([a_to_c])
+        assert sync_client.edges.get(a_to_c) is None
+        # Deleting an id that is already gone is a silent no-op.
+        sync_client.edges.delete([a_to_c])
+        # The endpoints themselves are untouched by an edge delete.
+        assert len(sync_client.resources.by_ids([a, b, c])) == 3
 
-        # Deleting an unknown id is a silent no-op, not an error.
-        sync_client.edges.delete([edge_id])
+        # --- delete, refused: b -> c is now c's only route to the root ---
+        # Wait for the *removal* to land: while the projection still believes `a -> c` exists,
+        # `c` looks doubly-connected and the next delete would be allowed.
+        _await_graph(
+            sync_client,
+            a,
+            "the deleted link is gone",
+            lambda n: all(e.id != a_to_c for e in n.edges),
+        )
+        with pytest.raises(datahub_sdk.DataHubException) as excinfo:
+            sync_client.edges.delete([b_to_c])
+        message = str(excinfo.value)
+        assert "disconnect" in message, message
+        assert c in message, f"the refusal should name {c}: {message}"
     finally:
-        sync_client.resources.delete([a, b])
+        # One request: deleting these individually is legal — leaf-first works, and a node delete
+        # cascades its own edges — but each step would have to wait for the projection first.
+        sync_client.resources.delete([a, b, c])
 
 
 def test_unknown_edge_id_is_none(sync_client):
@@ -105,7 +164,15 @@ def test_unusable_type_name_is_rejected(sync_client):
 def test_create_between_existing_resources(sync_client):
     a, b = unique_id("edge_link_a"), unique_id("edge_link_b")
     sync_client.resources.create(
-        [_node(a, "python edge link a"), _node(b, "python edge link b")], []
+        [
+            datahub_sdk.Resource(
+                external_id=a, name="python edge link a", labels=["ASSET"], is_root=True
+            ),
+            datahub_sdk.Resource(
+                external_id=b, name="python edge link b", labels=["ASSET"]
+            ),
+        ],
+        [],
     )
     form = datahub_sdk.RelForm(
         relationship_type="SDK_TEST_LINK", from_external_id=a, to_external_id=b
@@ -127,7 +194,9 @@ def test_create_between_existing_resources(sync_client):
         with pytest.raises(datahub_sdk.DataHubException):
             sync_client.edges.create([form])
 
-        sync_client.edges.delete([edge_id])
+        # No separate edge delete here: this link is b's only route to the graph root, so removing
+        # it alone is refused (see test_get_by_ids_and_delete for both sides of that rule).
+        # Deleting the resources takes the edge with them.
     finally:
         sync_client.resources.delete([a, b])
 
