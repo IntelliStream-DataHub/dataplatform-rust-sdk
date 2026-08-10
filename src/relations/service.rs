@@ -34,9 +34,10 @@ impl EdgesService {
 
     /// `GET /edges/{id}` — one relationship by numeric id.
     ///
-    /// The endpoint documents a 404 for an unknown id, but does not produce one: `findById`
-    /// returns an empty wrapper rather than throwing, so an unknown or deleted id comes back as
-    /// **200 with no items**. Check the item count, not the status.
+    /// An unknown or deleted id is a **404** with a `problem+json` body naming the id, so this
+    /// returns `Err`. It used to answer 200-with-no-items despite documenting a 404; api #275 made
+    /// single-resource by-id GETs consistently 404. Note [`by_ids`](Self::by_ids) did *not* change
+    /// with it — see there.
     pub async fn get(&self, id: u64) -> Result<DataWrapper<EdgeProxy>, ResponseError> {
         let path = &format!("{}/{}", self.base_url, id);
         self.execute_get_request(path, None::<&str>).await
@@ -47,8 +48,9 @@ impl EdgesService {
     /// The response is a graph, not a list: `nodes()` holds the resources at both ends and
     /// `relations()` the edges themselves, so no follow-up call is needed to resolve endpoints.
     ///
-    /// As with [`get`](Self::get), the documented 404 for "none of the ids match" does not fire —
-    /// unmatched ids come back as 200 with empty `nodes` and `relations`.
+    /// Unlike [`get`](Self::get), this does **not** 404 on a miss: batch lookups answer 200 with
+    /// the found subset and silently omit ids that do not match, so an all-miss request is a 200
+    /// with empty `nodes` and `relations`. Compare what came back against what you asked for.
     pub async fn by_ids<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
@@ -87,6 +89,13 @@ impl EdgesService {
     ///
     /// Deletes the link only; the resources at each end are untouched. Idempotent: unknown ids are
     /// silently skipped, so this cannot be used to detect whether an edge existed.
+    ///
+    /// An edge that is an endpoint's only route to the graph root **cannot** be deleted:
+    /// `ResourceService.delete` refuses rather than leave the node unreachable. So this succeeds
+    /// only when both endpoints stay reachable without the edge — for a bare `a -> b` pair it does
+    /// not, and the edge goes away with the resources instead. The refusal is a business rule, but
+    /// `ResourceDeleteException` maps to no status, so it arrives as a bare **500** with the body
+    /// `error`: the server log names the resources that would be orphaned, the caller gets nothing.
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<EdgeProxy>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,

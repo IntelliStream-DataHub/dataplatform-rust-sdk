@@ -221,10 +221,18 @@ mod live {
     use crate::relations::{RelForm, RelTypeForm};
     use crate::resources::Resource;
     use crate::tests::cleanup::cleanup_resources;
+    use uuid::Uuid;
 
     /// Relationship types cannot be deleted through the API, so this one is seeded once and
     /// then reused — every run after the first sees it as an existing type.
     const SEEDED_TYPE_NAME: &str = "Sdk Test Rel Type";
+
+    /// A distinct external id per run. These tests link and delete resources, and the graph rules
+    /// below depend on the exact topology, so a row left behind by an earlier run is not harmless:
+    /// re-running would collide on `edge_unique_key` or assert against someone else's shape.
+    fn unique_id(kind: &str) -> String {
+        format!("sdk_test_edge_{}_{}", kind, &Uuid::new_v4().to_string()[..12])
+    }
 
     fn node(external_id: &str, name: &str) -> Resource {
         let mut r = Resource::new();
@@ -237,15 +245,34 @@ mod live {
 
     /// Read an edge back, resolve it to its endpoints, then delete it. The edge is made through
     /// `resources.create`, which is how edges normally come into being.
+    ///
+    /// The endpoints get a fresh external id per run. They used to be fixed
+    /// (`sdk_test_edge_node_a` / `_b`) with a best-effort delete up front, which made the test
+    /// state-dependent: rows surviving an earlier run left `node_b` reachable only through this
+    /// edge, and the delete was then refused with `ResourceDeleteException: Deleting this selection
+    /// would disconnect resource(s) [...] from the graph root` — arriving as an opaque **500**,
+    /// because that exception maps to no status. Unique ids keep each run's topology its own.
+    ///
+    /// The delete half asserts a **refusal**, which is the deterministic outcome: `b`'s only route
+    /// to the graph root is this edge, and `ResourceService.delete` will not orphan it. The older
+    /// version of this test expected the delete to succeed and passed only intermittently — under
+    /// the module's default parallelism a concurrent test could supply a second path. Run alone it
+    /// failed every time.
+    ///
+    /// One rough edge on the server side: that refusal is a business rule, but
+    /// `ResourceDeleteException` maps to no status, so it arrives as a bare **500** with the body
+    /// `error`. The log message names the resources that would be orphaned; none of it reaches the
+    /// caller. The assertion is deliberately only "this is refused" — pinning 500 would bake the
+    /// defect in.
     #[tokio::test]
     async fn test_edge_get_by_ids_and_delete() -> Result<(), Box<dyn std::error::Error>> {
         let api = create_api_service();
-        let (a, b) = ("sdk_test_edge_node_a", "sdk_test_edge_node_b");
+        let (a, b) = (unique_id("node_a"), unique_id("node_b"));
+        let (a, b) = (a.as_str(), b.as_str());
         let sel = vec![
             IdAndExtId::from_external_id(a),
             IdAndExtId::from_external_id(b),
         ];
-        let _ = api.resources.delete(&sel).await;
 
         let created = api
             .resources
@@ -284,54 +311,63 @@ mod live {
         assert!(nodes.iter().any(|n| n.external_id == a));
         assert!(nodes.iter().any(|n| n.external_id == b));
 
-        // --- delete: the link goes, the resources stay ---
-        let deleted = api
-            .edges
-            .delete(&vec![IdAndExtId::from_id(edge_id)])
-            .await?;
-        assert_eq!(deleted.get_http_status_code(), Some(204));
-
-        let after = api.edges.get(edge_id).await?;
+        // --- delete: refused, because this edge is b's only route to the graph root ---
+        // `ResourceService.delete` will not leave a node unreachable, and a two-node `a -> b` graph
+        // has no other path to b. So an edge is only separately deletable when both endpoints stay
+        // reachable without it. The edge here goes away with the resources instead, below.
+        let refused = api.edges.delete(&vec![IdAndExtId::from_id(edge_id)]).await;
         assert!(
-            after.get_items().is_empty(),
-            "a deleted edge reads back as 200-with-no-items, not 404"
+            refused.is_err(),
+            "deleting the only edge holding {b} to the root should be refused, got: {refused:?}"
         );
-        assert_eq!(
-            api.resources
-                .by_ids(&sel)
-                .await?
-                .nodes()
-                .unwrap_or_default()
-                .len(),
-            2,
-            "deleting an edge must not touch the resources it connected"
+        assert!(
+            api.edges.get(edge_id).await.is_ok(),
+            "a refused delete must leave the edge in place"
         );
 
-        // Deleting an unknown id is a silent no-op, not an error.
-        let again = api
-            .edges
-            .delete(&vec![IdAndExtId::from_id(edge_id)])
-            .await?;
-        assert_eq!(again.get_http_status_code(), Some(204));
-
+        // Deleting both endpoints takes the edge with them.
         api.resources.delete(&sel).await?;
+        assert!(
+            api.edges.get(edge_id).await.is_err(),
+            "removing both endpoints should remove their edge"
+        );
         cleanup.disarm();
         Ok(())
     }
 
-    /// An unknown id is answered 200-with-nothing on both read paths, despite both documenting a
-    /// 404. Pinned because the difference decides how callers check for "not found".
+    /// The two read paths answer an unknown id differently, and the difference is deliberate:
+    /// `get` is 404, `by_ids` is 200 with the found subset. Pinned because it decides how callers
+    /// check for "not found" — a single-id lookup has to handle an `Err`, a batch one must compare
+    /// what came back against what it asked for.
+    ///
+    /// `get` used to answer 200-with-nothing despite documenting a 404; api #275 made every
+    /// single-resource by-id GET consistently 404, and deliberately left batch lookups alone.
     #[tokio::test]
-    async fn test_unknown_edge_id_is_empty_not_404() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_unknown_edge_id_is_404_but_by_ids_is_an_empty_200()
+    -> Result<(), Box<dyn std::error::Error>> {
         let api = create_api_service();
-        let missing = vec![IdAndExtId::from_id(999_999_999)];
 
-        let one = api.edges.get(999_999_999).await?;
-        assert_eq!(one.get_http_status_code(), Some(200));
-        assert!(one.get_items().is_empty());
+        let err = api
+            .edges
+            .get(999_999_999)
+            .await
+            .expect_err("an unknown edge id should be a 404, not an empty 200");
+        assert_eq!(
+            err.get_status().as_u16(),
+            404,
+            "unknown single edge id should be 404, got: {err:?}"
+        );
 
-        let graph = api.edges.by_ids(&missing).await?;
-        assert!(graph.relations().map(|r| r.is_empty()).unwrap_or(true));
+        // Batch: 200 with the found subset, so a missing id is silently omitted rather than
+        // failing the whole call. The same id that 404s above is an empty success here.
+        let graph = api
+            .edges
+            .by_ids(&vec![IdAndExtId::from_id(999_999_999)])
+            .await?;
+        assert!(
+            graph.relations().map(|r| r.is_empty()).unwrap_or(true),
+            "by_ids should omit an unknown id, not report it"
+        );
         assert!(graph.nodes().unwrap_or_default().is_empty());
         Ok(())
     }
@@ -396,12 +432,12 @@ mod live {
     async fn test_create_edge_between_existing_resources() -> Result<(), Box<dyn std::error::Error>>
     {
         let api = create_api_service();
-        let (a, b) = ("sdk_test_edge_link_a", "sdk_test_edge_link_b");
+        let (a, b) = (unique_id("link_a"), unique_id("link_b"));
+        let (a, b) = (a.as_str(), b.as_str());
         let sel = vec![
             IdAndExtId::from_external_id(a),
             IdAndExtId::from_external_id(b),
         ];
-        let _ = api.resources.delete(&sel).await;
 
         api.resources
             .create(
@@ -446,9 +482,16 @@ mod live {
             "re-creating the same relationship should conflict"
         );
 
-        api.edges
-            .delete(&vec![IdAndExtId::from_id(edge_id)])
-            .await?;
+        // Deleting the link on its own is refused: it is b's only route to the graph root. Same
+        // rule as in `test_edge_get_by_ids_and_delete`, and the same opaque 500 while
+        // `ResourceDeleteException` maps to no status.
+        assert!(
+            api.edges
+                .delete(&vec![IdAndExtId::from_id(edge_id)])
+                .await
+                .is_err(),
+            "deleting the only edge holding {b} to the root should be refused"
+        );
         api.resources.delete(&sel).await?;
         cleanup.disarm();
         Ok(())

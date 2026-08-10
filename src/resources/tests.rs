@@ -137,10 +137,22 @@ async fn test_search_resources() -> Result<(), ResponseError> {
     let search_result2 = api_service.resources.search(&query2).await?;
     println!("{:?}", search_result2.get_items().len());
     assert!(search_result.get_items().len() <= 5);
-    assert!(search_result
-        .get_items()
-        .iter()
-        .all(|r| r.name.contains("test") || r.external_id.contains("test")));
+    // Case-insensitively: the fixtures are named "Rust SDK Test Resource…" with a capital T, so a
+    // `contains("test")` never matched a real hit. It went unnoticed because resource search was
+    // returning nothing at all (api #279, stale native projection) and `all()` over an empty
+    // iterator is vacuously true — the assertion only started doing work once search was repaired.
+    assert!(
+        search_result.get_items().iter().all(|r| {
+            r.name.to_lowercase().contains("test")
+                || r.external_id.to_lowercase().contains("test")
+        }),
+        "every hit for the query \"test resource\" should mention it: {:?}",
+        search_result
+            .get_items()
+            .iter()
+            .map(|r| (&r.name, &r.external_id))
+            .collect::<Vec<_>>()
+    );
     let resulting_ids = test_data
         .nodes()
         .unwrap()
