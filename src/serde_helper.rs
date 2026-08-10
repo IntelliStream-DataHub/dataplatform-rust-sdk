@@ -65,6 +65,48 @@ pub mod string_id {
     }
 }
 
+/// `Option<Vec<u64>>` of ids as JSON strings (accepts strings or numbers on input).
+///
+/// The list form of [`opt_string_id`], for filter fields like `DataSetFilter.ids` that the backend
+/// declares as `List<Long>` but serializes with `ToStringSerializer`.
+pub mod opt_string_id_vec {
+    use super::*;
+
+    pub fn serialize<S: Serializer>(value: &Option<Vec<u64>>, s: S) -> Result<S::Ok, S::Error> {
+        match value {
+            Some(v) => {
+                use serde::ser::SerializeSeq;
+                let mut seq = s.serialize_seq(Some(v.len()))?;
+                for id in v {
+                    seq.serialize_element(&id.to_string())?;
+                }
+                seq.end()
+            }
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<u64>>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StringOrNumber {
+            Str(String),
+            Num(u64),
+        }
+        let raw = Option::<Vec<StringOrNumber>>::deserialize(d)?;
+        raw.map(|items| {
+            items
+                .into_iter()
+                .map(|i| match i {
+                    StringOrNumber::Str(s) => s.parse().map_err(serde::de::Error::custom),
+                    StringOrNumber::Num(n) => Ok(n),
+                })
+                .collect::<Result<Vec<u64>, D::Error>>()
+        })
+        .transpose()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde::{Deserialize, Serialize};

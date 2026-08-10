@@ -28,7 +28,7 @@ use chrono::{DateTime, Utc};
 use tokio::runtime::Runtime;
 
 use crate::datahub::DataHubConfig;
-use crate::datasets::{Dataset, DatasetSearch, DatasetUpdate};
+use crate::datasets::{Dataset, DatasetFilter, DatasetSearch, DatasetUpdate};
 use crate::events::{Event, EventIdCollection};
 use crate::files::FileUpload;
 use crate::filters::EventFilter;
@@ -247,6 +247,7 @@ pub struct DatasetsService {
 impl DatasetsService {
     delegate! { datasets =>
         fn list() -> Result<DataWrapper<Dataset>, ResponseError>;
+        fn filter(filter: &DatasetFilter) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn search(search: &DatasetSearch) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn search_by_query(query: &str) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn policies() -> Result<DataWrapper<Resource>, ResponseError>;

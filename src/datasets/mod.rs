@@ -3,6 +3,7 @@ mod tests;
 
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::fields::{Field, ListField, MapField};
+use crate::filters::TimeFilter;
 use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, SearchForm};
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::ResponseError;
@@ -51,15 +52,27 @@ impl DatasetsService {
         self.execute_post_request(path, &json.into()).await
     }
 
-    /// `POST /datasets/list` — every dataset in the tenant.
+    /// `POST /datasets/list` — every dataset in the tenant, newest first.
     ///
-    /// The endpoint declares a body of criteria + `limit` + `cursor`, but the handler is a bare
-    /// `dataSetRepository.findAll()` that never reads it, so this sends `{}` and takes no
-    /// arguments. There is no server-side dataset filtering or paging: narrow the result
-    /// client-side. When the backend honours the form, this grows a criteria argument.
+    /// `/list` now delegates to the same handler as `/filter`, and an empty body means "no
+    /// restriction", so this posts `{}`. That leaves the server's default `limit` of 100 in place:
+    /// for more than that, or for any criteria, use [`filter`](Self::filter).
     pub async fn list(&self) -> Result<DataWrapper<Dataset>, ResponseError> {
         let path = &format!("{}/list", self.base_url);
         self.execute_post_request(path, &serde_json::json!({})).await
+    }
+
+    /// `POST /datasets/filter` — datasets matching [`DatasetFilter`], newest first.
+    ///
+    /// Every criterion on the filter is honoured server-side. Results are capped by the form's
+    /// `limit` (default 100, max 10000) and there is no paging, so a filter broad enough to exceed
+    /// the cap is silently truncated — narrow it rather than trying to page.
+    pub async fn filter(
+        &self,
+        filter: &DatasetFilter,
+    ) -> Result<DataWrapper<Dataset>, ResponseError> {
+        let path = &format!("{}/filter", self.base_url);
+        self.execute_post_request(path, filter).await
     }
 
     pub async fn by_ids<I>(&self, id_collection: &I) -> Result<DataWrapper<Dataset>, ResponseError>
@@ -357,32 +370,186 @@ impl From<&Vec<DatasetUpdate>> for DataWrapper<DatasetUpdate> {
     }
 }
 
+/// Criteria for `POST /datasets/filter` and `POST /datasets/list`.
+///
+/// Every field here is honoured by `DataSetCustomRepoImpl.filter`; nothing on it is decorative.
+/// A field left unset places no restriction, and so does an **empty** list or map — an empty `IN`
+/// is not valid SQL, and the backend reads "I built a list and had nothing to put in it" as
+/// "no restriction" rather than "match nothing".
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BasicDatasetFilter {
+    /// Datasets with any of these numeric ids. Max 1000. Sent as strings, like every id on the wire.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_helper::opt_string_id_vec"
+    )]
+    ids: Option<Vec<u64>>,
+    /// Datasets with any of these external ids. Max 1000. Matched on the hash of the lowercased
+    /// form, so this is exact but case-insensitive.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    external_ids: Option<Vec<String>>,
+    /// Datasets whose name matches any entry, as an ILIKE pattern — you place the `%`, so `"SAP%"`
+    /// is a prefix match and `"SAP work orders"` an exact one. Case-insensitive; entries OR
+    /// together. Max 1000.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    names: Option<Vec<String>>,
+    /// The source the dataset came from, as an ILIKE pattern. Max 128 characters.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+    /// Metadata the dataset must carry. Several entries **AND** together ("has all of these"),
+    /// each matching key and value exactly.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_time: Option<TimeFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_updated_time: Option<TimeFilter>,
+    /// Prefix match on the external id, anchored at the start and case-insensitive. Max 255.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    external_id_prefix: Option<String>,
+    /// The flag is stored as metadata that is absent until first set, so `Some(false)` matches
+    /// "no entry, or an entry saying false" — not just rows that carry the key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    write_protected: Option<bool>,
+    /// Same absent-until-set semantics as [`write_protected`](Self::write_protected).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    deactivated: Option<bool>,
+}
+
+impl BasicDatasetFilter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn set_ids(&mut self, ids: Vec<u64>) -> &mut Self {
+        self.ids = Some(ids);
+        self
+    }
+    pub fn set_external_ids(&mut self, external_ids: Vec<String>) -> &mut Self {
+        self.external_ids = Some(external_ids);
+        self
+    }
+    pub fn set_names(&mut self, names: Vec<String>) -> &mut Self {
+        self.names = Some(names);
+        self
+    }
+    pub fn set_source(&mut self, source: String) -> &mut Self {
+        self.source = Some(source);
+        self
+    }
+    pub fn set_metadata(&mut self, metadata: HashMap<String, String>) -> &mut Self {
+        self.metadata = Some(metadata);
+        self
+    }
+    pub fn set_created_time(&mut self, created_time: TimeFilter) -> &mut Self {
+        self.created_time = Some(created_time);
+        self
+    }
+    pub fn set_last_updated_time(&mut self, last_updated_time: TimeFilter) -> &mut Self {
+        self.last_updated_time = Some(last_updated_time);
+        self
+    }
+    pub fn set_external_id_prefix(&mut self, external_id_prefix: String) -> &mut Self {
+        self.external_id_prefix = Some(external_id_prefix);
+        self
+    }
+    pub fn set_write_protected(&mut self, write_protected: bool) -> &mut Self {
+        self.write_protected = Some(write_protected);
+        self
+    }
+    pub fn set_deactivated(&mut self, deactivated: bool) -> &mut Self {
+        self.deactivated = Some(deactivated);
+        self
+    }
+    pub fn build(&self) -> Self {
+        self.clone()
+    }
+}
+
+/// Body of `POST /datasets/filter` and `POST /datasets/list`.
+///
+/// `DataSetRetreiver` also declares a `cursor`, but `DataSetService.filter` passes only the filter
+/// and the limit to the repository — there is no paging, so no cursor is exposed here.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DatasetFilter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filter: Option<BasicDatasetFilter>,
+    /// Caps the result. Defaults to 100 server-side; above 10000 the request is rejected with 400,
+    /// and a value <= 0 is silently treated as the default.
+    limit: u64,
+}
+
+impl DatasetFilter {
+    pub fn new() -> Self {
+        Self {
+            filter: None,
+            limit: 100,
+        }
+    }
+    pub fn from_filter(filter: BasicDatasetFilter) -> Self {
+        Self {
+            filter: Some(filter),
+            ..Self::new()
+        }
+    }
+    pub fn set_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self {
+        self.filter = Some(filter);
+        self
+    }
+    /// Max 10000 — the server answers 400 above that.
+    pub fn set_limit(&mut self, limit: u64) -> &mut Self {
+        self.limit = limit;
+        self
+    }
+    pub fn build(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl Default for DatasetFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Body of `POST /datasets/search`.
 ///
-/// The server reads exactly one thing: `search.query`. It carried `filter`, `limit` and `cursor`
-/// fields too, but `DataSetService.search` passes only `form.getSearch().getQuery()` to the
-/// repository, so those were setters that silently did nothing — they are gone rather than
-/// misleading. Add them back when the handler honours them.
+/// `DataSetSearch` declares a `filter` too, but `DataSetService.search` passes only
+/// `form.getSearch().getQuery()` and `form.getLimit()` to the repository, so no criteria field is
+/// exposed here. Use [`DatasetsService::filter`] for criteria.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DatasetSearch {
     search: SearchForm,
+    /// Caps the result. Defaults to 100 server-side; unlike the filter endpoint the cap here is
+    /// **1000**, and above it the request is rejected with 400.
+    limit: u64,
 }
 impl DatasetSearch {
     pub fn new() -> Self {
         Self {
             search: SearchForm::new(),
+            limit: 100,
         }
     }
 
-    /// A search carrying just the query — the only field `POST /datasets/search` actually reads.
-    /// Must be 3–140 characters or the server answers 400.
+    /// A search carrying just the query — the only part of the form besides `limit` that the
+    /// server reads. Must be 3–140 characters or the server answers 400.
     pub fn from_query(query: &str) -> Self {
         let mut search = SearchForm::new();
         search.query = Some(query.to_string());
-        Self { search }
+        Self {
+            search,
+            ..Self::new()
+        }
     }
     pub fn set_search(&mut self, search: SearchForm) -> &mut Self {
         self.search = search;
+        self
+    }
+    /// Max 1000 — the server answers 400 above that.
+    pub fn set_limit(&mut self, limit: u64) -> &mut Self {
+        self.limit = limit;
         self
     }
     pub fn build(&self) -> Self {

@@ -1,5 +1,5 @@
 use crate::create_api_service;
-use crate::datasets::{Dataset, DatasetUpdate};
+use crate::datasets::{BasicDatasetFilter, Dataset, DatasetFilter, DatasetUpdate};
 use crate::fields::{Field, MapField};
 use crate::generic::IdAndExtId;
 use crate::http::ResponseError;
@@ -96,6 +96,54 @@ async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError>
         "the dataset just created should appear in list()"
     );
 
+    // --- filter: criteria are honoured server-side. This is the assertion that the old
+    // `filter()`-onto-`/list` shim could not have passed: it returned the whole tenant, so an
+    // exclusion check like the one below would have failed on any backend with a second dataset.
+    let narrowed = api_service
+        .datasets
+        .filter(&DatasetFilter::from_filter(
+            BasicDatasetFilter::new()
+                .set_external_ids(vec![ext_id.to_string()])
+                .build(),
+        ))
+        .await?;
+    assert_eq!(narrowed.get_http_status_code(), Some(200));
+    assert_eq!(
+        narrowed
+            .get_items()
+            .iter()
+            .map(|d| d.external_id())
+            .collect::<Vec<_>>(),
+        vec![ext_id],
+        "filtering by external id should return exactly that dataset, not the whole tenant"
+    );
+
+    // An unmatchable criterion is an empty result, not an unfiltered one.
+    let none = api_service
+        .datasets
+        .filter(&DatasetFilter::from_filter(
+            BasicDatasetFilter::new()
+                .set_external_ids(vec!["sdk_test_dataset_that_does_not_exist".to_string()])
+                .build(),
+        ))
+        .await?;
+    assert!(
+        none.get_items().is_empty(),
+        "an external id that matches nothing should return no datasets, got {}",
+        none.get_items().len()
+    );
+
+    // A limit above the server's @Max(10000) is rejected rather than clamped.
+    let over_cap = api_service
+        .datasets
+        .filter(DatasetFilter::new().set_limit(10_001))
+        .await;
+    assert_eq!(
+        over_cap.map(|_| ()).unwrap_err().get_status().as_u16(),
+        400,
+        "limit above 10000 should be rejected by the server's @Max"
+    );
+
     // --- search: free-text over names. Only the query reaches the server. ---
     let found = api_service
         .datasets
@@ -168,5 +216,56 @@ fn dataset_update_serializes_only_touched_fields() {
     assert_eq!(
         serde_json::to_value(&by_id).unwrap(),
         serde_json::json!({ "id": "5677892", "update": {} })
+    );
+}
+
+/// The filter body must match `DataSetRetreiver` + `DataSetFilter` on the wire. Asserted against
+/// the example in the `POST /datasets/filter` OpenAPI annotation, because a field the backend
+/// cannot see is indistinguishable from no filter at all — the failure mode is silently getting
+/// every dataset back, which is exactly what this endpoint's first SDK binding did.
+#[test]
+fn filter_body_matches_the_documented_wire_shape() {
+    use crate::datasets::{BasicDatasetFilter, DatasetFilter};
+    use crate::filters::TimeFilter;
+    use chrono::{DateTime, Utc};
+
+    let min: DateTime<Utc> = "2026-01-01T00:00:00Z".parse().unwrap();
+    let filter = DatasetFilter::from_filter(
+        BasicDatasetFilter::new()
+            .set_names(vec!["SAP%".to_string()])
+            .set_source("sap".to_string())
+            .set_external_id_prefix("sap_".to_string())
+            .set_write_protected(false)
+            .set_metadata([("owner".to_string(), "plant-a".to_string())].into())
+            .set_created_time(TimeFilter::After { min })
+            .build(),
+    );
+
+    let json: serde_json::Value = serde_json::to_value(&filter).unwrap();
+    assert_eq!(json["limit"], 100);
+    let f = &json["filter"];
+    assert_eq!(f["names"], serde_json::json!(["SAP%"]));
+    assert_eq!(f["source"], "sap");
+    assert_eq!(f["externalIdPrefix"], "sap_");
+    assert_eq!(f["writeProtected"], false);
+    assert_eq!(f["metadata"]["owner"], "plant-a");
+    assert_eq!(f["createdTime"]["min"], "2026-01-01T00:00:00Z");
+
+    // Unset criteria are omitted, not sent as null: the backend reads an empty/absent list as "no
+    // restriction", so a stray `"ids": null` is harmless, but omitting keeps the body honest.
+    assert!(f.get("ids").is_none(), "unset ids should be omitted");
+    assert!(f.get("deactivated").is_none());
+
+    // Ids go out as strings, like every other id on the wire.
+    let by_id = DatasetFilter::from_filter(
+        BasicDatasetFilter::new()
+            .set_ids(vec![12, 9_007_199_254_740_993])
+            .build(),
+    );
+    let json: serde_json::Value = serde_json::to_value(&by_id).unwrap();
+    assert_eq!(
+        json["filter"]["ids"],
+        serde_json::json!(["12", "9007199254740993"]),
+        "ids must be strings so a large id survives a JavaScript client"
     );
 }
