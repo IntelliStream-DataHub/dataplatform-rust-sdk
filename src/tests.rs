@@ -2,6 +2,45 @@ use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubConfig
 #[cfg(test)]
 use maplit::hashmap;
 
+pub mod polling {
+    //! Shared polling helpers for the integration suite. The Rust twin of
+    //! `python_tests/polling.py`, with the same contract.
+    //!
+    //! Backend reads go through eventually-consistent projections (ClickHouse for events, Neo4j
+    //! for the graph, search indexes, ...), so a just-written entity is not instantly visible to
+    //! every read path. These retry a fetch until it satisfies a predicate or a timeout elapses,
+    //! then hand back the last result for the caller to assert on.
+    //!
+    //! They deliberately never panic on timeout — the caller decides what an unsatisfied predicate
+    //! means. Poll for eventual consistency, then assert; don't sleep-once-and-hope, and don't skip
+    //! a test that is meant to prove something works.
+
+    use std::future::Future;
+    use std::time::{Duration, Instant};
+
+    /// Generous bounds: long enough to ride out normal projection lag, short enough that a
+    /// genuinely broken read path fails in reasonable time.
+    const TIMEOUT: Duration = Duration::from_secs(30);
+    const INTERVAL: Duration = Duration::from_millis(500);
+
+    /// Call `fetch` until `predicate` holds or the timeout elapses; return the last result either
+    /// way. `fetch` is invoked at least once.
+    pub async fn poll_until<T, F, Fut, P>(fetch: F, predicate: P) -> T
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = T>,
+        P: Fn(&T) -> bool,
+    {
+        let deadline = Instant::now() + TIMEOUT;
+        let mut result = fetch().await;
+        while !predicate(&result) && Instant::now() < deadline {
+            tokio::time::sleep(INTERVAL).await;
+            result = fetch().await;
+        }
+        result
+    }
+}
+
 pub mod cleanup {
     //! Drop-based teardown for integration tests.
     //!

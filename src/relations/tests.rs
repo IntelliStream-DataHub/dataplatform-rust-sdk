@@ -219,84 +219,184 @@ mod live {
     use crate::create_api_service;
     use crate::generic::IdAndExtId;
     use crate::relations::{RelForm, RelTypeForm};
-    use crate::resources::Resource;
+    use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork};
     use crate::tests::cleanup::cleanup_resources;
+    use crate::tests::polling::poll_until;
+    use uuid::Uuid;
 
     /// Relationship types cannot be deleted through the API, so this one is seeded once and
     /// then reused — every run after the first sees it as an existing type.
     const SEEDED_TYPE_NAME: &str = "Sdk Test Rel Type";
 
-    fn node(external_id: &str, name: &str) -> Resource {
-        let mut r = Resource::new();
-        r.external_id = external_id.to_string();
-        r.name = name.to_string();
-        // The create endpoint rejects a node with null labels.
-        r.labels = Some(vec!["ASSET".to_string()]);
-        r
+    /// A distinct external id per run.
+    ///
+    /// These tests link two resources and then act on the edge between them, so the graph shape
+    /// they see has to be theirs alone. With fixed ids, rows left by an earlier run stayed
+    /// reachable and silently supplied `b` with a second path to the graph root — which changed
+    /// what `edges.delete` was allowed to do and made the outcome depend on database history
+    /// rather than on the test.
+    fn unique_id(kind: &str) -> String {
+        format!(
+            "sdk_test_edge_{}_{}",
+            kind,
+            &Uuid::new_v4().to_string()[..12]
+        )
     }
 
-    /// Read an edge back, resolve it to its endpoints, then delete it. The edge is made through
-    /// `resources.create`, which is how edges normally come into being.
+    /// Wait until the graph projection, reachable from `from`, satisfies `predicate`.
+    ///
+    /// `edges.delete` refuses anything that would strand a node, and that check runs against the
+    /// graph projection, which lags the write. Acting too early gets the *wrong* answer rather than
+    /// an error — a delete that should be refused succeeds, because the projection cannot yet see
+    /// what the edge was holding up. Measured: deleting immediately after create succeeded 6 times
+    /// out of 6; the same delete 500ms later was refused 6 out of 6.
+    ///
+    /// The predicate has to describe the *edges*, not just the nodes: after deleting one link the
+    /// node count is unchanged, so waiting on nodes alone returns immediately and the next delete
+    /// races the projection again.
+    async fn await_graph<P>(api: &crate::ApiService, from: &str, what: &str, predicate: P)
+    where
+        P: Fn(&ResourceNetwork) -> bool,
+    {
+        let form = RelatedResourcesForm {
+            id: None,
+            external_id: Some(from.to_string()),
+            depth: -1,
+            relationship_types: None,
+            limit: 100,
+            excluded_labels: vec![],
+        };
+        let net = poll_until(
+            || api.resources.fetch_related(&form),
+            |r| r.as_ref().map(&predicate).unwrap_or(false),
+        )
+        .await
+        .unwrap_or_default();
+        assert!(
+            predicate(&net),
+            "graph projection did not catch up: {what} (saw {} nodes, {} edges)",
+            net.nodes().len(),
+            net.edges().len()
+        );
+    }
+
+    /// Read an edge back, resolve it to its endpoints, then delete it — both when that is allowed
+    /// and when it is not.
+    ///
+    /// The shape is a triangle, `a -> b`, `b -> c`, `a -> c`, because two nodes cannot express the
+    /// rule. On a bare `a -> b` pair the single edge is the only thing holding `b` to the graph
+    /// root, so *every* delete is refused and the allowed case is untestable. With the triangle,
+    /// `c` has two routes: dropping `a -> c` leaves it reachable via `b`, and dropping `b -> c`
+    /// afterwards would strand it.
     #[tokio::test]
     async fn test_edge_get_by_ids_and_delete() -> Result<(), Box<dyn std::error::Error>> {
         let api = create_api_service();
-        let (a, b) = ("sdk_test_edge_node_a", "sdk_test_edge_node_b");
+        let (a, b, c) = (
+            unique_id("node_a"),
+            unique_id("node_b"),
+            unique_id("node_c"),
+        );
+        let (a, b, c) = (a.as_str(), b.as_str(), c.as_str());
         let sel = vec![
             IdAndExtId::from_external_id(a),
             IdAndExtId::from_external_id(b),
+            IdAndExtId::from_external_id(c),
         ];
-        let _ = api.resources.delete(&sel).await;
 
         let created = api
             .resources
             .create(
                 vec![
-                    node(a, "sdk test edge node a"),
-                    node(b, "sdk test edge node b"),
+                    // `a` roots the component, so "reachable from the graph root" means
+                    // "reachable from `a`" and the stranding check has one answer.
+                    Resource {
+                        external_id: a.to_string(),
+                        name: "sdk test edge node a".to_string(),
+                        // The create endpoint rejects a node with null labels.
+                        labels: Some(vec!["ASSET".to_string()]),
+                        is_root: true,
+                        ..Resource::new()
+                    },
+                    Resource {
+                        external_id: b.to_string(),
+                        name: "sdk test edge node b".to_string(),
+                        // The create endpoint rejects a node with null labels.
+                        labels: Some(vec!["ASSET".to_string()]),
+                        is_root: false,
+                        ..Resource::new()
+                    },
+                    Resource {
+                        external_id: c.to_string(),
+                        name: "sdk test edge node c".to_string(),
+                        // The create endpoint rejects a node with null labels.
+                        labels: Some(vec!["ASSET".to_string()]),
+                        is_root: false,
+                        ..Resource::new()
+                    },
                 ],
-                vec![RelForm::by_external_ids(a, b, "SDK_TEST_LINK")],
+                vec![
+                    RelForm::by_external_ids(a, b, "SDK_TEST_LINK"),
+                    RelForm::by_external_ids(b, c, "SDK_TEST_LINK"),
+                    RelForm::by_external_ids(a, c, "SDK_TEST_LINK"),
+                ],
             )
             .await?;
-        let mut cleanup = cleanup_resources(vec![a.to_string(), b.to_string()]);
+        let mut cleanup = cleanup_resources(vec![c.to_string(), b.to_string(), a.to_string()]);
 
-        let edge = created
-            .relations()
-            .and_then(|r| r.first().cloned())
-            .expect("creating two resources with a relation should return the edge");
-        let edge_id = edge.id.expect("the new edge should carry an id");
-        assert_eq!(edge.relationship_type.as_deref(), Some("SDK_TEST_LINK"));
+        let nodes = created.nodes().unwrap_or_default();
+        let relations = created.relations().cloned().unwrap_or_default();
+        assert_eq!(relations.len(), 3, "all three links should be created");
+        let id_of = |ext: &str| {
+            nodes
+                .iter()
+                .find(|n| n.external_id == ext)
+                .and_then(|n| n.id)
+        };
+        let edge_between = |from: &str, to: &str| {
+            let (f, t) = (id_of(from), id_of(to));
+            relations
+                .iter()
+                .find(|e| e.start == f && e.end == t)
+                .and_then(|e| e.id)
+                .unwrap_or_else(|| panic!("no edge {from} -> {to} in the create response"))
+        };
+        let a_to_c = edge_between(a, c);
+        let b_to_c = edge_between(b, c);
 
         // --- get ---
-        let fetched = api.edges.get(edge_id).await?;
+        let fetched = api.edges.get(a_to_c).await?;
         assert_eq!(fetched.get_http_status_code(), Some(200));
-        assert_eq!(fetched.get_items()[0].id, Some(edge_id));
-        assert_eq!(fetched.get_items()[0].start, edge.start);
-        assert_eq!(fetched.get_items()[0].end, edge.end);
+        assert_eq!(fetched.get_items()[0].id, Some(a_to_c));
+        assert_eq!(
+            fetched.get_items()[0].relationship_type.as_deref(),
+            Some("SDK_TEST_LINK")
+        );
 
         // --- by_ids: a graph, both endpoints resolved in the same response ---
-        let graph = api
-            .edges
-            .by_ids(&vec![IdAndExtId::from_id(edge_id)])
-            .await?;
+        let graph = api.edges.by_ids(&vec![IdAndExtId::from_id(a_to_c)]).await?;
         assert_eq!(graph.relations().map(|r| r.len()), Some(1));
-        let nodes = graph.nodes().unwrap_or_default();
-        assert_eq!(nodes.len(), 2, "byids should resolve both endpoints");
-        assert!(nodes.iter().any(|n| n.external_id == a));
-        assert!(nodes.iter().any(|n| n.external_id == b));
+        let resolved = graph.nodes().unwrap_or_default();
+        assert_eq!(resolved.len(), 2, "byids should resolve both endpoints");
+        assert!(resolved.iter().any(|n| n.external_id == a));
+        assert!(resolved.iter().any(|n| n.external_id == c));
 
-        // --- delete: the link goes, the resources stay ---
-        let deleted = api
-            .edges
-            .delete(&vec![IdAndExtId::from_id(edge_id)])
-            .await?;
+        await_graph(&api, a, "all three links visible", |n| n.edges().len() >= 3).await;
+
+        // --- delete, allowed: c keeps its route to the root through b ---
+        let deleted = api.edges.delete(&vec![IdAndExtId::from_id(a_to_c)]).await?;
         assert_eq!(deleted.get_http_status_code(), Some(204));
-
         let gone = api
             .edges
-            .get(edge_id)
+            .get(a_to_c)
             .await
             .expect_err("a deleted edge should read back as 404");
         assert_eq!(gone.get_status().as_u16(), 404);
+
+        // Deleting an id that is already gone is a silent no-op, not an error.
+        let again = api.edges.delete(&vec![IdAndExtId::from_id(a_to_c)]).await?;
+        assert_eq!(again.get_http_status_code(), Some(204));
+
+        // The endpoints themselves are untouched by an edge delete.
         assert_eq!(
             api.resources
                 .by_ids(&sel)
@@ -304,17 +404,45 @@ mod live {
                 .nodes()
                 .unwrap_or_default()
                 .len(),
-            2,
+            3,
             "deleting an edge must not touch the resources it connected"
         );
 
-        // Deleting an unknown id is a silent no-op, not an error.
-        let again = api
+        // --- delete, refused: b -> c is now c's only route to the root ---
+        // Wait for the *removal* to land in the projection: while it still believes `a -> c`
+        // exists, `c` looks doubly-connected and the next delete would be allowed.
+        await_graph(&api, a, "the deleted link is gone", |n| {
+            !n.edges().iter().any(|e| e.id == Some(a_to_c))
+        })
+        .await;
+        let refused = api
             .edges
-            .delete(&vec![IdAndExtId::from_id(edge_id)])
-            .await?;
-        assert_eq!(again.get_http_status_code(), Some(204));
+            .delete(&vec![IdAndExtId::from_id(b_to_c)])
+            .await
+            .expect_err("deleting c's last route to the root should be refused");
+        assert_eq!(
+            refused.get_status().as_u16(),
+            400,
+            "a stranding delete is a client error, not a server fault: {refused:?}"
+        );
+        // With `a` declared root, the victim is unambiguous: `c` is the node that loses its last
+        // route. Without a declared root this named a different node between runs, because the
+        // projection picked the anchor itself.
+        let message = refused.get_message();
+        assert!(
+            message.contains("disconnect"),
+            "the refusal should say what it is refusing: {message}"
+        );
+        assert!(
+            message.contains(c),
+            "the refusal should name {c} as the stranded resource: {message}"
+        );
 
+        // Tear down in one request. Deleting these nodes individually is perfectly legal —
+        // leaf-first works, and a node delete cascades its own edges — but each step has to wait
+        // for the projection before the next, or the stranding check still sees the node just
+        // removed and refuses to delete the one that was holding it up. Deleting the set together
+        // sidesteps that race instead of polling between every step.
         api.resources.delete(&sel).await?;
         cleanup.disarm();
         Ok(())
@@ -402,18 +530,34 @@ mod live {
     async fn test_create_edge_between_existing_resources() -> Result<(), Box<dyn std::error::Error>>
     {
         let api = create_api_service();
-        let (a, b) = ("sdk_test_edge_link_a", "sdk_test_edge_link_b");
+        let (a, b) = (unique_id("link_a"), unique_id("link_b"));
+        let (a, b) = (a.as_str(), b.as_str());
         let sel = vec![
             IdAndExtId::from_external_id(a),
             IdAndExtId::from_external_id(b),
         ];
-        let _ = api.resources.delete(&sel).await;
 
         api.resources
             .create(
                 vec![
-                    node(a, "sdk test edge link a"),
-                    node(b, "sdk test edge link b"),
+                    // Rooted for the same reason as the triangle above: an unrooted component
+                    // leaves the projection to pick its own anchor.
+                    Resource {
+                        external_id: a.to_string(),
+                        name: "sdk test edge link a".to_string(),
+                        // The create endpoint rejects a node with null labels.
+                        labels: Some(vec!["ASSET".to_string()]),
+                        is_root: true,
+                        ..Resource::new()
+                    },
+                    Resource {
+                        external_id: b.to_string(),
+                        name: "sdk test edge link b".to_string(),
+                        // The create endpoint rejects a node with null labels.
+                        labels: Some(vec!["ASSET".to_string()]),
+                        is_root: false,
+                        ..Resource::new()
+                    },
                 ],
                 vec![],
             )
@@ -452,9 +596,9 @@ mod live {
             "re-creating the same relationship should conflict"
         );
 
-        api.edges
-            .delete(&vec![IdAndExtId::from_id(edge_id)])
-            .await?;
+        // No separate edge delete here: this link is b's only route to the graph root, so removing
+        // it alone is refused (see test_edge_get_by_ids_and_delete for both sides of that rule).
+        // Deleting the resources takes the edge with them.
         api.resources.delete(&sel).await?;
         cleanup.disarm();
         Ok(())
