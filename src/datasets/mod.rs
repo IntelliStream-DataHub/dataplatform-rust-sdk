@@ -52,14 +52,20 @@ impl DatasetsService {
         self.execute_post_request(path, &json.into()).await
     }
 
-    /// `POST /datasets/list` — every dataset in the tenant, newest first.
+    /// `POST /datasets/list` — datasets in the tenant, newest first, capped at `limit`.
     ///
-    /// `/list` now delegates to the same handler as `/filter`, and an empty body means "no
-    /// restriction", so this posts `{}`. That leaves the server's default `limit` of 100 in place:
-    /// for more than that, or for any criteria, use [`filter`](Self::filter).
-    pub async fn list(&self) -> Result<DataWrapper<Dataset>, ResponseError> {
+    /// `None` leaves the server's default of 100 in place; the maximum is 10000, above which the
+    /// server answers 400. There is no paging, so the cap is a truncation and not a page — pass a
+    /// number you are willing to hold, or narrow with [`filter`](Self::filter) instead.
+    ///
+    /// Unlike every other `list` in this SDK this is a `POST`, because `/datasets` has no `GET`
+    /// collection route. The server implements `/list` by calling its `/filter` handler, so this
+    /// is [`filter`](Self::filter) with an empty filter and nothing more.
+    pub async fn list(&self, limit: Option<u64>) -> Result<DataWrapper<Dataset>, ResponseError> {
+        let mut form = DatasetFilter::new();
+        form.set_limit(limit.unwrap_or(100));
         let path = &format!("{}/list", self.base_url);
-        self.execute_post_request(path, &serde_json::json!({})).await
+        self.execute_post_request(path, &form).await
     }
 
     /// `POST /datasets/filter` — datasets matching [`DatasetFilter`], newest first.

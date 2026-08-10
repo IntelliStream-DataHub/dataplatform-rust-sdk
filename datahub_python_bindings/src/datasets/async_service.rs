@@ -14,12 +14,13 @@ pub struct PyDatasetsServiceAsync {
 
 #[pymethods]
 impl PyDatasetsServiceAsync {
-    fn list<'p>(&self, py: Python<'p>) -> PyResult<Bound<'p, PyAny>> {
+    #[pyo3(signature = (limit = None))]
+    fn list<'p>(&self, py: Python<'p>, limit: Option<u64>) -> PyResult<Bound<'p, PyAny>> {
         let service = self.api_service.clone();
         future_into_py(py, async move {
             let result = service
                 .datasets
-                .list()
+                .list(limit)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
 

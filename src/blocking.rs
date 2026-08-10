@@ -256,7 +256,7 @@ pub struct DatasetsService {
 
 impl DatasetsService {
     delegate! { datasets =>
-        fn list() -> Result<DataWrapper<Dataset>, ResponseError>;
+        fn list(limit: Option<u64>) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn filter(filter: &DatasetFilter) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn search(search: &DatasetSearch) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn search_by_query(query: &str) -> Result<DataWrapper<Dataset>, ResponseError>;
@@ -269,7 +269,6 @@ impl DatasetsService {
         fn by_ids(id_collection: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn update(data: Into<DataWrapper<DatasetUpdate>>) -> Result<DataWrapper<Dataset>, ResponseError>;
     }
-
 }
 
 /// Blocking counterpart of [`crate::UnitsService`].

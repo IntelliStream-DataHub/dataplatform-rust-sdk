@@ -89,11 +89,28 @@ async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError>
     let mut cleanup = cleanup_datasets(vec![ext_id.to_string()]);
 
     // --- list: every dataset in the tenant, criteria-free ---
-    let listed = api_service.datasets.list().await?;
+    let listed = api_service.datasets.list(None).await?;
     assert_eq!(listed.get_http_status_code(), Some(200));
     assert!(
         listed.get_items().iter().any(|d| d.external_id() == ext_id),
         "the dataset just created should appear in list()"
+    );
+
+    // `list` is `filter` with an empty filter, so it takes the same limit and rejects the same
+    // over-cap value. Worth asserting because `list(None)` stops at 100 with no signal that it
+    // did — the parameter is the only way a caller gets past that.
+    let capped = api_service.datasets.list(Some(1)).await?;
+    assert_eq!(capped.get_http_status_code(), Some(200));
+    assert_eq!(
+        capped.get_items().len(),
+        1,
+        "list(Some(1)) should return exactly one dataset"
+    );
+    let list_over_cap = api_service.datasets.list(Some(10_001)).await;
+    assert_eq!(
+        list_over_cap.map(|_| ()).unwrap_err().get_status().as_u16(),
+        400,
+        "a list limit above 10000 should be rejected like filter's limit is"
     );
 
     // --- filter: criteria are honoured server-side. This is the assertion that the old
