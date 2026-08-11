@@ -92,16 +92,27 @@
 //!
 //! | Env prefix | Organizations | Dataset grant | Realm roles |
 //! |---|---|---|---|
-//! | `MT_ORG_A` | the ACL org | — | `DATAHUB_ACCESS`, `DATAHUB_DATASET_ALL` |
-//! | `MT_ORG_B` | a second org | — | `DATAHUB_ACCESS`, `DATAHUB_DATASET_ALL` |
-//! | `MT_MULTI` | **both** of the above | — | `DATAHUB_ACCESS`, `DATAHUB_DATASET_ALL` |
+//! | `MT_ORG_A` | the ACL org | `/datasets/*/read` + `/datasets/*/write` | `DATAHUB_ACCESS` |
+//! | `MT_ORG_B` | a second org | `/datasets/*/read` + `/datasets/*/write` | `DATAHUB_ACCESS` |
+//! | `MT_MULTI` | **both** of the above | the same pair **in each** organization | `DATAHUB_ACCESS` |
 //! | `MT_READONLY` | the ACL org | `/datasets/<ds>/read` | `DATAHUB_ACCESS` only |
 //! | `MT_WRITEONLY` | the ACL org | `/datasets/<ds>/write` | `DATAHUB_ACCESS` only |
 //! | `MT_NOGRANT` | the ACL org | none | `DATAHUB_ACCESS` only |
 //!
-//! The read/write/no-grant principals must **not** hold `DATAHUB_DATASET_ALL`, `DATAHUB_ADMIN`,
-//! `DATAHUB_DATASET_READ_ALL` or `DATAHUB_DATASET_WRITE_ALL` — any of those makes the group grant
-//! moot and collapses every ACL test into "allowed".
+//! "Full access" for the first three is the **wildcard group pair**, not a realm role. It used to
+//! be `DATAHUB_DATASET_ALL`; that role now grants nothing — `DatasetPermissions` recognises
+//! `DATAHUB_ADMIN` and no other realm role, so a principal holding only the old one is refused
+//! every write. The wildcard groups are also what these three actually need: the isolation tests
+//! create resources in **no dataset at all**, and a grant naming one dataset cannot cover an entity
+//! that is in none. The symptom when they are missing is
+//! `403 "No write permission for data set: null"` with `dataSetId: null`.
+//!
+//! `DATAHUB_ADMIN` would also satisfy the writes, but it is deliberately cross-tenant and
+//! short-circuits group resolution entirely, which is the opposite of what these tests measure.
+//! Prefer the wildcard groups, which stay scoped to one organization.
+//!
+//! The read/write/no-grant principals must **not** hold `DATAHUB_ADMIN` or either wildcard group —
+//! either makes the per-dataset grant moot and collapses every ACL test into "allowed".
 //!
 //! ```text
 //! MT_ORG_A_ALIAS / MT_ORG_B_ALIAS      the two organization aliases MT_MULTI belongs to
