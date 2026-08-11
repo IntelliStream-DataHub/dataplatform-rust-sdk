@@ -22,8 +22,10 @@ pub struct EdgeProxy {
     #[serde(with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     #[serde(default)]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
     pub start: Option<u64>,
     #[serde(default)]
+    #[serde(with = "crate::serde_helper::opt_string_id")]
     pub end: Option<u64>,
     #[serde(rename = "type", default)]
     pub relationship_type: Option<String>,

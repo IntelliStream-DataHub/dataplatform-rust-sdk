@@ -45,6 +45,46 @@ fn edge_proxy_round_trip_without_relationship_type_id() {
     );
 }
 
+/// The shape the API actually sends: every id is a JSON *string*, because ids are 64-bit and a
+/// JavaScript client would lose precision on a number. `start` and `end` were left as bare `u64`
+/// when the rest of `EdgeProxy` was converted, so any response carrying relations — a
+/// `resources/create` with edges, or anything off `/edges` — failed to deserialize outright.
+#[test]
+fn edge_proxy_accepts_string_ids_on_every_id_field() {
+    let payload = json!({
+        "id": "5932",
+        "start": "13689",
+        "end": "13690",
+        "type": "SDK_TEST_LINK",
+        "relationshipTypeId": "21",
+        "description": null,
+        "metadata": {}
+    });
+    let parsed: EdgeProxy = serde_json::from_value(payload).unwrap();
+    assert_eq!(parsed.id, Some(5932));
+    assert_eq!(parsed.start, Some(13689));
+    assert_eq!(parsed.end, Some(13690));
+    assert_eq!(parsed.relationship_type_id, Some(21));
+}
+
+/// Ids go back out as strings, matching what `id` and `relationship_type_id` already did.
+#[test]
+fn edge_proxy_serializes_ids_as_strings() {
+    let edge = EdgeProxy {
+        id: Some(5932),
+        start: Some(13689),
+        end: Some(13690),
+        relationship_type: None,
+        description: None,
+        relationship_type_id: None,
+        metadata: Default::default(),
+    };
+    let json = serde_json::to_value(&edge).unwrap();
+    assert_eq!(json["id"], json!("5932"));
+    assert_eq!(json["start"], json!("13689"));
+    assert_eq!(json["end"], json!("13690"));
+}
+
 #[test]
 fn edge_proxy_tolerates_completely_empty_payload() {
     let parsed: EdgeProxy = serde_json::from_str("{}").unwrap();
