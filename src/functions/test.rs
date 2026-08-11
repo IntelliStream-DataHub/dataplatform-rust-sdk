@@ -17,15 +17,12 @@ mod tests {
         let suffix = Uuid::new_v4().to_string()[0..8].to_string();
         let ext_id = format!("sdk_test_fn_{}", suffix);
 
-        let fn_in = Function::new(ext_id.clone(), "forecast-ema".to_string())
-            .with_name("SDK roundtrip ema".to_string())
-            .with_config(json!({"alpha": 0.5}));
+        let fn_in = Function::new(ext_id.clone()).with_name("SDK roundtrip fn".to_string());
 
         let created = api.functions.create(&vec![fn_in]).await.unwrap();
         let mut function_cleanup = cleanup_functions(vec![ext_id.clone()]);
         assert_eq!(created.get_items().len(), 1);
         assert_eq!(created.get_items()[0].external_id, ext_id);
-        assert_eq!(created.get_items()[0].model_name, "forecast-ema");
 
         let listed = api.functions.list().await.unwrap();
         assert!(listed.get_items().iter().any(|f| f.external_id == ext_id));

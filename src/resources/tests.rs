@@ -301,11 +301,9 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
         .set_related_resources(vec![RelatedNode::from_external_id(&asset_ext, "measures")]);
     api.time_series.create_one(&ts).await?;
 
-    // Function, linked to the asset with a neutral edge type (asset --USES--> fn). A
-    // `PROCESSED_BY` edge would trigger the function-binding lifecycle and auto-provision
-    // an output timeseries; a neutral type keeps the component deterministic.
-    let func = crate::functions::Function::new(func_ext.clone(), "forecast-ema".to_string())
-        .with_name("Neo Fields Fn".to_string());
+    // Function, linked to the asset with a neutral edge type (asset --USES--> fn).
+    let func =
+        crate::functions::Function::new(func_ext.clone()).with_name("Neo Fields Fn".to_string());
     api.functions.create(&func).await?;
     api.resources
         .create(

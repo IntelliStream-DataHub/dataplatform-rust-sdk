@@ -85,7 +85,8 @@ async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError>
         .set_description("before the update".to_string())
         .build();
     let created = api_service.datasets.create(&dataset).await?;
-    assert_eq!(created.get_http_status_code(), Some(200));
+    // 201, not 200: the create handler answers `HttpStatus.CREATED` and its OpenAPI says so.
+    assert_eq!(created.get_http_status_code(), Some(201));
     let mut cleanup = cleanup_datasets(vec![ext_id.to_string()]);
 
     // --- list: every dataset in the tenant, criteria-free ---

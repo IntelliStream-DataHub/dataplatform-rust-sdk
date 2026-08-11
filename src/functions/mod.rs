@@ -6,17 +6,19 @@ use crate::http::ResponseError;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Weak;
 
 pub use crate::relations::RelatedNode;
 
-/// Client for the `/functions` endpoints. A `Function` binds a server-side model template
-/// (e.g. `forecast-ema`, `anomaly-detection`) to a JSON config map. Once a `PROCESSED_BY`
-/// edge attaches the function to one or more timeseries the server creates a system-managed
-/// `Subscription` per binding; the function's external worker discovers those via
-/// `subscriptions.list(include_system_managed=true)` and listens to each one.
+/// Client for the `/functions` endpoints. A `Function` is a plain datastore node,
+/// distinguished only by the canonical `FUNCTION` type-label and otherwise carrying the shared
+/// node fields; it supports the same create/read/update/delete surface a resource does.
+///
+/// It used to bind a server-side model template to a JSON config map, which is where the
+/// `model_name`/`config` pair came from. The server dropped that feature — see its
+/// "Remove functions feature. revert to simple metadata store" — and `Function` now extends the
+/// node base with no fields of its own, so those two are gone from here as well.
 pub struct FunctionsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -105,9 +107,8 @@ impl FunctionsService {
     }
 }
 
-/// API representation of a function. Mirrors `ai.intellistream.datahub.function.Function` —
-/// inherits the standard resource fields (id, external_id, name, labels, metadata,
-/// created_time, last_updated_time) and adds the model-binding pair `model_name` + `config`.
+/// API representation of a function. Mirrors `ai.intellistream.datahub.function.Function`, which
+/// extends the shared node base and adds nothing of its own — so this is exactly the node fields.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Function {
@@ -117,21 +118,13 @@ pub struct Function {
     pub external_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Stable identifier of the model template (e.g. `forecast-ema`, `anomaly-detection`).
-    pub model_name: String,
-    /// Merged config: server-applied template defaults plus any user-supplied overrides.
-    /// The worker reads parameters by key out of this map.
-    #[serde(default)]
-    pub config: JsonValue,
     /// Resource-shape labels. The canonical `FUNCTION` label is always present.
     #[serde(default)]
     pub labels: Vec<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
-    /// The nodes this function is connected to (e.g. its bound input timeseries via
-    /// PROCESSED_BY edges), with relationship type and direction. Populated server-side
-    /// by `FunctionService.list()` so a function worker can derive its `(function, ts)`
-    /// routing map without a separate edge query.
+    /// The nodes this function is connected to, with relationship type and direction.
+    /// Populated server-side by `FunctionService.list()`.
     #[serde(default, skip_serializing)]
     pub related_resources: Vec<RelatedNode>,
     #[serde(skip_serializing)]
@@ -141,13 +134,11 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn new(external_id: String, model_name: String) -> Self {
+    pub fn new(external_id: String) -> Self {
         Function {
             id: None,
             external_id,
             name: None,
-            model_name,
-            config: JsonValue::Object(serde_json::Map::new()),
             labels: vec![],
             metadata: HashMap::new(),
             related_resources: vec![],
@@ -158,11 +149,6 @@ impl Function {
 
     pub fn with_name(mut self, name: String) -> Self {
         self.name = Some(name);
-        self
-    }
-
-    pub fn with_config(mut self, config: JsonValue) -> Self {
-        self.config = config;
         self
     }
 }

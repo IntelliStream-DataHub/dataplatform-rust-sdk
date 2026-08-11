@@ -57,7 +57,7 @@ def test_local_objects_have_no_client():
     with pytest.raises(RuntimeError):
         datahub_sdk.Dataset(external_id=unique_id("ds")).neighbors()
     with pytest.raises(RuntimeError):
-        datahub_sdk.Function(external_id=unique_id("fn"), model_name="forecast-ema").neighbors()
+        datahub_sdk.Function(external_id=unique_id("fn")).neighbors()
     with pytest.raises(RuntimeError):
         datahub_sdk.INode(
             name="local node", external_id=unique_id("nd"), path="/x", size=0,
@@ -71,7 +71,7 @@ def test_local_objects_have_no_client():
     with pytest.raises(RuntimeError):
         datahub_sdk.Dataset(external_id=unique_id("ds")).related_events()
     with pytest.raises(RuntimeError):
-        datahub_sdk.Function(external_id=unique_id("fn"), model_name="forecast-ema").related_events()
+        datahub_sdk.Function(external_id=unique_id("fn")).related_events()
 
 
 def test_navigation_methods_exist_on_classes():
