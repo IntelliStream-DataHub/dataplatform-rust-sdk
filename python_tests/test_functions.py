@@ -13,19 +13,13 @@ def test_create_list_by_external_id_delete(sync_client):
     ext_id = unique_id("fn")
     fn = datahub_sdk.Function(
         external_id=ext_id,
-        model_name="forecast-ema",
-        name="Function SDK roundtrip ema",
-        config={"alpha": 0.5},
+        name="Function SDK roundtrip",
     )
 
     try:
         created = sync_client.functions.create([fn])
         assert len(created) == 1
         assert created[0].external_id == ext_id
-        assert created[0].model_name == "forecast-ema"
-        assert created[0].config.get("alpha") == 0.5
-        # Server applies template defaults on top of user overrides.
-        assert "horizon" in created[0].config
         assert created[0].id is not None
 
         listed = sync_client.functions.list()

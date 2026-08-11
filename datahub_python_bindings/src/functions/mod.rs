@@ -71,19 +71,10 @@ impl PyFunction {
 #[pymethods]
 impl PyFunction {
     #[new]
-    #[pyo3(signature=(external_id, model_name, name=None, config=None))]
-    fn __init__(
-        py: Python<'_>,
-        external_id: String,
-        model_name: String,
-        name: Option<String>,
-        config: Option<Bound<'_, PyDict>>,
-    ) -> PyResult<Self> {
-        let mut function = Function::new(external_id, model_name);
+    #[pyo3(signature=(external_id, name=None))]
+    fn __init__(external_id: String, name: Option<String>) -> PyResult<Self> {
+        let mut function = Function::new(external_id);
         function.name = name;
-        if let Some(d) = config {
-            function.config = py_to_json(&d.into_any())?;
-        }
         Ok(Self {
             inner: function,
             client: None,
@@ -103,21 +94,6 @@ impl PyFunction {
     #[getter]
     fn name(&self) -> Option<&str> {
         self.inner.name.as_deref()
-    }
-
-    /// Stable identifier of the model template the function uses (e.g. `forecast-ema`,
-    /// `anomaly-detection`). The function worker dispatches to a handler by this name.
-    #[getter]
-    fn model_name(&self) -> &str {
-        &self.inner.model_name
-    }
-
-    /// Merged configuration: defaults from the server-side template plus any user-supplied
-    /// overrides. Returned as a regular Python dict — keys present here override the
-    /// template defaults of the same name.
-    #[getter]
-    fn config<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        json_to_py(py, &self.inner.config)
     }
 
     #[getter]
