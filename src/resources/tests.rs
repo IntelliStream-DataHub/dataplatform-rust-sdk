@@ -3,19 +3,23 @@ use crate::create_api_service;
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::generic::{IdAndExtId, SearchForm};
 use crate::relations::RelForm;
-use crate::tests::cleanup::cleanup_resources;
+use crate::tests::cleanup::{
+    cleanup_datasets, cleanup_functions, cleanup_resources, cleanup_timeseries,
+};
 use maplit::hashmap;
 use uuid::Uuid;
+use crate::tests::ids::unique_id;
+use crate::tests::polling::poll_until;
 
 fn create_test_resources() -> Vec<Resource> {
     // helper function to create test resources will
     let count = 2;
-    let uuids = (0..count).map(|_| Uuid::new_v4()).collect::<Vec<Uuid>>();
+    let ids = (0..count).map(|_| unique_id("resource")).collect::<Vec<String>>();
     let res1 = Resource {
         // used to be a serde skip if zero here. don't understand why
         id: None,
-        external_id: format!("Rust_SDK_Test_Resource_{:?}", uuids[0]),
-        name: format!("Rust SDK Test Resource-{:?}", uuids[0]),
+        external_id: ids[0].clone(),
+        name: format!("Rust SDK Test Resource {}", ids[0]),
         metadata: Some(hashmap! {
             "foo".to_string() => "bar".to_string(),
             "is_test".to_string() => "true".to_string(),
@@ -34,8 +38,8 @@ fn create_test_resources() -> Vec<Resource> {
     let res2 = Resource {
         // used to be a serde skip if zero here. don't understand why
         id: None,
-        external_id: format!("Rust_SDK_Test_Resource_{:?}", uuids[1]),
-        name: format!("Rust SDK Test Resource-{:?}", uuids[1]),
+        external_id: ids[1].clone(),
+        name: format!("Rust SDK Test Resource {}", ids[1]),
         metadata: None,
         description: None,
         is_root: false,
@@ -265,19 +269,25 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     use crate::TimeSeries;
 
     let api = create_api_service();
-    let uid = Uuid::new_v4().simple().to_string();
-    let asset_ext = format!("neo_fields_asset_{}", uid);
-    let ts_ext = format!("neo_fields_ts_{}", uid);
-    let func_ext = format!("neo_fields_fn_{}", uid);
+    let uid = Uuid::new_v4().simple().to_string(); // dataset name only; the ids below are unique_id
+    let asset_ext = unique_id("neo_fields_asset");
+    let ts_ext = unique_id("neo_fields_ts");
+    let func_ext = unique_id("neo_fields_fn");
 
     // A dataset so we can assert `data_set_id` persists (a Resource-common graph field).
     let dataset = Dataset::new(format!("Neo Fields DS {}", uid));
     let ds_created = api.datasets.create(&dataset).await?;
-    let ds_id = ds_created
+    let ds_created = ds_created
         .get_items()
         .first()
-        .and_then(|d| d.id)
-        .expect("dataset create should return an id");
+        .expect("dataset create should return the dataset");
+    let ds_id = ds_created.id.expect("dataset create should return an id");
+    // Guards are armed as each entity appears, and drop in reverse declaration order — so
+    // teardown runs functions, timeseries, asset, dataset: end nodes before the nodes they hang
+    // off, and the dataset last. The explicit deletes at the end of the happy path disarm them.
+    // Without these, any panic between here and the end strands all four, and the next run
+    // collides with the residue.
+    let mut dataset_cleanup = cleanup_datasets(vec![ds_created.external_id().to_string()]);
 
     // Root asset with every Resource-shaped field populated (incl. metadata, which we
     // expect NOT to survive the graph projection).
@@ -291,6 +301,7 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     asset.metadata = Some(hashmap! {"vendor".to_string() => "acme".to_string()});
     asset.labels = Some(vec!["ASSET".to_string()]);
     api.resources.create(vec![asset], vec![]).await?;
+    let mut asset_cleanup = cleanup_resources(vec![asset_ext.clone()]);
 
     // Timeseries in the same dataset, linked to the asset via the unified
     // `related_resources` INPUT (asset --MEASURES--> ts).
@@ -300,11 +311,13 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
         .set_data_set_id(ds_id)
         .set_related_resources(vec![RelatedNode::from_external_id(&asset_ext, "measures")]);
     api.time_series.create_one(&ts).await?;
+    let mut ts_cleanup = cleanup_timeseries(vec![ts_ext.clone()]);
 
     // Function, linked to the asset with a neutral edge type (asset --USES--> fn).
     let func =
         crate::functions::Function::new(func_ext.clone()).with_name("Neo Fields Fn".to_string());
     api.functions.create(&func).await?;
+    let mut func_cleanup = cleanup_functions(vec![func_ext.clone()]);
     api.resources
         .create(
             vec![],
@@ -314,15 +327,14 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
 
     // Read back from Neo4j, polling until the async write has propagated all three nodes.
     let form = RelatedResourcesForm::from_external_id(&asset_ext).with_depth(-1);
-    let mut net = ResourceNetwork::default();
-    for _ in 0..25 {
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        net = api.resources.fetch_related(&form).await?;
-        let have = |ext: &str| net.nodes().iter().any(|n| n.external_id == ext);
-        if have(&asset_ext) && have(&ts_ext) && have(&func_ext) {
-            break;
-        }
-    }
+    let net = poll_until(
+        || async { api.resources.fetch_related(&form).await.unwrap_or_default() },
+        |net: &ResourceNetwork| {
+            let have = |ext: &str| net.nodes().iter().any(|n| n.external_id == ext);
+            have(&asset_ext) && have(&ts_ext) && have(&func_ext)
+        },
+    )
+    .await;
 
     let find = |ext: &str| -> Resource {
         net.nodes()
@@ -420,13 +432,17 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
         .functions
         .delete(&vec![IdAndExtId::from_external_id(&func_ext)])
         .await;
+    func_cleanup.disarm();
     let ts_del: DataWrapper<IdAndExtId> = vec![IdAndExtId::from_external_id(&ts_ext)].into();
     let _ = api.time_series.delete(&ts_del).await;
+    ts_cleanup.disarm();
     let _ = api
         .resources
         .delete(&vec![IdAndExtId::from_external_id(&asset_ext)])
         .await;
+    asset_cleanup.disarm();
     let _ = api.datasets.delete(&vec![IdAndExtId::from_id(ds_id)]).await;
+    dataset_cleanup.disarm();
     Ok(())
 }
 
@@ -532,8 +548,7 @@ fn geolocation_serializes_as_geojson_object() {
 #[tokio::test]
 async fn test_resource_geolocation_round_trips() -> Result<(), ResponseError> {
     let api = create_api_service();
-    let uid = Uuid::new_v4().simple().to_string();
-    let ext = format!("rust_sdk_geo_{}", uid);
+    let ext = unique_id("geo");
 
     let mut asset = Resource::new();
     asset.external_id = ext.clone();
@@ -548,21 +563,20 @@ async fn test_resource_geolocation_round_trips() -> Result<(), ResponseError> {
     let mut cleanup = cleanup_resources(vec![ext.clone()]);
 
     // by_ids reads Postgres (synchronous on create); retry briefly to absorb any lag.
-    let mut fetched: Option<Resource> = None;
-    for _ in 0..10 {
-        let nodes = api
-            .resources
-            .by_ids(&ids)
-            .await?
-            .nodes()
-            .unwrap_or_default();
-        if let Some(r) = nodes.into_iter().find(|r| r.external_id == ext) {
-            fetched = Some(r);
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    }
-    let fetched = fetched.expect("resource should be readable via by_ids after create");
+    let fetched = poll_until(
+        || async {
+            api.resources
+                .by_ids(&ids)
+                .await
+                .map(|dw| dw.nodes().unwrap_or_default())
+                .unwrap_or_default()
+                .into_iter()
+                .find(|r| r.external_id == ext)
+        },
+        |found: &Option<Resource>| found.is_some(),
+    )
+    .await
+    .expect("resource should be readable via by_ids after create");
 
     let geom = fetched
         .geolocation

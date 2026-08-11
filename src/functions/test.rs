@@ -5,7 +5,7 @@ mod tests {
     use crate::generic::IdAndExtId;
     use crate::tests::cleanup::cleanup_functions;
     use serde_json::json;
-    use uuid::Uuid;
+use crate::tests::ids::unique_id;
 
     /// Create + list + by_external_id + delete round-trip against a live API.
     /// Marked `#[ignore]` since it depends on a running backend with a function template
@@ -14,8 +14,7 @@ mod tests {
     #[ignore]
     async fn functions_full_roundtrip() {
         let api = create_api_service();
-        let suffix = Uuid::new_v4().to_string()[0..8].to_string();
-        let ext_id = format!("sdk_test_fn_{}", suffix);
+        let ext_id = unique_id("fn");
 
         let fn_in = Function::new(ext_id.clone()).with_name("SDK roundtrip fn".to_string());
 

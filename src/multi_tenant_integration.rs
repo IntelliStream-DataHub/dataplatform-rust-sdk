@@ -211,7 +211,6 @@ use crate::tests::cleanup::{cleanup_datasets_as, cleanup_resources_as, cleanup_t
 use crate::{ApiService, TimeSeries};
 use chrono::Utc;
 use std::sync::{Arc, Once};
-use uuid::Uuid;
 
 /// Ask the token endpoint for every organization the caller belongs to. Resolves cleanly for a
 /// single-organization principal; ambiguous, and therefore rejected, for a multi-organization one.
@@ -309,7 +308,7 @@ impl Principal {
 /// A distinct external id per run. Entities are per-tenant, but the ACL tests seed and read across
 /// principals in one tenant, so collisions between concurrent runs are real.
 fn unique_id(kind: &str) -> String {
-    format!("rust_sdk_mt_{}_{}", kind, &Uuid::new_v4().to_string()[..12])
+    crate::tests::ids::unique_id(&format!("mt_{kind}"))
 }
 
 /// A token that is safe to put in `search.query`.
@@ -319,7 +318,7 @@ fn unique_id(kind: &str) -> String {
 /// underscores, so searching for one directly is a client error, not a miss. Hex from a UUID
 /// satisfies the pattern and is still unique enough to identify one entity.
 fn search_marker() -> String {
-    format!("rustsdkmt{}", &Uuid::new_v4().simple().to_string()[..12])
+    crate::tests::ids::unique_token("mt")
 }
 
 fn resource(external_id: &str, data_set_id: Option<u64>) -> Resource {

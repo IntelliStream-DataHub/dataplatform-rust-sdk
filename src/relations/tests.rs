@@ -262,7 +262,6 @@ mod live {
     use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork};
     use crate::tests::cleanup::cleanup_resources;
     use crate::tests::polling::poll_until;
-    use uuid::Uuid;
 
     /// Relationship types cannot be deleted through the API, so this one is seeded once and
     /// then reused — every run after the first sees it as an existing type.
@@ -276,11 +275,7 @@ mod live {
     /// what `edges.delete` was allowed to do and made the outcome depend on database history
     /// rather than on the test.
     fn unique_id(kind: &str) -> String {
-        format!(
-            "sdk_test_edge_{}_{}",
-            kind,
-            &Uuid::new_v4().to_string()[..12]
-        )
+        crate::tests::ids::unique_id(&format!("edge_{kind}"))
     }
 
     /// Wait until the graph projection, reachable from `from`, satisfies `predicate`.

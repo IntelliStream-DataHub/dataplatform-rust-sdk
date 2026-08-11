@@ -2,6 +2,46 @@ use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubConfig
 #[cfg(test)]
 use maplit::hashmap;
 
+pub mod ids {
+    //! Unique external ids for test entities. The Rust twin of `python_tests/fixtures.unique_id`,
+    //! with the same shape: `<prefix><kind>_<12 hex>`.
+    //!
+    //! Every entity a test creates gets one. A fixed id is a one-way door — the first run that
+    //! panics before its teardown strands the entity, and every run afterwards collides with it —
+    //! and the collision surfaces as whatever the server says about a duplicate external id, which
+    //! for `/resources/create` is a 500 with an empty body.
+    //!
+    //! The prefix differs from Python's `pytest_` on purpose: both suites run against the same
+    //! tenant, and a distinct prefix says which one left a row behind.
+
+    use uuid::Uuid;
+
+    /// Marks every entity this suite creates.
+    pub const TEST_PREFIX: &str = "rust_sdk_";
+
+    /// e.g. `unique_id("ts")` -> `rust_sdk_ts_9f3c1a2b4d5e`.
+    ///
+    /// Twelve hex characters of a v4 uuid, from the **unhyphenated** form — `Uuid::to_string()`
+    /// is hyphenated, so slicing that would bury a `-` inside the id.
+    pub fn unique_id(kind: &str) -> String {
+        format!(
+            "{TEST_PREFIX}{kind}_{}",
+            &Uuid::new_v4().simple().to_string()[..12]
+        )
+    }
+
+    /// The same id with no separators, for the few places that need a bare token — a search
+    /// query, or a name the server canonicalises.
+    pub fn unique_token(kind: &str) -> String {
+        format!(
+            "{}{}{}",
+            TEST_PREFIX.replace('_', ""),
+            kind.replace('_', ""),
+            &Uuid::new_v4().simple().to_string()[..12]
+        )
+    }
+}
+
 pub mod polling {
     //! Shared polling helpers for the integration suite. The Rust twin of
     //! `python_tests/polling.py`, with the same contract.
@@ -31,7 +71,22 @@ pub mod polling {
         Fut: Future<Output = T>,
         P: Fn(&T) -> bool,
     {
-        let deadline = Instant::now() + TIMEOUT;
+        poll_until_for(TIMEOUT, fetch, predicate).await
+    }
+
+    /// [`poll_until`] with an explicit bound, for the reads whose lag is structurally longer than
+    /// the default — datapoint ingestion goes through a ClickHouse merge that can take minutes on
+    /// a large insert, where every other projection here settles in seconds.
+    ///
+    /// Prefer [`poll_until`]. Reach for this only when the default has been shown to be too short
+    /// for that specific read, and say why at the call site.
+    pub async fn poll_until_for<T, F, Fut, P>(timeout: Duration, fetch: F, predicate: P) -> T
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = T>,
+        P: Fn(&T) -> bool,
+    {
+        let deadline = Instant::now() + timeout;
         let mut result = fetch().await;
         while !predicate(&result) && Instant::now() < deadline {
             tokio::time::sleep(INTERVAL).await;
@@ -408,6 +463,34 @@ pub mod cleanup {
                         "CleanupGuard: function delete failed during teardown: {}",
                         e.get_message()
                     );
+                }
+            })
+        })
+    }
+
+    /// Guard that deletes the given labels (by name) on drop.
+    ///
+    /// A label is addressed by its name, which the server canonicalises to upper case; the delete
+    /// endpoint takes it in the `externalId` slot like every other identifiable. A label still
+    /// attached to a resource is refused, so tear the resource down first.
+    pub fn cleanup_labels(names: Vec<String>) -> CleanupGuard {
+        CleanupGuard::new(move || {
+            Box::pin(async move {
+                if names.is_empty() {
+                    return;
+                }
+                let api = create_api_service();
+                for name in &names {
+                    if let Err(e) = api
+                        .labels
+                        .delete(&IdAndExtId::from_external_id(name))
+                        .await
+                    {
+                        eprintln!(
+                            "CleanupGuard: label delete failed during teardown: {}",
+                            e.get_message()
+                        );
+                    }
                 }
             })
         })

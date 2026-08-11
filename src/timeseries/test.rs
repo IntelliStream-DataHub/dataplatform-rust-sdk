@@ -13,6 +13,17 @@ mod tests {
     use crate::http::ResponseError;
     use crate::timeseries::{TimeSeries, TimeSeriesFilter, TimeSeriesFilterForm, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
     use crate::tests::cleanup::cleanup_timeseries;
+    use crate::tests::polling::poll_until_for;
+    use uuid::Uuid;
+
+    /// A per-run id, so a run never addresses the series a previous one left behind.
+    ///
+    /// The external ids in this module are all derived from one number (see `delete_timeseries`),
+    /// so varying the number is all it takes. Bounded well below `u64::MAX` because
+    /// `delete_timeseries` also clears `id + 1`.
+    fn run_id() -> u64 {
+        (Uuid::new_v4().as_u128() % 1_000_000_000) as u64
+    }
 
 
     #[tokio::test]
@@ -50,7 +61,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_filter_timeseries() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = 7300;
+        let unique_id: u64 = run_id();
         let api_service = create_api_service();
 
         // Delete timeseries first, in case a test failed and the time series exists
@@ -72,6 +83,9 @@ mod tests {
         ts_collection.add_item(ts);
         api_service.time_series.create(&ts_collection).await
             .expect("could not create the filter-test timeseries");
+        // Armed before the assertions: every one of them panics on failure, which would otherwise
+        // skip the delete at the end and leave the series behind.
+        let mut ts_cleanup = cleanup_timeseries(vec![ext_id.clone()]);
 
         // Key + value together must find exactly the created series.
         let mut filter = TimeSeriesFilter::default();
@@ -105,12 +119,15 @@ mod tests {
         }
 
         delete_timeseries(unique_id, &api_service).await;
+        ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
         Ok(())
     }
     #[tokio::test]
     async fn test_create_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = 1200;
+        let unique_id: u64 = run_id();
         let api_service = create_api_service();
+        let ext_a = format!("rust_sdk_test_{}_ts", unique_id);
+        let ext_b = format!("rust_sdk_test_{}_ts", unique_id + 1);
 
         // Delete timeseries first, in case a test failed and the time series exists
         delete_timeseries(unique_id, &api_service).await;
@@ -119,8 +136,8 @@ mod tests {
         let result = api_service.time_series.create(&ts_collection).await;
 
         let mut ts_cleanup = cleanup_timeseries(vec![
-            "rust_sdk_test_1200_ts".to_string(),
-            "rust_sdk_test_1201_ts".to_string(),
+            ext_a.clone(),
+            ext_b.clone(),
         ]);
 
         match result {
@@ -130,17 +147,17 @@ mod tests {
                 let items = timeseries.get_items();
 
                 println!("{:?}", items);
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1200_ts") {
-                    assert_eq!(item.external_id, "rust_sdk_test_1200_ts");
-                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, "rust_sdk_test_1200_ts");
+                if let Some(item) = items.iter().find(|&&ref item| item.external_id == ext_a) {
+                    assert_eq!(item.external_id, ext_a);
+                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, ext_a);
                     assert_eq!(item.metadata.as_ref().unwrap().len(), 2);
                 } else {
                     assert_eq!(StatusCode::OK, StatusCode::NO_CONTENT);
                 }
 
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1201_ts") {
-                    assert_eq!(item.external_id, "rust_sdk_test_1201_ts");
-                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, "rust_sdk_test_1201_ts");
+                if let Some(item) = items.iter().find(|&&ref item| item.external_id == ext_b) {
+                    assert_eq!(item.external_id, ext_b);
+                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, ext_b);
                 } else {
                     assert_eq!(StatusCode::OK, StatusCode::NO_CONTENT);
                 }
@@ -204,8 +221,10 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_update_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>> {
         println!("test_create_and_update_and_delete_timeseries");
-        let unique_id: u64 = 1400;
+        let unique_id: u64 = run_id();
         let api_service = create_api_service();
+        let ext = format!("rust_sdk_test_{}_ts", unique_id);
+        let ext_renamed = format!("{}_renamed", ext);
 
         // Delete timeseries first, in case a test failed and the time series exists
         delete_timeseries(unique_id, &api_service).await;
@@ -214,8 +233,8 @@ mod tests {
         let result = api_service.time_series.create(&ts_collection).await;
 
         let mut ts_cleanup = cleanup_timeseries(vec![
-            "rust_sdk_test_1400_ts".to_string(),
-            "rust_sdk_test_1400_ts_renamed".to_string(),
+            ext.clone(),
+            ext_renamed.clone(),
         ]);
 
         match result {
@@ -229,7 +248,7 @@ mod tests {
 
         let mut ts_update_collection = TimeSeriesUpdateCollection::new();
         let mut ts_update_fields = TimeSeriesUpdateFields::new();
-        ts_update_fields.external_id.set("rust_sdk_test_1400_ts_renamed".to_string());
+        ts_update_fields.external_id.set(ext_renamed.clone());
         ts_update_fields.name.set("Rust SDK Test 1400 TimeSeries Renamed".to_string());
         ts_update_fields.description.set("This is test timeseries generated by rust sdk test code. Renamed.".to_string());
         ts_update_fields.unit.set("fahrenheit".to_string());
@@ -238,7 +257,7 @@ mod tests {
             crate::fields::MapField::add(hashmap! {"newkey".to_string() => "newvalue".to_string()});
         let ts_update = TimeSeriesUpdate {
             id: None,
-            external_id: Some("rust_sdk_test_1400_ts".to_string()),
+            external_id: Some(ext.clone()),
             update: ts_update_fields
         };
         ts_update_collection.add_item(ts_update);
@@ -254,8 +273,8 @@ mod tests {
                 let items = timeseries.get_items();
 
                 println!("updated_timeseries {:?}", items);
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1400_ts_renamed") {
-                    assert_eq!(item.external_id, "rust_sdk_test_1400_ts_renamed");
+                if let Some(item) = items.iter().find(|&&ref item| item.external_id == ext_renamed) {
+                    assert_eq!(item.external_id, ext_renamed);
                     assert_eq!(item.metadata.as_ref().unwrap().len(), 3);
                     assert_eq!(item.name, "Rust SDK Test 1400 TimeSeries Renamed");
                     match &item.description {
@@ -282,7 +301,7 @@ mod tests {
         println!("ts2_id: {:?}", ts2_id);
 
         let mut id_collection = DataWrapper::from_vec(vec![IdAndExtId::from_id(ts2_id.unwrap())]);
-        id_collection.add_item(IdAndExtId { id: None, external_id: Some("rust_sdk_test_1400_ts".to_string()) });
+        id_collection.add_item(IdAndExtId { id: None, external_id: Some(ext.clone()) });
         let result = api_service.time_series.by_ids(&id_collection).await;
 
         match result {
@@ -291,8 +310,8 @@ mod tests {
 
                 let items = timeseries.get_items();
 
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1400_ts_renamed") {
-                    assert_eq!(item.external_id, "rust_sdk_test_1400_ts_renamed");
+                if let Some(item) = items.iter().find(|&&ref item| item.external_id == ext_renamed) {
+                    assert_eq!(item.external_id, ext_renamed);
                     assert_eq!(item.metadata.as_ref().unwrap().len(), 3);
                 }
             },
@@ -332,7 +351,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_timeseries() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = 6400;
+        let unique_id: u64 = run_id();
         let api_service = create_api_service();
 
         // Delete timeseries first, in case a test failed and the time series exists
@@ -429,6 +448,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_datapoints() -> Result<(), Box<dyn std::error::Error>> {
+        // Deliberately fixed, and deliberately shared with
+        // `test_raw_datapoints_query_if_data_is_already_inserted`, which reads back what this
+        // test inserts. Making either unique severs that and the reader has nothing to find.
         let unique_id: u64 = 6540;
         let api_service = create_api_service();
 
@@ -533,20 +555,12 @@ mod tests {
 
          */
 
-        // Before validating inserted data, sleep for 90 seconds...
-        // This is because it takes some time before data is inserted and merged in clickhouse
-        println!("Sleeping for 90 seconds...while waiting for data to be inserted into clickhouse.");
-        tokio::time::sleep(std::time::Duration::from_secs(90)).await;
-        println!("Done sleeping.");
-
+        // Wait for the ClickHouse insert+merge to expose every datapoint, then validate.
+        poll_datapoint_count(&api_service, &new_ts_ext_id, 100000).await;
         validate_datapoints(&api_service, vec![new_ts_ext_id.clone()]).await;
 
-        // Before validating inserted data, sleep for 90 seconds...
-        // This is because it takes some time before data is inserted into clickhouse and merged into the table
-        println!("Sleeping for 90 seconds...while waiting for data to be inserted into clickhouse and merged into timeseries.");
-        tokio::time::sleep(std::time::Duration::from_secs(90)).await;
-        println!("Done sleeping.");
-
+        // The daily aggregate reads the same rows, so it is ready once they all are.
+        poll_datapoint_count(&api_service, &new_ts_ext_id, 100000).await;
         println!("Validate aggregated datapoints...");
         validate_daily_avg(&api_service, vec![new_ts_ext_id.clone()]).await;
 
@@ -564,6 +578,40 @@ mod tests {
         Ok(())
     }
     // total is 9 354 000
+
+    /// Poll a series until `want` datapoints are readable from the start of 2025.
+    ///
+    /// Datapoint ingestion goes through a ClickHouse insert **and** a background merge, so a
+    /// just-written series reads back partial for a while — far longer than any other projection
+    /// in this suite, which is why this uses the long bound rather than `poll_until`'s default.
+    /// It replaces a fixed 90-second sleep: same worst case, but it returns as soon as the data
+    /// is actually there, and it says what it was waiting for when it never arrives.
+    async fn poll_datapoint_count(
+        api_service: &Arc<ApiService>,
+        ts_external_id: &str,
+        want: usize,
+    ) -> usize {
+        poll_until_for(
+            std::time::Duration::from_secs(150),
+            || async {
+                let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+                let mut rf = RetrieveFilter::new();
+                rf.set_external_id(ts_external_id);
+                rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+                rf.set_limit(100000);
+                data_request.add_item(rf);
+                api_service
+                    .time_series
+                    .retrieve_datapoints(&data_request)
+                    .await
+                    .ok()
+                    .and_then(|r| r.get_items().first().map(|i| i.datapoints.len()))
+                    .unwrap_or(0)
+            },
+            |count: &usize| *count >= want,
+        )
+        .await
+    }
 
     async fn validate_datapoints(api_service: &Arc<ApiService>, ts_external_id_vec: Vec<String>) {
         for ts_external_id in &ts_external_id_vec {
@@ -678,8 +726,30 @@ mod tests {
             }
         }
 
-        println!("Sleeping for 90 seconds...while waiting for data to be deleted in clickhouse.");
-        tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+        // Deletes land in ClickHouse asynchronously too. Wait for the whole series to shrink to
+        // what should survive the delete, rather than sleeping a fixed 90 seconds — the read
+        // below is capped at 5000, so on its own it cannot tell "the delete landed" from "the
+        // delete has not started yet".
+        poll_until_for(
+            std::time::Duration::from_secs(150),
+            || async {
+                let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+                let mut rf = RetrieveFilter::new();
+                rf.set_external_id(&ts_external_id);
+                rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+                rf.set_limit(100000);
+                data_request.add_item(rf);
+                api_service
+                    .time_series
+                    .retrieve_datapoints(&data_request)
+                    .await
+                    .ok()
+                    .and_then(|r| r.get_items().first().map(|i| i.datapoints.len()))
+                    .unwrap_or(usize::MAX)
+            },
+            |remaining: &usize| *remaining <= 5000,
+        )
+        .await;
 
         // Validate datapoints that is left
         let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
@@ -896,7 +966,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_latest_datapoint() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = 6610;
+        let unique_id: u64 = run_id();
         let api_service = create_api_service();
 
         // Delete timeseries first, in case a test failed and the time series exists

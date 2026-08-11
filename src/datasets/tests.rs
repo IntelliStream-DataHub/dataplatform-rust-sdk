@@ -5,14 +5,19 @@ use crate::generic::IdAndExtId;
 use crate::http::ResponseError;
 use crate::tests::cleanup::cleanup_datasets;
 use maplit::hashmap;
+use crate::tests::ids::unique_id;
 
 fn create_test_dataset() -> Vec<Dataset> {
     let mut datasets = vec![];
+    // Unique per run. `Dataset::new` derives the external id from the name, so varying the name
+    // is enough — and it has to vary: a fixed one is left behind by any run that fails before its
+    // teardown, and every later run then reads a tenant that already contains its own fixtures.
+    let run = unique_id("dataset");
     for i in 0..10 {
         let key = format!("test_key{}", i);
         let value = format!("test_value{}", i);
         datasets.push(
-            Dataset::new(format!("test_dataset{}", i))
+            Dataset::new(format!("{}_{}", run, i))
                 .set_description(format!("test_description{}", i))
                 .set_metadata(std::collections::HashMap::from([(key, value)]))
                 .set_policies(vec!["test_policy".to_string()])
@@ -76,7 +81,8 @@ async fn test_dataset_crud() -> Result<(), ResponseError> {
 #[tokio::test]
 async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError> {
     let api_service = create_api_service();
-    let ext_id = "sdk_test_dataset_list_search_update";
+    let ext_id = &unique_id("dataset_list_search_update");
+    let ext_id = ext_id.as_str();
     let selector = vec![IdAndExtId::from_external_id(ext_id)];
     api_service.datasets.delete(&selector).await?;
 
