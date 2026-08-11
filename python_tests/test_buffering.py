@@ -37,7 +37,7 @@ def test_event_buffers_to_disk_with_uuid_v7(tmp_path):
 
     # Server unreachable -> create() buffers instead of raising, and confirms no items.
     result = client.events.create(
-        [datahub_sdk.Event(external_id=unique_id("buffer_event"), event_time=datetime.now(timezone.utc))]
+        [datahub_sdk.Event(type="test", external_id=unique_id("buffer_event"), event_time=datetime.now(timezone.utc))]
     )
     assert result == []
 
@@ -60,10 +60,9 @@ def test_event_without_event_time_is_rejected():
     # unrepresentable, so this fails at construction rather than at send. Rust callers get a compile
     # error; Python is the only surface where this needs a test.
     with pytest.raises(TypeError):
-        datahub_sdk.Event(external_id="py_no_time_event")
+        datahub_sdk.Event(type="test", external_id="py_no_time_event")
 
-    ev = datahub_sdk.Event(
-        external_id="py_no_time_event", event_time=datetime.now(timezone.utc)
+    ev = datahub_sdk.Event(type="test", external_id="py_no_time_event", event_time=datetime.now(timezone.utc)
     )
     with pytest.raises(TypeError):
         ev.event_time = None
@@ -93,7 +92,7 @@ def test_live_event_gets_uuid_v7():
     ext_id = unique_id("event")
     try:
         created = client.events.create(
-            [datahub_sdk.Event(external_id=ext_id, event_time=datetime.now(timezone.utc))]
+            [datahub_sdk.Event(type="test", external_id=ext_id, event_time=datetime.now(timezone.utc))]
         )
         assert len(created) == 1
         assert isinstance(created[0].id, UUID)  # binding returns a real uuid.UUID

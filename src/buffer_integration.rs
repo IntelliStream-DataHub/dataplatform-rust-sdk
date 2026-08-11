@@ -76,7 +76,11 @@ async fn buffering_spools_to_disk_when_unreachable() {
     assert_eq!(r.get_http_status_code(), Some(202), "datapoint should be buffered");
     assert!(service.time_series.buffered_count() >= 1);
 
-    let ev = Event::new("rust_buffer_test_event".to_string(), Utc::now());
+    let ev = Event::new(
+        "rust_buffer_test_event".to_string(),
+        "buffer_test".to_string(),
+        Utc::now(),
+    );
     let er = service.events.create(&ev).await.expect("create should buffer");
     assert_eq!(er.get_http_status_code(), Some(202), "event should be buffered");
     assert!(service.events.buffered_count() >= 1);
@@ -91,7 +95,11 @@ async fn buffered_event_is_stamped_with_uuid_v7() {
     let dir = temp_dir();
     let service = unreachable_buffered_service(&dir);
 
-    let ev = Event::new("rust_uuid_v7_event".to_string(), Utc::now());
+    let ev = Event::new(
+        "rust_uuid_v7_event".to_string(),
+        "buffer_test".to_string(),
+        Utc::now(),
+    );
     let _ = service.events.create(&ev).await.expect("create should buffer");
 
     // The active segment is plain `<ts>\t<json>` NDJSON; find the stamped id and check its version.
@@ -161,7 +169,11 @@ async fn live_datapoint_buffering_roundtrip() {
 #[tokio::test]
 async fn live_event_gets_uuid_v7_id() {
     let service = create_api_service();
-    let ev = Event::new("rust_uuid_v7_event".to_string(), Utc::now());
+    let ev = Event::new(
+        "rust_uuid_v7_event".to_string(),
+        "buffer_test".to_string(),
+        Utc::now(),
+    );
 
     // Events get a fresh uuid per create, so same-external_id inserts pile up
     // instead of overwriting. Arm cleanup before create (so a panic still tears
@@ -182,7 +194,11 @@ async fn live_event_gets_uuid_v7_id() {
 #[tokio::test]
 async fn live_event_get_by_uuid() {
     let service = create_api_service();
-    let mut ev = Event::new("rust_event_get_by_uuid".to_string(), Utc::now());
+    let mut ev = Event::new(
+        "rust_event_get_by_uuid".to_string(),
+        "buffer_test".to_string(),
+        Utc::now(),
+    );
     ev.set_event_time(Utc::now());
     let mut ev_cleanup = cleanup_events(vec!["rust_event_get_by_uuid".to_string()]);
 
@@ -201,7 +217,11 @@ async fn live_event_get_by_uuid() {
 #[tokio::test]
 async fn live_event_delete_by_uuid() {
     let service = create_api_service();
-    let mut ev = Event::new("rust_event_delete_by_uuid".to_string(), Utc::now());
+    let mut ev = Event::new(
+        "rust_event_delete_by_uuid".to_string(),
+        "buffer_test".to_string(),
+        Utc::now(),
+    );
     ev.set_event_time(Utc::now());
     let mut ev_cleanup = cleanup_events(vec!["rust_event_delete_by_uuid".to_string()]);
 

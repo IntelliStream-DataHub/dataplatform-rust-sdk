@@ -52,24 +52,24 @@ EQUIVALENT_AWARE = [
 
 @pytest.mark.parametrize("dt", EQUIVALENT_AWARE)
 def test_event_constructor_accepts_any_timezone(dt):
-    ev = datahub_sdk.Event(external_id="tz_evt", event_time=dt)
+    ev = datahub_sdk.Event(type="test", external_id="tz_evt", event_time=dt)
     assert ev.event_time == UTC_NOON
 
 
 @pytest.mark.parametrize("dt", EQUIVALENT_AWARE)
 def test_event_time_setter_accepts_any_timezone(dt):
-    ev = datahub_sdk.Event(external_id="tz_evt", event_time=UTC_NOON)
+    ev = datahub_sdk.Event(type="test", external_id="tz_evt", event_time=UTC_NOON)
     ev.event_time = dt
     assert ev.event_time == UTC_NOON
 
 
 def test_event_rejects_naive_datetime():
     with pytest.raises(TypeError):
-        datahub_sdk.Event(external_id="tz_evt", event_time=datetime(2025, 1, 1, 12, 0))
+        datahub_sdk.Event(type="test", external_id="tz_evt", event_time=datetime(2025, 1, 1, 12, 0))
 
 
 def test_event_setter_rejects_naive_datetime():
-    ev = datahub_sdk.Event(external_id="tz_evt", event_time=UTC_NOON)
+    ev = datahub_sdk.Event(type="test", external_id="tz_evt", event_time=UTC_NOON)
     with pytest.raises(TypeError):
         ev.event_time = datetime(2025, 1, 1, 12, 0)
 
@@ -113,26 +113,26 @@ def test_retrieve_filter_accepts_any_timezone(dt):
 def test_naive_pandas_timestamp_is_rejected():
     # pandas Timestamp subclasses datetime, so a naive one hits the same naive guard.
     with pytest.raises(TypeError):
-        datahub_sdk.Event(external_id="tz_evt", event_time=pd.Timestamp("2025-01-01 12:00"))
+        datahub_sdk.Event(type="test", external_id="tz_evt", event_time=pd.Timestamp("2025-01-01 12:00"))
 
 
 def test_pandas_nat_is_rejected():
     with pytest.raises(TypeError):
-        datahub_sdk.Event(external_id="tz_evt", event_time=pd.NaT)
+        datahub_sdk.Event(type="test", external_id="tz_evt", event_time=pd.NaT)
 
 
 def test_numpy_datetime64_is_rejected_with_helpful_error():
     # numpy datetime64 is not a datetime and has no timezone; it must be rejected with a
     # message that points at the fix, not an opaque AttributeError.
     with pytest.raises(TypeError) as exc:
-        datahub_sdk.Event(external_id="tz_evt", event_time=np.datetime64("2025-01-01T12:00"))
+        datahub_sdk.Event(type="test", external_id="tz_evt", event_time=np.datetime64("2025-01-01T12:00"))
     assert "datetime64" in str(exc.value) or "pd.Timestamp" in str(exc.value)
 
 
 def test_numpy_datetime64_converted_via_pandas_is_accepted():
     # The documented workaround round-trips to the right instant.
     dt = pd.Timestamp(np.datetime64("2025-01-01T12:00")).tz_localize("UTC")
-    ev = datahub_sdk.Event(external_id="tz_evt", event_time=dt)
+    ev = datahub_sdk.Event(type="test", external_id="tz_evt", event_time=dt)
     assert ev.event_time == UTC_NOON
 
 
@@ -146,8 +146,8 @@ def test_dst_named_zone_resolves_offset_by_date():
     # tzinfo (the pre-fix datapoints path) can't handle a ZoneInfo at all.
     winter = datetime(2025, 1, 15, 12, 0, tzinfo=OSLO)  # +01:00 -> 11:00Z
     summer = datetime(2025, 7, 15, 12, 0, tzinfo=OSLO)  # +02:00 -> 10:00Z
-    assert datahub_sdk.Event(external_id="w", event_time=winter).event_time == datetime(2025, 1, 15, 11, 0, tzinfo=UTC)
-    assert datahub_sdk.Event(external_id="s", event_time=summer).event_time == datetime(2025, 7, 15, 10, 0, tzinfo=UTC)
+    assert datahub_sdk.Event(type="test", external_id="w", event_time=winter).event_time == datetime(2025, 1, 15, 11, 0, tzinfo=UTC)
+    assert datahub_sdk.Event(type="test", external_id="s", event_time=summer).event_time == datetime(2025, 7, 15, 10, 0, tzinfo=UTC)
 
 
 # --------------------------------------------------------------------------- #
@@ -218,8 +218,7 @@ def test_event_non_utc_offset_survives_roundtrip(sync_client, make_dataset, make
     event_time = datetime(2025, 6, 1, 18, 0, tzinfo=OSLO)  # summer = +02:00 -> 16:00Z
     expected_utc = datetime(2025, 6, 1, 16, 0, tzinfo=UTC)
 
-    ev = datahub_sdk.Event(
-        external_id=unique_id("tz_evt"),
+    ev = datahub_sdk.Event(type="test", external_id=unique_id("tz_evt"),
         event_time=event_time,
         data_set_id=ds.id,
     )

@@ -567,17 +567,18 @@ class Event:
     def __init__(
         self,
         external_id: str,
+        type: str,
         event_time: datetime.datetime,
-        type: str | None = None,
-        sub_type: str | None = None,
-        description: str | None = None,
-        status: str | None = None,
-        source: str | None = None,
         metadata: dict[str, str] | None = None,
+        description: str | None = None,
+        sub_type: str | None = None,
+        status: str | None = None,
         data_set_id: int | None = None,
         related_resources: list[IdCollection] | None = None,
-        id: UUID | None = None,
-    ) -> None: ...
+        source: str | None = None,
+    ) -> None:
+        """``type`` is required: the API rejects a blank one with status 400."""
+        ...
     @property
     def id(self) -> UUID | None: ...
     @property
@@ -585,9 +586,9 @@ class Event:
     @external_id.setter
     def external_id(self, value: str) -> None: ...
     @property
-    def type(self) -> str | None: ...
+    def type(self) -> str: ...
     @type.setter
-    def type(self, value: str | None) -> None: ...
+    def type(self, value: str) -> None: ...
     @property
     def sub_type(self) -> str | None: ...
     @sub_type.setter

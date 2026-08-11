@@ -14,10 +14,10 @@ impl PyEvent {
     #[new]
     #[pyo3(signature=(
     external_id,
+    r#type,
     event_time,
     metadata=None,
     description=None,
-    r#type=None,
     sub_type=None,
     status=None,
     data_set_id=None,
@@ -26,20 +26,23 @@ impl PyEvent {
     ))]
     pub fn __init__(
         external_id: String,
+        r#type: String,
         event_time: Bound<'_, PyAny>,
         metadata: Option<HashMap<String, String>>,
         description: Option<String>,
-        r#type: Option<String>,
         sub_type: Option<String>,
         status: Option<String>,
         data_set_id: Option<u64>,
         related_resources: Option<Vec<PyIdCollection>>,
         source: Option<String>,
     ) -> PyResult<Self> {
-        let mut ev = dataplatform_rust_sdk::Event::new(external_id, py_datetime_to_utc(&event_time)?);
+        let mut ev = dataplatform_rust_sdk::Event::new(
+            external_id,
+            r#type,
+            py_datetime_to_utc(&event_time)?,
+        );
         ev.metadata = metadata;
         ev.description = description;
-        ev.r#type = r#type;
         ev.sub_type = sub_type;
         ev.status = status;
         ev.data_set_id = data_set_id;
@@ -86,11 +89,11 @@ impl PyEvent {
         self.inner.description = value;
     }
     #[getter]
-    pub fn r#type(&self) -> Option<&str> {
+    pub fn r#type(&self) -> &str {
         self.inner.get_type()
     }
     #[setter]
-    pub fn set_type(&mut self, value: Option<String>) {
+    pub fn set_type(&mut self, value: String) {
         self.inner.r#type = value;
     }
     #[getter]

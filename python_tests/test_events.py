@@ -41,8 +41,7 @@ def test_events(sync_client,event_dataset):
         sub_type = f"{event_dataset.external_id}_test_event_{i}_sub_type"
         related_resources = []
         source = f"{event_dataset.external_id}_test_event_{i} source"
-        events.append(datahub_sdk.Event(
-            external_id=external_id,
+        events.append(datahub_sdk.Event(external_id=external_id,
             metadata=metadata,
             description=description,
             type=type,
@@ -72,8 +71,7 @@ def test_events_func_scope(sync_client,event_dataset):
         data_set_id = event_dataset_id
         related_resources = []
         source = f"{event_dataset.external_id}_func_scope_test_event_{i} source"
-        events.append(datahub_sdk.Event(
-            external_id=external_id,
+        events.append(datahub_sdk.Event(external_id=external_id,
             metadata=metadata,
             description=description,
             type=type,
@@ -265,8 +263,7 @@ def test_filter_by_related_resources(sync_client, event_dataset):
 
     ev_ext = unique_id("evfilt_ev")
     # Attach by external id only; the backend resolves the numeric id and returns both sides.
-    sync_client.events.create([datahub_sdk.Event(
-        external_id=ev_ext, event_time=pd.Timestamp.now(tz="UTC"),
+    sync_client.events.create([datahub_sdk.Event(type="test", external_id=ev_ext, event_time=pd.Timestamp.now(tz="UTC"),
         data_set_id=event_dataset.id,
         related_resources=[datahub_sdk.IdCollection(external_id=res_ext)])])
     try:
@@ -347,8 +344,7 @@ def test_filter_by_last_updated_time(sync_client, test_events, event_dataset):
 @pytest.fixture(scope="function")
 def single_event(sync_client, event_dataset):
     external_id = f"{event_dataset.external_id}_uuid_event_{uuid.uuid4().hex}"
-    ev = datahub_sdk.Event(
-        external_id=external_id,
+    ev = datahub_sdk.Event(type="test", external_id=external_id,
         data_set_id=event_dataset.id,
         event_time=pd.Timestamp("2025-01-01", tz="UTC"),
     )
@@ -425,8 +421,7 @@ def dimension_events(sync_client, event_dataset):
     events = []
     base = pd.Timestamp("2024-06-01", tz="UTC")
     for i in range(3):
-        events.append(datahub_sdk.Event(
-            external_id=f"{event_dataset.external_id}_dim_event_{token}_{i}",
+        events.append(datahub_sdk.Event(external_id=f"{event_dataset.external_id}_dim_event_{token}_{i}",
             description=f"dimension event {token} number {i}",
             type=dim["type"],
             sub_type=dim["sub_type"],
