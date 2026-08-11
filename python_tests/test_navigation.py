@@ -51,8 +51,7 @@ def test_local_objects_have_no_client():
     with pytest.raises(RuntimeError):
         TimeSeries(external_id=unique_id("ts")).neighbors()
     with pytest.raises(RuntimeError):
-        Event(
-            external_id=unique_id("ev"),
+        Event(type="test", external_id=unique_id("ev"),
             event_time=dt.datetime.now(dt.timezone.utc),
         ).related_resource_nodes()
     with pytest.raises(RuntimeError):
@@ -167,8 +166,7 @@ def test_event_related_resources(sync_client, make_resource):
     resource = Resource(external_id=res_ext, name="Nav Event Res", is_root=True, labels=["ASSET"])
     make_resource([resource])
 
-    ev = Event(
-        external_id=unique_id("nav_ev"),
+    ev = Event(type="test", external_id=unique_id("nav_ev"),
         event_time=dt.datetime.now(dt.timezone.utc),
         related_resources=[IdCollection(external_id=res_ext)],
     )
@@ -196,8 +194,7 @@ def test_resource_related_events(sync_client, make_resource):
     make_resource([resource])
 
     ev_ext = unique_id("nav_reev_ev")
-    ev = Event(
-        external_id=ev_ext,
+    ev = Event(type="test", external_id=ev_ext,
         event_time=dt.datetime.now(dt.timezone.utc),
         related_resources=[IdCollection(external_id=res_ext)],
     )

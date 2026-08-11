@@ -408,7 +408,12 @@ pub struct Event {
     pub external_id: String,
     pub metadata: Option<HashMap<String, String>>,
     pub description: Option<String>,
-    pub r#type: Option<String>,
+    /// What kind of event this is, e.g. `"Alarm"`. Required, and required by the server:
+    /// `@NotBlank @Size(min = 3, max = 128)`, advertised `REQUIRED` in its schema. An event
+    /// without one is rejected with `400 {"items[0].type":"must not be blank"}`, so it is modelled
+    /// as a `String` rather than an `Option<String>` — there is no useful default, and the type is
+    /// what every filter, dimension listing and dropdown groups events by.
+    pub r#type: String,
     pub sub_type: Option<String>,
     pub status: Option<String>,
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
@@ -433,16 +438,20 @@ impl DataHubEntity for Event {
 }
 
 impl Event {
+    /// The three fields the server will not accept an event without, and nothing else — everything
+    /// optional is filled in afterwards.
+    ///
     /// `event_time` is when the event actually occurred, as recorded by the source system or sensor.
     /// It is required: there is no sensible default, and "now" is usually wrong — the server records
-    /// the ingestion time separately as `created_time`.
-    pub fn new(external_id: String, event_time: DateTime<Utc>) -> Self {
+    /// the ingestion time separately as `created_time`. `r#type` is required for the same reason:
+    /// the server rejects a blank one, and it is the field events are grouped and filtered by.
+    pub fn new(external_id: String, r#type: String, event_time: DateTime<Utc>) -> Self {
         Event {
             id: None,
             external_id,
             metadata: None,
             description: None,
-            r#type: None,
+            r#type,
             sub_type: None,
             status: None,
             data_set_id: None,
@@ -525,12 +534,12 @@ impl Event {
         self.metadata.as_ref()
     }
 
-    pub fn get_type(&self) -> Option<&str> {
-        self.r#type.as_deref()
+    pub fn get_type(&self) -> &str {
+        self.r#type.as_str()
     }
 
     pub fn set_type(&mut self, r#type: String) {
-        self.r#type = Some(r#type);
+        self.r#type = r#type;
     }
 
     pub fn get_sub_type(&self) -> Option<&str> {

@@ -139,10 +139,10 @@ class TestTimeSeries:
 class TestEvent:
     def test_minimal_constructor_and_defaults(self):
         event_time = datetime.datetime(2023, 6, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
-        ev = dh.Event("ev1", event_time)
+        ev = dh.Event("ev1", "alarm", event_time)
         assert ev.external_id == "ev1"
         assert ev.id is None
-        assert ev.type is None
+        assert ev.type == "alarm"
         assert ev.sub_type is None
         assert ev.description is None
         assert ev.status is None
@@ -184,13 +184,21 @@ class TestEvent:
         assert _refs(ev.related_resources) == [(1, None), (None, "r1"), (2, "r2")]
         assert ev.event_time == event_time
 
-    def test_external_id_is_required(self):
+    def test_external_id_type_and_event_time_are_required(self):
+        # The three the API will not accept an event without; each is positional-required, so
+        # an event missing any of them cannot be constructed at all.
         with pytest.raises(TypeError):
             dh.Event()
+        with pytest.raises(TypeError):
+            dh.Event("ev1")
+        with pytest.raises(TypeError):
+            dh.Event("ev1", "alarm")
 
     def test_setters_update_every_field(self):
         event_time = datetime.datetime(2024, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc)
-        ev = dh.Event("ev1", datetime.datetime(2023, 6, 1, tzinfo=datetime.timezone.utc))
+        ev = dh.Event(
+            "ev1", "alarm", datetime.datetime(2023, 6, 1, tzinfo=datetime.timezone.utc)
+        )
         ev.external_id = "ev2"
         ev.type = "alarm"
         ev.sub_type = "high"
@@ -215,15 +223,16 @@ class TestEvent:
 
     def test_optional_setters_accept_none(self):
         event_time = datetime.datetime(2023, 6, 1, tzinfo=datetime.timezone.utc)
-        ev = dh.Event("ev1", event_time, type="alarm", metadata={"k": "v"}, data_set_id=1)
-        ev.type = None
+        ev = dh.Event("ev1", "alarm", event_time, metadata={"k": "v"}, data_set_id=1)
         ev.metadata = None
         ev.data_set_id = None
-        assert ev.type is None
         assert ev.metadata is None
         assert ev.data_set_id is None
-        # event_time is not optional: it has no None to fall back to
+        # Neither event_time nor type is optional: there is no None to fall back to.
         assert ev.event_time == event_time
+        assert ev.type == "alarm"
+        with pytest.raises(TypeError):
+            ev.type = None
 
 
 # --------------------------------------------------------------------------- #

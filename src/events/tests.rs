@@ -41,7 +41,7 @@ fn create_test_events(dataset_id: u64) -> Vec<Event> {
         let external_id = format!("pump_event_alarm_{:?}", id);
         external_ids.push(external_id.clone());
 
-        let mut new_event = Event::new(external_id.clone(), event_time);
+        let mut new_event = Event::new(external_id.clone(), "pump".to_string(), event_time);
 
         new_event.metadata = Option::from(HashMap::from([
             ("bytes".to_string(), (id * 3482 + 15).to_string()),
@@ -51,7 +51,6 @@ fn create_test_events(dataset_id: u64) -> Vec<Event> {
             ),
         ]));
         new_event.set_data_set_id(dataset_id);
-        new_event.r#type = Option::from("pump".to_string());
         if i % 3 == 0 {
             new_event.sub_type = Option::from("info".to_string());
             if i % 2 == 0 {
@@ -490,7 +489,7 @@ mod uuid_serde {
 
     #[test]
     fn event_id_round_trips_as_a_uuid_string() {
-        let mut ev = Event::new("evt_roundtrip".to_string(), Utc::now());
+        let mut ev = Event::new("evt_roundtrip".to_string(), "test".to_string(), Utc::now());
         let id = Uuid::now_v7();
         ev.id = Some(id);
 
@@ -509,12 +508,26 @@ mod uuid_serde {
     #[test]
     fn event_with_absent_id_deserializes_to_none() {
         // A payload that omits `id` entirely (e.g. a list projection) must not fail to parse.
-        // `eventTime` is required on every event the API returns, so it stays present; only the
-        // optional `id` is absent here.
-        let json = r#"{"externalId":"evt_no_id","eventTime":"2025-01-01T00:00:00Z","relatedResources":[]}"#;
+        // `eventTime` and `type` are required on every event the API returns, so they stay
+        // present; only the optional `id` is absent here.
+        let json = r#"{"externalId":"evt_no_id","type":"alarm","eventTime":"2025-01-01T00:00:00Z","relatedResources":[]}"#;
         let ev: Event = serde_json::from_str(json).unwrap();
         assert_eq!(ev.id, None);
         assert_eq!(ev.external_id, "evt_no_id");
+    }
+
+    /// `type` is `@NotBlank` on the server and advertised REQUIRED, so an event without one is a
+    /// 400 rather than a document the SDK should be able to hold. Deserialization is strict for
+    /// the same reason the field is: a payload missing it is not an event.
+    #[test]
+    fn event_without_a_type_does_not_deserialize() {
+        let json = r#"{"externalId":"evt_no_type","eventTime":"2025-01-01T00:00:00Z"}"#;
+        let err = serde_json::from_str::<Event>(json)
+            .expect_err("an event without a type is not representable");
+        assert!(
+            err.to_string().contains("type"),
+            "the error should name the missing field, got: {err}"
+        );
     }
 
     #[test]
@@ -676,7 +689,7 @@ mod related_resources_serde {
 
     #[test]
     fn event_serializes_related_resources_as_id_collections() {
-        let mut ev = Event::new("evt_rr".to_string(), Utc::now());
+        let mut ev = Event::new("evt_rr".to_string(), "test".to_string(), Utc::now());
         ev.add_related_resource_id(34);
         ev.add_related_resource_external_id("a".to_string());
         ev.add_related_resource(IdAndExtId {
@@ -699,7 +712,7 @@ mod related_resources_serde {
     #[test]
     fn event_reads_back_resolved_related_resources() {
         // What the server returns: both sides populated on every entry.
-        let json = r#"{"externalId":"evt_rr","eventTime":"2026-01-01T00:00:00Z",
+        let json = r#"{"externalId":"evt_rr","type":"alarm","eventTime":"2026-01-01T00:00:00Z",
             "relatedResources":[{"id":"34","externalId":"sensor_abc"}]}"#;
         let ev: Event = serde_json::from_str(json).unwrap();
         assert_eq!(ev.related_resources.len(), 1);
@@ -712,7 +725,7 @@ mod related_resources_serde {
 
     #[test]
     fn removing_a_related_resource_matches_on_the_named_side() {
-        let mut ev = Event::new("evt_rr".to_string(), Utc::now());
+        let mut ev = Event::new("evt_rr".to_string(), "test".to_string(), Utc::now());
         ev.add_related_resource_id(34);
         ev.add_related_resource_external_id("a".to_string());
 
