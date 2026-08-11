@@ -32,11 +32,19 @@
 //!
 //! ## What that means for an SDK caller
 //!
-//! `SCOPE=organization:*` is the natural default and works fine — right up until the service
+//! `SCOPE=organization:*` is the natural setting and works fine — right up until the service
 //! account is added to a second organization, at which point **every call starts failing 401**
 //! with nothing in the response to say why. There is no per-request override and no way to pick a
 //! tenant after the token is issued: selection happens at the token endpoint, and a
 //! [`DataHubConfig`] owns exactly one token cache, so one client is one tenant.
+//!
+//! (`SCOPE` adds to the always-sent [`crate::datahub::DEFAULT_SCOPE`], so the selector is all you
+//! write here — `openid` comes along on its own.)
+//!
+//! Leaving `SCOPE` unset therefore sends `openid` and no organization selector. A
+//! single-organization principal still gets its claim and works; a multi-organization one receives
+//! `organization: null` and is refused 401, exactly as the table above says. So the default is
+//! enough to talk to the API, but not to choose a tenant.
 //!
 //! A caller whose credentials span two organizations must therefore pin one, and build a separate
 //! client per tenant:
@@ -44,10 +52,10 @@
 //! ```no_run
 //! # use dataplatform_rust_sdk::{datahub::DataHubConfig, ApiService};
 //! let mut config = DataHubConfig::from_env().unwrap();
-//! config.set_scope("openid organization:acme"); // or SCOPE=organization:acme in .env
+//! config.set_scope("organization:acme"); // or SCOPE=organization:acme in .env
 //! let acme = ApiService::new(config.clone());
 //!
-//! config.set_scope("openid organization:beta");
+//! config.set_scope("organization:beta");
 //! let beta = ApiService::new(config); // a second client, a second tenant
 //! ```
 //!
@@ -196,11 +204,11 @@ use uuid::Uuid;
 
 /// Ask the token endpoint for every organization the caller belongs to. Resolves cleanly for a
 /// single-organization principal; ambiguous, and therefore rejected, for a multi-organization one.
-const SCOPE_ALL_ORGS: &str = "openid organization:*";
+const SCOPE_ALL_ORGS: &str = "organization:*";
 
 /// Pin one organization. The only scope a multi-organization principal can use.
 fn scope_for(alias: &str) -> String {
-    format!("openid organization:{alias}")
+    format!("organization:{alias}")
 }
 
 static LOAD_ENV: Once = Once::new();
@@ -232,8 +240,9 @@ struct Principal {
 
 /// Build the principal at `prefix`, or print a skip note and return `None`.
 ///
-/// `scope` is `None` to send no `scope` parameter at all — the "I forgot to set `SCOPE`" case,
-/// which yields a token with no `organization` claim.
+/// `scope` is `None` to leave `SCOPE` unset — the "I forgot to set `SCOPE`" case. That sends the
+/// SDK's default ([`crate::datahub::DEFAULT_SCOPE`]), which has no organization selector, so a
+/// multi-organization principal still ends up with no usable `organization` claim.
 fn principal(test: &str, prefix: &str, scope: Option<&str>) -> Option<Principal> {
     let mut missing = Vec::new();
     let mut required = |key: String| -> Option<String> {
@@ -473,10 +482,12 @@ async fn multi_tenant_multi_org_principal_with_wildcard_scope_is_rejected(
     Ok(())
 }
 
-/// The same principal with no organization selector at all: the claim is absent, so also a 401.
+/// The same principal with no organization selector at all: the claim is unusable, so also a 401.
 ///
 /// This is the shape of the "I forgot to set `SCOPE`" mistake, and it is worth pinning separately
-/// because it is indistinguishable from bad credentials at the call site.
+/// because it is indistinguishable from bad credentials at the call site. The SDK's default scope
+/// gets the token as far as UserInfo but names no organization, so a multi-organization principal
+/// is still refused — the default fixes the *authorization* half of the problem, not tenant choice.
 #[tokio::test]
 #[ignore]
 async fn multi_tenant_principal_without_an_organization_selector_is_rejected(
