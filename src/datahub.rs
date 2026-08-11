@@ -21,6 +21,8 @@ pub const DEFAULT_BUFFER_RETENTION_MS: i64 = 72 * 3600 * 1000; // 72 hours
 pub const DEFAULT_BUFFER_MAX_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 /// Default directory for the on-disk ingest spools.
 pub const DEFAULT_BUFFER_DIR: &str = ".datahub-spool";
+/// Scope sent with a token request when none is configured. See [`OAuthConfig::effective_scope`].
+pub const DEFAULT_SCOPE: &str = "openid";
 /// RFC 7523 grant type: exchange an externally-issued JWT assertion for a token.
 const JWT_BEARER_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 /// RFC 7523 client-authentication type: authenticate the client itself with a JWT assertion
@@ -38,19 +40,21 @@ pub struct OAuthConfig {
     #[serde(alias = "TOKEN_URI")]
     pub(crate) token_uri: Option<String>,
 
-    /// OAuth2 `scope` for the client-credentials request; space-separated for several. Omitted
-    /// when unset.
+    /// OAuth2 `scope` for the client-credentials request; space-separated for several. Defaults to
+    /// [`DEFAULT_SCOPE`] when unset — see [`OAuthConfig::effective_scope`] for why.
     ///
-    /// **Against DataHub, whether this is required depends on the realm.** DataHub resolves the
-    /// caller's tenant from the `organization` claim, and there are two ways a realm produces it.
-    /// With Keycloak's Organizations feature the claim comes from a dynamic client scope, so the
-    /// request must name it: `organization:*`, or `organization:<alias>` to pin one tenant.
-    /// Without it the token carries no tenant and every call fails `401 invalid_token`, which
-    /// looks like bad credentials but is not. Where the claim instead comes from a protocol mapper
-    /// on the client it is emitted unconditionally and no scope is needed.
+    /// **Against DataHub, a realm using organization groups needs more than the default.** DataHub
+    /// resolves the caller's tenant from the `organization` claim, and there are two ways a realm
+    /// produces it. With Keycloak's Organizations feature the claim comes from a dynamic client
+    /// scope, so the request must name it — and because an explicit scope replaces the default
+    /// rather than adding to it, it must name both: `openid organization:*`, or
+    /// `openid organization:<alias>` to pin one tenant. Without the organization selector the token
+    /// carries no tenant and every call fails `401 invalid_token`, which looks like bad credentials
+    /// but is not. Where the claim instead comes from a protocol mapper on the client it is emitted
+    /// unconditionally and the default suffices.
     ///
     /// Other providers want it for their own reasons: Entra ID requires
-    /// `api://<app-id-uri>/.default`.
+    /// `api://<app-id-uri>/.default`, which must be sent alone.
     #[serde(alias = "SCOPE")]
     pub(crate) scope: Option<String>,
 
@@ -89,6 +93,25 @@ pub struct OAuthConfig {
 
     #[serde(alias = "PROJECT_NAME")]
     pub(crate) project_name: Option<String>,
+}
+
+impl OAuthConfig {
+    /// The scope to send with a token request: the configured one, or [`DEFAULT_SCOPE`].
+    ///
+    /// `openid` is the default because DataHub cannot authorize a caller without it. The API
+    /// resolves dataset grants by calling the identity provider's UserInfo endpoint with the
+    /// caller's own token (`KeycloakUserInfoClient`), and Keycloak refuses UserInfo with **403**
+    /// for any token whose scope omits `openid`. The API reports that as a *503 "identity provider
+    /// is unreachable"*, so a token that is otherwise perfectly valid produces a retryable-looking
+    /// fault on every permission-checked endpoint, with nothing pointing at the scope.
+    ///
+    /// A configured scope is sent **verbatim, replacing the default rather than adding to it**.
+    /// Providers disagree about combining scopes — Entra ID rejects `.default` alongside anything
+    /// else — so the SDK does not edit a scope the caller chose. A Keycloak realm using
+    /// organization groups therefore has to ask for both: `openid organization:*`.
+    pub(crate) fn effective_scope(&self) -> &str {
+        self.scope.as_deref().unwrap_or(DEFAULT_SCOPE)
+    }
 }
 #[derive(Default, Debug, Clone)]
 struct AuthState {
@@ -424,10 +447,8 @@ impl DataHubConfig {
                 )));
             };
             let mut request = authclient.exchange_client_credentials();
-            if let Some(scope) = self.config.scope.as_deref() {
-                for s in scope.split_whitespace() {
-                    request = request.add_scope(Scope::new(s.to_string()));
-                }
+            for s in self.config.effective_scope().split_whitespace() {
+                request = request.add_scope(Scope::new(s.to_string()));
             }
             if let Some(audience) = self.config.audience.as_deref() {
                 request = request.add_extra_param("audience", audience.to_string());
@@ -531,9 +552,7 @@ impl DataHubConfig {
         };
         let assertion = self.fetch_assertion().await?;
         let mut form: Vec<(&str, String)> = Vec::new();
-        if let Some(scope) = &config.scope {
-            form.push(("scope", scope.clone()));
-        }
+        form.push(("scope", config.effective_scope().to_string()));
         if let Some(audience) = &config.audience {
             form.push(("audience", audience.clone()));
         }
@@ -639,6 +658,31 @@ pub fn to_snake_lower_cased_allow_start_with_digits(s: &str) -> String {
         replaced.trim_end_matches('_').to_string()
     } else {
         replaced.trim_matches('_').to_string()
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    /// Unset means `openid`, not "no scope": without it Keycloak refuses UserInfo and the API
+    /// answers every permission-checked call with a 503 that names the wrong cause.
+    #[test]
+    fn unset_scope_defaults_to_openid() {
+        assert_eq!(OAuthConfig::default().effective_scope(), "openid");
+    }
+
+    /// A configured scope replaces the default rather than merging with it — Entra ID rejects
+    /// `.default` sent alongside anything else, so the SDK must not append to a caller's choice.
+    #[test]
+    fn configured_scope_is_sent_verbatim() {
+        let mut config = OAuthConfig::default();
+        config.scope = Some("api://entra-app/.default".to_string());
+        assert_eq!(config.effective_scope(), "api://entra-app/.default");
+
+        // The pairing a Keycloak realm with organization groups needs, stated in full by the caller.
+        config.scope = Some("openid organization:*".to_string());
+        assert_eq!(config.effective_scope(), "openid organization:*");
     }
 }
 
