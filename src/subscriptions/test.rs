@@ -10,7 +10,7 @@ mod tests {
     use crate::timeseries::TimeSeries;
     use crate::{create_api_service, ApiService};
     use reqwest::StatusCode;
-    use uuid::Uuid;
+    use crate::tests::ids::unique_id;
 
     // Serde round-trip: verify the Subscription JSON layout matches the backend's camelCase contract.
     #[test]
@@ -97,10 +97,9 @@ mod tests {
         let api_service = create_api_service();
 
         // Unique suffix so repeated runs don't collide with lingering state.
-        let suffix = Uuid::new_v4().simple().to_string();
-        let ts_a_ext = format!("sub_test_ts_a_{}", &suffix[..8]);
-        let ts_b_ext = format!("sub_test_ts_b_{}", &suffix[..8]);
-        let sub_ext = format!("sub_test_{}", &suffix[..8]);
+        let ts_a_ext = unique_id("sub_test_ts_a");
+        let ts_b_ext = unique_id("sub_test_ts_b");
+        let sub_ext = unique_id("sub_test");
 
         // 1. Create two timeseries to bind the subscription to. Subscription create will 400 if
         //    these don't exist (see SubscriptionService::resolveTimeseries in the backend).
@@ -121,7 +120,7 @@ mod tests {
         let result: Result<(), Box<dyn std::error::Error>> = async {
             let sub = Subscription::new(
                 sub_ext.clone(),
-                format!("Sub Test {}", &suffix[..8]),
+                format!("Sub Test {}", sub_ext),
                 ts_ids.clone(),
             );
 
@@ -218,9 +217,8 @@ mod tests {
     async fn test_delete_timeseries_bound_to_subscription_returns_400(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
-        let suffix = Uuid::new_v4().simple().to_string();
-        let ts_ext = format!("sub_guard_ts_{}", &suffix[..8]);
-        let sub_ext = format!("sub_guard_{}", &suffix[..8]);
+        let ts_ext = unique_id("sub_guard_ts");
+        let sub_ext = unique_id("sub_guard");
 
         // Create the timeseries the subscription will bind to (unit is required by the server).
         let mut ts = TimeSeries::new(&ts_ext, "Sub Guard TS");
@@ -233,7 +231,7 @@ mod tests {
         // Bind a subscription to it.
         let sub = Subscription::new(
             sub_ext.clone(),
-            format!("Sub Guard {}", &suffix[..8]),
+            format!("Sub Guard {}", sub_ext),
             vec![IdAndExtId::from_external_id(&ts_ext)],
         );
         api_service.subscriptions.create(&sub).await?;
@@ -421,9 +419,8 @@ mod tests {
         use std::time::Duration;
 
         let api_service = create_api_service();
-        let suffix = Uuid::new_v4().simple().to_string();
-        let ts_ext = format!("sub_listen_ts_{}", &suffix[..8]);
-        let sub_ext = format!("sub_listen_{}", &suffix[..8]);
+        let ts_ext = unique_id("sub_listen_ts");
+        let sub_ext = unique_id("sub_listen");
 
         let mut ts = TimeSeries::new(&ts_ext, "Sub Listen TS");
         ts.set_unit("Celsius").set_unit_external_id("temperature_deg_c");
@@ -433,7 +430,7 @@ mod tests {
 
         let sub = Subscription::new(
             sub_ext.clone(),
-            format!("Sub Listen {}", &suffix[..8]),
+            format!("Sub Listen {}", sub_ext),
             vec![IdAndExtId::from_external_id(&ts_ext)],
         );
         api_service.subscriptions.create(&sub).await?;

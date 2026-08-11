@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
+use crate::tests::ids::unique_id;
 
 /// Event ingestion/deletion is eventually consistent, so `by_ids` right after a write can lag.
 /// Poll it until it reports `want` matches (or we give up after ~10s) and return the items.
@@ -134,7 +135,7 @@ async fn live_datapoint_buffering_roundtrip() {
 
     // Unique per run: a fixed id is stranded by any run that panics before its teardown, and the
     // next run then asserts against a series it did not create.
-    let series_ext = format!("rust_buffer_test_series_{}", Uuid::new_v4().simple());
+    let series_ext = unique_id("buffer_series");
     let id_collection =
         DataWrapper::from_vec(vec![IdAndExtId::from_external_id(&series_ext)]);
 
@@ -172,7 +173,7 @@ async fn live_datapoint_buffering_roundtrip() {
 #[tokio::test]
 async fn live_event_gets_uuid_v7_id() {
     let service = create_api_service();
-    let event_ext = format!("rust_uuid_v7_event_{}", Uuid::new_v4().simple());
+    let event_ext = unique_id("uuid_v7_event");
     let ev = Event::new(
         event_ext.clone(),
         "buffer_test".to_string(),
@@ -198,7 +199,7 @@ async fn live_event_gets_uuid_v7_id() {
 #[tokio::test]
 async fn live_event_get_by_uuid() {
     let service = create_api_service();
-    let event_ext = format!("rust_event_get_by_uuid_{}", Uuid::new_v4().simple());
+    let event_ext = unique_id("event_get_by_uuid");
     let mut ev = Event::new(
         event_ext.clone(),
         "buffer_test".to_string(),
@@ -222,7 +223,7 @@ async fn live_event_get_by_uuid() {
 #[tokio::test]
 async fn live_event_delete_by_uuid() {
     let service = create_api_service();
-    let event_ext = format!("rust_event_delete_by_uuid_{}", Uuid::new_v4().simple());
+    let event_ext = unique_id("event_delete_by_uuid");
     let mut ev = Event::new(
         event_ext.clone(),
         "buffer_test".to_string(),

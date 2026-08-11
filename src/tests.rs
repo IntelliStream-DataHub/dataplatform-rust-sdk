@@ -2,6 +2,46 @@ use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubConfig
 #[cfg(test)]
 use maplit::hashmap;
 
+pub mod ids {
+    //! Unique external ids for test entities. The Rust twin of `python_tests/fixtures.unique_id`,
+    //! with the same shape: `<prefix><kind>_<12 hex>`.
+    //!
+    //! Every entity a test creates gets one. A fixed id is a one-way door — the first run that
+    //! panics before its teardown strands the entity, and every run afterwards collides with it —
+    //! and the collision surfaces as whatever the server says about a duplicate external id, which
+    //! for `/resources/create` is a 500 with an empty body.
+    //!
+    //! The prefix differs from Python's `pytest_` on purpose: both suites run against the same
+    //! tenant, and a distinct prefix says which one left a row behind.
+
+    use uuid::Uuid;
+
+    /// Marks every entity this suite creates.
+    pub const TEST_PREFIX: &str = "rust_sdk_";
+
+    /// e.g. `unique_id("ts")` -> `rust_sdk_ts_9f3c1a2b4d5e`.
+    ///
+    /// Twelve hex characters of a v4 uuid, from the **unhyphenated** form — `Uuid::to_string()`
+    /// is hyphenated, so slicing that would bury a `-` inside the id.
+    pub fn unique_id(kind: &str) -> String {
+        format!(
+            "{TEST_PREFIX}{kind}_{}",
+            &Uuid::new_v4().simple().to_string()[..12]
+        )
+    }
+
+    /// The same id with no separators, for the few places that need a bare token — a search
+    /// query, or a name the server canonicalises.
+    pub fn unique_token(kind: &str) -> String {
+        format!(
+            "{}{}{}",
+            TEST_PREFIX.replace('_', ""),
+            kind.replace('_', ""),
+            &Uuid::new_v4().simple().to_string()[..12]
+        )
+    }
+}
+
 pub mod polling {
     //! Shared polling helpers for the integration suite. The Rust twin of
     //! `python_tests/polling.py`, with the same contract.

@@ -8,16 +8,17 @@ use crate::tests::cleanup::{
 };
 use maplit::hashmap;
 use uuid::Uuid;
+use crate::tests::ids::unique_id;
 
 fn create_test_resources() -> Vec<Resource> {
     // helper function to create test resources will
     let count = 2;
-    let uuids = (0..count).map(|_| Uuid::new_v4()).collect::<Vec<Uuid>>();
+    let ids = (0..count).map(|_| unique_id("resource")).collect::<Vec<String>>();
     let res1 = Resource {
         // used to be a serde skip if zero here. don't understand why
         id: None,
-        external_id: format!("Rust_SDK_Test_Resource_{:?}", uuids[0]),
-        name: format!("Rust SDK Test Resource-{:?}", uuids[0]),
+        external_id: ids[0].clone(),
+        name: format!("Rust SDK Test Resource {}", ids[0]),
         metadata: Some(hashmap! {
             "foo".to_string() => "bar".to_string(),
             "is_test".to_string() => "true".to_string(),
@@ -36,8 +37,8 @@ fn create_test_resources() -> Vec<Resource> {
     let res2 = Resource {
         // used to be a serde skip if zero here. don't understand why
         id: None,
-        external_id: format!("Rust_SDK_Test_Resource_{:?}", uuids[1]),
-        name: format!("Rust SDK Test Resource-{:?}", uuids[1]),
+        external_id: ids[1].clone(),
+        name: format!("Rust SDK Test Resource {}", ids[1]),
         metadata: None,
         description: None,
         is_root: false,
@@ -267,10 +268,10 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     use crate::TimeSeries;
 
     let api = create_api_service();
-    let uid = Uuid::new_v4().simple().to_string();
-    let asset_ext = format!("neo_fields_asset_{}", uid);
-    let ts_ext = format!("neo_fields_ts_{}", uid);
-    let func_ext = format!("neo_fields_fn_{}", uid);
+    let uid = Uuid::new_v4().simple().to_string(); // dataset name only; the ids below are unique_id
+    let asset_ext = unique_id("neo_fields_asset");
+    let ts_ext = unique_id("neo_fields_ts");
+    let func_ext = unique_id("neo_fields_fn");
 
     // A dataset so we can assert `data_set_id` persists (a Resource-common graph field).
     let dataset = Dataset::new(format!("Neo Fields DS {}", uid));
@@ -547,8 +548,7 @@ fn geolocation_serializes_as_geojson_object() {
 #[tokio::test]
 async fn test_resource_geolocation_round_trips() -> Result<(), ResponseError> {
     let api = create_api_service();
-    let uid = Uuid::new_v4().simple().to_string();
-    let ext = format!("rust_sdk_geo_{}", uid);
+    let ext = unique_id("geo");
 
     let mut asset = Resource::new();
     asset.external_id = ext.clone();

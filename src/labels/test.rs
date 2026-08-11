@@ -4,7 +4,7 @@ mod tests {
     use crate::generic::{DataWrapper, IdAndExtId};
     use crate::labels::Label;
     use crate::tests::cleanup::{cleanup_labels, cleanup_resources};
-    use uuid::Uuid;
+    use crate::tests::ids::unique_id;
 
     // Serde round-trips: no backend required.
 
@@ -43,10 +43,9 @@ mod tests {
         // Unique per run: a fixed name strands residue the moment an assertion fails before the
         // delete, and every later run then collides with it. Upper-cased because the server
         // canonicalises label names that way, and the assertions below compare verbatim.
-        let name = format!(
-            "SDK_PROBE_LABEL_{}",
-            Uuid::new_v4().to_string()[..8].to_uppercase()
-        );
+        // Upper-cased because the server canonicalises label names that way and the assertions
+        // below compare verbatim; the id underneath is the suite's standard shape.
+        let name = unique_id("probe_label").to_uppercase();
         let name = name.as_str();
 
         // create
@@ -113,10 +112,9 @@ mod tests {
         // Unique per run. With fixed ids this test stranded its resource the first time an
         // assertion failed before the teardown, and every run after that died re-creating it —
         // a duplicate external id answers 500 with an empty body, which names nothing.
-        let suffix = &Uuid::new_v4().to_string()[..8];
         // Label names are canonicalised to upper case server-side; external ids are not.
-        let label_name = format!("SDK_PROBE_INUSE_{}", suffix.to_uppercase());
-        let res_ext_id = format!("sdk_probe_res_{suffix}");
+        let label_name = unique_id("probe_inuse").to_uppercase();
+        let res_ext_id = unique_id("probe_res");
 
         // create a resource carrying the label (this is what populates the M2M the delete checks)
         let mut resource = Resource::new();
