@@ -3,6 +3,7 @@ use crate::events::{Event, EventIdCollection};
 use crate::filters::{BasicEventFilter, EventFilter, TimeFilter};
 use crate::generic::IdAndExtId;
 use crate::tests::cleanup::{cleanup_events_by_uuid, cleanup_resources};
+use crate::tests::polling::poll_until;
 use crate::{create_api_service, ApiService};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use maplit::hashmap;
@@ -250,10 +251,10 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     // still torn down during unwind. Disarmed after the explicit delete on the
     // happy path so teardown doesn't run twice.
     let mut event_cleanup = cleanup_events_by_uuid(created_event_ids.clone());
-    tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+
     // test empty filter
     println!("empty filter:");
-    let mut empty_filter_res = api_service
+    let _empty_filter_res = api_service
         .events
         .filter(&eventfilter.set_filter(basic_filter.clone()))
         .await
@@ -263,16 +264,26 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
 
     // test external id prefix filter
     basic_filter.set_external_id_prefix("pump");
-    let filter_eid_prefix_pump = api_service
-        .events
-        .filter(&eventfilter.set_filter(basic_filter.clone()))
-        .await
-        .unwrap();
     let expected_events_post_external_id_filter = &test_events
         .iter()
         .filter(|eve| eve.external_id.starts_with("pump"))
         .cloned()
         .collect::<Vec<Event>>();
+    // Events reach the filter projection asynchronously, so the first read after a create can
+    // see a partial set. Poll until it holds everything we created, then assert on what came
+    // back. Every filter below narrows *this* set, so once it is complete they all are — which
+    // is why one poll here replaces the blanket sleep this test used to open with.
+    let pump_filter = eventfilter.set_filter(basic_filter.clone()).clone();
+    let filter_eid_prefix_pump = poll_until(
+        || async { api_service.events.filter(&pump_filter).await },
+        |res| {
+            res.as_ref().map_or(false, |r| {
+                r.get_items().len() >= expected_events_post_external_id_filter.len()
+            })
+        },
+    )
+    .await
+    .unwrap();
     println!("Pump events:");
     assert!(equal_external_ids(
         &expected_events_post_external_id_filter,

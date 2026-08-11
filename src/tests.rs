@@ -71,7 +71,22 @@ pub mod polling {
         Fut: Future<Output = T>,
         P: Fn(&T) -> bool,
     {
-        let deadline = Instant::now() + TIMEOUT;
+        poll_until_for(TIMEOUT, fetch, predicate).await
+    }
+
+    /// [`poll_until`] with an explicit bound, for the reads whose lag is structurally longer than
+    /// the default — datapoint ingestion goes through a ClickHouse merge that can take minutes on
+    /// a large insert, where every other projection here settles in seconds.
+    ///
+    /// Prefer [`poll_until`]. Reach for this only when the default has been shown to be too short
+    /// for that specific read, and say why at the call site.
+    pub async fn poll_until_for<T, F, Fut, P>(timeout: Duration, fetch: F, predicate: P) -> T
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = T>,
+        P: Fn(&T) -> bool,
+    {
+        let deadline = Instant::now() + timeout;
         let mut result = fetch().await;
         while !predicate(&result) && Instant::now() < deadline {
             tokio::time::sleep(INTERVAL).await;

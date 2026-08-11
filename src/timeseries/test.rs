@@ -13,6 +13,7 @@ mod tests {
     use crate::http::ResponseError;
     use crate::timeseries::{TimeSeries, TimeSeriesFilter, TimeSeriesFilterForm, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
     use crate::tests::cleanup::cleanup_timeseries;
+    use crate::tests::polling::poll_until_for;
     use uuid::Uuid;
 
     /// A per-run id, so a run never addresses the series a previous one left behind.
@@ -554,20 +555,12 @@ mod tests {
 
          */
 
-        // Before validating inserted data, sleep for 90 seconds...
-        // This is because it takes some time before data is inserted and merged in clickhouse
-        println!("Sleeping for 90 seconds...while waiting for data to be inserted into clickhouse.");
-        tokio::time::sleep(std::time::Duration::from_secs(90)).await;
-        println!("Done sleeping.");
-
+        // Wait for the ClickHouse insert+merge to expose every datapoint, then validate.
+        poll_datapoint_count(&api_service, &new_ts_ext_id, 100000).await;
         validate_datapoints(&api_service, vec![new_ts_ext_id.clone()]).await;
 
-        // Before validating inserted data, sleep for 90 seconds...
-        // This is because it takes some time before data is inserted into clickhouse and merged into the table
-        println!("Sleeping for 90 seconds...while waiting for data to be inserted into clickhouse and merged into timeseries.");
-        tokio::time::sleep(std::time::Duration::from_secs(90)).await;
-        println!("Done sleeping.");
-
+        // The daily aggregate reads the same rows, so it is ready once they all are.
+        poll_datapoint_count(&api_service, &new_ts_ext_id, 100000).await;
         println!("Validate aggregated datapoints...");
         validate_daily_avg(&api_service, vec![new_ts_ext_id.clone()]).await;
 
@@ -585,6 +578,40 @@ mod tests {
         Ok(())
     }
     // total is 9 354 000
+
+    /// Poll a series until `want` datapoints are readable from the start of 2025.
+    ///
+    /// Datapoint ingestion goes through a ClickHouse insert **and** a background merge, so a
+    /// just-written series reads back partial for a while — far longer than any other projection
+    /// in this suite, which is why this uses the long bound rather than `poll_until`'s default.
+    /// It replaces a fixed 90-second sleep: same worst case, but it returns as soon as the data
+    /// is actually there, and it says what it was waiting for when it never arrives.
+    async fn poll_datapoint_count(
+        api_service: &Arc<ApiService>,
+        ts_external_id: &str,
+        want: usize,
+    ) -> usize {
+        poll_until_for(
+            std::time::Duration::from_secs(150),
+            || async {
+                let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+                let mut rf = RetrieveFilter::new();
+                rf.set_external_id(ts_external_id);
+                rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+                rf.set_limit(100000);
+                data_request.add_item(rf);
+                api_service
+                    .time_series
+                    .retrieve_datapoints(&data_request)
+                    .await
+                    .ok()
+                    .and_then(|r| r.get_items().first().map(|i| i.datapoints.len()))
+                    .unwrap_or(0)
+            },
+            |count: &usize| *count >= want,
+        )
+        .await
+    }
 
     async fn validate_datapoints(api_service: &Arc<ApiService>, ts_external_id_vec: Vec<String>) {
         for ts_external_id in &ts_external_id_vec {
@@ -699,8 +726,30 @@ mod tests {
             }
         }
 
-        println!("Sleeping for 90 seconds...while waiting for data to be deleted in clickhouse.");
-        tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+        // Deletes land in ClickHouse asynchronously too. Wait for the whole series to shrink to
+        // what should survive the delete, rather than sleeping a fixed 90 seconds — the read
+        // below is capped at 5000, so on its own it cannot tell "the delete landed" from "the
+        // delete has not started yet".
+        poll_until_for(
+            std::time::Duration::from_secs(150),
+            || async {
+                let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+                let mut rf = RetrieveFilter::new();
+                rf.set_external_id(&ts_external_id);
+                rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+                rf.set_limit(100000);
+                data_request.add_item(rf);
+                api_service
+                    .time_series
+                    .retrieve_datapoints(&data_request)
+                    .await
+                    .ok()
+                    .and_then(|r| r.get_items().first().map(|i| i.datapoints.len()))
+                    .unwrap_or(usize::MAX)
+            },
+            |remaining: &usize| *remaining <= 5000,
+        )
+        .await;
 
         // Validate datapoints that is left
         let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();

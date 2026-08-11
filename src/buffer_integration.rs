@@ -15,19 +15,23 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
 use crate::tests::ids::unique_id;
+use crate::tests::polling::poll_until;
 
 /// Event ingestion/deletion is eventually consistent, so `by_ids` right after a write can lag.
-/// Poll it until it reports `want` matches (or we give up after ~10s) and return the items.
+/// Poll it until it reports `want` matches, then hand back whatever the last read saw.
 async fn poll_events_by_uuid(service: &ApiService, id: Uuid, want: usize) -> Vec<Event> {
-    for _ in 0..20 {
-        if let Ok(dw) = service.events.by_ids(&vec![EventIdCollection::from_uuid(id)]).await {
-            if dw.get_items().len() == want {
-                return dw.get_items().clone();
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    }
-    Vec::new()
+    poll_until(
+        || async {
+            service
+                .events
+                .by_ids(&vec![EventIdCollection::from_uuid(id)])
+                .await
+                .map(|dw| dw.get_items().clone())
+                .unwrap_or_default()
+        },
+        |items: &Vec<Event>| items.len() == want,
+    )
+    .await
 }
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -148,7 +152,20 @@ async fn live_datapoint_buffering_roundtrip() {
     // Arm a Drop-based guard so a panic in the assertions below still deletes the
     // series (otherwise a buffered/failed insert would leave an empty timeseries).
     let mut ts_cleanup = cleanup_timeseries(vec![series_ext.clone()]);
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    // The datapoint insert below is rejected if the series is not visible yet, so wait for the
+    // create to be readable rather than sleeping a flat two seconds and hoping.
+    poll_until(
+        || async {
+            service
+                .time_series
+                .by_ids(&id_collection)
+                .await
+                .map(|dw| dw.get_items().len())
+                .unwrap_or(0)
+        },
+        |found: &usize| *found > 0,
+    )
+    .await;
 
     let r = service
         .time_series

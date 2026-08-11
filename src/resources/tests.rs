@@ -9,6 +9,7 @@ use crate::tests::cleanup::{
 use maplit::hashmap;
 use uuid::Uuid;
 use crate::tests::ids::unique_id;
+use crate::tests::polling::poll_until;
 
 fn create_test_resources() -> Vec<Resource> {
     // helper function to create test resources will
@@ -326,15 +327,14 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
 
     // Read back from Neo4j, polling until the async write has propagated all three nodes.
     let form = RelatedResourcesForm::from_external_id(&asset_ext).with_depth(-1);
-    let mut net = ResourceNetwork::default();
-    for _ in 0..25 {
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        net = api.resources.fetch_related(&form).await?;
-        let have = |ext: &str| net.nodes().iter().any(|n| n.external_id == ext);
-        if have(&asset_ext) && have(&ts_ext) && have(&func_ext) {
-            break;
-        }
-    }
+    let net = poll_until(
+        || async { api.resources.fetch_related(&form).await.unwrap_or_default() },
+        |net: &ResourceNetwork| {
+            let have = |ext: &str| net.nodes().iter().any(|n| n.external_id == ext);
+            have(&asset_ext) && have(&ts_ext) && have(&func_ext)
+        },
+    )
+    .await;
 
     let find = |ext: &str| -> Resource {
         net.nodes()
@@ -563,21 +563,20 @@ async fn test_resource_geolocation_round_trips() -> Result<(), ResponseError> {
     let mut cleanup = cleanup_resources(vec![ext.clone()]);
 
     // by_ids reads Postgres (synchronous on create); retry briefly to absorb any lag.
-    let mut fetched: Option<Resource> = None;
-    for _ in 0..10 {
-        let nodes = api
-            .resources
-            .by_ids(&ids)
-            .await?
-            .nodes()
-            .unwrap_or_default();
-        if let Some(r) = nodes.into_iter().find(|r| r.external_id == ext) {
-            fetched = Some(r);
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    }
-    let fetched = fetched.expect("resource should be readable via by_ids after create");
+    let fetched = poll_until(
+        || async {
+            api.resources
+                .by_ids(&ids)
+                .await
+                .map(|dw| dw.nodes().unwrap_or_default())
+                .unwrap_or_default()
+                .into_iter()
+                .find(|r| r.external_id == ext)
+        },
+        |found: &Option<Resource>| found.is_some(),
+    )
+    .await
+    .expect("resource should be readable via by_ids after create");
 
     let geom = fetched
         .geolocation

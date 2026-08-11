@@ -11,6 +11,7 @@
 mod tests {
     use crate::create_api_service;
     use crate::generic::IdAndExtId;
+    use crate::tests::polling::poll_until;
     use crate::graph_data_wrapper::GraphDataWrapper;
     use crate::relations::RelForm;
     use crate::resources::{Resource, ResourceUpdate};
@@ -111,7 +112,19 @@ mod tests {
             .resources
             .delete(&IdAndExtId::from_external_id(ext_id))
             .await;
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        // Wait for the delete to actually clear rather than assuming three seconds is enough:
+        // a leftover here means the create below hits a duplicate external id.
+        poll_until(
+            || async {
+                api.resources
+                    .by_ids(&IdAndExtId::from_external_id(ext_id))
+                    .await
+                    .map(|dw| dw.nodes().unwrap_or_default().len())
+                    .unwrap_or(0)
+            },
+            |remaining: &usize| *remaining == 0,
+        )
+        .await;
 
         let mut r = Resource::new();
         r.external_id = ext_id.to_string();
@@ -121,8 +134,19 @@ mod tests {
         labels.extend(extra.iter().map(|x| x.to_string()));
         r.labels = Some(labels);
         api.resources.create(vec![r], Vec::<RelForm>::new()).await?;
-        // let the create (and its label M2M) settle before we start updating
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        // Let the create (and its label M2M) settle before we start updating — poll for the
+        // resource to be readable rather than guessing at how long that takes.
+        poll_until(
+            || async {
+                api.resources
+                    .by_ids(&IdAndExtId::from_external_id(ext_id))
+                    .await
+                    .map(|dw| dw.nodes().unwrap_or_default().len())
+                    .unwrap_or(0)
+            },
+            |found: &usize| *found > 0,
+        )
+        .await;
         Ok(())
     }
 
