@@ -9,6 +9,7 @@ use oauth2::{
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -40,21 +41,21 @@ pub struct OAuthConfig {
     #[serde(alias = "TOKEN_URI")]
     pub(crate) token_uri: Option<String>,
 
-    /// OAuth2 `scope` for the client-credentials request; space-separated for several. Defaults to
-    /// [`DEFAULT_SCOPE`] when unset — see [`OAuthConfig::effective_scope`] for why.
+    /// Extra OAuth2 `scope` for the client-credentials request; space-separated for several.
+    /// [`DEFAULT_SCOPE`] is always sent as well — see [`OAuthConfig::effective_scope`].
     ///
-    /// **Against DataHub, a realm using organization groups needs more than the default.** DataHub
-    /// resolves the caller's tenant from the `organization` claim, and there are two ways a realm
-    /// produces it. With Keycloak's Organizations feature the claim comes from a dynamic client
-    /// scope, so the request must name it — and because an explicit scope replaces the default
-    /// rather than adding to it, it must name both: `openid organization:*`, or
-    /// `openid organization:<alias>` to pin one tenant. Without the organization selector the token
-    /// carries no tenant and every call fails `401 invalid_token`, which looks like bad credentials
-    /// but is not. Where the claim instead comes from a protocol mapper on the client it is emitted
-    /// unconditionally and the default suffices.
+    /// **Against DataHub, a realm using organization groups needs this set.** DataHub resolves the
+    /// caller's tenant from the `organization` claim, and there are two ways a realm produces it.
+    /// With Keycloak's Organizations feature the claim comes from a dynamic client scope, so the
+    /// request must name it: `organization:*`, or `organization:<alias>` to pin one tenant. Without
+    /// the selector the token carries no tenant and every call fails `401 invalid_token`, which
+    /// looks like bad credentials but is not. Where the claim instead comes from a protocol mapper
+    /// on the client it is emitted unconditionally and nothing need be set here.
     ///
-    /// Other providers want it for their own reasons: Entra ID requires
-    /// `api://<app-id-uri>/.default`, which must be sent alone.
+    /// Two traps, both server-side: an **unknown alias is silently dropped** (`organization:nope`
+    /// yields a token with no `organization` claim at all, so the failure surfaces as a 401 rather
+    /// than anything naming the alias), and the **bare name `organization`** — no `:*`, no alias —
+    /// makes Keycloak answer `{"error":"unknown_error"}`. Use a selector form or nothing.
     #[serde(alias = "SCOPE")]
     pub(crate) scope: Option<String>,
 
@@ -96,21 +97,36 @@ pub struct OAuthConfig {
 }
 
 impl OAuthConfig {
-    /// The scope to send with a token request: the configured one, or [`DEFAULT_SCOPE`].
+    /// The scope to send with a token request: always [`DEFAULT_SCOPE`], plus whatever else is
+    /// configured.
     ///
-    /// `openid` is the default because DataHub cannot authorize a caller without it. The API
+    /// `openid` is **unconditional** because DataHub cannot authorize a caller without it. The API
     /// resolves dataset grants by calling the identity provider's UserInfo endpoint with the
     /// caller's own token (`KeycloakUserInfoClient`), and Keycloak refuses UserInfo with **403**
     /// for any token whose scope omits `openid`. The API reports that as a *503 "identity provider
     /// is unreachable"*, so a token that is otherwise perfectly valid produces a retryable-looking
     /// fault on every permission-checked endpoint, with nothing pointing at the scope.
     ///
-    /// A configured scope is sent **verbatim, replacing the default rather than adding to it**.
-    /// Providers disagree about combining scopes — Entra ID rejects `.default` alongside anything
-    /// else — so the SDK does not edit a scope the caller chose. A Keycloak realm using
-    /// organization groups therefore has to ask for both: `openid organization:*`.
-    pub(crate) fn effective_scope(&self) -> &str {
-        self.scope.as_deref().unwrap_or(DEFAULT_SCOPE)
+    /// Since it is needed for every request this SDK makes, it is added rather than defaulted: a
+    /// caller who sets `SCOPE=organization:acme` to pin a tenant would otherwise drop `openid`
+    /// without meaning to and get that same opaque 503. Setting the scope is how you *add* to the
+    /// request, not how you take over the whole of it.
+    ///
+    /// This is safe for every configuration the SDK supports, because this scope only ever goes to
+    /// `token_uri` — the identity provider issuing the API's own tokens, which must be the issuer
+    /// the API validates against and calls UserInfo on. A provider that rejects `openid` alongside
+    /// other scopes (Entra ID and its `.default`) appears in the assertion flow instead, where it is
+    /// governed by [`assertion_scope`](Self::effective_scope) and untouched by this.
+    pub(crate) fn effective_scope(&self) -> Cow<'_, str> {
+        match self.scope.as_deref() {
+            None => Cow::Borrowed(DEFAULT_SCOPE),
+            // Already asked for: don't send it twice. Keycloak tolerates a duplicate, but the
+            // granted scope is echoed back in the token and a doubled entry reads like a bug.
+            Some(scope) if scope.split_whitespace().any(|s| s == DEFAULT_SCOPE) => {
+                Cow::Borrowed(scope)
+            }
+            Some(scope) => Cow::Owned(format!("{DEFAULT_SCOPE} {scope}")),
+        }
     }
 }
 #[derive(Default, Debug, Clone)]
@@ -672,17 +688,29 @@ mod scope_tests {
         assert_eq!(OAuthConfig::default().effective_scope(), "openid");
     }
 
-    /// A configured scope replaces the default rather than merging with it — Entra ID rejects
-    /// `.default` sent alongside anything else, so the SDK must not append to a caller's choice.
+    /// Setting a scope adds to the request; it does not take over the whole of it. Pinning a tenant
+    /// with `SCOPE=organization:acme` must not silently drop `openid` and cost the caller every
+    /// permission-checked endpoint.
     #[test]
-    fn configured_scope_is_sent_verbatim() {
+    fn configured_scope_is_added_to_the_default() {
         let mut config = OAuthConfig::default();
-        config.scope = Some("api://entra-app/.default".to_string());
-        assert_eq!(config.effective_scope(), "api://entra-app/.default");
+        config.scope = Some("organization:acme".to_string());
+        assert_eq!(config.effective_scope(), "openid organization:acme");
 
-        // The pairing a Keycloak realm with organization groups needs, stated in full by the caller.
+        config.scope = Some("organization:*".to_string());
+        assert_eq!(config.effective_scope(), "openid organization:*");
+    }
+
+    /// A caller who already spells out `openid` gets exactly what they wrote — no duplicate, which
+    /// would be echoed back in the token's granted scope and read like a bug.
+    #[test]
+    fn an_explicit_openid_is_not_repeated() {
+        let mut config = OAuthConfig::default();
         config.scope = Some("openid organization:*".to_string());
         assert_eq!(config.effective_scope(), "openid organization:*");
+
+        config.scope = Some("organization:* openid".to_string());
+        assert_eq!(config.effective_scope(), "organization:* openid");
     }
 }
 
