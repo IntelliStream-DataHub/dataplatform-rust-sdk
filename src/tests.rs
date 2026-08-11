@@ -413,6 +413,34 @@ pub mod cleanup {
         })
     }
 
+    /// Guard that deletes the given labels (by name) on drop.
+    ///
+    /// A label is addressed by its name, which the server canonicalises to upper case; the delete
+    /// endpoint takes it in the `externalId` slot like every other identifiable. A label still
+    /// attached to a resource is refused, so tear the resource down first.
+    pub fn cleanup_labels(names: Vec<String>) -> CleanupGuard {
+        CleanupGuard::new(move || {
+            Box::pin(async move {
+                if names.is_empty() {
+                    return;
+                }
+                let api = create_api_service();
+                for name in &names {
+                    if let Err(e) = api
+                        .labels
+                        .delete(&IdAndExtId::from_external_id(name))
+                        .await
+                    {
+                        eprintln!(
+                            "CleanupGuard: label delete failed during teardown: {}",
+                            e.get_message()
+                        );
+                    }
+                }
+            })
+        })
+    }
+
     #[cfg(test)]
     mod guard_tests {
         use super::CleanupGuard;

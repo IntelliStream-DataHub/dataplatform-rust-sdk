@@ -3,7 +3,9 @@ use crate::create_api_service;
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::generic::{IdAndExtId, SearchForm};
 use crate::relations::RelForm;
-use crate::tests::cleanup::cleanup_resources;
+use crate::tests::cleanup::{
+    cleanup_datasets, cleanup_functions, cleanup_resources, cleanup_timeseries,
+};
 use maplit::hashmap;
 use uuid::Uuid;
 
@@ -273,11 +275,17 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     // A dataset so we can assert `data_set_id` persists (a Resource-common graph field).
     let dataset = Dataset::new(format!("Neo Fields DS {}", uid));
     let ds_created = api.datasets.create(&dataset).await?;
-    let ds_id = ds_created
+    let ds_created = ds_created
         .get_items()
         .first()
-        .and_then(|d| d.id)
-        .expect("dataset create should return an id");
+        .expect("dataset create should return the dataset");
+    let ds_id = ds_created.id.expect("dataset create should return an id");
+    // Guards are armed as each entity appears, and drop in reverse declaration order — so
+    // teardown runs functions, timeseries, asset, dataset: end nodes before the nodes they hang
+    // off, and the dataset last. The explicit deletes at the end of the happy path disarm them.
+    // Without these, any panic between here and the end strands all four, and the next run
+    // collides with the residue.
+    let mut dataset_cleanup = cleanup_datasets(vec![ds_created.external_id().to_string()]);
 
     // Root asset with every Resource-shaped field populated (incl. metadata, which we
     // expect NOT to survive the graph projection).
@@ -291,6 +299,7 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     asset.metadata = Some(hashmap! {"vendor".to_string() => "acme".to_string()});
     asset.labels = Some(vec!["ASSET".to_string()]);
     api.resources.create(vec![asset], vec![]).await?;
+    let mut asset_cleanup = cleanup_resources(vec![asset_ext.clone()]);
 
     // Timeseries in the same dataset, linked to the asset via the unified
     // `related_resources` INPUT (asset --MEASURES--> ts).
@@ -300,11 +309,13 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
         .set_data_set_id(ds_id)
         .set_related_resources(vec![RelatedNode::from_external_id(&asset_ext, "measures")]);
     api.time_series.create_one(&ts).await?;
+    let mut ts_cleanup = cleanup_timeseries(vec![ts_ext.clone()]);
 
     // Function, linked to the asset with a neutral edge type (asset --USES--> fn).
     let func =
         crate::functions::Function::new(func_ext.clone()).with_name("Neo Fields Fn".to_string());
     api.functions.create(&func).await?;
+    let mut func_cleanup = cleanup_functions(vec![func_ext.clone()]);
     api.resources
         .create(
             vec![],
@@ -420,13 +431,17 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
         .functions
         .delete(&vec![IdAndExtId::from_external_id(&func_ext)])
         .await;
+    func_cleanup.disarm();
     let ts_del: DataWrapper<IdAndExtId> = vec![IdAndExtId::from_external_id(&ts_ext)].into();
     let _ = api.time_series.delete(&ts_del).await;
+    ts_cleanup.disarm();
     let _ = api
         .resources
         .delete(&vec![IdAndExtId::from_external_id(&asset_ext)])
         .await;
+    asset_cleanup.disarm();
     let _ = api.datasets.delete(&vec![IdAndExtId::from_id(ds_id)]).await;
+    dataset_cleanup.disarm();
     Ok(())
 }
 

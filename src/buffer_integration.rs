@@ -132,10 +132,13 @@ async fn live_datapoint_buffering_roundtrip() {
         .set_buffer_retention_secs(3600);
     let service = ApiService::new(config);
 
+    // Unique per run: a fixed id is stranded by any run that panics before its teardown, and the
+    // next run then asserts against a series it did not create.
+    let series_ext = format!("rust_buffer_test_series_{}", Uuid::new_v4().simple());
     let id_collection =
-        DataWrapper::from_vec(vec![IdAndExtId::from_external_id("rust_buffer_test_series")]);
+        DataWrapper::from_vec(vec![IdAndExtId::from_external_id(&series_ext)]);
 
-    let mut ts = TimeSeries::new("rust_buffer_test_series", "Rust buffer test");
+    let mut ts = TimeSeries::new(&series_ext, "Rust buffer test");
     ts.set_value_type("float");
     ts.set_unit("a.u"); // unit is required by the server (@NotBlank)
     // Start clean (drop any leftover from a prior run), then create the series fresh.
@@ -143,14 +146,14 @@ async fn live_datapoint_buffering_roundtrip() {
     service.time_series.create_one(&ts).await.expect("create series");
     // Arm a Drop-based guard so a panic in the assertions below still deletes the
     // series (otherwise a buffered/failed insert would leave an empty timeseries).
-    let mut ts_cleanup = cleanup_timeseries(vec!["rust_buffer_test_series".to_string()]);
+    let mut ts_cleanup = cleanup_timeseries(vec![series_ext.clone()]);
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     let r = service
         .time_series
         .insert_datapoint(
             None,
-            Some("rust_buffer_test_series".to_string()),
+            Some(series_ext.clone()),
             Utc::now(),
             "42.0".to_string(),
         )
@@ -169,8 +172,9 @@ async fn live_datapoint_buffering_roundtrip() {
 #[tokio::test]
 async fn live_event_gets_uuid_v7_id() {
     let service = create_api_service();
+    let event_ext = format!("rust_uuid_v7_event_{}", Uuid::new_v4().simple());
     let ev = Event::new(
-        "rust_uuid_v7_event".to_string(),
+        event_ext.clone(),
         "buffer_test".to_string(),
         Utc::now(),
     );
@@ -178,7 +182,7 @@ async fn live_event_gets_uuid_v7_id() {
     // Events get a fresh uuid per create, so same-external_id inserts pile up
     // instead of overwriting. Arm cleanup before create (so a panic still tears
     // the event down) and delete explicitly on the happy path.
-    let mut ev_cleanup = cleanup_events(vec!["rust_uuid_v7_event".to_string()]);
+    let mut ev_cleanup = cleanup_events(vec![event_ext.clone()]);
 
     let result = service.events.create(&ev).await.expect("create event");
     let created = result.get_items().first().expect("one event returned");
@@ -186,7 +190,7 @@ async fn live_event_gets_uuid_v7_id() {
     assert_eq!(id.get_version_num(), 7, "expected a v7 uuid, got {}", id);
 
     // teardown: delete by external id, which removes every copy so re-runs don't accumulate.
-    let ids = vec![EventIdCollection::from_external_id("rust_uuid_v7_event")];
+    let ids = vec![EventIdCollection::from_external_id(&event_ext)];
     let _ = service.events.delete(&ids).await;
     ev_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 }
@@ -194,13 +198,14 @@ async fn live_event_gets_uuid_v7_id() {
 #[tokio::test]
 async fn live_event_get_by_uuid() {
     let service = create_api_service();
+    let event_ext = format!("rust_event_get_by_uuid_{}", Uuid::new_v4().simple());
     let mut ev = Event::new(
-        "rust_event_get_by_uuid".to_string(),
+        event_ext.clone(),
         "buffer_test".to_string(),
         Utc::now(),
     );
     ev.set_event_time(Utc::now());
-    let mut ev_cleanup = cleanup_events(vec!["rust_event_get_by_uuid".to_string()]);
+    let mut ev_cleanup = cleanup_events(vec![event_ext.clone()]);
 
     let created = service.events.create(&ev).await.expect("create event");
     let id = created.get_items().first().expect("one event returned").id.expect("event has an id");
@@ -217,13 +222,14 @@ async fn live_event_get_by_uuid() {
 #[tokio::test]
 async fn live_event_delete_by_uuid() {
     let service = create_api_service();
+    let event_ext = format!("rust_event_delete_by_uuid_{}", Uuid::new_v4().simple());
     let mut ev = Event::new(
-        "rust_event_delete_by_uuid".to_string(),
+        event_ext.clone(),
         "buffer_test".to_string(),
         Utc::now(),
     );
     ev.set_event_time(Utc::now());
-    let mut ev_cleanup = cleanup_events(vec!["rust_event_delete_by_uuid".to_string()]);
+    let mut ev_cleanup = cleanup_events(vec![event_ext.clone()]);
 
     let created = service.events.create(&ev).await.expect("create event");
     let id = created.get_items().first().expect("one event returned").id.expect("event has an id");

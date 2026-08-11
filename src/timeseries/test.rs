@@ -13,6 +13,16 @@ mod tests {
     use crate::http::ResponseError;
     use crate::timeseries::{TimeSeries, TimeSeriesFilter, TimeSeriesFilterForm, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
     use crate::tests::cleanup::cleanup_timeseries;
+    use uuid::Uuid;
+
+    /// A per-run id, so a run never addresses the series a previous one left behind.
+    ///
+    /// The external ids in this module are all derived from one number (see `delete_timeseries`),
+    /// so varying the number is all it takes. Bounded well below `u64::MAX` because
+    /// `delete_timeseries` also clears `id + 1`.
+    fn run_id() -> u64 {
+        (Uuid::new_v4().as_u128() % 1_000_000_000) as u64
+    }
 
 
     #[tokio::test]
@@ -50,7 +60,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_filter_timeseries() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = 7300;
+        let unique_id: u64 = run_id();
         let api_service = create_api_service();
 
         // Delete timeseries first, in case a test failed and the time series exists
@@ -72,6 +82,9 @@ mod tests {
         ts_collection.add_item(ts);
         api_service.time_series.create(&ts_collection).await
             .expect("could not create the filter-test timeseries");
+        // Armed before the assertions: every one of them panics on failure, which would otherwise
+        // skip the delete at the end and leave the series behind.
+        let mut ts_cleanup = cleanup_timeseries(vec![ext_id.clone()]);
 
         // Key + value together must find exactly the created series.
         let mut filter = TimeSeriesFilter::default();
@@ -105,12 +118,15 @@ mod tests {
         }
 
         delete_timeseries(unique_id, &api_service).await;
+        ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
         Ok(())
     }
     #[tokio::test]
     async fn test_create_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = 1200;
+        let unique_id: u64 = run_id();
         let api_service = create_api_service();
+        let ext_a = format!("rust_sdk_test_{}_ts", unique_id);
+        let ext_b = format!("rust_sdk_test_{}_ts", unique_id + 1);
 
         // Delete timeseries first, in case a test failed and the time series exists
         delete_timeseries(unique_id, &api_service).await;
@@ -119,8 +135,8 @@ mod tests {
         let result = api_service.time_series.create(&ts_collection).await;
 
         let mut ts_cleanup = cleanup_timeseries(vec![
-            "rust_sdk_test_1200_ts".to_string(),
-            "rust_sdk_test_1201_ts".to_string(),
+            ext_a.clone(),
+            ext_b.clone(),
         ]);
 
         match result {
@@ -130,17 +146,17 @@ mod tests {
                 let items = timeseries.get_items();
 
                 println!("{:?}", items);
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1200_ts") {
-                    assert_eq!(item.external_id, "rust_sdk_test_1200_ts");
-                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, "rust_sdk_test_1200_ts");
+                if let Some(item) = items.iter().find(|&&ref item| item.external_id == ext_a) {
+                    assert_eq!(item.external_id, ext_a);
+                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, ext_a);
                     assert_eq!(item.metadata.as_ref().unwrap().len(), 2);
                 } else {
                     assert_eq!(StatusCode::OK, StatusCode::NO_CONTENT);
                 }
 
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1201_ts") {
-                    assert_eq!(item.external_id, "rust_sdk_test_1201_ts");
-                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, "rust_sdk_test_1201_ts");
+                if let Some(item) = items.iter().find(|&&ref item| item.external_id == ext_b) {
+                    assert_eq!(item.external_id, ext_b);
+                    println!("timeseries with external id: {:?} is equal to: {:?}", item.external_id, ext_b);
                 } else {
                     assert_eq!(StatusCode::OK, StatusCode::NO_CONTENT);
                 }
@@ -204,8 +220,10 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_update_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>> {
         println!("test_create_and_update_and_delete_timeseries");
-        let unique_id: u64 = 1400;
+        let unique_id: u64 = run_id();
         let api_service = create_api_service();
+        let ext = format!("rust_sdk_test_{}_ts", unique_id);
+        let ext_renamed = format!("{}_renamed", ext);
 
         // Delete timeseries first, in case a test failed and the time series exists
         delete_timeseries(unique_id, &api_service).await;
@@ -214,8 +232,8 @@ mod tests {
         let result = api_service.time_series.create(&ts_collection).await;
 
         let mut ts_cleanup = cleanup_timeseries(vec![
-            "rust_sdk_test_1400_ts".to_string(),
-            "rust_sdk_test_1400_ts_renamed".to_string(),
+            ext.clone(),
+            ext_renamed.clone(),
         ]);
 
         match result {
@@ -229,7 +247,7 @@ mod tests {
 
         let mut ts_update_collection = TimeSeriesUpdateCollection::new();
         let mut ts_update_fields = TimeSeriesUpdateFields::new();
-        ts_update_fields.external_id.set("rust_sdk_test_1400_ts_renamed".to_string());
+        ts_update_fields.external_id.set(ext_renamed.clone());
         ts_update_fields.name.set("Rust SDK Test 1400 TimeSeries Renamed".to_string());
         ts_update_fields.description.set("This is test timeseries generated by rust sdk test code. Renamed.".to_string());
         ts_update_fields.unit.set("fahrenheit".to_string());
@@ -238,7 +256,7 @@ mod tests {
             crate::fields::MapField::add(hashmap! {"newkey".to_string() => "newvalue".to_string()});
         let ts_update = TimeSeriesUpdate {
             id: None,
-            external_id: Some("rust_sdk_test_1400_ts".to_string()),
+            external_id: Some(ext.clone()),
             update: ts_update_fields
         };
         ts_update_collection.add_item(ts_update);
@@ -254,8 +272,8 @@ mod tests {
                 let items = timeseries.get_items();
 
                 println!("updated_timeseries {:?}", items);
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1400_ts_renamed") {
-                    assert_eq!(item.external_id, "rust_sdk_test_1400_ts_renamed");
+                if let Some(item) = items.iter().find(|&&ref item| item.external_id == ext_renamed) {
+                    assert_eq!(item.external_id, ext_renamed);
                     assert_eq!(item.metadata.as_ref().unwrap().len(), 3);
                     assert_eq!(item.name, "Rust SDK Test 1400 TimeSeries Renamed");
                     match &item.description {
@@ -282,7 +300,7 @@ mod tests {
         println!("ts2_id: {:?}", ts2_id);
 
         let mut id_collection = DataWrapper::from_vec(vec![IdAndExtId::from_id(ts2_id.unwrap())]);
-        id_collection.add_item(IdAndExtId { id: None, external_id: Some("rust_sdk_test_1400_ts".to_string()) });
+        id_collection.add_item(IdAndExtId { id: None, external_id: Some(ext.clone()) });
         let result = api_service.time_series.by_ids(&id_collection).await;
 
         match result {
@@ -291,8 +309,8 @@ mod tests {
 
                 let items = timeseries.get_items();
 
-                if let Some(item) = items.iter().find(|&&ref item| item.external_id == "rust_sdk_test_1400_ts_renamed") {
-                    assert_eq!(item.external_id, "rust_sdk_test_1400_ts_renamed");
+                if let Some(item) = items.iter().find(|&&ref item| item.external_id == ext_renamed) {
+                    assert_eq!(item.external_id, ext_renamed);
                     assert_eq!(item.metadata.as_ref().unwrap().len(), 3);
                 }
             },
@@ -332,7 +350,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_timeseries() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = 6400;
+        let unique_id: u64 = run_id();
         let api_service = create_api_service();
 
         // Delete timeseries first, in case a test failed and the time series exists
@@ -429,6 +447,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_datapoints() -> Result<(), Box<dyn std::error::Error>> {
+        // Deliberately fixed, and deliberately shared with
+        // `test_raw_datapoints_query_if_data_is_already_inserted`, which reads back what this
+        // test inserts. Making either unique severs that and the reader has nothing to find.
         let unique_id: u64 = 6540;
         let api_service = create_api_service();
 
@@ -896,7 +917,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_latest_datapoint() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = 6610;
+        let unique_id: u64 = run_id();
         let api_service = create_api_service();
 
         // Delete timeseries first, in case a test failed and the time series exists
