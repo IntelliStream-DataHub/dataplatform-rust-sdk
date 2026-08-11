@@ -82,7 +82,16 @@ mod tests {
         // delete an unused label -> 204, then gone
         let deleted = api.labels.delete(&IdAndExtId::from_id(id)).await?;
         assert_eq!(deleted.get_http_status_code(), Some(204));
-        assert_eq!(api.labels.get(id).await?.length(), 0);
+
+        // "Gone" is a 404, not a 200 with an empty list: every single-resource GET in the API
+        // answers an unknown id that way, and `/labels/{id}` was brought in line with the rest.
+        // Batch reads (`/byids`) are the ones that answer absence with an empty collection.
+        let err = api
+            .labels
+            .get(id)
+            .await
+            .expect_err("a deleted label should answer 404, not an empty list");
+        assert_eq!(err.get_status().as_u16(), 404);
 
         Ok(())
     }
