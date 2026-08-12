@@ -90,9 +90,65 @@ Two error types, used in different layers:
 
 ### Filters (`src/filters.rs`)
 
-Two parallel filter styles coexist: `BasicEventFilter` (builder-style, legacy) and `EventFilter` + `AdvancedFilter` (richer, added more recently). When adding endpoints, prefer the advanced filter type — some advanced-filter endpoints are not yet wired up server-side and are currently tested only via serde round-trips.
+The four `/{entity}/filter` endpoints share one contract. `NodeFilter` (`src/filters.rs`) is the criteria every node type can be filtered by — `ids`, `externalIds`, `names`, `sources`, `labels`, `metadata`, `createdTime`, `lastUpdatedTime` — and `ResourceFilter`, `TimeSeriesFilter` and `BasicDatasetFilter` each `#[serde(flatten)]` it, so on the wire its fields sit alongside the type-specific ones. `BasicEventFilter` deliberately does **not** extend it (events are not nodes: no `name` column, a UUID id) but matches it field for field wherever ClickHouse can back it.
 
-Related resources are one field, not two: both `Event` and `BasicEventFilter` carry `relatedResources`, an array of the backend's `IdCollection` (`[{"id": "34"}, {"externalId": "sensor_abc"}]`, modelled by `IdAndExtId`). An entry may name a resource by id, external id, or both; the backend resolves the missing side and returns both. `dataSetIds` on the filter uses the same shape. There are no aliases for the retired flat `relatedResourceIds` / `relatedResourceExternalIds` arrays — the backend drops unknown keys silently, so sending them loses the relations without an error.
+The rules, which every one of them obeys:
+
+- **Patterns.** `externalIds`, `names`, `sources` — plus `units`/`unitExternalIds` on timeseries and `types`/`subTypes`/`statuses` on events — are pattern lists. `*` and `%` are both wildcards; `_` is **literal**, because identifiers here are built out of underscores and raw `LIKE` would make `sap_work_orders` also match `sapXwork_orders`. Matching is case-insensitive. An entry with no wildcard matches exactly, and resolves through the indexed hash where one exists.
+- **AND across fields, OR within a list** — except `labels` and `metadata`, where every entry must be present.
+- **Empty means no restriction**, and so do blank entries and `None`: an empty `IN` is not valid SQL, and a caller who built a list and found nothing to put in it means "no restriction" far more often than "match nothing".
+- **`dataSetIds` is the one exception to that.** `None`/absent is "no data set restriction"; an explicit `[]` is "narrow to no data sets" and matches nothing. Opposite answers, so the SDK skips the key when `None` rather than emitting `null`. Entries name a data set by id *or* external id, and a data set stands in for everything beneath it in the `BELONGS_TO` hierarchy — the same expansion its ACL grant applies.
+- **A `None` metadata value matches the key alone.** Hence `MetadataFilter = HashMap<String, Option<String>>` rather than a map of `String`.
+- **`valueTypes` is not a pattern list** — a closed catalogue (`BIGINT`, `FLOAT`, `FLOAT32`, `NUMERIC`, `DECIMAL32`, `TEXT`, `MIXED`), matched exactly and case-insensitively.
+- **`limit`** defaults to 1000 and is capped at 10000 (400 above it); `<= 0` falls back to the default. The SDK types it `u64`, so a negative one cannot be sent at all.
+
+Fields the refactor removed — `externalIdPrefix`, the singular `id`/`externalId`/`name`/`source`/`type`/`subType`/`status`, `dataSetId`, `metadataKey`/`metadataValue`, `description` on the event filter, and the dataset `writeProtected`/`deactivated` flags — are gone from the SDK rather than kept as aliases. **The backend drops unknown keys silently**, so a leftover one places no restriction and returns everything the caller can read, which reads like a working query. The serde tests in `src/filters.rs`, `src/datasets/tests.rs`, `src/resources/tests.rs` and `src/timeseries/test.rs` assert their absence from the payload; the live behaviour is covered by `python_tests/test_filter_{timeseries,resources,datasets,events}.py`.
+
+Related resources are one field, not two: both `Event` and `BasicEventFilter` carry `relatedResources`, an array of the backend's `IdCollection` (`[{"id": "34"}, {"externalId": "sensor_abc"}]`, modelled by `IdAndExtId`). An entry may name a resource by id, external id, or both; the backend resolves the missing side and returns both. `dataSetIds` on the filter uses the same shape. There are no aliases for the retired flat `relatedResourceIds` / `relatedResourceExternalIds` arrays.
+
+`EventFilter` + `AdvancedEventFilter` remain the richer style for events; some advanced-filter endpoints are not yet wired up server-side and are tested only via serde round-trips.
+
+#### Sorting and paging
+
+All four filters take `sort` and a keyset `cursor`, and answer with `nextCursor` on the envelope.
+In Rust that is `PageRequest` (flattened into the three node retrievers; the event filter declares
+the two fields itself because it also carries `advancedFilter`) plus `DataWrapper::next_cursor`. In
+Python it is `sort_by` / `sort_order` / `cursor` keywords, and `filter()` returns a **`Page`** —
+list-like, so existing code is unaffected, but carrying `.next_cursor`.
+
+- **One** sort property, plus `id` appended. The tie-breaker is what makes the order *total*: a
+  sort column alone is not a position unless it is unique, so a page boundary inside a run of equal
+  values repeats or drops exactly those rows. An unrecognised property falls back to the default
+  rather than erroring; anything that is not exactly `desc` sorts ascending.
+- **Defaults differ.** Nodes: `createdTime` descending, sortable by `id`, `externalId`, `name`,
+  `source`, `description`, `createdTime`, `lastUpdatedTime`, `dataSetId`. Events: `eventTime`
+  **ascending** — the order the cursor pages in — sortable also by `type`, `subType`, `status`.
+- **Nulls are a block**: last ascending, first descending.
+- **Cursors are opaque** (base64 of a versioned encoding of sort + boundary + id). Never build one;
+  echo back `next_cursor`. An unreadable cursor restarts from page one rather than erroring.
+- **A cursor belongs to its sort.** Continuing it under another is *meant* to be a 400; today it is
+  a 200 with a zero-byte body — see `python_tests/test_filter_paging.py`. Paging a nullable event
+  sort (`subType`, `status`) is refused the same way.
+- `nextCursor` is absent on a short page, so "keep going while it is present" is the whole loop. A
+  full page may still be the last, so a walk ends with one empty request.
+
+#### `/resources/filter` is the generic node query
+
+It spans **every** node type — assets, timeseries, functions, resources, data sets, policies —
+narrowed by `nodeTypes` (`["resource", "timeseries"]`, case-insensitive; omitted = all; a list of
+only unknown names matches *nothing*). It behaved this way before by omission, with no discriminator
+and single-table inheritance doing the rest; the breadth is now stated and narrowable. Every node
+carries its type as a label, so a caller can tell what came back. The other three endpoints stay
+typed. `BasicDatasetFilter` is consequently just the shared criteria — its `writeProtected` and
+`deactivated` flags were removed server-side as inert.
+
+#### The `filter` on the `/search` endpoints
+
+All four searches declare a `filter` of their own entity's type (`SearchAndFilterForm<F>` is generic for exactly this reason — it used to carry a single `FilterForm` no endpoint read). **Only `/timeseries/search` applies it**; the resource, dataset and event searches accept one and ignore it. `python_tests/test_filter_search_bodies.py` covers the working one and marks the other three `xfail(strict=True)`, so they flip green when the gap closes.
+
+#### Building a dataset hierarchy in a test
+
+`Dataset.connected_data_sets` does not create the hierarchy — create the edge explicitly, and note the direction: the row is stored `from = parent, to = child` even though the relationship is named `BELONGS_TO`, and the closure query descends `rel_start -> rel_end`. Reversing it produces no hierarchy and no error. See `python_tests/filter_fixtures.py`.
 
 ## Python bindings (`datahub_python_bindings/`)
 

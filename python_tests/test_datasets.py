@@ -157,7 +157,7 @@ def test_sync_filter_by_metadata_and_prefix(sync_client, make_dataset):
 
     by_prefix = sync_client.datasets.filter(
         datahub_sdk.DatasetFilter(
-            datahub_sdk.BasicDatasetFilter(external_id_prefix=ext_id)
+            datahub_sdk.BasicDatasetFilter(external_ids=f"{ext_id}*")
         )
     )
     assert [d.external_id for d in by_prefix] == [ext_id]
@@ -188,7 +188,13 @@ def test_sync_search(sync_client, make_dataset):
 
 
 def test_sync_update(sync_client, make_dataset):
-    """Only the fields passed are sent; the rest are left untouched."""
+    """Only the fields passed are sent; the rest are left untouched.
+
+    There is no ``write_protected`` / ``deactivated`` here any more: both were removed server-side
+    as inert — stored as node metadata rather than as columns, read by nothing, and clobbering a
+    metadata delta sent in the same update. ``test_filter_datasets.py`` pins that the filter no
+    longer accepts them either.
+    """
     ext_id = unique_id("ds_update")
     make_dataset(
         external_id=ext_id,
@@ -213,71 +219,6 @@ def test_sync_update(sync_client, make_dataset):
     # An untouched field survives, and a delta is not a replace.
     assert after.metadata["keep"] == "me"
     assert after.name == ext_id
-
-    # write_protected goes in its own call — see test_write_protected_clobbers_metadata.
-    sync_client.datasets.update(
-        [datahub_sdk.DatasetUpdate(ext_id, write_protected=datahub_sdk.FieldBool(True))]
-    )
-    protected = sync_client.datasets.filter(
-        datahub_sdk.DatasetFilter(
-            datahub_sdk.BasicDatasetFilter(
-                external_ids=[ext_id], write_protected=True
-            )
-        )
-    )
-    assert [d.external_id for d in protected] == [ext_id]
-
-    # The flag is stored as a *visible* metadata entry, so it shows up in
-    # `dataset.metadata` alongside the caller's own keys.
-    assert (
-        sync_client.datasets.by_ids([ext_id])[0].metadata[
-            "property:is_write_protected"
-        ]
-        == "true"
-    )
-
-    # Undo, so the dataset can be cleaned up.
-    sync_client.datasets.update(
-        [
-            datahub_sdk.DatasetUpdate(
-                ext_id, write_protected=datahub_sdk.FieldBool(False)
-            )
-        ]
-    )
-
-
-@pytest.mark.xfail(
-    reason="server-side: write_protected/deactivated are themselves stored as metadata, "
-    "and setting one in the same update as a metadata delta silently drops the delta "
-    "(200, no error). Split them into two calls until this is fixed.",
-    strict=False,
-)
-def test_write_protected_clobbers_metadata_in_one_call(sync_client, make_dataset):
-    """Encodes the intended behaviour: both changes in one update should both apply."""
-    ext_id = unique_id("ds_clobber")
-    make_dataset(external_id=ext_id, name=ext_id, metadata={"keep": "me"})
-
-    updated = sync_client.datasets.update(
-        [
-            datahub_sdk.DatasetUpdate(
-                ext_id,
-                metadata=datahub_sdk.MapField.delta(add={"owner": "sdk_tests"}),
-                write_protected=datahub_sdk.FieldBool(True),
-            )
-        ]
-    )
-    try:
-        assert updated[0].metadata["keep"] == "me"
-        # Dropped today: the flag write replaces the map the delta was applied to.
-        assert updated[0].metadata["owner"] == "sdk_tests"
-    finally:
-        sync_client.datasets.update(
-            [
-                datahub_sdk.DatasetUpdate(
-                    ext_id, write_protected=datahub_sdk.FieldBool(False)
-                )
-            ]
-        )
 
 
 def test_sync_policies(sync_client):

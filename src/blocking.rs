@@ -162,7 +162,7 @@ impl TimeSeriesService {
         fn delete(json: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn update(json: &TimeSeriesUpdateCollection) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn by_ids(json: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
-        fn search(form: &SearchAndFilterForm) -> Result<DataWrapper<TimeSeries>, ResponseError>;
+        fn search(form: &SearchAndFilterForm<TimeSeriesFilter>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn search_by_name(name: &str) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn search_by_query(query: &str) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn search_by_description(query: &str) -> Result<DataWrapper<TimeSeries>, ResponseError>;
@@ -188,7 +188,7 @@ pub struct ResourceService {
 impl ResourceService {
     delegate! { resources =>
         fn create(nodes: Vec<Resource>, relations: Vec<RelForm>) -> Result<GraphDataWrapper<Resource>, ResponseError>;
-        fn search(payload: &SearchAndFilterForm) -> Result<DataWrapper<Resource>, ResponseError>;
+        fn search(payload: &SearchAndFilterForm<ResourceFilter>) -> Result<DataWrapper<Resource>, ResponseError>;
         fn fetch_related(form: &RelatedResourcesForm) -> Result<ResourceNetwork, ResponseError>;
     }
 

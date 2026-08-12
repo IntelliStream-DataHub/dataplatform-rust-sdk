@@ -51,8 +51,7 @@ impl From<&Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
     fn from(value: &Vec<IdAndExtId>) -> Self {
         DataWrapper {
             items: value.clone(),
-            http_status_code: None,
-            error_body: None,
+            ..DataWrapper::new()
         }
     }
 }
@@ -260,37 +259,62 @@ impl<T> DatapointsCollection<T> {
     }
 }
 
+/// Body of the `POST /{entity}/search` endpoints: the free-text query, an optional structured
+/// filter, and a cap.
+///
+/// Generic over the filter because each entity's search declares its *own* filter type — the same
+/// one its `/filter` endpoint takes. It used to carry a single `FilterForm` that no endpoint read,
+/// so a caller could narrow a search and silently not be narrowed.
+///
+/// **Only `/timeseries/search` actually applies the filter.** The resource, dataset and event
+/// searches accept one in their request schema and ignore it; see the tests in
+/// `python_tests/test_filter_search_bodies.py`, which pin that as a server-side gap.
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct SearchAndFilterForm {
-    pub filter: Option<FilterForm>, // todo!() not implemented yet in java app
+#[serde(rename_all = "camelCase")]
+pub struct SearchAndFilterForm<F> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<F>,
     pub search: Option<SearchForm>,
     pub limit: Option<u64>,
 }
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct FilterForm {
-    // not implemented yet on java app
-    pub(crate) name: Option<String>,
-    pub(crate) parent_id: Option<u64>,
-    pub(crate) parent_external_id: Option<String>,
-    pub(crate) asset_subtree_ids: Option<IdAndExtId>,
-    pub(crate) data_set_id: Option<u64>,
-    pub(crate) metadata: Option<HashMap<String, String>>,
-    pub(crate) source: Option<String>,
-    pub(crate) created_time: Option<DateTime<Utc>>,
-    pub(crate) last_updated: Option<DateTime<Utc>>,
-    pub(crate) root: bool,
-    pub(crate) external_id_prefix: Option<String>,
-    pub(crate) labels: Option<Vec<String>>,
-    pub(crate) geo_location: Option<HashMap<String, f64>>,
-}
-impl SearchAndFilterForm {
+// `FilterForm` used to live here: thirteen fields, none of them read by any endpoint, sent under
+// `filter` on every search. It has been removed rather than ported — the entity filters are what
+// the search endpoints actually declare, and `SearchAndFilterForm` is generic over them now.
+
+impl<F> SearchAndFilterForm<F> {
     pub fn new() -> Self {
         SearchAndFilterForm {
             filter: None,
             search: None,
             limit: None,
         }
+    }
+
+    /// A search carrying just the free-text query.
+    pub fn from_query(query: &str) -> Self {
+        let mut search = SearchForm::new();
+        search.query = Some(query.to_string());
+        Self {
+            filter: None,
+            search: Some(search),
+            limit: None,
+        }
+    }
+
+    pub fn with_filter(mut self, filter: F) -> Self {
+        self.filter = Some(filter);
+        self
+    }
+
+    pub fn with_limit(mut self, limit: u64) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+}
+
+impl<F> Default for SearchAndFilterForm<F> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -453,8 +477,7 @@ impl From<IdAndExtId> for DataWrapper<IdAndExtId> {
     fn from(value: IdAndExtId) -> Self {
         DataWrapper {
             items: vec![value],
-            http_status_code: None,
-            error_body: None,
+            ..DataWrapper::new()
         }
     }
 }
@@ -462,8 +485,7 @@ impl From<&IdAndExtId> for DataWrapper<IdAndExtId> {
     fn from(value: &IdAndExtId) -> Self {
         DataWrapper {
             items: vec![value.clone()],
-            http_status_code: None,
-            error_body: None,
+            ..DataWrapper::new()
         }
     }
 }
@@ -471,8 +493,7 @@ impl From<Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
     fn from(value: Vec<IdAndExtId>) -> Self {
         DataWrapper {
             items: value,
-            http_status_code: None,
-            error_body: None,
+            ..DataWrapper::new()
         }
     }
 }
@@ -481,8 +502,7 @@ impl From<Vec<RetrieveFilter>> for DataWrapper<RetrieveFilter> {
     fn from(value: Vec<RetrieveFilter>) -> Self {
         DataWrapper {
             items: value,
-            http_status_code: None,
-            error_body: None,
+            ..DataWrapper::new()
         }
     }
 }
@@ -493,8 +513,7 @@ impl<T: DataHubEntity> From<T> for DataWrapper<T> {
     fn from(value: T) -> Self {
         DataWrapper {
             items: vec![value],
-            http_status_code: None,
-            error_body: None,
+            ..DataWrapper::new()
         }
     }
 }
@@ -502,8 +521,7 @@ impl<T: DataHubEntity> From<Vec<T>> for DataWrapper<T> {
     fn from(vector: Vec<T>) -> Self {
         DataWrapper {
             items: vector,
-            http_status_code: None,
-            error_body: None,
+            ..DataWrapper::new()
         }
     }
 }
@@ -512,8 +530,7 @@ impl<T: DataHubEntity> From<&Vec<T>> for DataWrapper<T> {
     fn from(vector: &Vec<T>) -> Self {
         DataWrapper {
             items: vector.clone(),
-            http_status_code: None,
-            error_body: None,
+            ..DataWrapper::new()
         }
     }
 }
@@ -521,8 +538,7 @@ impl<T: DataHubEntity> From<&T> for DataWrapper<T> {
     fn from(val: &T) -> Self {
         DataWrapper {
             items: vec![val.clone()],
-            http_status_code: None,
-            error_body: None,
+            ..DataWrapper::new()
         }
     }
 }
@@ -539,6 +555,20 @@ pub struct DataWrapper<T> {
     http_status_code: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_body: Option<String>,
+    /// Where a paged read stopped; send it back as the request's `cursor` for the next page.
+    ///
+    /// Absent when there is no next page, so "keep going while `next_cursor` is `Some`" is the
+    /// whole loop, with no separate end-of-data signal to get wrong. Note a *full* page may still
+    /// be the last one — the server does not count the rows twice — so the walk ends with one
+    /// request that comes back empty.
+    ///
+    /// Response-only: skipped when serializing, because `DataWrapper` doubles as a request body
+    /// for the create/delete endpoints and this field is not part of theirs.
+    // Renamed explicitly: this struct has no `rename_all`, so the field would otherwise be read
+    // from `next_cursor` and never match the `nextCursor` the api sends — a paged read would look
+    // like it had reached the end after one page.
+    #[serde(default, rename = "nextCursor", skip_serializing)]
+    next_cursor: Option<String>,
 }
 
 impl<T> DataWrapper<T> {
@@ -547,6 +577,7 @@ impl<T> DataWrapper<T> {
             items: vec![],
             http_status_code: None,
             error_body: None,
+            next_cursor: None,
         }
     }
 
@@ -556,7 +587,18 @@ impl<T> DataWrapper<T> {
             items: vec,
             http_status_code: None,
             error_body: None,
+            next_cursor: None,
         }
+    }
+
+    /// The cursor for the page after this one, if there is one. See [`next_cursor`](Self::next_cursor).
+    #[must_use]
+    pub fn next_cursor(&self) -> Option<&str> {
+        self.next_cursor.as_deref()
+    }
+
+    pub fn set_next_cursor(&mut self, next_cursor: Option<String>) {
+        self.next_cursor = next_cursor;
     }
 
     #[must_use]

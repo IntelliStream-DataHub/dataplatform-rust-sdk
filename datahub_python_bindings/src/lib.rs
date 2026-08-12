@@ -42,6 +42,7 @@ use dataplatform_rust_sdk::datahub::DataHubConfig;
 use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
 use dataplatform_rust_sdk::generic::*;
 use dataplatform_rust_sdk::http::ResponseError;
+use dataplatform_rust_sdk::filters::NodeFilter;
 use dataplatform_rust_sdk::{TimeSeriesFilter, TimeSeriesFilterForm};
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
@@ -553,21 +554,198 @@ impl PyIdCollection {
     }
 }
 
+/// One page of a filter result: the rows, plus where to continue from.
+///
+/// Behaves as a list — `len()`, indexing, slicing, iteration, `in`, and `==` against a plain list
+/// all work — so code written before paging existed keeps working unchanged. What it adds is
+/// [`next_cursor`](Self::next_cursor), which is the only way to reach the next page: the api hands
+/// out an opaque cursor and does not accept one a caller assembled.
+///
+/// The whole paging loop is therefore:
+///
+/// ```python
+/// page = client.timeseries.filter(TimeSeriesFilterForm(limit=100, sort_by="name"))
+/// while page:
+///     for ts in page:
+///         ...
+///     if page.next_cursor is None:
+///         break
+///     page = client.timeseries.filter(TimeSeriesFilterForm(
+///         limit=100, sort_by="name", cursor=page.next_cursor))
+/// ```
+///
+/// `next_cursor` is `None` on the last page. A *full* page may still be the last one — the server
+/// does not count the rows twice — so a walk ends with one request that comes back empty.
+///
+/// It is not a `list` subclass, so `isinstance(page, list)` is `False`; use `page.items` for a real
+/// list when something demands one.
+#[pyclass(module = "datahub_sdk", name = "Page", sequence)]
+pub struct PyPage {
+    items: Py<pyo3::types::PyList>,
+    next_cursor: Option<String>,
+}
+
+impl PyPage {
+    /// Wrap the rows of a response together with its cursor.
+    pub(crate) fn new<'py, T>(
+        py: Python<'py>,
+        items: Vec<T>,
+        next_cursor: Option<String>,
+    ) -> PyResult<Self>
+    where
+        T: IntoPyObject<'py>,
+    {
+        Ok(Self {
+            items: pyo3::types::PyList::new(py, items)?.unbind(),
+            next_cursor,
+        })
+    }
+}
+
+#[pymethods]
+impl PyPage {
+    /// The rows, as a plain list.
+    #[getter]
+    fn items(&self, py: Python<'_>) -> Py<pyo3::types::PyList> {
+        self.items.clone_ref(py)
+    }
+
+    /// The cursor for the next page, or `None` when the walk is done. Send it back as the
+    /// request's `cursor`, with the same sort that produced it.
+    #[getter]
+    fn next_cursor(&self) -> Option<&str> {
+        self.next_cursor.as_deref()
+    }
+
+    fn __len__(&self, py: Python<'_>) -> usize {
+        self.items.bind(py).len()
+    }
+
+    // Delegated to the list rather than reimplemented, so slicing and negative indices behave
+    // exactly as they would on one.
+    fn __getitem__<'py>(&self, key: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        self.items.bind(key.py()).as_any().get_item(key)
+    }
+
+    fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.items.bind(py).as_any().try_iter().map(|it| it.into_any())
+    }
+
+    fn __contains__(&self, item: &Bound<'_, PyAny>) -> PyResult<bool> {
+        self.items.bind(item.py()).as_any().contains(item)
+    }
+
+    fn __bool__(&self, py: Python<'_>) -> bool {
+        !self.items.bind(py).is_empty()
+    }
+
+    /// Equal to a plain list of the same rows, so an assertion written against the old return type
+    /// still holds.
+    fn __eq__(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        self.items.bind(other.py()).as_any().eq(other)
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        let cursor = match &self.next_cursor {
+            Some(cursor) => format!("'{cursor}'"),
+            None => "None".to_string(),
+        };
+        Ok(format!("Page({}, next_cursor={cursor})", self.items.bind(py).repr()?))
+    }
+}
+
+/// Turn the `sort_by` / `sort_order` / `cursor` keywords into the request's paging half.
+///
+/// One place for all four endpoints, because the rule that matters is the same everywhere and does
+/// not fail loudly when it is wrong: a cursor must travel with the sort that produced it.
+pub(crate) fn build_page_request(
+    sort_by: Option<StringOrList>,
+    sort_order: Option<String>,
+    cursor: Option<String>,
+) -> dataplatform_rust_sdk::filters::PageRequest {
+    use dataplatform_rust_sdk::filters::{DataSort, PageRequest};
+    let sort = sort_by.map(|property| DataSort {
+        property: property.into(),
+        order: sort_order,
+    });
+    PageRequest { sort, cursor }
+}
+
+/// A filter's pattern list, as Python may write it: one string or a list of them.
+///
+/// The api accepts a bare scalar wherever it declares a list, because filter fields went plural
+/// while most calls still pass one value. Mirroring that here keeps `names="pump_a"` from being a
+/// `TypeError` the caller has to look up. The SDK always sends the canonical list form.
+#[derive(FromPyObject)]
+pub(crate) enum StringOrList {
+    // A `str` is itself a sequence of `str` in Python, so it has to be tried first — otherwise
+    // "pump" would extract as the four patterns p, u, m, p.
+    One(String),
+    Many(Vec<String>),
+}
+
+impl From<StringOrList> for Vec<String> {
+    fn from(value: StringOrList) -> Self {
+        match value {
+            StringOrList::One(single) => vec![single],
+            StringOrList::Many(many) => many,
+        }
+    }
+}
+
+/// A data set named in a filter's `data_set_ids`: a numeric id, an external id, or an explicit
+/// `IdCollection` carrying either. The three spellings all reach the wire as `{"id": ...}` /
+/// `{"externalId": ...}`.
+#[derive(FromPyObject)]
+pub(crate) enum DataSetRef {
+    Id(u64),
+    ExternalId(String),
+    Collection(PyIdCollection),
+}
+
+impl From<DataSetRef> for IdAndExtId {
+    fn from(value: DataSetRef) -> Self {
+        match value {
+            DataSetRef::Id(id) => IdAndExtId::from_id(id),
+            DataSetRef::ExternalId(external_id) => IdAndExtId::from_external_id(&external_id),
+            DataSetRef::Collection(collection) => collection.into(),
+        }
+    }
+}
+
+/// Turn an optional pattern-list argument into what the filter field expects.
+pub(crate) fn opt_patterns(value: Option<StringOrList>) -> Option<Vec<String>> {
+    value.map(Into::into)
+}
+
+/// Turn an optional data-set argument into the reference list the filter field expects.
+///
+/// An empty list is preserved rather than dropped: on `data_set_ids` alone, `[]` means "narrow to
+/// no data sets" and `None` means "no restriction", and those are opposite answers.
+pub(crate) fn opt_data_set_refs(value: Option<Vec<DataSetRef>>) -> Option<Vec<IdAndExtId>> {
+    value.map(|refs| refs.into_iter().map(Into::into).collect())
+}
+
+/// The free-text half of a `search` request. The structured half is the `filter` argument of the
+/// `search` method itself, because each entity's search declares its own filter type.
 #[pyclass(module = "datahub_sdk", name = "SearchAndFilterForm")]
 #[derive(Clone)]
 pub struct PySearchAndFilterForm {
-    pub inner: SearchAndFilterForm,
+    pub search: SearchForm,
+    pub limit: Option<u64>,
 }
-impl From<SearchAndFilterForm> for PySearchAndFilterForm {
-    fn from(form: SearchAndFilterForm) -> Self {
-        Self { inner: form }
+
+impl PySearchAndFilterForm {
+    /// Combine the free-text half with an entity-specific filter into the request body.
+    pub(crate) fn into_form<F>(self, filter: Option<F>) -> SearchAndFilterForm<F> {
+        SearchAndFilterForm {
+            filter,
+            search: Some(self.search),
+            limit: self.limit,
+        }
     }
 }
-impl From<PySearchAndFilterForm> for SearchAndFilterForm {
-    fn from(value: PySearchAndFilterForm) -> Self {
-        value.inner
-    }
-}
+
 #[pymethods]
 impl PySearchAndFilterForm {
     #[new]
@@ -579,15 +757,12 @@ impl PySearchAndFilterForm {
         limit: Option<u64>,
     ) -> Self {
         Self {
-            inner: SearchAndFilterForm {
-                filter: None,
-                search: Some(SearchForm {
-                    name,
-                    description,
-                    query,
-                }),
-                limit,
+            search: SearchForm {
+                name,
+                description,
+                query,
             },
+            limit,
         }
     }
 }
@@ -609,29 +784,91 @@ impl From<PyTimeSeriesFilterForm> for TimeSeriesFilterForm {
 }
 #[pymethods]
 impl PyTimeSeriesFilterForm {
-    /// AND-combined criteria for `timeseries.filter`. `data_set_id` expands down the dataset
-    /// hierarchy server-side (a master dataset matches its children's timeseries too);
-    /// `metadata_key`/`metadata_value` work together or alone.
+    /// AND-combined criteria for `timeseries.filter` and the `filter` of `timeseries.search`.
+    ///
+    /// `external_ids`, `names`, `sources`, `units` and `unit_external_ids` are **pattern** lists:
+    /// `*` and `%` are wildcards, `_` is literal, matching is case-insensitive, and an entry with
+    /// no wildcard matches exactly. Entries within a list OR together; the fields AND. Each of
+    /// them also accepts a bare string.
+    ///
+    /// `labels` must **all** be present. `metadata` entries must all be present too, and a `None`
+    /// value matches the key alone — `{"health": None}` finds anything tagged `health`, which is
+    /// what the retired `metadata_key`-without-`metadata_value` used to mean.
+    ///
+    /// `value_types` is matched exactly (case-insensitively) against the closed catalogue
+    /// `BIGINT`, `FLOAT`, `FLOAT32`, `NUMERIC`, `DECIMAL32`, `TEXT`, `MIXED`.
+    ///
+    /// `data_set_ids` takes numeric ids, external ids, or `IdCollection`s, and expands down the
+    /// dataset hierarchy server-side, so a master dataset matches its children's timeseries too.
+    /// **`None` and `[]` differ here**: `None` places no restriction, `[]` narrows to no datasets
+    /// and matches nothing. Every other list is "no restriction" when empty.
+    ///
+    /// `sort_by` names one property — `id`, `externalId`, `name`, `source`, `description`,
+    /// `createdTime`, `lastUpdatedTime` or `dataSetId` — with `sort_order` of `"asc"` or `"desc"`;
+    /// `id` is always appended so the order is total. An unrecognised property falls back to the
+    /// default (newest created first) rather than failing. Nulls sort last ascending, first
+    /// descending.
+    ///
+    /// `cursor` continues a previous page: pass the `next_cursor` of that response verbatim, with
+    /// the **same** sort it came from — a mismatch is a 400, not a quietly short page.
     #[new]
-    #[pyo3(signature = (data_set_id=None, unit=None, unit_external_id=None, metadata_key=None, metadata_value=None, limit=None))]
+    #[pyo3(signature = (
+        ids=None,
+        external_ids=None,
+        names=None,
+        sources=None,
+        labels=None,
+        metadata=None,
+        created_time=None,
+        last_updated_time=None,
+        data_set_ids=None,
+        units=None,
+        unit_external_ids=None,
+        value_types=None,
+        limit=None,
+        sort_by=None,
+        sort_order=None,
+        cursor=None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        data_set_id: Option<u64>,
-        unit: Option<String>,
-        unit_external_id: Option<String>,
-        metadata_key: Option<String>,
-        metadata_value: Option<String>,
+        ids: Option<Vec<u64>>,
+        external_ids: Option<StringOrList>,
+        names: Option<StringOrList>,
+        sources: Option<StringOrList>,
+        labels: Option<StringOrList>,
+        metadata: Option<HashMap<String, Option<String>>>,
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        data_set_ids: Option<Vec<DataSetRef>>,
+        units: Option<StringOrList>,
+        unit_external_ids: Option<StringOrList>,
+        value_types: Option<StringOrList>,
         limit: Option<u64>,
+        sort_by: Option<StringOrList>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
     ) -> Self {
         Self {
             inner: TimeSeriesFilterForm {
                 filter: TimeSeriesFilter {
-                    data_set_id,
-                    unit,
-                    unit_external_id,
-                    metadata_key,
-                    metadata_value,
+                    node: NodeFilter {
+                        ids,
+                        external_ids: opt_patterns(external_ids),
+                        names: opt_patterns(names),
+                        sources: opt_patterns(sources),
+                        labels: opt_patterns(labels),
+                        metadata,
+                        created_time: created_time.map(Into::into),
+                        last_updated_time: last_updated_time.map(Into::into),
+                    },
+                    data_set_ids: opt_data_set_refs(data_set_ids),
+                    units: opt_patterns(units),
+                    unit_external_ids: opt_patterns(unit_external_ids),
+                    value_types: opt_patterns(value_types),
                 },
                 limit,
+                paging: build_page_request(sort_by, sort_order, cursor),
             },
         }
     }
@@ -937,6 +1174,8 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::datasets::PyDatasetUpdate>()?;
     m.add_class::<PySearchAndFilterForm>()?;
     m.add_class::<PyTimeSeriesFilterForm>()?;
+    m.add_class::<crate::resources::PyResourceFilter>()?;
+    m.add_class::<PyPage>()?;
     timeseries::register(m)?;
     events::register(m)?;
     datasets::register(m)?;

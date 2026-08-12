@@ -1,7 +1,7 @@
 use crate::relations::{PyGraphResult, PyRelForm};
-use crate::resources::{PyResourceNetwork, PyResourceUpdate, ResourceIdentifiable};
+use crate::resources::{PyResourceFilter, PyResourceNetwork, PyResourceUpdate, ResourceIdentifiable};
 use dataplatform_rust_sdk::resources::ResourceUpdate;
-use crate::{PyResource, PySearchAndFilterForm};
+use crate::{DataSetRef, PyResource, PySearchAndFilterForm, StringOrList};
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::relations::RelForm;
 use dataplatform_rust_sdk::resources::RelatedResourcesForm;
@@ -95,17 +95,20 @@ impl PyResourcesServiceAsync {
             Ok(py_ts)
         })
     }
+    #[pyo3(signature = (input, filter = None))]
     fn search<'py>(
         &self,
         py: Python<'py>,
         input: PySearchAndFilterForm,
+        filter: Option<PyResourceFilter>,
     ) -> PyResult<Bound<'py, PyAny>> {
+        let form = input.into_form(filter.map(|f| f.inner));
         let service = self.api_service.clone();
 
         future_into_py(py, async move {
             let result = service
                 .resources
-                .search(&input.into())
+                .search(&form)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
 
@@ -156,23 +159,35 @@ impl PyResourcesServiceAsync {
     }
 
     /// `POST /resources/filter` — structured lookup; every criterion is combined with AND.
-    #[pyo3(signature = (id=None, external_id=None, name=None, source=None, is_root=None,
-                        data_set_ids=None, metadata=None, limit=None))]
+    /// See the sync twin for the pattern, label and data-set-scope rules.
+    #[pyo3(signature = (ids=None, external_ids=None, names=None, sources=None, labels=None,
+                        metadata=None, created_time=None, last_updated_time=None, node_types=None,
+                        is_root=None, data_set_ids=None, limit=None, sort_by=None, sort_order=None,
+                        cursor=None))]
     #[allow(clippy::too_many_arguments)]
     fn filter<'py>(
         &self,
         py: Python<'py>,
-        id: Option<u64>,
-        external_id: Option<String>,
-        name: Option<String>,
-        source: Option<String>,
+        ids: Option<Vec<u64>>,
+        external_ids: Option<StringOrList>,
+        names: Option<StringOrList>,
+        sources: Option<StringOrList>,
+        labels: Option<StringOrList>,
+        metadata: Option<HashMap<String, Option<String>>>,
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        node_types: Option<StringOrList>,
         is_root: Option<bool>,
-        data_set_ids: Option<Vec<u64>>,
-        metadata: Option<HashMap<String, String>>,
+        data_set_ids: Option<Vec<DataSetRef>>,
         limit: Option<u64>,
+        sort_by: Option<StringOrList>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let retriever = crate::resources::sync_service::build_resource_retriever(
-            id, external_id, name, source, is_root, data_set_ids, metadata, limit,
+            ids, external_ids, names, sources, labels, metadata, created_time,
+            last_updated_time, node_types, is_root, data_set_ids, limit, sort_by, sort_order,
+            cursor,
         );
         let service = self.api_service.clone();
         future_into_py(py, async move {
@@ -181,11 +196,13 @@ impl PyResourcesServiceAsync {
                 .filter(&retriever)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            Ok(result
+            let next_cursor = result.next_cursor().map(str::to_string);
+            let items: Vec<PyResource> = result
                 .get_items()
                 .iter()
                 .map(|r| PyResource::with_client(r.clone(), service.clone()))
-                .collect::<Vec<PyResource>>())
+                .collect();
+            Python::attach(|py| crate::PyPage::new(py, items, next_cursor))
         })
     }
 

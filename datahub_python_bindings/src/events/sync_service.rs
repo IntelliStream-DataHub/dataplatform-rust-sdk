@@ -79,22 +79,24 @@ impl PyEventsServiceSync {
         })
     }
 
-    fn filter<'py>(&self, py: Python<'py>, input: PyEventFilter) -> PyResult<Vec<PyEvent>> {
+    fn filter<'py>(&self, py: Python<'py>, input: PyEventFilter) -> PyResult<crate::PyPage> {
         let service = self.api_service.clone();
 
-        py.detach(|| {
+        let (items, next_cursor) = py.detach(|| {
             let result = self
                 .runtime
                 .block_on(service.events.filter(&input.into()))
                 .map_err(|e| crate::datahub_err(e))?;
 
-            let py_ts: Vec<PyEvent> = result
+            let next_cursor = result.next_cursor().map(str::to_string);
+            let items: Vec<PyEvent> = result
                 .get_items()
                 .iter()
                 .map(|ts| PyEvent::with_client(ts.clone(), service.clone()))
                 .collect();
-            Ok(py_ts)
-        })
+            Ok::<_, pyo3::PyErr>((items, next_cursor))
+        })?;
+        crate::PyPage::new(py, items, next_cursor)
     }
 
     /// Look up a single event by its UUID. Returns `None` if no such event exists.

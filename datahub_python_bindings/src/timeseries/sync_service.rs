@@ -127,17 +127,20 @@ impl PyTimeSeriesServiceSync {
             Ok(py_ts)
         })
     }
+    #[pyo3(signature = (input, filter = None))]
     fn search<'p>(
         &self,
         py: Python<'p>,
         input: PySearchAndFilterForm,
+        filter: Option<PyTimeSeriesFilterForm>,
     ) -> PyResult<Vec<PyTimeSeries>> {
+        let form = input.into_form(filter.map(|f| f.inner.filter));
         let service = self.api_service.clone();
 
         py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.time_series.search(&input.into()))
+                .block_on(service.time_series.search(&form))
                 .map_err(|e| crate::datahub_err(e))?;
             let py_ts: Vec<PyTimeSeries> = result
                 .get_items()
@@ -152,21 +155,23 @@ impl PyTimeSeriesServiceSync {
         &self,
         py: Python<'p>,
         input: PyTimeSeriesFilterForm,
-    ) -> PyResult<Vec<PyTimeSeries>> {
+    ) -> PyResult<crate::PyPage> {
         let service = self.api_service.clone();
 
-        py.detach(|| {
+        let (items, next_cursor) = py.detach(|| {
             let result = self
                 .runtime
                 .block_on(service.time_series.filter(&input.into()))
                 .map_err(|e| crate::datahub_err(e))?;
-            let py_ts: Vec<PyTimeSeries> = result
+            let next_cursor = result.next_cursor().map(str::to_string);
+            let items: Vec<PyTimeSeries> = result
                 .get_items()
                 .iter()
                 .map(|ts| PyTimeSeries::with_client(ts.clone(), service.clone()))
                 .collect();
-            Ok(py_ts)
-        })
+            Ok::<_, pyo3::PyErr>((items, next_cursor))
+        })?;
+        crate::PyPage::new(py, items, next_cursor)
     }
 
     fn insert_datapoints<'py>(
