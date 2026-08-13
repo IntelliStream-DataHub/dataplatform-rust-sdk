@@ -258,8 +258,9 @@ impl PyTimeSeriesUpdate {
         unit_external_id=None,
         security_categories=None,
         data_set_id=None,
-        value_type=None,
+        source=None,
     ))]
+    #[allow(clippy::too_many_arguments)]
     pub fn __init__(
         ts: Identifiable, // todo make TimeseriesIdentifyable
         external_id: Option<PyFieldStr>,
@@ -270,7 +271,7 @@ impl PyTimeSeriesUpdate {
         unit_external_id: Option<PyFieldStr>,
         security_categories: Option<PyListFieldU64>,
         data_set_id: Option<PyFieldU64>,
-        value_type: Option<ValueType>,
+        source: Option<PyFieldStr>,
     ) -> PyResult<Self> {
         let id_collection = ts.id_collection();
         let update = TimeSeriesUpdateFields {
@@ -282,7 +283,7 @@ impl PyTimeSeriesUpdate {
             unit_external_id: unit_external_id.map(|s| s.0).unwrap_or_default(),
             security_categories: security_categories.map(|s| s.0).unwrap_or_default(),
             data_set_id: data_set_id.map(|s| s.0).unwrap_or_default(),
-            value_type: Field::new(value_type.map(|s| s.to_string()), false),
+            source: source.map(|s| s.0).unwrap_or_default(),
         };
         Ok(Self {
             inner: TimeSeriesUpdate {
@@ -333,8 +334,8 @@ impl PyTimeSeriesUpdate {
         self.inner.update.data_set_id.clone().into()
     }
     #[getter]
-    fn value_type(&self) -> Option<&String> {
-        self.inner.update.value_type.set.as_ref()
+    fn source(&self) -> PyFieldStr {
+        self.inner.update.source.clone().into()
     }
 }
 

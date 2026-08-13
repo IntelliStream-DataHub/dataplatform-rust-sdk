@@ -275,7 +275,7 @@ impl Dataset {
 /// # use dataplatform_rust_sdk::datasets::DatasetUpdate;
 /// # use dataplatform_rust_sdk::fields::Field;
 /// let update = DatasetUpdate::by_external_id("sap_work_orders")
-///     .description(Field::value("SAP work orders — live sync"))
+///     .description(Field::value("SAP work orders — live sync"));
 /// ```
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

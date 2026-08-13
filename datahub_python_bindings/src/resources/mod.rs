@@ -25,7 +25,7 @@ fn geometry_from_py(obj: Bound<'_, PyAny>) -> PyResult<Geometry> {
 pub mod async_service;
 pub mod sync_service;
 
-use crate::{PyFieldStr, PyFieldU64, PyListFieldStr, PyMapField};
+use crate::{PyFieldGeoJson, PyFieldStr, PyFieldU64, PyListFieldStr, PyMapField};
 use dataplatform_rust_sdk::resources::{ResourceUpdate, ResourceUpdateFields};
 
 /// One resource's update for `resources.update`. Target the resource by a `Resource`, its numeric
@@ -56,7 +56,9 @@ impl PyResourceUpdate {
         metadata = None,
         source = None,
         labels = None,
+        geolocation = None,
     ))]
+    #[allow(clippy::too_many_arguments)]
     pub fn __init__(
         resource: ResourceIdentifiable,
         external_id: Option<PyFieldStr>,
@@ -66,6 +68,7 @@ impl PyResourceUpdate {
         metadata: Option<PyMapField>,
         source: Option<PyFieldStr>,
         labels: Option<PyListFieldStr>,
+        geolocation: Option<PyFieldGeoJson>,
     ) -> Self {
         let ident = IdAndExtId::from(resource);
         Self {
@@ -80,6 +83,7 @@ impl PyResourceUpdate {
                     metadata: metadata.map(Into::into),
                     source: source.map(Into::into),
                     labels: labels.map(Into::into),
+                    geolocation: geolocation.map(Into::into),
                 },
             },
         }

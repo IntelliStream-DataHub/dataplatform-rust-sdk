@@ -37,8 +37,10 @@ impl PyTimeSeries {
     unit_external_id = None,
     security_categories = None,
     data_set_id = None,
-    related_resources = None
+    related_resources = None,
+    source = None
 ))]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: Option<String>,
         external_id: Option<String>,
@@ -50,6 +52,7 @@ impl PyTimeSeries {
         security_categories: Option<Vec<u64>>,
         data_set_id: Option<u64>,
         related_resources: Option<Vec<PyRelatedNode>>,
+        source: Option<String>,
     ) -> PyResult<PyTimeSeries> {
         let (final_name, final_ext_id) = match (name, external_id) {
             (Some(name), Some(external_id)) => (name, external_id),
@@ -75,6 +78,7 @@ impl PyTimeSeries {
             security_categories,
             data_set_id,
             value_type: value_type.to_string(),
+            source,
             created_time: None,
             last_updated_time: None,
             related_resources: related_resources
