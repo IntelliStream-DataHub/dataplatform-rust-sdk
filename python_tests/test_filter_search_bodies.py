@@ -7,7 +7,7 @@ Each search endpoint declares a ``filter`` in its request schema, of the same ty
 rather than a hand-picked few fields: ``narrowToFilter`` now re-runs the search hits through the
 filter endpoint's own query instead of re-implementing three predicates in Java. The fields it did
 not hand-roll — ids, externalIds, names, and later everything inherited from the node base — were
-accepted and quietly dropped, so a search narrowed by ``names`` returned rows that did not match it.
+accepted and quietly dropped, so a search narrowed by ``name`` returned rows that did not match it.
 
 ``/resources/search``, ``/datasets/search`` and ``/events/search`` still accept a filter and ignore
 it. Those cases are ``xfail(strict=True)``: they encode the behaviour a caller reading the OpenAPI
@@ -53,7 +53,7 @@ def test_timeseries_search_finds_the_corpus_before_any_filtering(sync_client, ti
 
 
 def test_timeseries_search_filter_narrows_on_an_inherited_node_field(sync_client, timeseries_corpus, token):
-    """``names`` is inherited from the node base, and is exactly the kind of field the old
+    """``name`` is inherited from the node base, and is exactly the kind of field the old
     hand-rolled post-filter did not implement — it was accepted and dropped."""
     query = f"Pump {token}"
     unfiltered = poll_until(
@@ -66,7 +66,7 @@ def test_timeseries_search_filter_narrows_on_an_inherited_node_field(sync_client
 
     narrowed = sync_client.timeseries.search(
         datahub_sdk.SearchAndFilterForm(query=query),
-        filter=datahub_sdk.TimeSeriesFilterForm(names=[f"Pump Alpha {token}"]),
+        filter=datahub_sdk.TimeSeriesFilterForm(name=[f"Pump Alpha {token}"]),
     )
     assert externals(narrowed) == {timeseries_corpus["pump_1"].external_id}
 
@@ -75,13 +75,13 @@ def test_timeseries_search_filter_narrows_on_a_timeseries_only_field(sync_client
     query = f"Pump {token}"
     by_unit = sync_client.timeseries.search(
         datahub_sdk.SearchAndFilterForm(query=query),
-        filter=datahub_sdk.TimeSeriesFilterForm(units=["celsius"]),
+        filter=datahub_sdk.TimeSeriesFilterForm(unit=["celsius"]),
     )
     assert externals(by_unit) == {timeseries_corpus["pump_x1"].external_id}
 
     by_value_type = sync_client.timeseries.search(
         datahub_sdk.SearchAndFilterForm(query=query),
-        filter=datahub_sdk.TimeSeriesFilterForm(value_types=["TEXT"]),
+        filter=datahub_sdk.TimeSeriesFilterForm(value_type=["TEXT"]),
     )
     assert externals(by_value_type) == set(), "both Pump series are FLOAT"
 
@@ -102,7 +102,7 @@ def test_timeseries_search_filter_narrows_by_metadata_and_labels(sync_client, ti
 
 
 def test_timeseries_search_filter_narrows_by_data_set(sync_client, timeseries_corpus, datasets, token):
-    """``dataSetIds`` is pushed into the search query itself rather than applied afterwards, so it
+    """``dataSetId`` is pushed into the search query itself rather than applied afterwards, so it
     takes a different path from the rest of the filter and is worth its own case.
 
     The Valve series lives in the parent data set and the two Pump series in the child.
@@ -112,14 +112,14 @@ def test_timeseries_search_filter_narrows_by_data_set(sync_client, timeseries_co
 
     in_child = sync_client.timeseries.search(
         datahub_sdk.SearchAndFilterForm(query=query),
-        filter=datahub_sdk.TimeSeriesFilterForm(data_set_ids=[child.id]),
+        filter=datahub_sdk.TimeSeriesFilterForm(data_set_id=[child.id]),
     )
     assert timeseries_corpus["valve"].external_id not in externals(in_child)
 
     # Naming the parent covers the child, so the whole corpus is back in scope.
     under_parent = sync_client.timeseries.search(
         datahub_sdk.SearchAndFilterForm(query=query),
-        filter=datahub_sdk.TimeSeriesFilterForm(data_set_ids=[parent.id]),
+        filter=datahub_sdk.TimeSeriesFilterForm(data_set_id=[parent.id]),
     )
     assert externals(under_parent) >= {
         timeseries_corpus["pump_1"].external_id, timeseries_corpus["valve"].external_id
@@ -146,7 +146,7 @@ def test_timeseries_search_ranking_survives_the_filter(sync_client, timeseries_c
     )]
     filtered = [ts.external_id for ts in sync_client.timeseries.search(
         datahub_sdk.SearchAndFilterForm(query=query),
-        filter=datahub_sdk.TimeSeriesFilterForm(value_types=["FLOAT"]),
+        filter=datahub_sdk.TimeSeriesFilterForm(value_type=["FLOAT"]),
     )]
 
     kept = [external_id for external_id in unfiltered if external_id in set(filtered)]
@@ -159,7 +159,7 @@ async def test_timeseries_search_filter_works_on_the_async_client(
 ):
     narrowed = await async_client.timeseries.search(
         datahub_sdk.SearchAndFilterForm(query=f"Pump {token}"),
-        filter=datahub_sdk.TimeSeriesFilterForm(names=[f"Pump Alpha {token}"]),
+        filter=datahub_sdk.TimeSeriesFilterForm(name=[f"Pump Alpha {token}"]),
     )
     assert externals(narrowed) == {timeseries_corpus["pump_1"].external_id}
 
@@ -220,7 +220,7 @@ def test_event_search_honours_its_filter(sync_client, event_corpus, prefix, toke
     assert externals(unfiltered), "the event search index never returned the corpus"
 
     narrowed = sync_client.events.search(datahub_sdk.EventSearch(
-        query, filter=datahub_sdk.BasicEventFilter(statuses=["CLOSED"])))
+        query, filter=datahub_sdk.BasicEventFilter(status=["CLOSED"])))
     assert externals(narrowed) == {f"{prefix}_ev_alarmX1"}
 
 
@@ -239,5 +239,5 @@ def test_the_ignored_filters_are_at_least_accepted(sync_client, resource_corpus,
         f"Filter {token}", filter=datahub_sdk.BasicDatasetFilter(metadata={"tier": "gold"})
     ) is not None
     assert sync_client.events.search(datahub_sdk.EventSearch(
-        f"alarm {token}", filter=datahub_sdk.BasicEventFilter(statuses=["CLOSED"]))
+        f"alarm {token}", filter=datahub_sdk.BasicEventFilter(status=["CLOSED"]))
     ) is not None

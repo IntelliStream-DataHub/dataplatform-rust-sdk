@@ -117,7 +117,7 @@ impl PyDatasetsServiceSync {
     /// `query` must be 3–140 characters *and* Latin letters, spaces or digits only
     /// (`^[\p{IsLatin}\p{Zs}\p{Nd}]+`). An underscore is rejected with a 400, so an external id
     /// is usually not a legal query even though the index covers it — search on words, and use
-    /// `filter`'s `external_ids` (a trailing `*` is a prefix search) to look up by id.
+    /// `filter`'s `external_id` (a trailing `*` is a prefix search) to look up by id.
     ///
     /// The `filter` argument is declared by the endpoint and **ignored server-side** today; use
     /// `filter()` for criteria.

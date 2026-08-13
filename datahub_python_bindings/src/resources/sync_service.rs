@@ -140,7 +140,7 @@ impl PyResourcesServiceSync {
 
     /// `POST /resources/filter` — structured lookup; every criterion is combined with AND.
     ///
-    /// `external_ids`, `names` and `sources` are **pattern** lists: `*` and `%` are wildcards, `_`
+    /// `external_id`, `name` and `source` are **pattern** lists: `*` and `%` are wildcards, `_`
     /// is literal, matching is case-insensitive, and an entry with no wildcard matches exactly.
     /// Entries OR within a list; the fields AND. Each also accepts a bare string. The singular
     /// `id`/`external_id`/`name` these replaced are gone — a one-element list is the old
@@ -148,36 +148,36 @@ impl PyResourcesServiceSync {
     ///
     /// `labels` must **all** be present; a `None` `metadata` value matches the key alone.
     ///
-    /// `data_set_ids` takes numeric ids, external ids, or `IdCollection`s — it used to take ids
+    /// `data_set_id` takes numeric ids, external ids, or `IdCollection`s — it used to take ids
     /// only — and expands down the dataset hierarchy. **`None` and `[]` differ**: `None` places no
     /// restriction, `[]` narrows to no datasets and matches nothing.
-    #[pyo3(signature = (ids=None, external_ids=None, names=None, sources=None, labels=None,
-                        metadata=None, created_time=None, last_updated_time=None, node_types=None,
-                        is_root=None, data_set_ids=None, limit=None, sort_by=None, sort_order=None,
+    #[pyo3(signature = (id=None, external_id=None, name=None, source=None, labels=None,
+                        metadata=None, created_time=None, last_updated_time=None, node_type=None,
+                        is_root=None, data_set_id=None, limit=None, sort_by=None, sort_order=None,
                         cursor=None))]
     #[allow(clippy::too_many_arguments)]
     fn filter<'py>(
         &self,
         py: Python<'py>,
-        ids: Option<Vec<u64>>,
-        external_ids: Option<StringOrList>,
-        names: Option<StringOrList>,
-        sources: Option<StringOrList>,
+        id: Option<Vec<u64>>,
+        external_id: Option<StringOrList>,
+        name: Option<StringOrList>,
+        source: Option<StringOrList>,
         labels: Option<StringOrList>,
         metadata: Option<HashMap<String, Option<String>>>,
         created_time: Option<crate::events::PyTimeFilter>,
         last_updated_time: Option<crate::events::PyTimeFilter>,
-        node_types: Option<StringOrList>,
+        node_type: Option<StringOrList>,
         is_root: Option<bool>,
-        data_set_ids: Option<Vec<DataSetRef>>,
+        data_set_id: Option<Vec<DataSetRef>>,
         limit: Option<u64>,
         sort_by: Option<StringOrList>,
         sort_order: Option<String>,
         cursor: Option<String>,
     ) -> PyResult<crate::PyPage> {
         let retriever = build_resource_retriever(
-            ids, external_ids, names, sources, labels, metadata, created_time,
-            last_updated_time, node_types, is_root, data_set_ids, limit, sort_by, sort_order,
+            id, external_id, name, source, labels, metadata, created_time,
+            last_updated_time, node_type, is_root, data_set_id, limit, sort_by, sort_order,
             cursor,
         );
         let service = self.api_service.clone();
@@ -258,57 +258,57 @@ impl PyResourcesServiceSync {
 /// cannot drift into accepting different things.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_resource_filter(
-    ids: Option<Vec<u64>>,
-    external_ids: Option<StringOrList>,
-    names: Option<StringOrList>,
-    sources: Option<StringOrList>,
+    id: Option<Vec<u64>>,
+    external_id: Option<StringOrList>,
+    name: Option<StringOrList>,
+    source: Option<StringOrList>,
     labels: Option<StringOrList>,
     metadata: Option<HashMap<String, Option<String>>>,
     created_time: Option<crate::events::PyTimeFilter>,
     last_updated_time: Option<crate::events::PyTimeFilter>,
-    node_types: Option<StringOrList>,
+    node_type: Option<StringOrList>,
     is_root: Option<bool>,
-    data_set_ids: Option<Vec<DataSetRef>>,
+    data_set_id: Option<Vec<DataSetRef>>,
 ) -> ResourceFilter {
     ResourceFilter {
         node: NodeFilter {
-            ids,
-            external_ids: opt_patterns(external_ids),
-            names: opt_patterns(names),
-            sources: opt_patterns(sources),
+            id,
+            external_id: opt_patterns(external_id),
+            name: opt_patterns(name),
+            source: opt_patterns(source),
             labels: opt_patterns(labels),
             metadata,
             created_time: created_time.map(Into::into),
             last_updated_time: last_updated_time.map(Into::into),
         },
-        node_types: opt_patterns(node_types),
+        node_type: opt_patterns(node_type),
         is_root,
-        data_set_ids: opt_data_set_refs(data_set_ids),
+        data_set_id: opt_data_set_refs(data_set_id),
     }
 }
 
 /// Shared by the sync and async `filter` bindings: turn Python kwargs into a `ResourceRetreiver`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_resource_retriever(
-    ids: Option<Vec<u64>>,
-    external_ids: Option<StringOrList>,
-    names: Option<StringOrList>,
-    sources: Option<StringOrList>,
+    id: Option<Vec<u64>>,
+    external_id: Option<StringOrList>,
+    name: Option<StringOrList>,
+    source: Option<StringOrList>,
     labels: Option<StringOrList>,
     metadata: Option<HashMap<String, Option<String>>>,
     created_time: Option<crate::events::PyTimeFilter>,
     last_updated_time: Option<crate::events::PyTimeFilter>,
-    node_types: Option<StringOrList>,
+    node_type: Option<StringOrList>,
     is_root: Option<bool>,
-    data_set_ids: Option<Vec<DataSetRef>>,
+    data_set_id: Option<Vec<DataSetRef>>,
     limit: Option<u64>,
     sort_by: Option<StringOrList>,
     sort_order: Option<String>,
     cursor: Option<String>,
 ) -> ResourceRetreiver {
     let filter = build_resource_filter(
-        ids, external_ids, names, sources, labels, metadata, created_time, last_updated_time,
-        node_types, is_root, data_set_ids,
+        id, external_id, name, source, labels, metadata, created_time, last_updated_time,
+        node_type, is_root, data_set_id,
     );
     let mut retriever = ResourceRetreiver::new(filter);
     if let Some(limit) = limit {

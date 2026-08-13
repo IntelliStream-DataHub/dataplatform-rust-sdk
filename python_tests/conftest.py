@@ -44,7 +44,7 @@ def _sweep(client) -> None:
     # Events — no list endpoint, but the filter API accepts an external-id prefix.
     try:
         filt = datahub_sdk.EventFilter(
-            basic_filter=datahub_sdk.BasicEventFilter(external_ids=f"{TEST_PREFIX}*")
+            basic_filter=datahub_sdk.BasicEventFilter(external_id=f"{TEST_PREFIX}*")
         )
         _safe_delete_each(client.events.delete, _matching_prefix(client.events.filter(filt)))
     except Exception:

@@ -107,13 +107,13 @@ mod tests {
 
         // Adding the unit keeps it; a wrong unit must drop it.
         let mut with_unit = filter.clone();
-        with_unit.units = Some(vec!["celsius".to_string()]);
+        with_unit.unit = Some(vec!["celsius".to_string()]);
         match api_service.time_series.filter(&TimeSeriesFilterForm::new(with_unit, None)).await {
             Ok(timeseries) => assert_eq!(timeseries.length(), 1),
             Err(e) => panic!("{:?}", e.get_message()),
         }
         let mut wrong_unit = filter.clone();
-        wrong_unit.units = Some(vec!["watt".to_string()]);
+        wrong_unit.unit = Some(vec!["watt".to_string()]);
         match api_service.time_series.filter(&TimeSeriesFilterForm::new(wrong_unit, None)).await {
             Ok(timeseries) => assert_eq!(timeseries.length(), 0),
             Err(e) => panic!("{:?}", e.get_message()),
@@ -1106,7 +1106,7 @@ mod tests {
     }
 }
 /// The timeseries filter's wire shape. The shared node criteria flatten into the body; only the
-/// data set scope, the two unit lists and `valueTypes` are the timeseries' own.
+/// data set scope, the two unit lists and `valueType` are the timeseries' own.
 #[test]
 fn timeseries_filter_matches_the_documented_wire_shape() {
     use crate::filters::NodeFilter;
@@ -1115,36 +1115,40 @@ fn timeseries_filter_matches_the_documented_wire_shape() {
 
     let filter = TimeSeriesFilter {
         node: NodeFilter {
-            names: Some(vec!["RPM*".to_string()]),
-            external_ids: Some(vec!["rpm_pump_*".to_string()]),
+            name: Some(vec!["RPM*".to_string()]),
+            external_id: Some(vec!["rpm_pump_*".to_string()]),
             labels: Some(vec!["PUMP".to_string()]),
             // A `None` value asks for the key alone — what the retired
             // `metadataKey`-without-`metadataValue` used to mean.
             metadata: Some([("sensor_vendor".to_string(), None)].into()),
             ..Default::default()
         },
-        data_set_ids: Some(vec![IdAndExtId::from_id(12)]),
-        units: Some(vec!["bar".to_string(), "deg_*".to_string()]),
-        unit_external_ids: Some(vec!["mass_flow_rate_kghr".to_string()]),
-        value_types: Some(vec!["FLOAT".to_string()]),
+        data_set_id: Some(vec![IdAndExtId::from_id(12)]),
+        unit: Some(vec!["bar".to_string(), "deg_*".to_string()]),
+        unit_external_id: Some(vec!["mass_flow_rate_kghr".to_string()]),
+        value_type: Some(vec!["FLOAT".to_string()]),
     };
 
     let body = serde_json::to_value(TimeSeriesFilterForm::new(filter, Some(100))).unwrap();
     assert_eq!(body["limit"], 100);
     let f = &body["filter"];
-    assert_eq!(f["names"], serde_json::json!(["RPM*"]));
-    assert_eq!(f["externalIds"], serde_json::json!(["rpm_pump_*"]));
+    assert_eq!(f["name"], serde_json::json!(["RPM*"]));
+    assert_eq!(f["externalId"], serde_json::json!(["rpm_pump_*"]));
     assert_eq!(f["labels"], serde_json::json!(["PUMP"]));
     assert_eq!(f["metadata"], serde_json::json!({"sensor_vendor": null}));
-    assert_eq!(f["dataSetIds"], serde_json::json!([{"id": "12"}]));
-    assert_eq!(f["units"], serde_json::json!(["bar", "deg_*"]));
-    assert_eq!(f["unitExternalIds"], serde_json::json!(["mass_flow_rate_kghr"]));
-    assert_eq!(f["valueTypes"], serde_json::json!(["FLOAT"]));
+    assert_eq!(f["dataSetId"], serde_json::json!([{"id": "12"}]));
+    assert_eq!(f["unit"], serde_json::json!(["bar", "deg_*"]));
+    assert_eq!(f["unitExternalId"], serde_json::json!(["mass_flow_rate_kghr"]));
+    assert_eq!(f["valueType"], serde_json::json!(["FLOAT"]));
 
-    // The scalar fields these replaced must be gone. `dataSetId` could only name one data set,
-    // and the api drops unknown keys silently — so a leftover one would place no restriction and
-    // return every timeseries the caller can read, which looks like a working query.
-    for retired in ["dataSetId", "unit", "unitExternalId", "metadataKey", "metadataValue"] {
+    // Every criterion is a list under a singular key. The plural spellings, and the
+    // `metadataKey`/`metadataValue` pair before them, must be gone: the api drops unknown keys
+    // silently, so a leftover one places no restriction and returns every timeseries the caller
+    // can read, which looks like a working query.
+    for retired in [
+        "dataSetIds", "units", "unitExternalIds", "valueTypes", "names", "externalIds",
+        "metadataKey", "metadataValue",
+    ] {
         assert!(f.get(retired).is_none(), "retired field {retired} is still sent: {f}");
     }
 }
@@ -1164,23 +1168,23 @@ fn default_timeseries_filter_sends_no_criteria() {
     assert!(body.get("limit").is_none(), "unset limit must be omitted so the server default applies");
 }
 
-/// Absent and empty `dataSetIds` are opposite answers — no restriction versus narrow-to-nothing —
+/// Absent and empty `dataSetId` are opposite answers — no restriction versus narrow-to-nothing —
 /// and the flatten must not collapse them.
 #[test]
 fn timeseries_filter_empty_data_set_scope_is_not_the_same_as_none() {
     use crate::timeseries::TimeSeriesFilter;
 
     let narrowed_to_nothing = TimeSeriesFilter {
-        data_set_ids: Some(vec![]),
+        data_set_id: Some(vec![]),
         ..Default::default()
     };
     assert_eq!(
-        serde_json::to_value(&narrowed_to_nothing).unwrap()["dataSetIds"],
+        serde_json::to_value(&narrowed_to_nothing).unwrap()["dataSetId"],
         serde_json::json!([])
     );
     assert!(serde_json::to_value(TimeSeriesFilter::default())
         .unwrap()
-        .get("dataSetIds")
+        .get("dataSetId")
         .is_none());
 }
 
@@ -1193,19 +1197,19 @@ fn timeseries_filter_round_trips_through_its_flattened_base() {
 
     let filter = TimeSeriesFilter {
         node: NodeFilter {
-            ids: Some(vec![9_007_199_254_740_993]),
-            names: Some(vec!["RPM*".to_string()]),
+            id: Some(vec![9_007_199_254_740_993]),
+            name: Some(vec!["RPM*".to_string()]),
             metadata: Some([("health".to_string(), None)].into()),
             ..Default::default()
         },
-        units: Some(vec!["bar".to_string()]),
+        unit: Some(vec!["bar".to_string()]),
         ..Default::default()
     };
 
     let parsed: TimeSeriesFilter =
         serde_json::from_str(&serde_json::to_string(&filter).unwrap()).unwrap();
     assert_eq!(parsed.node, filter.node);
-    assert_eq!(parsed.units, filter.units);
+    assert_eq!(parsed.unit, filter.unit);
 }
 
 /// The update body's wire shape: every field the server's `TimeseriesFields` has, and nothing

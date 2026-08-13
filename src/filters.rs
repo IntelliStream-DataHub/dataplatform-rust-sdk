@@ -22,16 +22,20 @@ pub type MetadataFilter = HashMap<String, Option<String>>;
 /// except [`labels`](Self::labels) and [`metadata`](Self::metadata), where every entry must be
 /// present.
 ///
-/// [`external_ids`](Self::external_ids), [`names`](Self::names) and [`sources`](Self::sources) are
+/// [`external_id`](Self::external_id), [`name`](Self::name) and [`source`](Self::source) are
 /// **pattern** lists: `*` and `%` both mean "any run of characters", `_` is literal (identifiers
 /// here are built out of underscores, so `sap_work_orders` must not also match `sapXwork_orders`),
 /// and an entry carrying no wildcard matches exactly. Matching is case-insensitive throughout.
 ///
+/// The names are singular even though every one of them is a list, because the api declares them
+/// `@SingleOrList` — a bare value is accepted wherever a list is, and one value is the common case.
+/// `labels` keeps its plural: its entries **AND**, so the field is genuinely about a set.
+///
 /// `None` places no restriction — and so does an **empty** list: an empty `IN` is not valid SQL,
 /// and a caller who built a list and found nothing to put in it means "no restriction" far more
 /// often than "match nothing". Blank entries are dropped for the same reason. The one field where
-/// empty and `None` diverge is `data_set_ids`, which is not here; see
-/// [`ResourceFilter::data_set_ids`](crate::resources::ResourceFilter::data_set_ids).
+/// empty and `None` diverge is `data_set_id`, which is not here; see
+/// [`ResourceFilter::data_set_id`](crate::resources::ResourceFilter::data_set_id).
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeFilter {
@@ -41,17 +45,17 @@ pub struct NodeFilter {
         skip_serializing_if = "Option::is_none",
         with = "crate::serde_helper::opt_string_id_vec"
     )]
-    pub ids: Option<Vec<u64>>,
+    pub id: Option<Vec<u64>>,
     /// Nodes matching any of these external ids, literal or wildcard. Max 1000. Literal entries
     /// resolve through the indexed hash, so mixing an exact id with a pattern costs nothing extra.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_ids: Option<Vec<String>>,
+    pub external_id: Option<Vec<String>>,
     /// Nodes whose name matches any entry. Max 1000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub names: Option<Vec<String>>,
+    pub name: Option<Vec<String>>,
     /// Nodes whose source matches any entry. Max 1000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sources: Option<Vec<String>>,
+    pub source: Option<Vec<String>>,
     /// Labels the node must carry — **all** of them. Names are canonicalised server-side (upper
     /// snake case), so `"pump a"` finds the label stored as `PUMP_A`. Max 1000. A name matching no
     /// label matches no nodes; a list of only blanks restricts nothing.
@@ -71,9 +75,9 @@ pub struct NodeFilter {
 /// Deliberately **not** a [`NodeFilter`]: events are not nodes. They live in ClickHouse, their id
 /// is a UUID string rather than a long, and the table has no `name` column — only a description.
 /// What it does instead is match that base field for field wherever ClickHouse can back it, so
-/// [`external_ids`](Self::external_ids), [`sources`](Self::sources), [`metadata`](Self::metadata),
+/// [`external_id`](Self::external_id), [`source`](Self::source), [`metadata`](Self::metadata),
 /// [`created_time`](Self::created_time), [`last_updated_time`](Self::last_updated_time) and
-/// [`data_set_ids`](Self::data_set_ids) carry the same names and semantics they have there —
+/// [`data_set_id`](Self::data_set_id) carry the same names and semantics they have there —
 /// including the `*` / `%` wildcards and the case-insensitive, OR-within-a-list matching.
 ///
 /// Note the filter has no `id` field. Events are keyed by a UUID; use
@@ -84,23 +88,23 @@ pub struct NodeFilter {
 #[serde(rename_all = "camelCase")]
 pub struct BasicEventFilter {
     /// Events matching any of these external ids — literal or wildcard, exactly as
-    /// [`NodeFilter::external_ids`]. Replaced the old single-valued `externalIdPrefix`:
+    /// [`NodeFilter::external_id`]. Replaced the old single-valued `externalIdPrefix`:
     /// `"work_order_*"` says the same thing and composes with exact ids in one list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_ids: Option<Vec<String>>,
+    pub external_id: Option<Vec<String>>,
     /// Events whose source matches any of these patterns.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sources: Option<Vec<String>>,
-    /// Events of any of these types — a pattern list, so `["alarm", "warning"]` is one call where
-    /// the old single-valued `type` needed two.
+    pub source: Option<Vec<String>>,
+    /// Events of any of these types — a pattern list despite the singular name, so
+    /// `["alarm", "warning"]` is one call where the old scalar `type` needed two.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub types: Option<Vec<String>>,
-    /// Events matching any of these sub-types. Same rules as [`types`](Self::types).
+    pub r#type: Option<Vec<String>>,
+    /// Events matching any of these sub-types. Same rules as the `type` field above.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sub_types: Option<Vec<String>>,
-    /// Events in any of these statuses. Same rules as [`types`](Self::types).
+    pub sub_type: Option<Vec<String>>,
+    /// Events in any of these statuses. Same rules as the `type` field above.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub statuses: Option<Vec<String>>,
+    pub status: Option<Vec<String>>,
     /// Restrict to events in these data sets, each named by id or external id. A data set stands
     /// in for everything beneath it in the `BELONGS_TO` hierarchy, so naming a parent covers its
     /// children; a reference naming no data set contributes nothing.
@@ -110,7 +114,7 @@ pub struct BasicEventFilter {
     /// sets" and matches nothing. They are opposite answers, so the distinction has to survive
     /// onto the wire — which is why the key is skipped when `None` rather than sent as `null`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data_set_ids: Option<Vec<IdAndExtId>>,
+    pub data_set_id: Option<Vec<IdAndExtId>>,
     /// When the event occurred. Distinct from [`created_time`](Self::created_time), which is when
     /// the platform ingested it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -136,35 +140,35 @@ impl BasicEventFilter {
         Self::default()
     }
 
-    pub fn set_external_ids(&mut self, external_ids: &[&str]) -> &mut Self {
-        self.external_ids = Some(external_ids.iter().map(|s| s.to_string()).collect());
+    pub fn set_external_id(&mut self, external_id: &[&str]) -> &mut Self {
+        self.external_id = Some(external_id.iter().map(|s| s.to_string()).collect());
         self
     }
-    pub fn set_sources(&mut self, sources: &[&str]) -> &mut Self {
-        self.sources = Some(sources.iter().map(|s| s.to_string()).collect());
+    pub fn set_source(&mut self, source: &[&str]) -> &mut Self {
+        self.source = Some(source.iter().map(|s| s.to_string()).collect());
         self
     }
-    pub fn set_types(&mut self, types: &[&str]) -> &mut Self {
-        self.types = Some(types.iter().map(|s| s.to_string()).collect());
+    pub fn set_type(&mut self, r#type: &[&str]) -> &mut Self {
+        self.r#type = Some(r#type.iter().map(|s| s.to_string()).collect());
         self
     }
-    pub fn set_sub_types(&mut self, sub_types: &[&str]) -> &mut Self {
-        self.sub_types = Some(sub_types.iter().map(|s| s.to_string()).collect());
+    pub fn set_sub_type(&mut self, sub_type: &[&str]) -> &mut Self {
+        self.sub_type = Some(sub_type.iter().map(|s| s.to_string()).collect());
         self
     }
-    pub fn set_statuses(&mut self, statuses: &[&str]) -> &mut Self {
-        self.statuses = Some(statuses.iter().map(|s| s.to_string()).collect());
+    pub fn set_status(&mut self, status: &[&str]) -> &mut Self {
+        self.status = Some(status.iter().map(|s| s.to_string()).collect());
         self
     }
     /// Narrow to these data sets, by numeric id. Pass an empty slice to narrow to *no* data sets
     /// (which matches nothing); leave the field `None` for no restriction at all.
-    pub fn set_data_set_ids(&mut self, data_set_ids: &[u64]) -> &mut Self {
-        self.data_set_ids = Some(data_set_ids.iter().map(|id| IdAndExtId::from_id(*id)).collect());
+    pub fn set_data_set_id(&mut self, data_set_id: &[u64]) -> &mut Self {
+        self.data_set_id = Some(data_set_id.iter().map(|id| IdAndExtId::from_id(*id)).collect());
         self
     }
     /// Narrow to these data sets, each named by id, external id, or both.
     pub fn set_data_set_refs(&mut self, data_set_refs: &[IdAndExtId]) -> &mut Self {
-        self.data_set_ids = Some(data_set_refs.to_vec());
+        self.data_set_id = Some(data_set_refs.to_vec());
         self
     }
     pub fn set_event_time(&mut self, event_time: &TimeFilter) -> &mut Self {
@@ -745,32 +749,32 @@ mod tests {
     }
 
     #[test]
-    fn basic_event_filter_serializes_data_set_ids_as_id_collection() {
-        // Backend dataSetIds is a Collection<IdCollection> ([{"id": ...}]), matching relatedResources.
+    fn basic_event_filter_serializes_data_set_id_as_id_collection() {
+        // Backend dataSetId is a Collection<IdCollection> ([{"id": ...}]), matching relatedResources.
         // When unset the key must be omitted entirely (not null or []) so the backend keeps its default.
         let mut filter = BasicEventFilter::default();
         assert!(
-            serde_json::to_value(&filter).unwrap().get("dataSetIds").is_none(),
-            "unset dataSetIds must be omitted from the payload"
+            serde_json::to_value(&filter).unwrap().get("dataSetId").is_none(),
+            "unset dataSetId must be omitted from the payload"
         );
 
-        filter.set_data_set_ids(&[42, 7]);
+        filter.set_data_set_id(&[42, 7]);
         assert_eq!(
-            serde_json::to_value(&filter).unwrap()["dataSetIds"],
+            serde_json::to_value(&filter).unwrap()["dataSetId"],
             json!([{"id": "42"}, {"id": "7"}])
         );
     }
 
-    /// `dataSetIds` is the one list where empty and absent mean opposite things: `[]` narrows to no
+    /// `dataSetId` is the one list where empty and absent mean opposite things: `[]` narrows to no
     /// data sets (matching nothing) while an absent key places no restriction. Collapsing the two —
     /// by skipping an empty vec, or by emitting `null` for `None` — turns "nothing" into
     /// "everything" or the reverse, and neither failure surfaces as an error.
     #[test]
-    fn event_filter_distinguishes_empty_data_set_ids_from_absent() {
+    fn event_filter_distinguishes_empty_data_set_id_from_absent() {
         let mut narrowed_to_nothing = BasicEventFilter::default();
-        narrowed_to_nothing.set_data_set_ids(&[]);
+        narrowed_to_nothing.set_data_set_id(&[]);
         assert_eq!(
-            serde_json::to_value(&narrowed_to_nothing).unwrap()["dataSetIds"],
+            serde_json::to_value(&narrowed_to_nothing).unwrap()["dataSetId"],
             json!([]),
             "an explicit empty scope must reach the wire as []"
         );
@@ -778,7 +782,7 @@ mod tests {
         let unrestricted = BasicEventFilter::default();
         let value = serde_json::to_value(&unrestricted).unwrap();
         assert!(
-            !value.as_object().unwrap().contains_key("dataSetIds"),
+            !value.as_object().unwrap().contains_key("dataSetId"),
             "no restriction must omit the key, not send null: {value}"
         );
     }
@@ -802,27 +806,29 @@ mod tests {
         );
     }
 
-    /// The plural pattern fields replaced `externalIdPrefix`, `type`, `subType`, `source` and
-    /// `status`. Their old names must be gone from the payload: the backend drops unknown keys
-    /// silently, so a leftover `type` would filter nothing and read as "no events matched".
+    /// The pattern fields are singular and take a list. They briefly went plural — `externalIds`,
+    /// `types`, `subTypes`, `sources`, `statuses` — and the api no longer binds those names, so a
+    /// leftover one would filter nothing and read as "no events matched".
     #[test]
-    fn event_filter_sends_plural_pattern_fields_only() {
+    fn event_filter_sends_singular_pattern_fields_only() {
         let mut filter = BasicEventFilter::default();
         filter
-            .set_external_ids(&["work_order_1234", "work_order_*"])
-            .set_sources(&["SAP", "opc_*"])
-            .set_types(&["alarm", "warning"])
-            .set_sub_types(&["Electrical"])
-            .set_statuses(&["OPEN"]);
+            .set_external_id(&["work_order_1234", "work_order_*"])
+            .set_source(&["SAP", "opc_*"])
+            .set_type(&["alarm", "warning"])
+            .set_sub_type(&["Electrical"])
+            .set_status(&["OPEN"]);
 
         let value = serde_json::to_value(filter.build()).unwrap();
-        assert_eq!(value["externalIds"], json!(["work_order_1234", "work_order_*"]));
-        assert_eq!(value["sources"], json!(["SAP", "opc_*"]));
-        assert_eq!(value["types"], json!(["alarm", "warning"]));
-        assert_eq!(value["subTypes"], json!(["Electrical"]));
-        assert_eq!(value["statuses"], json!(["OPEN"]));
+        assert_eq!(value["externalId"], json!(["work_order_1234", "work_order_*"]));
+        assert_eq!(value["source"], json!(["SAP", "opc_*"]));
+        assert_eq!(value["type"], json!(["alarm", "warning"]));
+        assert_eq!(value["subType"], json!(["Electrical"]));
+        assert_eq!(value["status"], json!(["OPEN"]));
 
-        for retired in ["externalIdPrefix", "type", "subType", "source", "status", "id"] {
+        for retired in [
+            "externalIdPrefix", "externalIds", "types", "subTypes", "sources", "statuses", "id",
+        ] {
             assert!(
                 value.get(retired).is_none(),
                 "retired field {retired} is still on the wire: {value}"
@@ -845,20 +851,20 @@ mod tests {
     fn event_filter_round_trips() {
         let mut filter = BasicEventFilter::default();
         filter
-            .set_types(&["alarm"])
-            .set_data_set_ids(&[43])
+            .set_type(&["alarm"])
+            .set_data_set_id(&[43])
             .require_metadata_key("health")
             .set_related_resource_external_ids(&["pump_a"]);
         let json_text = serde_json::to_string(&filter.build()).unwrap();
 
         let parsed: BasicEventFilter = serde_json::from_str(&json_text).unwrap();
-        assert_eq!(parsed.types.as_deref(), Some(["alarm".to_string()].as_slice()));
+        assert_eq!(parsed.r#type.as_deref(), Some(["alarm".to_string()].as_slice()));
         assert_eq!(parsed.metadata.unwrap().get("health"), Some(&None));
-        assert_eq!(parsed.data_set_ids.unwrap().len(), 1);
+        assert_eq!(parsed.data_set_id.unwrap().len(), 1);
         assert_eq!(parsed.related_resources.len(), 1);
     }
 
-    /// The shared node criteria flatten into their owner, so `names` and friends sit alongside the
+    /// The shared node criteria flatten into their owner, so `name` and friends sit alongside the
     /// type-specific fields rather than nesting under a `node` object the api does not read.
     #[test]
     fn node_filter_fields_are_flat_and_omitted_when_unset() {
@@ -869,10 +875,10 @@ mod tests {
         );
 
         let filter = NodeFilter {
-            ids: Some(vec![12, 18]),
-            external_ids: Some(vec!["sap_work_orders".to_string(), "plant_*".to_string()]),
-            names: Some(vec!["SAP*".to_string()]),
-            sources: Some(vec!["sap".to_string()]),
+            id: Some(vec![12, 18]),
+            external_id: Some(vec!["sap_work_orders".to_string(), "plant_*".to_string()]),
+            name: Some(vec!["SAP*".to_string()]),
+            source: Some(vec!["sap".to_string()]),
             labels: Some(vec!["PUMP".to_string(), "CRITICAL".to_string()]),
             metadata: Some(HashMap::from([("owner".to_string(), Some("plant-a".to_string()))])),
             created_time: None,
@@ -881,12 +887,22 @@ mod tests {
         let value = serde_json::to_value(&filter).unwrap();
         // Ids go over the wire as strings, like every other id — a JavaScript client would round a
         // 64-bit number through a double and lose precision.
-        assert_eq!(value["ids"], json!(["12", "18"]));
-        assert_eq!(value["externalIds"], json!(["sap_work_orders", "plant_*"]));
-        assert_eq!(value["names"], json!(["SAP*"]));
+        assert_eq!(value["id"], json!(["12", "18"]));
+        assert_eq!(value["externalId"], json!(["sap_work_orders", "plant_*"]));
+        assert_eq!(value["name"], json!(["SAP*"]));
+        assert_eq!(value["source"], json!(["sap"]));
         assert_eq!(value["labels"], json!(["PUMP", "CRITICAL"]));
         assert_eq!(value["metadata"], json!({"owner": "plant-a"}));
         assert!(value.get("createdTime").is_none());
+
+        // The plural spellings the api stopped binding must be gone: an unknown key is dropped
+        // silently, so one left behind places no restriction and returns everything.
+        for retired in ["ids", "externalIds", "names", "sources"] {
+            assert!(
+                value.get(retired).is_none(),
+                "retired field {retired} is still on the wire: {value}"
+            );
+        }
 
         let parsed: NodeFilter = serde_json::from_value(value).unwrap();
         assert_eq!(parsed, filter);
@@ -973,12 +989,12 @@ mod tests {
     #[test]
     fn new_keeps_its_criteria() {
         let mut basic = BasicEventFilter::default();
-        basic.set_types(&["alarm"]).set_sources(&["SAP"]);
+        basic.set_type(&["alarm"]).set_source(&["SAP"]);
         let filter = EventFilter::new(basic.build());
 
         let carried = filter.filter().expect("filter should be populated");
-        assert_eq!(carried.types.as_deref(), Some(["alarm".to_string()].as_slice()));
-        assert_eq!(carried.sources.as_deref(), Some(["SAP".to_string()].as_slice()));
+        assert_eq!(carried.r#type.as_deref(), Some(["alarm".to_string()].as_slice()));
+        assert_eq!(carried.source.as_deref(), Some(["SAP".to_string()].as_slice()));
     }
 }
 

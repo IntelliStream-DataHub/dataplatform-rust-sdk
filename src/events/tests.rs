@@ -115,7 +115,7 @@ async fn sweep_events_by_prefix(api_service: &ApiService, prefix: &str) {
                 BasicEventFilter::default()
                     // `externalIdPrefix` is gone; a trailing `*` is the same question, asked in
                     // the field that also takes exact ids.
-                    .set_external_ids(&[&format!("{prefix}*")])
+                    .set_external_id(&[&format!("{prefix}*")])
                     .build(),
             )
             .set_limit(PAGE);
@@ -265,7 +265,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     // assert!(empty_filter_res.get_items().len() >= test_events.len());
 
     // test external id prefix filter
-    basic_filter.set_external_ids(&["pump*"]);
+    basic_filter.set_external_id(&["pump*"]);
     let expected_events_post_external_id_filter = &test_events
         .iter()
         .filter(|eve| eve.external_id.starts_with("pump"))
@@ -293,7 +293,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
         false
     ));
     // test sub type filter
-    basic_filter.set_sub_types(&["alarm"]);
+    basic_filter.set_sub_type(&["alarm"]);
     let filter_subtype_alarm = api_service
         .events
         .filter(&eventfilter.set_filter(basic_filter.clone()))
@@ -414,13 +414,13 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     println!("Source filter:");
-    basic_filter.set_sources(&["valheim-pump-events"]);
+    basic_filter.set_source(&["valheim-pump-events"]);
     let res_filter_source = api_service
         .events
         .filter(
             &eventfilter.set_filter(
                 BasicEventFilter::default()
-                    .set_sources(&["valheim-pump-events"])
+                    .set_source(&["valheim-pump-events"])
                     .build(),
             ),
         )
@@ -461,7 +461,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     println!("Type filter:");
-    let valve_filter = BasicEventFilter::default().set_types(&["valve"]).build();
+    let valve_filter = BasicEventFilter::default().set_type(&["valve"]).build();
     let filter_type_valve = api_service
         .events
         .filter(&eventfilter.set_filter(valve_filter))
@@ -685,15 +685,15 @@ mod update_search_serde {
     fn event_search_serializes_query_filter_and_limit() {
         let mut search = EventSearch::from_query("overpressure");
         search
-            .set_filter(BasicEventFilter::default().set_types(&["alarm"]).build())
+            .set_filter(BasicEventFilter::default().set_type(&["alarm"]).build())
             .set_limit(25);
 
         let v = to_value(&search.build());
         assert_eq!(v["search"]["query"], json!("overpressure"));
-        // `type` went plural with the filter refactor; the singular key the api no longer reads
-        // must be gone, or the criterion would be dropped without an error.
-        assert_eq!(v["filter"]["types"], json!(["alarm"]));
-        assert!(v["filter"].get("type").is_none());
+        // `type` takes a list under its own name; the plural key it briefly used is not bound by
+        // the api, so a leftover one would drop the criterion without an error.
+        assert_eq!(v["filter"]["type"], json!(["alarm"]));
+        assert!(v["filter"].get("types").is_none());
         assert_eq!(v["limit"], json!(25));
     }
 }

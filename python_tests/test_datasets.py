@@ -122,7 +122,7 @@ def test_sync_list_and_filter(sync_client, make_dataset):
 
     narrowed = sync_client.datasets.filter(
         datahub_sdk.DatasetFilter(
-            datahub_sdk.BasicDatasetFilter(external_ids=[ext_id])
+            datahub_sdk.BasicDatasetFilter(external_id=[ext_id])
         )
     )
     assert [d.external_id for d in narrowed] == [ext_id]
@@ -131,7 +131,7 @@ def test_sync_list_and_filter(sync_client, make_dataset):
     assert (
         sync_client.datasets.filter(
             datahub_sdk.DatasetFilter(
-                datahub_sdk.BasicDatasetFilter(external_ids=["ds_does_not_exist_xyz"])
+                datahub_sdk.BasicDatasetFilter(external_id=["ds_does_not_exist_xyz"])
             )
         )
         == []
@@ -157,7 +157,7 @@ def test_sync_filter_by_metadata_and_prefix(sync_client, make_dataset):
 
     by_prefix = sync_client.datasets.filter(
         datahub_sdk.DatasetFilter(
-            datahub_sdk.BasicDatasetFilter(external_ids=f"{ext_id}*")
+            datahub_sdk.BasicDatasetFilter(external_id=f"{ext_id}*")
         )
     )
     assert [d.external_id for d in by_prefix] == [ext_id]
@@ -237,7 +237,7 @@ async def test_async_filter_search_update_policies(async_client, make_dataset):
 
     narrowed = await async_client.datasets.filter(
         datahub_sdk.DatasetFilter(
-            datahub_sdk.BasicDatasetFilter(external_ids=[ext_id])
+            datahub_sdk.BasicDatasetFilter(external_id=[ext_id])
         )
     )
     assert [d.external_id for d in narrowed] == [ext_id]

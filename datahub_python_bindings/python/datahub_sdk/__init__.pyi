@@ -237,13 +237,14 @@ class TimeSeriesFilterForm:
     """AND-combined criteria for ``timeseries.filter`` (``POST /timeseries/filter``) and the
     ``filter`` of ``timeseries.search``.
 
-    ``external_ids``, ``names``, ``sources``, ``units`` and ``unit_external_ids`` are pattern
-    lists — see ``PatternList``. ``labels`` must **all** be present; so must every ``metadata``
-    entry, where a ``None`` value matches the key alone. ``value_types`` is matched exactly
-    (case-insensitively) against ``BIGINT``, ``FLOAT``, ``FLOAT32``, ``NUMERIC``, ``DECIMAL32``,
-    ``TEXT``, ``MIXED``.
+    ``external_id``, ``name``, ``source``, ``unit`` and ``unit_external_id`` are pattern
+    lists — see ``PatternList``. Each is singular because each also takes a bare string, though a
+    list is always accepted. ``labels`` keeps its plural: its entries must **all** be present, and
+    so must every ``metadata`` entry, where a ``None`` value matches the key alone. ``value_type``
+    is matched exactly (case-insensitively) against ``BIGINT``, ``FLOAT``, ``FLOAT32``,
+    ``NUMERIC``, ``DECIMAL32``, ``TEXT``, ``MIXED``.
 
-    ``data_set_ids`` expands down the dataset hierarchy server-side, so a master dataset matches
+    ``data_set_id`` expands down the dataset hierarchy server-side, so a master dataset matches
     the timeseries of its child datasets too. **``None`` and ``[]`` differ here**: ``None`` places
     no restriction, ``[]`` narrows to no datasets and matches nothing. Every other list places no
     restriction when empty.
@@ -261,18 +262,18 @@ class TimeSeriesFilterForm:
     """
     def __init__(
         self,
-        ids: Sequence[int] | None = None,
-        external_ids: PatternList | None = None,
-        names: PatternList | None = None,
-        sources: PatternList | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
         labels: PatternList | None = None,
         metadata: MetadataFilter | None = None,
         created_time: TimeFilter | None = None,
         last_updated_time: TimeFilter | None = None,
-        data_set_ids: Sequence[DataSetRef] | None = None,
-        units: PatternList | None = None,
-        unit_external_ids: PatternList | None = None,
-        value_types: PatternList | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
+        unit: PatternList | None = None,
+        unit_external_id: PatternList | None = None,
+        value_type: PatternList | None = None,
         limit: int | None = None,
         sort_by: SortBy | None = None,
         sort_order: str | None = None,
@@ -745,12 +746,13 @@ class TimeFilter:
 class BasicEventFilter:
     """AND-combined criteria for ``events.filter`` (``POST /events/filter``).
 
-    ``external_ids``, ``sources``, ``types``, ``sub_types`` and ``statuses`` are pattern lists —
-    see ``PatternList`` — so ``types=["alarm", "warning"]`` is one call. Every ``metadata`` entry
-    must be present, and a ``None`` value matches the key alone. Every entry of
-    ``related_resources`` must be attached to the event.
+    ``external_id``, ``source``, ``type``, ``sub_type`` and ``status`` are pattern lists — see
+    ``PatternList`` — so ``type=["alarm", "warning"]`` is one call. They are named in the singular
+    because each also takes a bare string. Every ``metadata`` entry must be present, and a ``None``
+    value matches the key alone. ``related_resources`` keeps its plural: every entry of it must be
+    attached to the event.
 
-    ``data_set_ids`` expands down the dataset hierarchy, so naming a parent covers its children.
+    ``data_set_id`` expands down the dataset hierarchy, so naming a parent covers its children.
     **``None`` and ``[]`` differ here**: ``None`` places no restriction, ``[]`` narrows to no
     datasets and matches nothing.
 
@@ -759,12 +761,12 @@ class BasicEventFilter:
     """
     def __init__(
         self,
-        external_ids: PatternList | None = None,
-        sources: PatternList | None = None,
-        types: PatternList | None = None,
-        sub_types: PatternList | None = None,
-        statuses: PatternList | None = None,
-        data_set_ids: Sequence[DataSetRef] | None = None,
+        external_id: PatternList | None = None,
+        source: PatternList | None = None,
+        type: PatternList | None = None,
+        sub_type: PatternList | None = None,
+        status: PatternList | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
         event_time: TimeFilter | None = None,
         metadata: MetadataFilter | None = None,
         related_resources: list[IdCollection] | None = None,
@@ -975,22 +977,22 @@ class Dataset:
 class BasicDatasetFilter:
     """AND-combined criteria for ``datasets.filter``.
 
-    ``external_ids``, ``names`` and ``sources`` are pattern lists — see ``PatternList`` — so
-    ``external_ids=["sap_*"]`` replaces the retired ``external_id_prefix`` and can be combined
+    ``external_id``, ``name`` and ``source`` are pattern lists — see ``PatternList`` — so
+    ``external_id=["sap_*"]`` replaces the retired ``external_id_prefix`` and can be combined
     with exact ids in the same list. ``labels`` must **all** be present; names are canonicalised,
     so ``"pump a"`` finds the label stored as ``PUMP_A``. Every ``metadata`` entry must be present,
     and a ``None`` value matches the key alone.
 
-    There is no ``data_set_ids``: a dataset is the thing other nodes are scoped by, and no
+    There is no ``data_set_id``: a dataset is the thing other nodes are scoped by, and no
     ``write_protected`` / ``deactivated`` either — both were removed server-side as inert, so a
     filter carrying them looked like it was narrowing and was not.
     """
     def __init__(
         self,
-        ids: Sequence[int] | None = None,
-        external_ids: PatternList | None = None,
-        names: PatternList | None = None,
-        sources: PatternList | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
         labels: PatternList | None = None,
         metadata: MetadataFilter | None = None,
         created_time: TimeFilter | None = None,
@@ -1282,17 +1284,17 @@ class ResourceFilter:
     """
     def __init__(
         self,
-        ids: Sequence[int] | None = None,
-        external_ids: PatternList | None = None,
-        names: PatternList | None = None,
-        sources: PatternList | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
         labels: PatternList | None = None,
         metadata: MetadataFilter | None = None,
         created_time: TimeFilter | None = None,
         last_updated_time: TimeFilter | None = None,
-        node_types: PatternList | None = None,
+        node_type: PatternList | None = None,
         is_root: bool | None = None,
-        data_set_ids: Sequence[DataSetRef] | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
     ) -> None: ...
 
 
@@ -1311,17 +1313,17 @@ class ResourcesServiceSync:
     def get_by_id(self, id: int) -> Resource | None: ...
     def filter(
         self,
-        ids: Sequence[int] | None = None,
-        external_ids: PatternList | None = None,
-        names: PatternList | None = None,
-        sources: PatternList | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
         labels: PatternList | None = None,
         metadata: MetadataFilter | None = None,
         created_time: TimeFilter | None = None,
         last_updated_time: TimeFilter | None = None,
-        node_types: PatternList | None = None,
+        node_type: PatternList | None = None,
         is_root: bool | None = None,
-        data_set_ids: Sequence[DataSetRef] | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
         limit: int | None = None,
         sort_by: SortBy | None = None,
         sort_order: str | None = None,
@@ -1329,12 +1331,12 @@ class ResourcesServiceSync:
     ) -> Page:
         """``POST /resources/filter`` — the generic node query; criteria combine with AND.
 
-        Spans **every node type** unless narrowed with ``node_types`` (``asset``, ``timeseries``,
+        Spans **every node type** unless narrowed with ``node_type`` (``asset``, ``timeseries``,
         ``function``, ``resource``, ``dataset``, ``policy``); every node carries its type as a
         label so you can tell what came back.
 
-        ``external_ids``, ``names`` and ``sources`` are pattern lists; ``labels`` must all be
-        present; a ``None`` ``metadata`` value matches the key alone. ``data_set_ids`` expands
+        ``external_id``, ``name`` and ``source`` are pattern lists; ``labels`` must all be
+        present; a ``None`` ``metadata`` value matches the key alone. ``data_set_id`` expands
         down the dataset hierarchy, and ``None`` (no restriction) differs from ``[]``
         (narrow to no datasets, matching nothing). See ``TimeSeriesFilterForm`` for the sort and
         cursor rules.
@@ -1354,17 +1356,17 @@ class ResourcesServiceAsync:
     async def get_by_id(self, id: int) -> Resource | None: ...
     async def filter(
         self,
-        ids: Sequence[int] | None = None,
-        external_ids: PatternList | None = None,
-        names: PatternList | None = None,
-        sources: PatternList | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
         labels: PatternList | None = None,
         metadata: MetadataFilter | None = None,
         created_time: TimeFilter | None = None,
         last_updated_time: TimeFilter | None = None,
-        node_types: PatternList | None = None,
+        node_type: PatternList | None = None,
         is_root: bool | None = None,
-        data_set_ids: Sequence[DataSetRef] | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
         limit: int | None = None,
         sort_by: SortBy | None = None,
         sort_order: str | None = None,

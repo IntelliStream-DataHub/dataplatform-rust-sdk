@@ -477,7 +477,7 @@ impl ResourceRetreiver {
 /// **This is the generic node query.** Unlike `/datasets/filter`, `/timeseries/filter` and
 /// `/events/filter`, which each answer for one type, this endpoint spans *every* node type —
 /// assets, timeseries, functions, resources, data sets and policies share one table and one set of
-/// criteria. Narrow it with [`node_types`](Self::node_types) when you want only some. Every node
+/// criteria. Narrow it with [`node_type`](Self::node_type) when you want only some. Every node
 /// carries its type as a label, so a caller can tell what came back.
 ///
 /// It behaved this way before, by omission — the query had no node-type predicate and single-table
@@ -487,11 +487,11 @@ impl ResourceRetreiver {
 /// sources, labels, metadata and the two timestamp windows — flattened onto the wire; read its
 /// rules for wildcards, case-insensitivity and what an empty list means.
 ///
-/// The singular `id`, `external_id` and `name` this filter used to carry alongside the plural
-/// forms are gone. They were six fields for three concepts, and the two forms ANDed rather than
-/// merged, so sending both narrowed the query in a way no caller intended — a one-element list is
-/// the old behaviour.
-// Not PartialEq: `data_set_ids` holds `IdAndExtId`, which is intentionally non-comparable.
+/// `id`, `external_id` and `name` are lists despite their singular names: this filter used to carry
+/// a scalar *and* a plural form for each, six fields for three concepts, which ANDed rather than
+/// merged and narrowed the query in a way no caller intended. One list per concept, named for the
+/// single value most calls pass, is what replaced them.
+// Not PartialEq: `data_set_id` holds `IdAndExtId`, which is intentionally non-comparable.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceFilter {
@@ -505,7 +505,7 @@ pub struct ResourceFilter {
     /// known type contributes nothing, so a list of only unknown names matches **nothing** rather
     /// than quietly widening back to everything.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub node_types: Option<Vec<String>>,
+    pub node_type: Option<Vec<String>>,
     /// Root nodes only (`Some(true)`) or non-root only (`Some(false)`).
     ///
     /// Not on [`NodeFilter`](crate::filters::NodeFilter) even though the column is shared: only
@@ -520,7 +520,7 @@ pub struct ResourceFilter {
     /// **`None` and empty differ**, unlike the lists on [`NodeFilter`](crate::filters::NodeFilter):
     /// `None` places no restriction, `Some(vec![])` narrows to no data sets and matches nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub data_set_ids: Option<Vec<IdAndExtId>>,
+    pub data_set_id: Option<Vec<IdAndExtId>>,
 }
 
 /// Request body for [`ResourceService::fetch_nearest`] (`POST /resources/fetch-nearest`).
