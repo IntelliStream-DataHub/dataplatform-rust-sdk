@@ -80,6 +80,33 @@ mod tests {
         assert!(v["update"]["labels"].get("remove").is_none());
     }
 
+    /// The geolocation update is the same two-way `Field` as every other scalar — `set` carries a
+    /// GeoJSON geometry object rather than a string, and `setNull` clears it.
+    #[test]
+    fn geolocation_serializes_as_a_set_or_a_clear() {
+        use crate::fields::Field;
+
+        let mut u = ResourceUpdate::by_external_id("pump_a");
+        u.update.geolocation = Some(Field::value(geojson::Geometry::new_point([10.75, 59.91])));
+        let v: serde_json::Value = serde_json::to_value(&u).unwrap();
+        assert_eq!(
+            v["update"]["geoLocation"]["set"],
+            serde_json::json!({"type": "Point", "coordinates": [10.75, 59.91]})
+        );
+        assert_eq!(v["update"]["geoLocation"]["setNull"], false);
+
+        let mut u = ResourceUpdate::by_external_id("pump_a");
+        u.update.geolocation = Some(Field::null());
+        let v: serde_json::Value = serde_json::to_value(&u).unwrap();
+        assert_eq!(v["update"]["geoLocation"]["setNull"], true);
+        assert!(v["update"]["geoLocation"]["set"].is_null());
+
+        // Untouched, it is left out of the body entirely — "leave unchanged".
+        let u = ResourceUpdate::by_external_id("pump_a").set_name("Pump A");
+        let v: serde_json::Value = serde_json::to_value(&u).unwrap();
+        assert!(v["update"].get("geoLocation").is_none());
+    }
+
     // ----------------------------------------------------------------------------------------
     // Live: label-update semantics. Ignored by default (needs a backend + mutates state).
     // Run with `cargo test label_update -- --ignored --nocapture`.

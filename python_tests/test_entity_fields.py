@@ -43,6 +43,7 @@ class TestTimeSeries:
         assert ts.metadata is None
         assert ts.security_categories is None
         assert ts.data_set_id is None
+        assert ts.source is None
 
     def test_full_constructor_round_trips_through_getters(self):
         ts = dh.TimeSeries(
@@ -55,6 +56,7 @@ class TestTimeSeries:
             metadata={"k": "v"},
             security_categories=[1, 2],
             data_set_id=99,
+            source="sap_pi",
         )
         assert ts.external_id == "ext1"
         assert ts.name == "My TS"
@@ -65,6 +67,7 @@ class TestTimeSeries:
         assert ts.metadata == {"k": "v"}
         assert ts.security_categories == [1, 2]
         assert ts.data_set_id == 99
+        assert ts.source == "sap_pi"
 
     @pytest.mark.parametrize(
         "given, expected",
@@ -95,6 +98,7 @@ class TestTimeSeries:
         ts.metadata = {"k": "v"}
         ts.security_categories = [1, 2, 3]
         ts.data_set_id = 42
+        ts.source = "sap_pi"
 
         assert ts.external_id == "ext2"
         assert ts.name == "renamed"
@@ -104,6 +108,7 @@ class TestTimeSeries:
         assert ts.metadata == {"k": "v"}
         assert ts.security_categories == [1, 2, 3]
         assert ts.data_set_id == 42
+        assert ts.source == "sap_pi"
 
     @pytest.mark.parametrize(
         "given, expected",
@@ -122,10 +127,12 @@ class TestTimeSeries:
         ts.description = None
         ts.unit_external_id = None
         ts.security_categories = None
+        ts.source = None
         assert ts.unit is None
         assert ts.metadata is None
         assert ts.data_set_id is None
         assert ts.security_categories is None
+        assert ts.source is None
 
     def test_invalid_value_type_raises(self):
         ts = dh.TimeSeries(external_id="e", name="n")

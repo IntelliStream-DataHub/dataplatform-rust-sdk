@@ -45,7 +45,7 @@ use dataplatform_rust_sdk::http::ResponseError;
 use dataplatform_rust_sdk::filters::NodeFilter;
 use dataplatform_rust_sdk::{TimeSeriesFilter, TimeSeriesFilterForm};
 use pyo3::create_exception;
-use pyo3::exceptions::PyException;
+use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -1145,6 +1145,53 @@ impl PyFieldBool {
     }
 }
 
+/// The geolocation of a `ResourceUpdate` — the same `set`/`set_null` pair as `FieldStr`, carrying
+/// a GeoJSON geometry `dict` (`{"type": "Point", "coordinates": [10.75, 59.91]}`) instead of a
+/// string. It is its own class for the same reason `FieldU64` is: the wrappers are per-payload
+/// type.
+#[pyclass(module = "datahub_sdk", name = "FieldGeoJson", from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PyFieldGeoJson(Field<geojson::Geometry>);
+
+impl From<Field<geojson::Geometry>> for PyFieldGeoJson {
+    fn from(field: Field<geojson::Geometry>) -> Self {
+        PyFieldGeoJson(field)
+    }
+}
+impl From<PyFieldGeoJson> for Field<geojson::Geometry> {
+    fn from(field: PyFieldGeoJson) -> Self {
+        field.0
+    }
+}
+
+#[pymethods]
+impl PyFieldGeoJson {
+    #[new]
+    #[pyo3(signature=(value=None,set_null=false))]
+    pub fn new(value: Option<Bound<'_, PyAny>>, set_null: bool) -> PyResult<Self> {
+        let geometry = value
+            .map(|obj| {
+                pythonize::depythonize::<geojson::Geometry>(&obj)
+                    .map_err(|e| PyValueError::new_err(format!("invalid geolocation: {e}")))
+            })
+            .transpose()?;
+        Ok(Self(Field::new(geometry, set_null)))
+    }
+    #[getter]
+    pub fn value<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        match &self.0.set {
+            Some(geometry) => Ok(Some(pythonize::pythonize(py, geometry).map_err(|e| {
+                PyValueError::new_err(format!("could not serialize geolocation: {e}"))
+            })?)),
+            None => Ok(None),
+        }
+    }
+    #[getter]
+    pub fn set_null(&self) -> bool {
+        self.0.set_null
+    }
+}
+
 // --- Resources ---
 
 #[pymodule]
@@ -1169,6 +1216,7 @@ fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyListFieldIdCollection>()?;
     m.add_class::<PyMapField>()?;
     m.add_class::<PyFieldBool>()?;
+    m.add_class::<PyFieldGeoJson>()?;
     m.add_class::<crate::datasets::PyBasicDatasetFilter>()?;
     m.add_class::<crate::datasets::PyDatasetFilter>()?;
     m.add_class::<crate::datasets::PyDatasetUpdate>()?;

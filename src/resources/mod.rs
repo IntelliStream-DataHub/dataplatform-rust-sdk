@@ -320,6 +320,10 @@ pub struct ResourceUpdateFields {
     pub source: Option<Field<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<ListField<String>>,
+    /// The asset's GeoJSON geometry — `Field::value(geom)` to set one, `Field::null()` to clear
+    /// it. Only assets carry a geolocation; on any other node type the server ignores this.
+    #[serde(rename = "geoLocation", skip_serializing_if = "Option::is_none")]
+    pub geolocation: Option<Field<geojson::Geometry>>,
 }
 
 /// Request body for [`ResourceService::fetch_related`] (`POST /resources/fetch-related`).

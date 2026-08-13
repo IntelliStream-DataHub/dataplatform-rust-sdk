@@ -10,7 +10,7 @@ import os
 import datahub_sdk
 import pytest
 
-from fixtures import async_client, sync_client
+from fixtures import async_client, make_dataset, make_resource, sync_client, unique_id
 
 
 _IMAGE_PATH = os.path.join(
@@ -157,3 +157,90 @@ def test_get_search_update_download_trash_restore(sync_client, tmp_path):
 def test_file_update_requires_a_selector():
     with pytest.raises(ValueError):
         datahub_sdk.FileUpdate(name="renamed.jpg")
+
+
+# --------------------------------------------------------------------------- #
+# FileUpdate, field by field.
+#
+# `FileUpdate` is not built out of `Field` wrappers: an omitted field means "leave unchanged" and
+# there is no `setNull`, so no field here has a clear-it form. The counterpart assertion is that
+# an omitted field survives an update that changes its neighbour.
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def uploaded_file(sync_client):
+    """A single uploaded file with a fixed, self-healing external id."""
+    ext_id = "py_update_fields_sola_jpg"
+    leaked = (ext_id, "datahub_folder_pyupdatefields")
+
+    for name in leaked:
+        try:
+            sync_client.files.delete([name])
+        except Exception:
+            pass
+
+    upload = datahub_sdk.FileUpload(
+        path=_IMAGE_PATH,
+        destination_path="/pyupdatefields/",
+        external_id=ext_id,
+        name="sola.jpg",
+        description="original description",
+        source="original_source",
+        metadata={"a": "1"},
+    )
+    yield sync_client.files.upload_file(upload)[0]
+
+    for name in leaked:
+        try:
+            sync_client.files.delete([name])
+        except Exception:
+            pass
+
+
+def test_update_source_and_metadata(sync_client, uploaded_file):
+    updated = sync_client.files.update(datahub_sdk.FileUpdate(
+        external_id=uploaded_file.external_id,
+        source="updated_source",
+        metadata={"b": "2"},
+    ))[0]
+
+    assert updated.source == "updated_source"
+    # Metadata is a replace, not a merge — `FileUpdate.with_metadata` sets the whole map.
+    assert (updated.metadata or {}) == {"b": "2"}
+
+
+def test_update_data_set_id(sync_client, uploaded_file, make_dataset):
+    dataset = make_dataset(name=unique_id("file_upd_ds"))
+
+    updated = sync_client.files.update(datahub_sdk.FileUpdate(
+        external_id=uploaded_file.external_id, data_set_id=dataset.id
+    ))[0]
+
+    assert updated.data_set_id == dataset.id
+
+
+def test_update_related_resources(sync_client, uploaded_file, make_resource):
+    ext = unique_id("file_upd_res")
+    created = make_resource([
+        datahub_sdk.Resource(external_id=ext, name="File update probe",
+                             is_root=True, labels=["ASSET"])
+    ])
+    resource_id = created.nodes[0].id
+
+    updated = sync_client.files.update(datahub_sdk.FileUpdate(
+        external_id=uploaded_file.external_id, related_resources=[resource_id]
+    ))[0]
+
+    assert resource_id in (updated.related_resources or [])
+
+
+def test_update_leaves_omitted_fields_unchanged(sync_client, uploaded_file):
+    """There is no clear-it form; an omitted field is the "leave it alone" instruction."""
+    updated = sync_client.files.update(datahub_sdk.FileUpdate(
+        external_id=uploaded_file.external_id, description="only the description moves"
+    ))[0]
+
+    assert updated.description == "only the description moves"
+    assert updated.source == "original_source"
+    assert (updated.metadata or {}).get("a") == "1"
+    assert updated.name == "sola.jpg"

@@ -78,6 +78,65 @@ def test_label_lifecycle(sync_client):
             labels.delete([leftover.id])
 
 
+# --------------------------------------------------------------------------- #
+# Live: update, field by field.
+#
+# `labels.update` takes a whole `Label` rather than field wrappers, so it is a PATCH by omission:
+# a field left `None` is not sent and stays as it was. There is no `setNull` and therefore no way
+# to clear a label's description or colour back to null.
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def new_label(sync_client):
+    """A freshly-created label, deleted at teardown."""
+    created = sync_client.labels.create([Label(
+        name=unique_id("lblupd").upper(), description="original", color="#123456"
+    )])[0]
+    yield created
+    try:
+        sync_client.labels.delete([created.id])
+    except Exception:
+        pass
+
+
+@pytest.mark.parametrize(
+    "field, value, expected",
+    [
+        ("description", "updated description", "updated description"),
+        ("color", "#abcdef", "#abcdef"),
+        # i18n codes are lower-cased server-side, like names are upper-cased.
+        ("i18n_code", "nb_NO", "nb_no"),
+    ],
+)
+def test_update_sets_a_field(sync_client, new_label, field, value, expected):
+    updated = sync_client.labels.update([Label(id=new_label.id, **{field: value})])[0]
+    assert getattr(updated, field) == expected
+
+
+def test_update_renames_a_label(sync_client, new_label):
+    new_name = unique_id("lblrenamed").upper()
+
+    updated = sync_client.labels.update([Label(id=new_label.id, name=new_name)])[0]
+    assert updated.name == new_name
+
+
+@pytest.mark.parametrize("field", ["description", "color", "i18n_code"])
+def test_update_cannot_clear_a_field(sync_client, new_label, field):
+    """Passing ``None`` omits the field from the request, so the stored value survives."""
+    sync_client.labels.update([Label(id=new_label.id, i18n_code="nb_NO")])
+
+    updated = sync_client.labels.update([Label(id=new_label.id, **{field: None})])[0]
+    assert getattr(updated, field) is not None
+
+
+def test_update_leaves_omitted_fields_unchanged(sync_client, new_label):
+    updated = sync_client.labels.update([Label(id=new_label.id, description="only this")])[0]
+
+    assert updated.description == "only this"
+    assert updated.color == "#123456"
+    assert updated.name == new_label.name
+
+
 def test_duplicate_name_conflicts(sync_client):
     name = unique_id("lbldup").upper()
     labels = sync_client.labels

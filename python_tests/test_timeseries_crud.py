@@ -49,10 +49,12 @@ def _refetch(sync_client, ts):
         {"value_type": "float", "description": "a described series"},
         {"value_type": "float", "unit": "m/s", "unit_external_id": "ext.unit.id"},
         {"value_type": "float", "name": "Unicode ✓ 日本語 name"},
+        {"value_type": "float", "source": "sap_pi"},
     ],
     ids=[
         "float", "bigint", "text", "with-metadata", "empty-metadata",
         "empty-metadata-value", "with-description", "with-units", "unicode-name",
+        "with-source",
     ],
 )
 def test_create_delete_roundtrip(sync_client, kwargs):
@@ -71,6 +73,7 @@ def test_create_delete_roundtrip(sync_client, kwargs):
 
         fetched = sync_client.timeseries.by_ids([ext_id])
         assert any(t.external_id == ext_id for t in fetched)
+        assert fetched[0].source == kwargs.get("source")
 
         sync_client.timeseries.delete([created[0]])
 
@@ -141,6 +144,7 @@ def test_delete_by_external_id_string(sync_client):
         ("name", "Updated Name", "name"),
         ("unit", "Updated Unit", "unit"),
         ("description", "Updated Description", "description"),
+        ("source", "updated_source", "source"),
         # unit_external_id is sanitised server-side (dots -> underscores), so the
         # value here is already in canonical form to keep the assertion exact.
         ("unit_external_id", "updated_unit_ext", "unit_external_id"),
@@ -152,6 +156,7 @@ def test_update_scalar_str_set_value(sync_client, make_ts, field, new_value, att
         description="original description",
         unit="a.u",
         unit_external_id="orig_unit_ext",
+        source="original_source",
     )
 
     update = datahub_sdk.TimeSeriesUpdate(
@@ -191,6 +196,7 @@ def test_update_change_external_id(sync_client, make_ts):
         ("description", "description"),
         ("unit", "unit"),
         ("unit_external_id", "unit_external_id"),
+        ("source", "source"),
     ],
 )
 def test_update_scalar_str_set_null(sync_client, make_ts, field, attr):
@@ -198,6 +204,7 @@ def test_update_scalar_str_set_null(sync_client, make_ts, field, attr):
         description="please clear me",
         unit="a.u",
         unit_external_id="clear.this.ext",
+        source="please_clear_me",
     )
 
     update = datahub_sdk.TimeSeriesUpdate(
@@ -221,6 +228,31 @@ def test_update_set_value_then_set_null(sync_client, make_ts):
         ts, description=datahub_sdk.FieldStr(set_null=True)
     )
     assert sync_client.timeseries.update([null_update])[0].description is None
+
+
+# `name` and `external_id` are set-only server-side: TimeseriesService reads `.getSet()` for both
+# and never looks at `setNull`, so clearing either is accepted and ignored. strict=False surfaces
+# an xpass if the backend grows the branch.
+_NO_SETNULL_BRANCH = pytest.mark.xfail(
+    reason="backend has no setNull branch for this field; the request is accepted and ignored",
+    strict=False,
+)
+
+
+@_NO_SETNULL_BRANCH
+def test_update_name_set_null(sync_client, make_ts):
+    ts = make_ts(name="Clear my name")
+
+    update = datahub_sdk.TimeSeriesUpdate(ts, name=datahub_sdk.FieldStr(set_null=True))
+    assert not sync_client.timeseries.update([update])[0].name
+
+
+@_NO_SETNULL_BRANCH
+def test_update_external_id_set_null(sync_client, make_ts):
+    ts = make_ts()
+
+    update = datahub_sdk.TimeSeriesUpdate(ts, external_id=datahub_sdk.FieldStr(set_null=True))
+    assert not sync_client.timeseries.update([update])[0].external_id
 
 
 # --------------------------------------------------------------------------- #
@@ -262,6 +294,14 @@ def test_update_metadata_remove_keys(sync_client, make_ts):
 
     assert md.get("a") == "1"
     assert "b" not in md and "c" not in md
+
+
+def test_update_metadata_cleared_by_an_empty_set(sync_client, make_ts):
+    """``MapField`` has no ``setNull``; an empty ``set`` is how a map is emptied."""
+    ts = make_ts(metadata={"a": "1", "b": "2"})
+
+    update = datahub_sdk.TimeSeriesUpdate(ts, metadata=datahub_sdk.MapField.set({}))
+    assert not (sync_client.timeseries.update([update])[0].metadata or {})
 
 
 # --------------------------------------------------------------------------- #
@@ -317,6 +357,20 @@ def test_update_security_categories_remove(sync_client, make_ts):
     assert {1, 3} <= cats
 
 
+def test_update_security_categories_cleared_by_an_empty_set(sync_client, make_ts):
+    """``ListFieldU64`` has no ``setNull`` either; an empty ``set`` empties the list.
+
+    Not xfail: the backend drops arbitrary category ids on the way in, so the list is already
+    empty — clearing it is the one security-category assertion that holds either way.
+    """
+    ts = make_ts(security_categories=[1, 2])
+
+    update = datahub_sdk.TimeSeriesUpdate(
+        ts, security_categories=datahub_sdk.ListFieldU64.set([])
+    )
+    assert not (sync_client.timeseries.update([update])[0].security_categories or [])
+
+
 # --------------------------------------------------------------------------- #
 # UPDATE — data_set_id (FieldU64): set value and clear
 # --------------------------------------------------------------------------- #
@@ -344,32 +398,20 @@ def test_update_data_set_id_set_and_null(sync_client, make_ts):
 
 
 # --------------------------------------------------------------------------- #
-# UPDATE — value_type re-typing
-#
-# The SDK exposes value_type as an updatable field, but the backend silently
-# ignores it: a series created as "text" and updated to "bigint" comes back
-# unchanged as "text" (re-typing would invalidate already-stored datapoints).
-# xfail-strict=False documents the gap and surfaces an xpass if the backend ever
-# starts honouring it.
+# UPDATE — value_type is not updatable
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.xfail(
-    reason="backend silently ignores value_type changes on update "
-    "(a series' type is immutable after creation)",
-    strict=False,
-)
-@pytest.mark.parametrize("from_type, to_type", [
-    ("bigint", "float"),
-    ("float", "text"),
-    ("text", "bigint"),
-])
-def test_update_value_type(sync_client, make_ts, from_type, to_type):
-    ts = make_ts(value_type=from_type)
+def test_update_cannot_change_value_type(make_ts):
+    """A series' type is fixed at creation — re-typing it would invalidate its datapoints.
 
-    # value_type accepts the plain string form (same as the TimeSeries ctor).
-    update = datahub_sdk.TimeSeriesUpdate(ts, value_type=to_type)
-    updated = sync_client.timeseries.update([update])[0]
-    assert updated.value_type == to_type
+    The server's ``TimeseriesFields`` has no ``valueType``, so the SDK does not offer one either:
+    an unknown key is dropped silently, and a ``value_type=`` that reads like a re-type while the
+    series keeps its original type is worse than no argument at all.
+    """
+    ts = make_ts(value_type="text")
+
+    with pytest.raises(TypeError):
+        datahub_sdk.TimeSeriesUpdate(ts, value_type="bigint")
 
 
 # --------------------------------------------------------------------------- #

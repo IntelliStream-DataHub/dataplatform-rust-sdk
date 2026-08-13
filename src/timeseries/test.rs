@@ -1207,3 +1207,34 @@ fn timeseries_filter_round_trips_through_its_flattened_base() {
     assert_eq!(parsed.node, filter.node);
     assert_eq!(parsed.units, filter.units);
 }
+
+/// The update body's wire shape: every field the server's `TimeseriesFields` has, and nothing
+/// else. `source` is one of them; `valueType` is not — the api has no such field on the update
+/// form, and an unknown key is dropped silently, so sending one would read like a working
+/// re-type while the series kept its original type.
+#[test]
+fn timeseries_update_matches_the_server_field_set() {
+    use crate::fields::Field;
+    use crate::timeseries::{TimeSeriesUpdate, TimeSeriesUpdateFields};
+
+    let mut fields = TimeSeriesUpdateFields::new();
+    fields.source = Field::value("sap_pi");
+    let update = TimeSeriesUpdate {
+        id: None,
+        external_id: Some("rpm_pump_a".to_string()),
+        update: fields,
+    };
+
+    let body = serde_json::to_value(&update).unwrap();
+    assert_eq!(body["externalId"], "rpm_pump_a");
+    let u = &body["update"];
+    assert_eq!(u["source"], serde_json::json!({"set": "sap_pi", "setNull": false}));
+    assert!(u.get("valueType").is_none(), "valueType is not an updatable field: {u}");
+
+    let cleared = {
+        let mut fields = TimeSeriesUpdateFields::new();
+        fields.source = Field::null();
+        serde_json::to_value(&fields).unwrap()
+    };
+    assert_eq!(cleared["source"], serde_json::json!({"set": null, "setNull": true}));
+}

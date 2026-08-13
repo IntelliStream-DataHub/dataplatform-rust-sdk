@@ -593,6 +593,11 @@ pub struct TimeSeries {
     pub data_set_id: Option<u64>,
     #[serde(rename = "valueType")]
     pub value_type: String,
+    /// The name of the system this series' primary information comes from. Shared by every node
+    /// type — it is the `source` column of the one `node` table — and answered on every
+    /// timeseries response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     #[serde(rename = "createdTime")]
     pub created_time: Option<DateTime<Utc>>,
     #[serde(rename = "lastUpdatedTime")]
@@ -617,6 +622,7 @@ impl TimeSeries {
             security_categories: None,
             data_set_id: None,
             value_type: "float".to_string(),
+            source: None,
             created_time: None,
             last_updated_time: None,
             related_resources: vec![],
@@ -638,6 +644,7 @@ impl TimeSeries {
                 .map(|v| serde_json::from_str(v).unwrap()),
             data_set_id: dict.get("dataSetId").map(|v| v.parse::<u64>().unwrap()),
             value_type: dict.get("valueType").unwrap().to_string(),
+            source: dict.get("source").map(|v| v.to_string()),
             created_time: None,
             last_updated_time: None,
             related_resources: vec![],
@@ -709,6 +716,11 @@ impl TimeSeries {
     }
 }
 
+/// The changed fields of a [`TimeSeriesUpdate`], mirroring the server's `TimeseriesFields`.
+///
+/// There is no `valueType` here. The server has no such field on the update form, so it was
+/// dropped rather than kept as a key the backend silently ignores: a series' type is fixed at
+/// creation, and re-typing it would invalidate the datapoints already stored under it.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeriesUpdateFields {
     #[serde(rename = "externalId")]
@@ -723,8 +735,7 @@ pub struct TimeSeriesUpdateFields {
     pub security_categories: ListField<u64>,
     #[serde(rename = "dataSetId")]
     pub data_set_id: Field<u64>,
-    #[serde(rename = "valueType")]
-    pub value_type: Field<String>,
+    pub source: Field<String>,
 }
 
 impl TimeSeriesUpdateFields {
@@ -738,7 +749,7 @@ impl TimeSeriesUpdateFields {
             unit_external_id: Field::default(),
             security_categories: ListField::default(),
             data_set_id: Field::default(),
-            value_type: Field::default(),
+            source: Field::default(),
         }
     }
 }
