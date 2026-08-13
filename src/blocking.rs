@@ -41,8 +41,10 @@ use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::labels::Label;
 use crate::relations::{EdgeProxy, RelForm, RelTypeForm, RelationshipType};
-use crate::resources::{RelatedResourcesForm, Resource, ResourceNetwork, ResourceUpdate};
-use crate::timeseries::{TimeSeries, TimeSeriesUpdateCollection};
+use crate::resources::{
+    RelatedResourcesForm, Resource, ResourceFilter, ResourceNetwork, ResourceUpdate,
+};
+use crate::timeseries::{TimeSeries, TimeSeriesFilter, TimeSeriesUpdateCollection};
 use crate::unit::Unit;
 
 /// Generate blocking methods that delegate to the same-named async method on one of
