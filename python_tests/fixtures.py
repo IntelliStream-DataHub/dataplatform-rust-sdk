@@ -10,7 +10,7 @@ import os
 import uuid
 from time import sleep
 
-import datahub_sdk
+import intellistream_datahub_sdk
 import numpy as np
 import pandas as pd
 import pytest
@@ -41,12 +41,12 @@ def _safe_delete_each(delete_fn, entities) -> None:
 
 @pytest.fixture(scope="module")
 def async_client():
-    return datahub_sdk.AsyncDataHubClient.from_envfile(ENV_FILE)
+    return intellistream_datahub_sdk.AsyncDataHubClient.from_envfile(ENV_FILE)
 
 
 @pytest.fixture(scope="module")
 def sync_client():
-    return datahub_sdk.DataHubClient.from_envfile(ENV_FILE)
+    return intellistream_datahub_sdk.DataHubClient.from_envfile(ENV_FILE)
 
 
 # --------------------------------------------------------------------------- #
@@ -65,7 +65,7 @@ def make_ts(sync_client):
         kwargs.setdefault("external_id", unique_id("ts"))
         kwargs.setdefault("value_type", "float")
         kwargs.setdefault("unit", "a.u")
-        ts = datahub_sdk.TimeSeries(**kwargs)
+        ts = intellistream_datahub_sdk.TimeSeries(**kwargs)
         # ensure a clean slate in case a previous failed run leaked the ext id
         sync_client.timeseries.delete([ts])
         result = sync_client.timeseries.create([ts])[0]
@@ -84,7 +84,7 @@ def make_dataset(sync_client):
 
     def _make(**kwargs):
         kwargs.setdefault("external_id", unique_id("dataset"))
-        ds = datahub_sdk.Dataset(**kwargs)
+        ds = intellistream_datahub_sdk.Dataset(**kwargs)
         sync_client.datasets.delete([ds])
         result = sync_client.datasets.create([ds])[0]
         created.append(result)
@@ -102,7 +102,7 @@ def make_function(sync_client):
 
     def _make(**kwargs):
         kwargs.setdefault("external_id", unique_id("fn"))
-        fn = datahub_sdk.Function(**kwargs)
+        fn = intellistream_datahub_sdk.Function(**kwargs)
         sync_client.functions.delete([fn.external_id])
         result = sync_client.functions.create([fn])[0]
         created.append(result.external_id)
@@ -117,7 +117,7 @@ def make_function(sync_client):
 def make_events(sync_client):
     """Factory that creates a batch of events and deletes them at teardown.
 
-    Pass a list of ``datahub_sdk.Event`` objects."""
+    Pass a list of ``intellistream_datahub_sdk.Event`` objects."""
     created = []
 
     def _make(events):
@@ -162,7 +162,7 @@ def make_subscription(sync_client):
 
     def _make(**kwargs):
         kwargs.setdefault("external_id", unique_id("sub"))
-        sub = datahub_sdk.Subscription(**kwargs)
+        sub = intellistream_datahub_sdk.Subscription(**kwargs)
         result = sync_client.subscriptions.create([sub])[0]
         created.append(result.external_id)
         return result
@@ -178,7 +178,7 @@ def make_subscription(sync_client):
 
 @pytest.fixture(scope="module")
 def ts_float(sync_client):
-    ts = datahub_sdk.TimeSeries(
+    ts = intellistream_datahub_sdk.TimeSeries(
         external_id=unique_id("float"),
         name="test_float",
         value_type="float",

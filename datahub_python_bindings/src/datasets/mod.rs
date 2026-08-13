@@ -6,14 +6,14 @@ use crate::PyIdCollection;
 use crate::events::{PyEvent, PyTimeFilter};
 use crate::resources::PyResourceNetwork;
 use crate::{PyFieldBool, PyFieldStr, PyListFieldStr, PyMapField};
-use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter};
-use dataplatform_rust_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
-use dataplatform_rust_sdk::datasets::{
+use intellistream_datahub_sdk::filters::{BasicEventFilter, EventFilter};
+use intellistream_datahub_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
+use intellistream_datahub_sdk::datasets::{
     BasicDatasetFilter, Dataset, DatasetFilter, DatasetSearch, DatasetUpdate, DatasetUpdateFields,
 };
-use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::resources::RelatedResourcesForm;
-use dataplatform_rust_sdk::ApiService;
+use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::resources::RelatedResourcesForm;
+use intellistream_datahub_sdk::ApiService;
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
-#[pyclass(module = "datahub_sdk", name = "Dataset", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "Dataset", from_py_object)]
 #[derive(Clone)]
 pub struct PyDataset {
     pub inner: Dataset,
@@ -362,7 +362,7 @@ impl PyDataset {
 ///
 /// An **empty** list or dict is also no restriction rather than "match nothing" — the backend
 /// reads a list it was handed with nothing in it as "I had no ids to filter on".
-#[pyclass(module = "datahub_sdk", name = "BasicDatasetFilter", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "BasicDatasetFilter", from_py_object)]
 #[derive(Clone)]
 pub struct PyBasicDatasetFilter {
     pub inner: BasicDatasetFilter,
@@ -452,7 +452,7 @@ impl PyBasicDatasetFilter {
 /// `limit` defaults to the server's 100 and may not exceed 10000 — above that the request is
 /// rejected. There is no paging, so a filter broad enough to exceed the cap is truncated;
 /// narrow it rather than trying to page.
-#[pyclass(module = "datahub_sdk", name = "DatasetFilter", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "DatasetFilter", from_py_object)]
 #[derive(Clone)]
 pub struct PyDatasetFilter {
     pub inner: DatasetFilter,
@@ -512,7 +512,7 @@ impl PyDatasetFilter {
 ///
 /// There is deliberately no `policies` or `connected_data_sets` here: the update endpoint does not
 /// accept them, whatever a `Dataset` can carry on create.
-#[pyclass(module = "datahub_sdk", name = "DatasetUpdate", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "DatasetUpdate", from_py_object)]
 #[derive(Clone)]
 pub struct PyDatasetUpdate {
     pub inner: DatasetUpdate,

@@ -17,7 +17,7 @@ clean up after themselves via the ``make_ts`` fixture.
 
 import pytest
 
-import datahub_sdk
+import intellistream_datahub_sdk
 from python_tests.fixtures import *  # noqa: F401,F403  (sync_client fixture)
 
 
@@ -62,7 +62,7 @@ def test_create_delete_roundtrip(sync_client, kwargs):
     # unit is required by the backend (timeseries.unit.not.blank); default it
     # unless a case overrides it.
     kwargs = {"unit": "a.u", **kwargs}
-    ts = datahub_sdk.TimeSeries(external_id=ext_id, **kwargs)
+    ts = intellistream_datahub_sdk.TimeSeries(external_id=ext_id, **kwargs)
     sync_client.timeseries.delete([ts])
 
     try:
@@ -90,7 +90,7 @@ def test_create_delete_roundtrip(sync_client, kwargs):
 def test_create_batch_multiple(sync_client):
     ext_ids = [_uid("batch") for _ in range(3)]
     series = [
-        datahub_sdk.TimeSeries(external_id=e, value_type="float", unit="a.u")
+        intellistream_datahub_sdk.TimeSeries(external_id=e, value_type="float", unit="a.u")
         for e in ext_ids
     ]
     sync_client.timeseries.delete(series)
@@ -107,7 +107,7 @@ def test_create_batch_multiple(sync_client):
 def test_create_value_type_decimal_alias_normalises_to_float(sync_client, alias):
     """"decimal" (any case) is a legacy alias that normalises to canonical "float"."""
     ext_id = _uid("alias")
-    ts = datahub_sdk.TimeSeries(external_id=ext_id, value_type=alias, unit="a.u")
+    ts = intellistream_datahub_sdk.TimeSeries(external_id=ext_id, value_type=alias, unit="a.u")
     sync_client.timeseries.delete([ts])
     try:
         created = sync_client.timeseries.create([ts])[0]
@@ -118,7 +118,7 @@ def test_create_value_type_decimal_alias_normalises_to_float(sync_client, alias)
 
 def test_delete_by_external_id_string(sync_client):
     ext_id = _uid("delstr")
-    ts = datahub_sdk.TimeSeries(external_id=ext_id, value_type="float", unit="a.u")
+    ts = intellistream_datahub_sdk.TimeSeries(external_id=ext_id, value_type="float", unit="a.u")
     sync_client.timeseries.delete([ts])
     sync_client.timeseries.create([ts])
     try:
@@ -159,8 +159,8 @@ def test_update_scalar_str_set_value(sync_client, make_ts, field, new_value, att
         source="original_source",
     )
 
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts, **{field: datahub_sdk.FieldStr(value=new_value)}
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, **{field: intellistream_datahub_sdk.FieldStr(value=new_value)}
     )
     updated = sync_client.timeseries.update([update])[0]
     assert getattr(updated, attr) == new_value
@@ -173,8 +173,8 @@ def test_update_change_external_id(sync_client, make_ts):
     ts = make_ts(name="rename target")
     new_ext = _uid("renamed")
 
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts, external_id=datahub_sdk.FieldStr(value=new_ext)
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, external_id=intellistream_datahub_sdk.FieldStr(value=new_ext)
     )
     updated = sync_client.timeseries.update([update])[0]
     assert updated.external_id == new_ext
@@ -207,8 +207,8 @@ def test_update_scalar_str_set_null(sync_client, make_ts, field, attr):
         source="please_clear_me",
     )
 
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts, **{field: datahub_sdk.FieldStr(set_null=True)}
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, **{field: intellistream_datahub_sdk.FieldStr(set_null=True)}
     )
     updated = sync_client.timeseries.update([update])[0]
     assert getattr(updated, attr) is None
@@ -219,13 +219,13 @@ def test_update_set_value_then_set_null(sync_client, make_ts):
     """A field can be set and then cleared across two updates."""
     ts = make_ts(description="first")
 
-    set_update = datahub_sdk.TimeSeriesUpdate(
-        ts, description=datahub_sdk.FieldStr(value="second")
+    set_update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, description=intellistream_datahub_sdk.FieldStr(value="second")
     )
     assert sync_client.timeseries.update([set_update])[0].description == "second"
 
-    null_update = datahub_sdk.TimeSeriesUpdate(
-        ts, description=datahub_sdk.FieldStr(set_null=True)
+    null_update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, description=intellistream_datahub_sdk.FieldStr(set_null=True)
     )
     assert sync_client.timeseries.update([null_update])[0].description is None
 
@@ -243,7 +243,7 @@ _NO_SETNULL_BRANCH = pytest.mark.xfail(
 def test_update_name_set_null(sync_client, make_ts):
     ts = make_ts(name="Clear my name")
 
-    update = datahub_sdk.TimeSeriesUpdate(ts, name=datahub_sdk.FieldStr(set_null=True))
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(ts, name=intellistream_datahub_sdk.FieldStr(set_null=True))
     assert not sync_client.timeseries.update([update])[0].name
 
 
@@ -251,7 +251,7 @@ def test_update_name_set_null(sync_client, make_ts):
 def test_update_external_id_set_null(sync_client, make_ts):
     ts = make_ts()
 
-    update = datahub_sdk.TimeSeriesUpdate(ts, external_id=datahub_sdk.FieldStr(set_null=True))
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(ts, external_id=intellistream_datahub_sdk.FieldStr(set_null=True))
     assert not sync_client.timeseries.update([update])[0].external_id
 
 
@@ -262,8 +262,8 @@ def test_update_external_id_set_null(sync_client, make_ts):
 def test_update_metadata_add_merges_and_overwrites(sync_client, make_ts):
     ts = make_ts(metadata={"keep": "1", "overwrite": "old"})
 
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts, metadata=datahub_sdk.MapField.delta(add={"overwrite": "new", "added": "2"})
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, metadata=intellistream_datahub_sdk.MapField.delta(add={"overwrite": "new", "added": "2"})
     )
     md = sync_client.timeseries.update([update])[0].metadata or {}
 
@@ -275,8 +275,8 @@ def test_update_metadata_add_merges_and_overwrites(sync_client, make_ts):
 def test_update_metadata_set_replaces_whole_map(sync_client, make_ts):
     ts = make_ts(metadata={"a": "1", "b": "2", "c": "3"})
 
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts, metadata=datahub_sdk.MapField.set({"only": "9"})
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, metadata=intellistream_datahub_sdk.MapField.set({"only": "9"})
     )
     md = sync_client.timeseries.update([update])[0].metadata or {}
 
@@ -287,8 +287,8 @@ def test_update_metadata_set_replaces_whole_map(sync_client, make_ts):
 def test_update_metadata_remove_keys(sync_client, make_ts):
     ts = make_ts(metadata={"a": "1", "b": "2", "c": "3"})
 
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts, metadata=datahub_sdk.MapField.delta(remove=["b", "c"])
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, metadata=intellistream_datahub_sdk.MapField.delta(remove=["b", "c"])
     )
     md = sync_client.timeseries.update([update])[0].metadata or {}
 
@@ -300,7 +300,7 @@ def test_update_metadata_cleared_by_an_empty_set(sync_client, make_ts):
     """``MapField`` has no ``setNull``; an empty ``set`` is how a map is emptied."""
     ts = make_ts(metadata={"a": "1", "b": "2"})
 
-    update = datahub_sdk.TimeSeriesUpdate(ts, metadata=datahub_sdk.MapField.set({}))
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(ts, metadata=intellistream_datahub_sdk.MapField.set({}))
     assert not (sync_client.timeseries.update([update])[0].metadata or {})
 
 
@@ -326,8 +326,8 @@ _SEC_CAT_XFAIL = pytest.mark.xfail(
 def test_update_security_categories_set(sync_client, make_ts):
     ts = make_ts(security_categories=[1, 2])
 
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts, security_categories=datahub_sdk.ListFieldU64.set([3, 4])
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, security_categories=intellistream_datahub_sdk.ListFieldU64.set([3, 4])
     )
     updated = sync_client.timeseries.update([update])[0]
     assert sorted(updated.security_categories or []) == [3, 4]
@@ -337,8 +337,8 @@ def test_update_security_categories_set(sync_client, make_ts):
 def test_update_security_categories_add(sync_client, make_ts):
     ts = make_ts(security_categories=[1, 2])
 
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts, security_categories=datahub_sdk.ListFieldU64.delta(add=[3])
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, security_categories=intellistream_datahub_sdk.ListFieldU64.delta(add=[3])
     )
     updated = sync_client.timeseries.update([update])[0]
     assert set(updated.security_categories or []) >= {1, 2, 3}
@@ -348,8 +348,8 @@ def test_update_security_categories_add(sync_client, make_ts):
 def test_update_security_categories_remove(sync_client, make_ts):
     ts = make_ts(security_categories=[1, 2, 3])
 
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts, security_categories=datahub_sdk.ListFieldU64.delta(remove=[2])
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, security_categories=intellistream_datahub_sdk.ListFieldU64.delta(remove=[2])
     )
     updated = sync_client.timeseries.update([update])[0]
     cats = set(updated.security_categories or [])
@@ -365,8 +365,8 @@ def test_update_security_categories_cleared_by_an_empty_set(sync_client, make_ts
     """
     ts = make_ts(security_categories=[1, 2])
 
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts, security_categories=datahub_sdk.ListFieldU64.set([])
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, security_categories=intellistream_datahub_sdk.ListFieldU64.set([])
     )
     assert not (sync_client.timeseries.update([update])[0].security_categories or [])
 
@@ -376,20 +376,20 @@ def test_update_security_categories_cleared_by_an_empty_set(sync_client, make_ts
 # --------------------------------------------------------------------------- #
 
 def test_update_data_set_id_set_and_null(sync_client, make_ts):
-    ds = datahub_sdk.Dataset(external_id=_uid("ds"), name="update target dataset")
+    ds = intellistream_datahub_sdk.Dataset(external_id=_uid("ds"), name="update target dataset")
     sync_client.datasets.delete([ds])
     created_ds = sync_client.datasets.create([ds])[0]
     try:
         ts = make_ts()
 
-        set_update = datahub_sdk.TimeSeriesUpdate(
-            ts, data_set_id=datahub_sdk.FieldU64(value=created_ds.id)
+        set_update = intellistream_datahub_sdk.TimeSeriesUpdate(
+            ts, data_set_id=intellistream_datahub_sdk.FieldU64(value=created_ds.id)
         )
         updated = sync_client.timeseries.update([set_update])[0]
         assert updated.data_set_id == created_ds.id
 
-        null_update = datahub_sdk.TimeSeriesUpdate(
-            ts, data_set_id=datahub_sdk.FieldU64(set_null=True)
+        null_update = intellistream_datahub_sdk.TimeSeriesUpdate(
+            ts, data_set_id=intellistream_datahub_sdk.FieldU64(set_null=True)
         )
         cleared = sync_client.timeseries.update([null_update])[0]
         assert cleared.data_set_id is None
@@ -411,7 +411,7 @@ def test_update_cannot_change_value_type(make_ts):
     ts = make_ts(value_type="text")
 
     with pytest.raises(TypeError):
-        datahub_sdk.TimeSeriesUpdate(ts, value_type="bigint")
+        intellistream_datahub_sdk.TimeSeriesUpdate(ts, value_type="bigint")
 
 
 # --------------------------------------------------------------------------- #
@@ -420,22 +420,22 @@ def test_update_cannot_change_value_type(make_ts):
 
 def test_update_target_by_created_object(sync_client, make_ts):
     ts = make_ts(name="orig")
-    update = datahub_sdk.TimeSeriesUpdate(ts, name=datahub_sdk.FieldStr(value="by object"))
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(ts, name=intellistream_datahub_sdk.FieldStr(value="by object"))
     assert sync_client.timeseries.update([update])[0].name == "by object"
 
 
 def test_update_target_by_external_id_string(sync_client, make_ts):
     ts = make_ts(name="orig")
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts.external_id, name=datahub_sdk.FieldStr(value="by ext-id string")
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts.external_id, name=intellistream_datahub_sdk.FieldStr(value="by ext-id string")
     )
     assert sync_client.timeseries.update([update])[0].name == "by ext-id string"
 
 
 def test_update_target_by_numeric_id(sync_client, make_ts):
     ts = make_ts(name="orig")
-    update = datahub_sdk.TimeSeriesUpdate(
-        ts.id, name=datahub_sdk.FieldStr(value="by numeric id")
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts.id, name=intellistream_datahub_sdk.FieldStr(value="by numeric id")
     )
     assert sync_client.timeseries.update([update])[0].name == "by numeric id"
 
@@ -447,12 +447,12 @@ def test_update_target_by_numeric_id(sync_client, make_ts):
 def test_update_multiple_fields_in_one_call(sync_client, make_ts):
     ts = make_ts(name="orig", description="orig desc", metadata={"k": "v"})
 
-    update = datahub_sdk.TimeSeriesUpdate(
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
         ts,
-        name=datahub_sdk.FieldStr(value="multi name"),
-        description=datahub_sdk.FieldStr(value="multi desc"),
-        unit=datahub_sdk.FieldStr(value="multi unit"),
-        metadata=datahub_sdk.MapField.delta(add={"k2": "v2"}),
+        name=intellistream_datahub_sdk.FieldStr(value="multi name"),
+        description=intellistream_datahub_sdk.FieldStr(value="multi desc"),
+        unit=intellistream_datahub_sdk.FieldStr(value="multi unit"),
+        metadata=intellistream_datahub_sdk.MapField.delta(add={"k2": "v2"}),
     )
     updated = sync_client.timeseries.update([update])[0]
 
@@ -468,8 +468,8 @@ def test_update_batch_distinct_series(sync_client, make_ts):
     ts2 = make_ts(name="batch two")
 
     updates = [
-        datahub_sdk.TimeSeriesUpdate(ts1, name=datahub_sdk.FieldStr(value="batch one updated")),
-        datahub_sdk.TimeSeriesUpdate(ts2, name=datahub_sdk.FieldStr(value="batch two updated")),
+        intellistream_datahub_sdk.TimeSeriesUpdate(ts1, name=intellistream_datahub_sdk.FieldStr(value="batch one updated")),
+        intellistream_datahub_sdk.TimeSeriesUpdate(ts2, name=intellistream_datahub_sdk.FieldStr(value="batch two updated")),
     ]
     updated = sync_client.timeseries.update(updates)
     by_ext = {u.external_id: u.name for u in updated}
@@ -481,7 +481,7 @@ def test_update_batch_distinct_series(sync_client, make_ts):
 def test_update_noop_preserves_existing_fields(sync_client, make_ts):
     ts = make_ts(name="keep me", description="keep this too", metadata={"a": "1"})
 
-    update = datahub_sdk.TimeSeriesUpdate(ts)  # no field wrappers supplied
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(ts)  # no field wrappers supplied
     updated = sync_client.timeseries.update([update])[0]
 
     assert updated.name == "keep me"
@@ -497,4 +497,4 @@ def test_update_without_identifier_rejected():
     # neither id nor external_id is rejected client-side, so an identifier-less
     # update can never be constructed (let alone reach the backend).
     with pytest.raises(Exception):
-        datahub_sdk.IdCollection()
+        intellistream_datahub_sdk.IdCollection()

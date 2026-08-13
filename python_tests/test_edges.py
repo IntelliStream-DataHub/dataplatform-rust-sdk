@@ -4,7 +4,7 @@ Mirrors the `live` module in `src/relations/tests.rs`. Edges normally come into 
 effect of `resources.create(nodes, relations)`; this service is for linking resources that already
 exist, and for reading, deleting or cataloguing relationships on their own.
 """
-import datahub_sdk
+import intellistream_datahub_sdk
 import pytest
 
 from fixtures import async_client, sync_client, unique_id
@@ -42,24 +42,24 @@ def test_get_by_ids_and_delete(sync_client):
             # `labels` may not be null on create. `is_root` anchors the component to the graph
             # root: without one the projection picks an anchor itself, non-deterministically, so
             # the stranding check below would name a different victim between runs.
-            datahub_sdk.Resource(
+            intellistream_datahub_sdk.Resource(
                 external_id=a, name="python edge node a", labels=["ASSET"], is_root=True
             ),
-            datahub_sdk.Resource(
+            intellistream_datahub_sdk.Resource(
                 external_id=b, name="python edge node b", labels=["ASSET"]
             ),
-            datahub_sdk.Resource(
+            intellistream_datahub_sdk.Resource(
                 external_id=c, name="python edge node c", labels=["ASSET"]
             ),
         ],
         [
-            datahub_sdk.RelForm(
+            intellistream_datahub_sdk.RelForm(
                 relationship_type="SDK_TEST_LINK", from_external_id=a, to_external_id=b
             ),
-            datahub_sdk.RelForm(
+            intellistream_datahub_sdk.RelForm(
                 relationship_type="SDK_TEST_LINK", from_external_id=b, to_external_id=c
             ),
-            datahub_sdk.RelForm(
+            intellistream_datahub_sdk.RelForm(
                 relationship_type="SDK_TEST_LINK", from_external_id=a, to_external_id=c
             ),
         ],
@@ -111,7 +111,7 @@ def test_get_by_ids_and_delete(sync_client):
             "the deleted link is gone",
             lambda n: all(e.id != a_to_c for e in n.edges),
         )
-        with pytest.raises(datahub_sdk.DataHubException) as excinfo:
+        with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
             sync_client.edges.delete([b_to_c])
         message = str(excinfo.value)
         assert "disconnect" in message, message
@@ -145,8 +145,8 @@ def test_create_type_normalises_the_name(sync_client):
     # There is no delete-type endpoint, so this name is seeded once and reused across runs.
     name = "Sdk Py Test Rel Type"
     try:
-        sync_client.edges.create_types([datahub_sdk.RelTypeForm(name, description="from pytest")])
-    except datahub_sdk.DataHubException:
+        sync_client.edges.create_types([intellistream_datahub_sdk.RelTypeForm(name, description="from pytest")])
+    except intellistream_datahub_sdk.DataHubException:
         # Already seeded by an earlier run. Once the server returns 409 for a duplicate this is
         # the expected path; today it answers 200 with nothing. Either way the type must exist.
         pass
@@ -157,30 +157,30 @@ def test_create_type_normalises_the_name(sync_client):
 
 
 def test_unusable_type_name_is_rejected(sync_client):
-    with pytest.raises(datahub_sdk.DataHubException):
-        sync_client.edges.create_types([datahub_sdk.RelTypeForm("!!!")])
+    with pytest.raises(intellistream_datahub_sdk.DataHubException):
+        sync_client.edges.create_types([intellistream_datahub_sdk.RelTypeForm("!!!")])
 
 
 def test_create_between_existing_resources(sync_client):
     a, b = unique_id("edge_link_a"), unique_id("edge_link_b")
     sync_client.resources.create(
         [
-            datahub_sdk.Resource(
+            intellistream_datahub_sdk.Resource(
                 external_id=a, name="python edge link a", labels=["ASSET"], is_root=True
             ),
-            datahub_sdk.Resource(
+            intellistream_datahub_sdk.Resource(
                 external_id=b, name="python edge link b", labels=["ASSET"]
             ),
         ],
         [],
     )
-    form = datahub_sdk.RelForm(
+    form = intellistream_datahub_sdk.RelForm(
         relationship_type="SDK_TEST_LINK", from_external_id=a, to_external_id=b
     )
     try:
         try:
             created = sync_client.edges.create([form])
-        except datahub_sdk.DataHubException as exc:
+        except intellistream_datahub_sdk.DataHubException as exc:
             # POST /edges/create is newer than some backends; skip rather than fail there.
             if "405" in str(exc):
                 pytest.skip("this backend has no POST /edges/create")
@@ -191,7 +191,7 @@ def test_create_between_existing_resources(sync_client):
         assert edge_id is not None
 
         # (start, end, type) is unique, so the same link again conflicts.
-        with pytest.raises(datahub_sdk.DataHubException):
+        with pytest.raises(intellistream_datahub_sdk.DataHubException):
             sync_client.edges.create([form])
 
         # No separate edge delete here: this link is b's only route to the graph root, so removing

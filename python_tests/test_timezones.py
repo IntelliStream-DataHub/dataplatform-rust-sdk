@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from time import sleep
 from zoneinfo import ZoneInfo
 
-import datahub_sdk
+import intellistream_datahub_sdk
 import numpy as np
 import pandas as pd
 import pytest
@@ -52,24 +52,24 @@ EQUIVALENT_AWARE = [
 
 @pytest.mark.parametrize("dt", EQUIVALENT_AWARE)
 def test_event_constructor_accepts_any_timezone(dt):
-    ev = datahub_sdk.Event(type="test", external_id="tz_evt", event_time=dt)
+    ev = intellistream_datahub_sdk.Event(type="test", external_id="tz_evt", event_time=dt)
     assert ev.event_time == UTC_NOON
 
 
 @pytest.mark.parametrize("dt", EQUIVALENT_AWARE)
 def test_event_time_setter_accepts_any_timezone(dt):
-    ev = datahub_sdk.Event(type="test", external_id="tz_evt", event_time=UTC_NOON)
+    ev = intellistream_datahub_sdk.Event(type="test", external_id="tz_evt", event_time=UTC_NOON)
     ev.event_time = dt
     assert ev.event_time == UTC_NOON
 
 
 def test_event_rejects_naive_datetime():
     with pytest.raises(TypeError):
-        datahub_sdk.Event(type="test", external_id="tz_evt", event_time=datetime(2025, 1, 1, 12, 0))
+        intellistream_datahub_sdk.Event(type="test", external_id="tz_evt", event_time=datetime(2025, 1, 1, 12, 0))
 
 
 def test_event_setter_rejects_naive_datetime():
-    ev = datahub_sdk.Event(type="test", external_id="tz_evt", event_time=UTC_NOON)
+    ev = intellistream_datahub_sdk.Event(type="test", external_id="tz_evt", event_time=UTC_NOON)
     with pytest.raises(TypeError):
         ev.event_time = datetime(2025, 1, 1, 12, 0)
 
@@ -77,32 +77,32 @@ def test_event_setter_rejects_naive_datetime():
 @pytest.mark.parametrize("dt", EQUIVALENT_AWARE)
 def test_time_filter_accepts_any_timezone(dt):
     # A single bound (start only) -> TimeFilter::After; must not raise on any tz.
-    datahub_sdk.TimeFilter(start=dt)
+    intellistream_datahub_sdk.TimeFilter(start=dt)
 
 
 def test_time_filter_mixed_timezones_compare_correctly():
     # start (Oslo 13:00 = 12:00Z) is before end (New York 08:00 = 13:00Z): valid range.
     start = datetime(2025, 1, 1, 13, 0, tzinfo=ZoneInfo("Europe/Oslo"))
     end = datetime(2025, 1, 1, 8, 0, tzinfo=ZoneInfo("America/New_York"))
-    datahub_sdk.TimeFilter(start=start, end=end)
+    intellistream_datahub_sdk.TimeFilter(start=start, end=end)
 
 
 @pytest.mark.parametrize("dt", EQUIVALENT_AWARE)
 def test_datapoint_string_accepts_any_timezone(dt):
     # DatapointString stores the timestamp as an epoch-millis string.
     expected_ms = str(int(UTC_NOON.timestamp() * 1000))
-    dp = datahub_sdk.DatapointString(dt, "1.0")
+    dp = intellistream_datahub_sdk.DatapointString(dt, "1.0")
     assert dp.timestamp == expected_ms
 
 
 def test_datapoint_string_rejects_naive_datetime():
     with pytest.raises(TypeError):
-        datahub_sdk.DatapointString(datetime(2025, 1, 1, 12, 0), "1.0")
+        intellistream_datahub_sdk.DatapointString(datetime(2025, 1, 1, 12, 0), "1.0")
 
 
 @pytest.mark.parametrize("dt", EQUIVALENT_AWARE)
 def test_retrieve_filter_accepts_any_timezone(dt):
-    rf = datahub_sdk.RetrieveFilter("some_external_id", start=dt, end=dt)
+    rf = intellistream_datahub_sdk.RetrieveFilter("some_external_id", start=dt, end=dt)
     assert rf.start == UTC_NOON
     assert rf.end == UTC_NOON
 
@@ -113,26 +113,26 @@ def test_retrieve_filter_accepts_any_timezone(dt):
 def test_naive_pandas_timestamp_is_rejected():
     # pandas Timestamp subclasses datetime, so a naive one hits the same naive guard.
     with pytest.raises(TypeError):
-        datahub_sdk.Event(type="test", external_id="tz_evt", event_time=pd.Timestamp("2025-01-01 12:00"))
+        intellistream_datahub_sdk.Event(type="test", external_id="tz_evt", event_time=pd.Timestamp("2025-01-01 12:00"))
 
 
 def test_pandas_nat_is_rejected():
     with pytest.raises(TypeError):
-        datahub_sdk.Event(type="test", external_id="tz_evt", event_time=pd.NaT)
+        intellistream_datahub_sdk.Event(type="test", external_id="tz_evt", event_time=pd.NaT)
 
 
 def test_numpy_datetime64_is_rejected_with_helpful_error():
     # numpy datetime64 is not a datetime and has no timezone; it must be rejected with a
     # message that points at the fix, not an opaque AttributeError.
     with pytest.raises(TypeError) as exc:
-        datahub_sdk.Event(type="test", external_id="tz_evt", event_time=np.datetime64("2025-01-01T12:00"))
+        intellistream_datahub_sdk.Event(type="test", external_id="tz_evt", event_time=np.datetime64("2025-01-01T12:00"))
     assert "datetime64" in str(exc.value) or "pd.Timestamp" in str(exc.value)
 
 
 def test_numpy_datetime64_converted_via_pandas_is_accepted():
     # The documented workaround round-trips to the right instant.
     dt = pd.Timestamp(np.datetime64("2025-01-01T12:00")).tz_localize("UTC")
-    ev = datahub_sdk.Event(type="test", external_id="tz_evt", event_time=dt)
+    ev = intellistream_datahub_sdk.Event(type="test", external_id="tz_evt", event_time=dt)
     assert ev.event_time == UTC_NOON
 
 
@@ -146,8 +146,8 @@ def test_dst_named_zone_resolves_offset_by_date():
     # tzinfo (the pre-fix datapoints path) can't handle a ZoneInfo at all.
     winter = datetime(2025, 1, 15, 12, 0, tzinfo=OSLO)  # +01:00 -> 11:00Z
     summer = datetime(2025, 7, 15, 12, 0, tzinfo=OSLO)  # +02:00 -> 10:00Z
-    assert datahub_sdk.Event(type="test", external_id="w", event_time=winter).event_time == datetime(2025, 1, 15, 11, 0, tzinfo=UTC)
-    assert datahub_sdk.Event(type="test", external_id="s", event_time=summer).event_time == datetime(2025, 7, 15, 10, 0, tzinfo=UTC)
+    assert intellistream_datahub_sdk.Event(type="test", external_id="w", event_time=winter).event_time == datetime(2025, 1, 15, 11, 0, tzinfo=UTC)
+    assert intellistream_datahub_sdk.Event(type="test", external_id="s", event_time=summer).event_time == datetime(2025, 7, 15, 10, 0, tzinfo=UTC)
 
 
 # --------------------------------------------------------------------------- #
@@ -163,7 +163,7 @@ def _retrieve_with_retry(sync_client, ts, start, end, attempts=15, delay=1.0):
     """Poll retrieve_datapoints until points appear (ClickHouse ingest lag)."""
     for _ in range(attempts):
         dps = sync_client.timeseries.retrieve_datapoints(
-            datahub_sdk.RetrieveFilter(ts=ts, start=start, end=end, limit=1000)
+            intellistream_datahub_sdk.RetrieveFilter(ts=ts, start=start, end=end, limit=1000)
         )[0].get_datapoints()
         if dps:
             return dps
@@ -218,7 +218,7 @@ def test_event_non_utc_offset_survives_roundtrip(sync_client, make_dataset, make
     event_time = datetime(2025, 6, 1, 18, 0, tzinfo=OSLO)  # summer = +02:00 -> 16:00Z
     expected_utc = datetime(2025, 6, 1, 16, 0, tzinfo=UTC)
 
-    ev = datahub_sdk.Event(type="test", external_id=unique_id("tz_evt"),
+    ev = intellistream_datahub_sdk.Event(type="test", external_id=unique_id("tz_evt"),
         event_time=event_time,
         data_set_id=ds.id,
     )
@@ -248,14 +248,14 @@ def test_delete_datapoints_non_utc_boundary(sync_client, make_ts):
     assert len(inserted) == 2, "both points should exist before the delete"
 
     sync_client.timeseries.delete_datapoints(
-        [datahub_sdk.DeleteFilter(ts=ts, inclusive_begin=boundary)]
+        [intellistream_datahub_sdk.DeleteFilter(ts=ts, inclusive_begin=boundary)]
     )
     sleep(90)  # ClickHouse delete latency
 
     remaining = {
         dp.timestamp
         for dp in sync_client.timeseries.retrieve_datapoints(
-            datahub_sdk.RetrieveFilter(
+            intellistream_datahub_sdk.RetrieveFilter(
                 ts=ts,
                 start=datetime(2025, 6, 1, tzinfo=UTC),
                 end=datetime(2025, 6, 2, tzinfo=UTC),

@@ -1,8 +1,8 @@
 use crate::PyIdCollection;
 use crate::subscriptions::{PySubscription, SubscriptionTimeseriesId};
 use chrono::{DateTime, Utc};
-use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::subscriptions::Subscription;
+use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::subscriptions::Subscription;
 use pyo3::pymethods;
 
 #[pymethods]

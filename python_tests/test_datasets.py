@@ -5,7 +5,7 @@ Exercises every endpoint on `DatasetsServiceSync` (create, by_ids, delete) and
 """
 import uuid
 
-import datahub_sdk
+import intellistream_datahub_sdk
 import pytest
 
 from fixtures import async_client, make_dataset, sync_client, unique_id
@@ -14,13 +14,13 @@ from fixtures import async_client, make_dataset, sync_client, unique_id
 def test_create_by_ids_delete_roundtrip(sync_client):
     ext_a = unique_id("dataset_a")
     ext_b = unique_id("dataset_b")
-    ds_a = datahub_sdk.Dataset(
+    ds_a = intellistream_datahub_sdk.Dataset(
         external_id=ext_a,
         name=ext_a,
         description="dataset a",
         metadata={"env": "test"},
     )
-    ds_b = datahub_sdk.Dataset(external_id=ext_b, name=ext_b)
+    ds_b = intellistream_datahub_sdk.Dataset(external_id=ext_b, name=ext_b)
 
     try:
         created = sync_client.datasets.create([ds_a, ds_b])
@@ -51,7 +51,7 @@ def test_create_by_ids_delete_roundtrip(sync_client):
 
 def test_create_preserves_metadata_and_description(sync_client):
     ext = unique_id("dataset_meta")
-    ds = datahub_sdk.Dataset(
+    ds = intellistream_datahub_sdk.Dataset(
         external_id=ext,
         name=ext,
         description="with metadata",
@@ -100,7 +100,7 @@ async def test_async_list_honours_limit(async_client, make_dataset):
     capped = await async_client.datasets.list(1)
     assert len(capped) == 1
 
-    with pytest.raises(datahub_sdk.DataHubException):
+    with pytest.raises(intellistream_datahub_sdk.DataHubException):
         await async_client.datasets.list(10_001)
 
 
@@ -121,8 +121,8 @@ def test_sync_list_and_filter(sync_client, make_dataset):
     assert any(d.external_id == ext_id for d in sync_client.datasets.list())
 
     narrowed = sync_client.datasets.filter(
-        datahub_sdk.DatasetFilter(
-            datahub_sdk.BasicDatasetFilter(external_id=[ext_id])
+        intellistream_datahub_sdk.DatasetFilter(
+            intellistream_datahub_sdk.BasicDatasetFilter(external_id=[ext_id])
         )
     )
     assert [d.external_id for d in narrowed] == [ext_id]
@@ -130,8 +130,8 @@ def test_sync_list_and_filter(sync_client, make_dataset):
     # An unmatchable criterion is an empty result, not an unfiltered one.
     assert (
         sync_client.datasets.filter(
-            datahub_sdk.DatasetFilter(
-                datahub_sdk.BasicDatasetFilter(external_id=["ds_does_not_exist_xyz"])
+            intellistream_datahub_sdk.DatasetFilter(
+                intellistream_datahub_sdk.BasicDatasetFilter(external_id=["ds_does_not_exist_xyz"])
             )
         )
         == []
@@ -140,7 +140,7 @@ def test_sync_list_and_filter(sync_client, make_dataset):
     # An argument-free filter places no restriction, same as list().
     assert any(
         d.external_id == ext_id
-        for d in sync_client.datasets.filter(datahub_sdk.DatasetFilter())
+        for d in sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilter())
     )
 
 
@@ -149,15 +149,15 @@ def test_sync_filter_by_metadata_and_prefix(sync_client, make_dataset):
     make_dataset(external_id=ext_id, name=ext_id, metadata={"owner": ext_id})
 
     by_metadata = sync_client.datasets.filter(
-        datahub_sdk.DatasetFilter(
-            datahub_sdk.BasicDatasetFilter(metadata={"owner": ext_id})
+        intellistream_datahub_sdk.DatasetFilter(
+            intellistream_datahub_sdk.BasicDatasetFilter(metadata={"owner": ext_id})
         )
     )
     assert [d.external_id for d in by_metadata] == [ext_id]
 
     by_prefix = sync_client.datasets.filter(
-        datahub_sdk.DatasetFilter(
-            datahub_sdk.BasicDatasetFilter(external_id=f"{ext_id}*")
+        intellistream_datahub_sdk.DatasetFilter(
+            intellistream_datahub_sdk.BasicDatasetFilter(external_id=f"{ext_id}*")
         )
     )
     assert [d.external_id for d in by_prefix] == [ext_id]
@@ -178,12 +178,12 @@ def test_sync_search(sync_client, make_dataset):
     assert any(d.external_id == ext_id for d in hits)
 
     # A query under the server's 3-character minimum is rejected, not matched loosely.
-    with pytest.raises(datahub_sdk.DataHubException):
+    with pytest.raises(intellistream_datahub_sdk.DataHubException):
         sync_client.datasets.search("ab")
 
     # An underscore is outside the allowed charset — this is what stops an
     # external id from being usable as a query.
-    with pytest.raises(datahub_sdk.DataHubException):
+    with pytest.raises(intellistream_datahub_sdk.DataHubException):
         sync_client.datasets.search(f"sdk_{token}")
 
 
@@ -205,10 +205,10 @@ def test_sync_update(sync_client, make_dataset):
 
     updated = sync_client.datasets.update(
         [
-            datahub_sdk.DatasetUpdate(
+            intellistream_datahub_sdk.DatasetUpdate(
                 ext_id,
-                description=datahub_sdk.FieldStr("after"),
-                metadata=datahub_sdk.MapField.delta(add={"owner": "sdk_tests"}),
+                description=intellistream_datahub_sdk.FieldStr("after"),
+                metadata=intellistream_datahub_sdk.MapField.delta(add={"owner": "sdk_tests"}),
             )
         ]
     )
@@ -236,8 +236,8 @@ async def test_async_filter_search_update_policies(async_client, make_dataset):
     )
 
     narrowed = await async_client.datasets.filter(
-        datahub_sdk.DatasetFilter(
-            datahub_sdk.BasicDatasetFilter(external_id=[ext_id])
+        intellistream_datahub_sdk.DatasetFilter(
+            intellistream_datahub_sdk.BasicDatasetFilter(external_id=[ext_id])
         )
     )
     assert [d.external_id for d in narrowed] == [ext_id]
@@ -247,8 +247,8 @@ async def test_async_filter_search_update_policies(async_client, make_dataset):
 
     updated = await async_client.datasets.update(
         [
-            datahub_sdk.DatasetUpdate(
-                ext_id, description=datahub_sdk.FieldStr("after")
+            intellistream_datahub_sdk.DatasetUpdate(
+                ext_id, description=intellistream_datahub_sdk.FieldStr("after")
             )
         ]
     )

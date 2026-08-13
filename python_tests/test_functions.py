@@ -3,7 +3,7 @@
 Mirrors `src/functions/test.rs`. Round-trips a function through the live API. Skipped if
 the backend is unreachable (the fixture takes care of that).
 """
-import datahub_sdk
+import intellistream_datahub_sdk
 import pytest
 
 from fixtures import sync_client, unique_id
@@ -11,7 +11,7 @@ from fixtures import sync_client, unique_id
 
 def test_create_list_by_external_id_delete(sync_client):
     ext_id = unique_id("fn")
-    fn = datahub_sdk.Function(
+    fn = intellistream_datahub_sdk.Function(
         external_id=ext_id,
         name="Function SDK roundtrip",
     )

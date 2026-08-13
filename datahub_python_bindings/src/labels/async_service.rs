@@ -1,12 +1,12 @@
 use crate::labels::{require_named, LabelIdentifiable, PyLabel};
-use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::labels::Label;
-use dataplatform_rust_sdk::ApiService;
+use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::labels::Label;
+use intellistream_datahub_sdk::ApiService;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_sdk", name = "LabelsServiceAsync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "LabelsServiceAsync")]
 pub struct PyLabelsServiceAsync {
     pub api_service: Arc<ApiService>,
 }

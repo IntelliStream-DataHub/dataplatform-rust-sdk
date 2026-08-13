@@ -12,7 +12,7 @@ way to build one, so the illegal mix is unrepresentable rather than rejected at 
 import time
 
 import pytest
-from datahub_sdk import ListFieldStr, ListFieldU64, MapField, Resource, ResourceUpdate
+from intellistream_datahub_sdk import ListFieldStr, ListFieldU64, MapField, Resource, ResourceUpdate
 
 from fixtures import async_client, make_resource, sync_client, unique_id
 

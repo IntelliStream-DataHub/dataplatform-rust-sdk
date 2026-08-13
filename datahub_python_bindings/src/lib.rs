@@ -37,13 +37,13 @@ use crate::functions::async_service::PyFunctionsServiceAsync;
 use crate::functions::sync_service::PyFunctionsServiceSync;
 use crate::units::async_service::PyUnitServiceAsync;
 use crate::units::sync_service::PyUnitServiceSync;
-use dataplatform_rust_sdk::ApiService;
-use dataplatform_rust_sdk::datahub::DataHubConfig;
-use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
-use dataplatform_rust_sdk::generic::*;
-use dataplatform_rust_sdk::http::ResponseError;
-use dataplatform_rust_sdk::filters::NodeFilter;
-use dataplatform_rust_sdk::{TimeSeriesFilter, TimeSeriesFilterForm};
+use intellistream_datahub_sdk::ApiService;
+use intellistream_datahub_sdk::datahub::DataHubConfig;
+use intellistream_datahub_sdk::fields::{Field, ListField, MapField};
+use intellistream_datahub_sdk::generic::*;
+use intellistream_datahub_sdk::http::ResponseError;
+use intellistream_datahub_sdk::filters::NodeFilter;
+use intellistream_datahub_sdk::{TimeSeriesFilter, TimeSeriesFilterForm};
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
@@ -55,7 +55,7 @@ use std::sync::OnceLock;
 use units::*;
 
 create_exception!(
-    datahub_sdk,
+    intellistream_datahub_sdk,
     DataHubException,
     PyException,
     "Error returned by the DataHub API. Carries the HTTP `status_code` and the raw response `message`."
@@ -186,7 +186,7 @@ fn build_buffered_config(
     config
 }
 
-#[pyclass(module = "datahub_sdk", name = "DataHubClient")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "DataHubClient")]
 pub struct PySyncClient {
     inner: Arc<ApiService>,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -357,7 +357,7 @@ impl PySyncClient {
 
 }
 
-#[pyclass(module = "datahub_sdk", name = "AsyncDataHubClient")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "AsyncDataHubClient")]
 struct PyAsyncClient {
     inner: Arc<ApiService>,
 }
@@ -514,7 +514,7 @@ impl PyAsyncClient {
     }
 }
 
-#[pyclass(module = "datahub_sdk", name = "IdCollection")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "IdCollection")]
 #[derive(Clone)]
 pub(crate) struct PyIdCollection {
     inner: IdAndExtId,
@@ -579,7 +579,7 @@ impl PyIdCollection {
 ///
 /// It is not a `list` subclass, so `isinstance(page, list)` is `False`; use `page.items` for a real
 /// list when something demands one.
-#[pyclass(module = "datahub_sdk", name = "Page", sequence)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "Page", sequence)]
 pub struct PyPage {
     items: Py<pyo3::types::PyList>,
     next_cursor: Option<String>,
@@ -662,8 +662,8 @@ pub(crate) fn build_page_request(
     sort_by: Option<StringOrList>,
     sort_order: Option<String>,
     cursor: Option<String>,
-) -> dataplatform_rust_sdk::filters::PageRequest {
-    use dataplatform_rust_sdk::filters::{DataSort, PageRequest};
+) -> intellistream_datahub_sdk::filters::PageRequest {
+    use intellistream_datahub_sdk::filters::{DataSort, PageRequest};
     let sort = sort_by.map(|property| DataSort {
         property: property.into(),
         order: sort_order,
@@ -728,7 +728,7 @@ pub(crate) fn opt_data_set_refs(value: Option<Vec<DataSetRef>>) -> Option<Vec<Id
 
 /// The free-text half of a `search` request. The structured half is the `filter` argument of the
 /// `search` method itself, because each entity's search declares its own filter type.
-#[pyclass(module = "datahub_sdk", name = "SearchAndFilterForm")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "SearchAndFilterForm")]
 #[derive(Clone)]
 pub struct PySearchAndFilterForm {
     pub search: SearchForm,
@@ -767,7 +767,7 @@ impl PySearchAndFilterForm {
     }
 }
 
-#[pyclass(module = "datahub_sdk", name = "TimeSeriesFilterForm")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeriesFilterForm")]
 #[derive(Clone)]
 pub struct PyTimeSeriesFilterForm {
     pub inner: TimeSeriesFilterForm,
@@ -923,7 +923,7 @@ impl DatahubIdentity for Identifiable {
     }
 }
 
-#[pyclass(module = "datahub_sdk", name = "ListFieldU64")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "ListFieldU64")]
 #[derive(Clone, Debug)]
 pub struct PyListFieldU64(ListField<u64>);
 impl From<ListField<u64>> for PyListFieldU64 {
@@ -950,7 +950,7 @@ impl PyListFieldU64 {
         Self(ListField::delta(add, remove))
     }
 }
-#[pyclass(module = "datahub_sdk", name = "ListFieldStr")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "ListFieldStr")]
 #[derive(Clone, Debug)]
 pub struct PyListFieldStr(ListField<String>);
 impl From<ListField<String>> for PyListFieldStr {
@@ -980,7 +980,7 @@ impl PyListFieldStr {
 
 /// The related-resource list of an `EventUpdate`. Entries are `IdCollection`s, so a resource can
 /// be named by id, external_id, or both; `remove` matches on whichever side is given.
-#[pyclass(module = "datahub_sdk", name = "ListFieldIdCollection")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "ListFieldIdCollection")]
 #[derive(Clone, Debug)]
 pub struct PyListFieldIdCollection(ListField<IdAndExtId>);
 impl From<ListField<IdAndExtId>> for PyListFieldIdCollection {
@@ -1017,7 +1017,7 @@ impl PyListFieldIdCollection {
     }
 }
 
-#[pyclass(module = "datahub_sdk", name = "MapField")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "MapField")]
 #[derive(Clone, Debug)]
 pub struct PyMapField(pub MapField);
 
@@ -1049,7 +1049,7 @@ impl PyMapField {
         Self(MapField::delta(add, remove))
     }
 }
-#[pyclass(module = "datahub_sdk", name = "FieldStr")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "FieldStr")]
 #[derive(Clone, Debug)]
 pub struct PyFieldStr(Field<String>);
 
@@ -1081,7 +1081,7 @@ impl PyFieldStr {
     }
 }
 
-#[pyclass(module = "datahub_sdk", name = "FieldU64")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "FieldU64")]
 #[derive(Clone, Debug)]
 pub struct PyFieldU64(Field<u64>);
 
@@ -1113,7 +1113,7 @@ impl PyFieldU64 {
     }
 }
 
-#[pyclass(module = "datahub_sdk", name = "FieldBool", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "FieldBool", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyFieldBool(Field<bool>);
 
@@ -1149,7 +1149,7 @@ impl PyFieldBool {
 /// a GeoJSON geometry `dict` (`{"type": "Point", "coordinates": [10.75, 59.91]}`) instead of a
 /// string. It is its own class for the same reason `FieldU64` is: the wrappers are per-payload
 /// type.
-#[pyclass(module = "datahub_sdk", name = "FieldGeoJson", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "FieldGeoJson", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyFieldGeoJson(Field<geojson::Geometry>);
 
@@ -1195,7 +1195,7 @@ impl PyFieldGeoJson {
 // --- Resources ---
 
 #[pymodule]
-fn datahub_sdk(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("DataHubException", m.py().get_type::<DataHubException>())?;
     m.add_class::<PyAsyncClient>()?;
     m.add_class::<PySyncClient>()?;

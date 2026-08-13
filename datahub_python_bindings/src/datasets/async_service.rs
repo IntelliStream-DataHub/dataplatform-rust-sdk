@@ -3,14 +3,14 @@ use crate::datasets::{
 };
 use crate::resources::PyResource;
 use crate::{DatahubIdentity, Identifiable, PyIdCollection, PySearchAndFilterForm};
-use dataplatform_rust_sdk::ApiService;
-use dataplatform_rust_sdk::datasets::{Dataset, DatasetUpdate};
-use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
+use intellistream_datahub_sdk::ApiService;
+use intellistream_datahub_sdk::datasets::{Dataset, DatasetUpdate};
+use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_sdk", name = "DatasetsServiceAsync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "DatasetsServiceAsync")]
 pub struct PyDatasetsServiceAsync {
     pub api_service: Arc<ApiService>,
 }

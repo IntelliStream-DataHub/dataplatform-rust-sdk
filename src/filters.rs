@@ -520,7 +520,7 @@ pub struct RelatedResourceFilter {
 ///
 /// ```rust
 /// use serde_json;
-/// use dataplatform_rust_sdk::{filters::Filter};
+/// use intellistream_datahub_sdk::{filters::Filter};
 /// use serde_json::json;
 /// let filter = Filter::And(vec![
 ///     Filter::Equals {

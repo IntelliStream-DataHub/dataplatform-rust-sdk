@@ -3,7 +3,7 @@
 Units are reference data — there's no create endpoint, only read paths.
 Exercises every endpoint on `UnitServiceSync`: list, by_ids, by_external_ids.
 """
-import datahub_sdk as dh
+import intellistream_datahub_sdk as dh
 import pytest
 
 from fixtures import sync_client

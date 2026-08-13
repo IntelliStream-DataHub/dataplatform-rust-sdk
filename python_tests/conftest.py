@@ -19,7 +19,7 @@ events (``filter`` by an external-id wildcard), subscriptions (``list``), and fu
 so orphaned instances of those are not reclaimable this way — prefer fixed,
 self-healing external ids for them (a delete-before-create in the test/factory).
 """
-import datahub_sdk
+import intellistream_datahub_sdk
 import pytest
 
 from fixtures import ENV_FILE, TEST_PREFIX, _safe_delete_each
@@ -43,8 +43,8 @@ def _sweep(client) -> None:
 
     # Events — no list endpoint, but the filter API accepts an external-id prefix.
     try:
-        filt = datahub_sdk.EventFilter(
-            basic_filter=datahub_sdk.BasicEventFilter(external_id=f"{TEST_PREFIX}*")
+        filt = intellistream_datahub_sdk.EventFilter(
+            basic_filter=intellistream_datahub_sdk.BasicEventFilter(external_id=f"{TEST_PREFIX}*")
         )
         _safe_delete_each(client.events.delete, _matching_prefix(client.events.filter(filt)))
     except Exception:
@@ -71,7 +71,7 @@ def _prefix_sweep():
     happened to build. If no backend is configured (e.g. only the offline
     buffering tests run), there is nothing to sweep."""
     try:
-        client = datahub_sdk.DataHubClient.from_envfile(ENV_FILE)
+        client = intellistream_datahub_sdk.DataHubClient.from_envfile(ENV_FILE)
     except Exception:
         yield
         return

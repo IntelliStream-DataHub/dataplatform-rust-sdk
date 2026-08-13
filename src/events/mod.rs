@@ -728,8 +728,8 @@ impl Default for EventSearch {
 /// collection fields. For example:
 ///
 /// ```
-/// use dataplatform_rust_sdk::events::EventUpdate;
-/// use dataplatform_rust_sdk::fields::{Field, MapField};
+/// use intellistream_datahub_sdk::events::EventUpdate;
+/// use intellistream_datahub_sdk::fields::{Field, MapField};
 ///
 /// EventUpdate::by_external_id("alarm_x")
 ///     .status(Field::value("acknowledged"))

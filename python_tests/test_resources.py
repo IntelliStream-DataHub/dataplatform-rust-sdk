@@ -6,9 +6,9 @@ the backend is unreachable (the fixture takes care of that).
 """
 import time
 
-import datahub_sdk
+import intellistream_datahub_sdk
 import pytest
-from datahub_sdk import DataHubException, EdgeProxy, GraphResult, RelForm, Resource
+from intellistream_datahub_sdk import DataHubException, EdgeProxy, GraphResult, RelForm, Resource
 
 from fixtures import sync_client, unique_id
 from polling import poll_until
@@ -112,7 +112,7 @@ def test_search_resources(sync_client):
     try:
         time.sleep(SEARCH_INDEX_DELAY)
 
-        form = datahub_sdk.SearchAndFilterForm(query=name, limit=5)
+        form = intellistream_datahub_sdk.SearchAndFilterForm(query=name, limit=5)
         results = sync_client.resources.search(form)
         assert isinstance(results, list)
         assert len(results) <= 5

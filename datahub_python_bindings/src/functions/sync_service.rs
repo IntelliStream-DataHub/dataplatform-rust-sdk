@@ -1,11 +1,11 @@
 use crate::functions::{FunctionIdentifyable, PyFunction};
-use dataplatform_rust_sdk::ApiService;
-use dataplatform_rust_sdk::functions::Function;
-use dataplatform_rust_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::ApiService;
+use intellistream_datahub_sdk::functions::Function;
+use intellistream_datahub_sdk::generic::IdAndExtId;
 use pyo3::prelude::*;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_sdk", name = "FunctionsServiceSync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "FunctionsServiceSync")]
 pub struct PyFunctionsServiceSync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,

@@ -272,8 +272,8 @@ impl Dataset {
 /// and untouched by the server.
 ///
 /// ```no_run
-/// # use dataplatform_rust_sdk::datasets::DatasetUpdate;
-/// # use dataplatform_rust_sdk::fields::Field;
+/// # use intellistream_datahub_sdk::datasets::DatasetUpdate;
+/// # use intellistream_datahub_sdk::fields::Field;
 /// let update = DatasetUpdate::by_external_id("sap_work_orders")
 ///     .description(Field::value("SAP work orders — live sync"));
 /// ```

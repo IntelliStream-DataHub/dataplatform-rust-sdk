@@ -1,12 +1,12 @@
 use crate::files::{PyFileDownload, PyFileIdentifiable, PyFileUpdate, PyFileUpload, PyINode};
-use dataplatform_rust_sdk::files::FileUpdate;
-use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
-use dataplatform_rust_sdk::{ApiService, FileUpload};
+use intellistream_datahub_sdk::files::FileUpdate;
+use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
+use intellistream_datahub_sdk::{ApiService, FileUpload};
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_sdk", name = "FilesServiceAsync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "FilesServiceAsync")]
 pub struct PyFilesServiceAsync {
     pub api_service: Arc<ApiService>,
 }
@@ -14,7 +14,7 @@ pub struct PyFilesServiceAsync {
 /// Wrap every returned node so it keeps a handle on the client it came from (enabling
 /// `related_resource_nodes` navigation).
 fn to_py_inodes(
-    result: &DataWrapper<dataplatform_rust_sdk::generic::INode>,
+    result: &DataWrapper<intellistream_datahub_sdk::generic::INode>,
     service: &Arc<ApiService>,
 ) -> Vec<PyINode> {
     result

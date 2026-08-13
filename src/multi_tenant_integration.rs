@@ -50,7 +50,7 @@
 //! client per tenant:
 //!
 //! ```no_run
-//! # use dataplatform_rust_sdk::{datahub::DataHubConfig, ApiService};
+//! # use intellistream_datahub_sdk::{datahub::DataHubConfig, ApiService};
 //! let mut config = DataHubConfig::from_env().unwrap();
 //! config.set_scope("organization:acme"); // or SCOPE=organization:acme in .env
 //! let acme = ApiService::new(config.clone());

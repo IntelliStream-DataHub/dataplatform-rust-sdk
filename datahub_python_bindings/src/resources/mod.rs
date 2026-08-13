@@ -1,12 +1,12 @@
 use crate::relations::{PyEdgeProxy, PyRelatedNode};
 use chrono::{DateTime, Utc};
-use dataplatform_rust_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
-use dataplatform_rust_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
+use intellistream_datahub_sdk::generic::IdAndExtId;
 use crate::events::PyEvent;
-use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter};
-use dataplatform_rust_sdk::relations::RelatedNode;
-use dataplatform_rust_sdk::resources::RelatedResourcesForm;
-use dataplatform_rust_sdk::{ApiService, Resource};
+use intellistream_datahub_sdk::filters::{BasicEventFilter, EventFilter};
+use intellistream_datahub_sdk::relations::RelatedNode;
+use intellistream_datahub_sdk::resources::RelatedResourcesForm;
+use intellistream_datahub_sdk::{ApiService, Resource};
 use geojson::Geometry;
 use pyo3::exceptions::PyValueError;
 use pyo3::types::PyAny;
@@ -26,13 +26,13 @@ pub mod async_service;
 pub mod sync_service;
 
 use crate::{PyFieldGeoJson, PyFieldStr, PyFieldU64, PyListFieldStr, PyMapField};
-use dataplatform_rust_sdk::resources::{ResourceUpdate, ResourceUpdateFields};
+use intellistream_datahub_sdk::resources::{ResourceUpdate, ResourceUpdateFields};
 
 /// One resource's update for `resources.update`. Target the resource by a `Resource`, its numeric
 /// id, or its external id; every field is optional and uses the same wrappers as elsewhere
 /// (`FieldStr` for scalars, `ListFieldStr` for labels, `MapField` for metadata). Mirrors
 /// `TimeSeriesUpdate`.
-#[pyclass(module = "datahub_sdk", name = "ResourceUpdate")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "ResourceUpdate")]
 #[derive(Clone)]
 pub struct PyResourceUpdate {
     pub inner: ResourceUpdate,
@@ -132,7 +132,7 @@ impl From<ResourceIdentifiable> for IdAndExtId {
     }
 }
 
-#[pyclass(module = "datahub_sdk", name = "Resource", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "Resource", from_py_object)]
 #[derive(Clone)]
 pub struct PyResource {
     pub inner: Resource,
@@ -366,7 +366,7 @@ use crate::labels::PyLabel;
 
 /// Result of a graph traversal (`resources.fetch_related(...)`): the connected
 /// sub-graph of `nodes`, the `edges` between them, and their `labels`.
-#[pyclass(module = "datahub_sdk", name = "ResourceNetwork")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "ResourceNetwork")]
 #[derive(Clone)]
 pub struct PyResourceNetwork {
     pub nodes: Vec<PyResource>,
@@ -378,7 +378,7 @@ impl PyResourceNetwork {
     /// Build the Python view of a graph traversal, stamping `client` onto every node so
     /// callers can chain navigation off the returned resources.
     pub fn from_network(
-        network: dataplatform_rust_sdk::resources::ResourceNetwork,
+        network: intellistream_datahub_sdk::resources::ResourceNetwork,
         client: Arc<ApiService>,
     ) -> Self {
         Self {
@@ -535,10 +535,10 @@ impl PyResource {
 /// must **all** be present. A `None` `metadata` value matches the key alone. `data_set_id` takes
 /// numeric ids, external ids or `IdCollection`s and expands down the dataset hierarchy; `None`
 /// (no restriction) differs from `[]` (narrow to no datasets, matching nothing).
-#[pyclass(module = "datahub_sdk", name = "ResourceFilter", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "ResourceFilter", from_py_object)]
 #[derive(Clone)]
 pub struct PyResourceFilter {
-    pub inner: dataplatform_rust_sdk::resources::ResourceFilter,
+    pub inner: intellistream_datahub_sdk::resources::ResourceFilter,
 }
 
 #[pymethods]

@@ -1,6 +1,6 @@
 # Running the Python tests
 
-The tests in this directory exercise the **`datahub_sdk`** Python module, which is the
+The tests in this directory exercise the **`intellistream_datahub_sdk`** Python module, which is the
 PyO3 binding layer compiled from the `datahub_python_bindings/` crate. Because the module
 is native (Rust compiled to a `.so`), you must **build and install it into your Python
 environment with `maturin` before the tests can import it** — there is no pure-Python
@@ -79,9 +79,9 @@ That file pins:
 
 ---
 
-## 3. Build and install the `datahub_sdk` bindings
+## 3. Build and install the `intellistream_datahub_sdk` bindings
 
-`maturin develop` compiles the Rust crate and installs the resulting `datahub_sdk` module
+`maturin develop` compiles the Rust crate and installs the resulting `intellistream_datahub_sdk` module
 directly into the active venv's `site-packages`, so it becomes importable from anywhere.
 
 ```bash
@@ -97,7 +97,7 @@ the parent SDK — the tests import the **compiled** module, not the source.
 Verify the install:
 
 ```bash
-python3 -c "import datahub_sdk; print('ok')"
+python3 -c "import intellistream_datahub_sdk; print('ok')"
 ```
 
 ---
@@ -167,7 +167,7 @@ python -m pytest python_tests
 
 ## Troubleshooting
 
-- **`ModuleNotFoundError: No module named 'datahub_sdk'`** — the venv isn't active, or you
+- **`ModuleNotFoundError: No module named 'intellistream_datahub_sdk'`** — the venv isn't active, or you
   haven't run `maturin develop` since creating it. Activate the venv and rebuild.
 - **`ModuleNotFoundError: No module named 'fixtures'` / `'python_tests'`** — you're not
   running from the repo root, or you used bare `pytest` instead of `python -m pytest`. Run

@@ -7,7 +7,7 @@ expose the full `FilesServiceSync` / `FilesServiceAsync` with `upload_file`,
 """
 import os
 
-import datahub_sdk
+import intellistream_datahub_sdk
 import pytest
 
 from fixtures import async_client, make_dataset, make_resource, sync_client, unique_id
@@ -31,7 +31,7 @@ def test_upload_and_list(sync_client):
         except Exception:
             pass
 
-    upload = datahub_sdk.FileUpload(
+    upload = intellistream_datahub_sdk.FileUpload(
         path=_IMAGE_PATH,
         destination_path="/images/",
         external_id=ext_id,
@@ -89,7 +89,7 @@ def test_get_search_update_download_trash_restore(sync_client, tmp_path):
     with open(_IMAGE_PATH, "rb") as handle:
         source_bytes = handle.read()
 
-    upload = datahub_sdk.FileUpload(
+    upload = intellistream_datahub_sdk.FileUpload(
         path=_IMAGE_PATH,
         destination_path="/pylifecycle/",
         external_id=ext_id,
@@ -122,7 +122,7 @@ def test_get_search_update_download_trash_restore(sync_client, tmp_path):
         assert destination.read_bytes() == source_bytes
 
         updated = sync_client.files.update(
-            datahub_sdk.FileUpdate(
+            intellistream_datahub_sdk.FileUpdate(
                 external_id=ext_id,
                 name="renamed.jpg",
                 path="/pylifecycle/moved",
@@ -156,7 +156,7 @@ def test_get_search_update_download_trash_restore(sync_client, tmp_path):
 
 def test_file_update_requires_a_selector():
     with pytest.raises(ValueError):
-        datahub_sdk.FileUpdate(name="renamed.jpg")
+        intellistream_datahub_sdk.FileUpdate(name="renamed.jpg")
 
 
 # --------------------------------------------------------------------------- #
@@ -179,7 +179,7 @@ def uploaded_file(sync_client):
         except Exception:
             pass
 
-    upload = datahub_sdk.FileUpload(
+    upload = intellistream_datahub_sdk.FileUpload(
         path=_IMAGE_PATH,
         destination_path="/pyupdatefields/",
         external_id=ext_id,
@@ -198,7 +198,7 @@ def uploaded_file(sync_client):
 
 
 def test_update_source_and_metadata(sync_client, uploaded_file):
-    updated = sync_client.files.update(datahub_sdk.FileUpdate(
+    updated = sync_client.files.update(intellistream_datahub_sdk.FileUpdate(
         external_id=uploaded_file.external_id,
         source="updated_source",
         metadata={"b": "2"},
@@ -212,7 +212,7 @@ def test_update_source_and_metadata(sync_client, uploaded_file):
 def test_update_data_set_id(sync_client, uploaded_file, make_dataset):
     dataset = make_dataset(name=unique_id("file_upd_ds"))
 
-    updated = sync_client.files.update(datahub_sdk.FileUpdate(
+    updated = sync_client.files.update(intellistream_datahub_sdk.FileUpdate(
         external_id=uploaded_file.external_id, data_set_id=dataset.id
     ))[0]
 
@@ -222,12 +222,12 @@ def test_update_data_set_id(sync_client, uploaded_file, make_dataset):
 def test_update_related_resources(sync_client, uploaded_file, make_resource):
     ext = unique_id("file_upd_res")
     created = make_resource([
-        datahub_sdk.Resource(external_id=ext, name="File update probe",
+        intellistream_datahub_sdk.Resource(external_id=ext, name="File update probe",
                              is_root=True, labels=["ASSET"])
     ])
     resource_id = created.nodes[0].id
 
-    updated = sync_client.files.update(datahub_sdk.FileUpdate(
+    updated = sync_client.files.update(intellistream_datahub_sdk.FileUpdate(
         external_id=uploaded_file.external_id, related_resources=[resource_id]
     ))[0]
 
@@ -236,7 +236,7 @@ def test_update_related_resources(sync_client, uploaded_file, make_resource):
 
 def test_update_leaves_omitted_fields_unchanged(sync_client, uploaded_file):
     """There is no clear-it form; an omitted field is the "leave it alone" instruction."""
-    updated = sync_client.files.update(datahub_sdk.FileUpdate(
+    updated = sync_client.files.update(intellistream_datahub_sdk.FileUpdate(
         external_id=uploaded_file.external_id, description="only the description moves"
     ))[0]
 

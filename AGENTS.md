@@ -153,9 +153,9 @@ All four searches declare a `filter` of their own entity's type (`SearchAndFilte
 
 ## Python bindings (`datahub_python_bindings/`)
 
-A PyO3 crate (built with maturin) that wraps this SDK as the Python package `datahub-sdk` (import name `datahub_sdk`). Binding modules in `datahub_python_bindings/src/` mirror the Rust subservices; the pure-Python side lives in `datahub_python_bindings/python/datahub_sdk`. The platform's `datahub-ml` worker consumes this package, so binding-visible API changes ripple there.
+A PyO3 crate (built with maturin) that wraps this SDK as the Python package `intellistream-datahub-sdk` (import name `intellistream_datahub_sdk`). Binding modules in `datahub_python_bindings/src/` mirror the Rust subservices; the pure-Python side lives in `datahub_python_bindings/python/intellistream_datahub_sdk`. The platform's `datahub-ml` worker consumes this package, so binding-visible API changes ripple there.
 
-The Python test suite in `python_tests/` imports the **compiled** `datahub_sdk` module, not the Rust sources — a stale `.so` silently masks source changes. Always run it through `./run_python_tests.sh`, which rebuilds via `maturin develop` first. Extra args are forwarded to pytest (`./run_python_tests.sh -k timeseries`); `--release`, `--no-build`, and `--no-deps` are consumed by the script itself.
+The Python test suite in `python_tests/` imports the **compiled** `intellistream_datahub_sdk` module, not the Rust sources — a stale `.so` silently masks source changes. Always run it through `./run_python_tests.sh`, which rebuilds via `maturin develop` first. Extra args are forwarded to pytest (`./run_python_tests.sh -k timeseries`); `--release`, `--no-build`, and `--no-deps` are consumed by the script itself.
 
 ## Conventions
 

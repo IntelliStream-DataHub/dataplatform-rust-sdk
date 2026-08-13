@@ -3,7 +3,7 @@ use crate::PyIdCollection;
 use crate::datetime::py_datetime_to_utc;
 use crate::resources::PyResource;
 use chrono::{DateTime, Utc};
-use dataplatform_rust_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::generic::IdAndExtId;
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
@@ -36,7 +36,7 @@ impl PyEvent {
         related_resources: Option<Vec<PyIdCollection>>,
         source: Option<String>,
     ) -> PyResult<Self> {
-        let mut ev = dataplatform_rust_sdk::Event::new(
+        let mut ev = intellistream_datahub_sdk::Event::new(
             external_id,
             r#type,
             py_datetime_to_utc(&event_time)?,

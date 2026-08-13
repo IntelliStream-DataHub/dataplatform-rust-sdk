@@ -2,12 +2,12 @@ use crate::PyIdCollection;
 use crate::events::PyEvent;
 use crate::relations::PyRelatedNode;
 use crate::resources::PyResourceNetwork;
-use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter};
+use intellistream_datahub_sdk::filters::{BasicEventFilter, EventFilter};
 use chrono::{DateTime, Utc};
-use dataplatform_rust_sdk::functions::Function;
-use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::resources::RelatedResourcesForm;
-use dataplatform_rust_sdk::ApiService;
+use intellistream_datahub_sdk::functions::Function;
+use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::resources::RelatedResourcesForm;
+use intellistream_datahub_sdk::ApiService;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 use pyo3::{Bound, PyResult, pyclass, pymethods};
@@ -18,7 +18,7 @@ use std::sync::Arc;
 pub mod async_service;
 pub mod sync_service;
 
-#[pyclass(module = "datahub_sdk", name = "Function")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "Function")]
 #[derive(Clone)]
 pub struct PyFunction {
     pub inner: Function,

@@ -2,7 +2,7 @@ import asyncio
 
 import numpy as np
 import pytest
-import datahub_sdk
+import intellistream_datahub_sdk
 import pandas as pd
 
 from python_tests.fixtures import *
@@ -21,7 +21,7 @@ def test_async_client(async_client):
     ]
 )
 async def test_retrieve_datapoints(async_client,start,end,inserted_data,ts_float,test_data):
-    datapoints_filter = datahub_sdk.RetrieveFilter(start=start,end=end,ts= ts_float)
+    datapoints_filter = intellistream_datahub_sdk.RetrieveFilter(start=start,end=end,ts= ts_float)
     datapoints = await async_client.timeseries.retrieve_datapoints(datapoints_filter)
     datapoints = datapoints[0].as_dict()
     s = pd.Series(datapoints["values"], index=datapoints["timestamps"])
@@ -45,12 +45,12 @@ async def test_retrieve_datapoints(async_client,start,end,inserted_data,ts_float
 async def test_delete_datapoints(async_client,fresh_inserted_data,ts_float,start,end,test_data):
     #start = pd.Timestamp('2023-04-01', tz='UTC')
     #send = pd.Timestamp('2023-04-03', tz='UTC')
-    delete_target = datahub_sdk.DeleteFilter(ts=ts_float, inclusive_begin=start,exclusive_end=end)
+    delete_target = intellistream_datahub_sdk.DeleteFilter(ts=ts_float, inclusive_begin=start,exclusive_end=end)
     await async_client.timeseries.delete_datapoints([delete_target])
     #await asyncio.sleep(20)
     """ # commented out because it takes a while to delete datapoints making test flaky
      fix could be to create special test query with final
-    datapoints_filter = datahub_sdk.RetrieveFilter(start=pd.Timestamp("2023-01-01",tz='UTC'),
+    datapoints_filter = intellistream_datahub_sdk.RetrieveFilter(start=pd.Timestamp("2023-01-01",tz='UTC'),
                                                      end=pd.Timestamp("2023-05-01",tz='UTC'),
                                                      ts= ts_float)
     datapoints = await async_client.timeseries.retrieve_datapoints(datapoints_filter)
@@ -83,21 +83,21 @@ async def test_retrieve_latest_datapoint(async_client,inserted_data,test_data,ts
     ]
 )
 async def test_insert(async_client,timestamps,values,value_type):
-    test_insert_ts = datahub_sdk.TimeSeries(name="test insert",value_type=value_type,unit="a.u")
+    test_insert_ts = intellistream_datahub_sdk.TimeSeries(name="test insert",value_type=value_type,unit="a.u")
     await async_client.timeseries.delete([test_insert_ts])
 
     created = (await async_client.timeseries.create([test_insert_ts]))[0]
     try:
         if value_type == "bigint":
-            data = [datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
+            data = [intellistream_datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
         elif value_type == "float":
-            data = [datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
+            data = [intellistream_datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
 
-        vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=test_insert_ts)
+        vals=intellistream_datahub_sdk.DatapointsCollectionString(datapoints=data,ts=test_insert_ts)
         inserted_datapoints = await async_client.timeseries.insert_datapoints(input=[vals])
         # A successful insert is acknowledged with 204 No Content, so the body carries no items.
         assert inserted_datapoints == []
-        retrieved_datapoints = await async_client.timeseries.retrieve_datapoints(datahub_sdk.RetrieveFilter(
+        retrieved_datapoints = await async_client.timeseries.retrieve_datapoints(intellistream_datahub_sdk.RetrieveFilter(
             start=pd.Timestamp("2019-01-01",tz="UTC"),
             end=pd.Timestamp("2025-01-01",tz="UTC"),
             ts=test_insert_ts))
@@ -112,14 +112,14 @@ async def test_insert(async_client,timestamps,values,value_type):
 
 @pytest.mark.asyncio
 async def test_insert_datapoints_missing_timeseries_returns_not_found(async_client):
-    nonexistent = datahub_sdk.TimeSeries(
+    nonexistent = intellistream_datahub_sdk.TimeSeries(
         external_id="nonexistent_ts_for_404_test",
         value_type="float",
         unit="a.u",
     )
-    dp = datahub_sdk.DatapointString.from_float(pd.Timestamp("2025-01-01", tz="UTC"), 42.0)
-    vals = datahub_sdk.DatapointsCollectionString(datapoints=[dp], ts=nonexistent)
-    with pytest.raises(datahub_sdk.DataHubException) as exc_info:
+    dp = intellistream_datahub_sdk.DatapointString.from_float(pd.Timestamp("2025-01-01", tz="UTC"), 42.0)
+    vals = intellistream_datahub_sdk.DatapointsCollectionString(datapoints=[dp], ts=nonexistent)
+    with pytest.raises(intellistream_datahub_sdk.DataHubException) as exc_info:
         await async_client.timeseries.insert_datapoints(input=[vals])
     assert exc_info.value.status_code == 404
     assert "Could not find following timeseries" in exc_info.value.message
@@ -134,7 +134,7 @@ Bellow are draft tests for invalid input
 @pytest.mark.parametrize("metadata", [{"vec": [0,1,2]},{"value_params": {"nested": {}}},{"nonstringable": print}])
 async def test_reject_invalid_timeseries_metadata(async_client,metadata):
     with pytest.raises(ValueError):
-        test_insert_ts = datahub_sdk.TimeSeries(
+        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
             name="valid name",
             metadata=metadata,
         )
@@ -144,7 +144,7 @@ async def test_reject_invalid_timeseries_metadata(async_client,metadata):
 @pytest.mark.parametrize("name", ["valid name"])
 async def test_reject_invalid_timeseries_name(async_client,name):
     with pytest.raises(ValueError):
-        test_insert_ts = datahub_sdk.TimeSeries(
+        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
             name=name,
         )
         await async_client.timeseries.delete([test_insert_ts])
@@ -153,7 +153,7 @@ async def test_reject_invalid_timeseries_name(async_client,name):
 @pytest.mark.parametrize("external_id", [1,12,"a","ab"])
 async def test_reject_invalid_timeseries_metadata(async_client,external_id):
     with pytest.raises(ValueError):
-        test_insert_ts = datahub_sdk.TimeSeries(
+        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
             name="valid name",
             external_id=external_id,
         )
@@ -164,7 +164,7 @@ async def test_reject_invalid_timeseries_metadata(async_client,external_id):
 @pytest.mark.parametrize("value_type", ["",None,"big_int","strings","hex"])
 async def test_reject_invalid_timeseries_metadata(async_client,value_type):
     with pytest.raises(ValueError):
-        test_insert_ts = datahub_sdk.TimeSeries(
+        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
             name="valid name",
             value_type=value_type,
         )
@@ -176,7 +176,7 @@ async def test_reject_invalid_timeseries_metadata(async_client,value_type):
 @pytest.mark.parametrize("unit_external_id", ["",None,0],marks=pytest.mark.xfail(reason="TBD what are invalid units"))
 async def test_reject_invalid_timeseries_unit(async_client,units,unit_external_id):
     with pytest.raises(ValueError):
-        test_insert_ts = datahub_sdk.TimeSeries(
+        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
             name="valid name",
             units=units,
             unit_external_id=unit_external_id,

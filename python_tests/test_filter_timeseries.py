@@ -14,8 +14,8 @@ of what replaced them.
 """
 import pytest
 
-import datahub_sdk
-from datahub_sdk import DataHubException
+import intellistream_datahub_sdk
+from intellistream_datahub_sdk import DataHubException
 
 from fixtures import async_client, sync_client, unique_id  # noqa: F401  (fixtures)
 from filter_fixtures import (  # noqa: F401  (fixtures)
@@ -47,7 +47,7 @@ def flt(sync_client, prefix):
     """
     def _filter(**criteria):
         criteria.setdefault("external_id", f"{prefix}*")
-        return externals(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(**criteria)))
+        return externals(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(**criteria)))
     return _filter
 
 
@@ -132,9 +132,9 @@ def test_a_bare_string_means_a_one_element_list(sync_client, timeseries_corpus, 
     making the single form a `TypeError` would tax the common case to serve the rare one.
     """
     scalar = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", name=f"Pump Alpha {token}"))
+        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", name=f"Pump Alpha {token}"))
     listed = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_id=[f"{prefix}*"], name=[f"Pump Alpha {token}"]))
+        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=[f"{prefix}*"], name=[f"Pump Alpha {token}"]))
     assert externals(scalar) == externals(listed) == {timeseries_corpus["pump_1"].external_id}
 
 
@@ -244,14 +244,14 @@ def test_an_unknown_value_type_matches_nothing(flt, timeseries_corpus):
 
 def test_an_absent_filter_places_no_restriction(sync_client, timeseries_corpus):
     """An argument-free form must return the tenant's timeseries, not none of them."""
-    everything = sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm())
+    everything = sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm())
     assert externals(everything) >= {ts.external_id for ts in timeseries_corpus.values()}
 
 
 def test_none_valued_criteria_are_omitted_entirely(sync_client, timeseries_corpus, prefix):
     """Passing ``None`` is the same as not passing the argument — it must not reach the wire as a
     ``null`` the server then reads as a restriction."""
-    assert externals(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
+    assert externals(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
         external_id=f"{prefix}*", name=None, unit=None, value_type=None, metadata=None,
         id=None, labels=None, source=None, data_set_id=None,
     ))) == {ts.external_id for ts in timeseries_corpus.values()}
@@ -265,7 +265,7 @@ def test_an_empty_or_blank_list_places_no_restriction(sync_client, timeseries_co
 
     ``data_set_id`` is the documented exception and is covered separately.
     """
-    scoped = externals(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
+    scoped = externals(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
         external_id=f"{prefix}*", name=empty, unit=empty, labels=empty, value_type=empty)))
     assert scoped == {ts.external_id for ts in timeseries_corpus.values()}
 
@@ -293,7 +293,7 @@ def test_data_set_scope_by_id_and_by_external_id(flt, timeseries_corpus, dataset
     in_child = {timeseries_corpus["pump_1"].external_id, timeseries_corpus["pump_x1"].external_id}
     assert flt(data_set_id=[child.id]) == in_child
     assert flt(data_set_id=[child.external_id]) == in_child
-    assert flt(data_set_id=[datahub_sdk.IdCollection(id=child.id)]) == in_child
+    assert flt(data_set_id=[intellistream_datahub_sdk.IdCollection(id=child.id)]) == in_child
 
 
 def test_a_parent_data_set_stands_in_for_its_children(flt, timeseries_corpus, datasets):
@@ -309,7 +309,7 @@ def test_an_explicit_empty_data_set_scope_matches_nothing(sync_client, timeserie
     dropping the predicate instead would widen the query to everything the caller can read — the
     opposite of what they asked for.
     """
-    assert externals(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
+    assert externals(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
         external_id=f"{prefix}*", data_set_id=[]))) == set()
 
 
@@ -362,12 +362,12 @@ def test_created_time_window_bounds_the_result(flt, timeseries_corpus):
     everything = {ts.external_id for ts in timeseries_corpus.values()}
 
     window = pd.Timedelta(minutes=10)
-    assert flt(created_time=datahub_sdk.TimeFilter(start=created - window)) == everything
-    assert flt(created_time=datahub_sdk.TimeFilter(end=created + window)) == everything
-    assert flt(created_time=datahub_sdk.TimeFilter(
+    assert flt(created_time=intellistream_datahub_sdk.TimeFilter(start=created - window)) == everything
+    assert flt(created_time=intellistream_datahub_sdk.TimeFilter(end=created + window)) == everything
+    assert flt(created_time=intellistream_datahub_sdk.TimeFilter(
         start=created - window, end=created + window)) == everything
     # A window that closes before the corpus existed excludes all of it.
-    assert flt(created_time=datahub_sdk.TimeFilter(end=created - window)) == set()
+    assert flt(created_time=intellistream_datahub_sdk.TimeFilter(end=created - window)) == set()
 
 
 # --------------------------------------------------------------------------- #
@@ -384,14 +384,14 @@ def test_separate_criteria_and_together(flt, timeseries_corpus, token):
 
 def test_limit_caps_the_page(sync_client, timeseries_corpus, prefix):
     capped = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=2))
+        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=2))
     assert len(capped) == 2
 
 
 def test_limit_zero_falls_back_to_the_default(sync_client, timeseries_corpus, prefix):
     """SQL reads ``LIMIT 0`` as "return nothing", which is indistinguishable from "nothing matched"
     — so the server treats a non-positive limit as unset instead."""
-    assert externals(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
+    assert externals(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
         external_id=f"{prefix}*", limit=0))) == {ts.external_id for ts in timeseries_corpus.values()}
 
 
@@ -399,7 +399,7 @@ def test_a_limit_above_the_ceiling_is_refused(sync_client, prefix):
     """10000 is the cap, and exceeding it is a 400 rather than a silently clamped page."""
     with pytest.raises(DataHubException) as excinfo:
         sync_client.timeseries.filter(
-            datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=10_001))
+            intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=10_001))
     assert excinfo.value.status_code == 400
 
 
@@ -410,13 +410,13 @@ def test_a_negative_limit_is_rejected_client_side(sync_client, prefix):
     """
     with pytest.raises(OverflowError):
         sync_client.timeseries.filter(
-            datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=-5))
+            intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=-5))
 
 
 @pytest.mark.asyncio
 async def test_async_filter_matches_the_sync_one(async_client, sync_client, timeseries_corpus, prefix):
     from_async = await async_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", unit=["bar"]))
+        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", unit=["bar"]))
     from_sync = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", unit=["bar"]))
+        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", unit=["bar"]))
     assert externals(from_async) == externals(from_sync)

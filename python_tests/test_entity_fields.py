@@ -1,4 +1,4 @@
-"""Pure-unit tests for the entity classes exposed by the `datahub_sdk` bindings.
+"""Pure-unit tests for the entity classes exposed by the `intellistream_datahub_sdk` bindings.
 
 Unlike the rest of the suite, these tests do **not** touch a live backend or use
 the client fixtures. They only exercise the Python surface of the value objects:
@@ -16,7 +16,7 @@ Notes on the current build:
 """
 import datetime
 
-import datahub_sdk as dh
+import intellistream_datahub_sdk as dh
 import pytest
 
 

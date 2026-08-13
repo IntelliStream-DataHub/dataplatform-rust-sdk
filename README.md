@@ -7,10 +7,34 @@ Services are fields on the `ApiService` returned by `create_api_service()`:
 `time_series` (including datapoint ingestion), `units`, `events`, `resources`, `datasets`,
 `files`, `subscriptions` (including WebSocket listening), and `functions`.
 
+## Installation
+
+```bash
+cargo add intellistream-datahub-sdk
+```
+
+The crate name is a mouthful at every call site, so it is worth renaming in `Cargo.toml` — the
+alias then applies across the whole crate, with no `use` line in any module:
+
+```toml
+[dependencies]
+dh = { package = "intellistream-datahub-sdk", version = "0.5" }
+```
+
+```rust
+let api = dh::create_api_service();
+```
+
+Per-file aliasing works too, if you prefer to keep the real name in the manifest:
+
+```rust
+use intellistream_datahub_sdk as dh;
+```
+
 ## Quick start
 
 ```rust
-use dataplatform_rust_sdk::create_api_service;
+use intellistream_datahub_sdk::create_api_service;
 
 #[tokio::main]
 async fn main() {
@@ -30,7 +54,7 @@ on a runtime owned by the client, so behavior is identical. Do not use it from i
 async context; use the async `ApiService` there.
 
 ```rust
-use dataplatform_rust_sdk::blocking;
+use intellistream_datahub_sdk::blocking;
 
 let api = blocking::create_api_service();
 let series = api.time_series.search_by_name("engine").unwrap();
@@ -95,8 +119,8 @@ on read.
 
 ## Python bindings
 
-`datahub_python_bindings/` wraps this SDK as the Python package `datahub-sdk` (import name
-`datahub_sdk`) using PyO3 and maturin. The Python test suite in `python_tests/` runs against
+`datahub_python_bindings/` wraps this SDK as the Python package `intellistream-datahub-sdk` (import name
+`intellistream_datahub_sdk`) using PyO3 and maturin. The Python test suite in `python_tests/` runs against
 the **compiled** module — always use the wrapper script, which rebuilds the bindings first:
 
 ```bash

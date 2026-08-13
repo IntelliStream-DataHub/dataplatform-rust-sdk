@@ -15,9 +15,9 @@ semantics are quirky (a 1-hop bound can return nothing), so the tests use the de
 import asyncio
 import datetime as dt
 
-import datahub_sdk
+import intellistream_datahub_sdk
 import pytest
-from datahub_sdk import (
+from intellistream_datahub_sdk import (
     DataHubException,
     Event,
     IdCollection,
@@ -55,11 +55,11 @@ def test_local_objects_have_no_client():
             event_time=dt.datetime.now(dt.timezone.utc),
         ).related_resource_nodes()
     with pytest.raises(RuntimeError):
-        datahub_sdk.Dataset(external_id=unique_id("ds")).neighbors()
+        intellistream_datahub_sdk.Dataset(external_id=unique_id("ds")).neighbors()
     with pytest.raises(RuntimeError):
-        datahub_sdk.Function(external_id=unique_id("fn")).neighbors()
+        intellistream_datahub_sdk.Function(external_id=unique_id("fn")).neighbors()
     with pytest.raises(RuntimeError):
-        datahub_sdk.INode(
+        intellistream_datahub_sdk.INode(
             name="local node", external_id=unique_id("nd"), path="/x", size=0,
             related_resources=[1, 2],
         ).related_resource_nodes()
@@ -69,22 +69,22 @@ def test_local_objects_have_no_client():
     with pytest.raises(RuntimeError):
         TimeSeries(external_id=unique_id("ts")).related_events()
     with pytest.raises(RuntimeError):
-        datahub_sdk.Dataset(external_id=unique_id("ds")).related_events()
+        intellistream_datahub_sdk.Dataset(external_id=unique_id("ds")).related_events()
     with pytest.raises(RuntimeError):
-        datahub_sdk.Function(external_id=unique_id("fn")).related_events()
+        intellistream_datahub_sdk.Function(external_id=unique_id("fn")).related_events()
 
 
 def test_navigation_methods_exist_on_classes():
     # Guards against a future merge silently dropping the navigation methods (as the
     # relations refactor did) — the compiled module must expose them.
-    assert hasattr(datahub_sdk.Resource, "neighbors")
-    assert hasattr(datahub_sdk.TimeSeries, "neighbors")
-    assert hasattr(datahub_sdk.Dataset, "neighbors")
-    assert hasattr(datahub_sdk.Function, "neighbors")
-    assert hasattr(datahub_sdk.Event, "related_resource_nodes")
-    assert hasattr(datahub_sdk.INode, "related_resource_nodes")
-    for cls in (datahub_sdk.Resource, datahub_sdk.TimeSeries, datahub_sdk.Dataset,
-                datahub_sdk.Function):
+    assert hasattr(intellistream_datahub_sdk.Resource, "neighbors")
+    assert hasattr(intellistream_datahub_sdk.TimeSeries, "neighbors")
+    assert hasattr(intellistream_datahub_sdk.Dataset, "neighbors")
+    assert hasattr(intellistream_datahub_sdk.Function, "neighbors")
+    assert hasattr(intellistream_datahub_sdk.Event, "related_resource_nodes")
+    assert hasattr(intellistream_datahub_sdk.INode, "related_resource_nodes")
+    for cls in (intellistream_datahub_sdk.Resource, intellistream_datahub_sdk.TimeSeries, intellistream_datahub_sdk.Dataset,
+                intellistream_datahub_sdk.Function):
         assert hasattr(cls, "neighbors_async")
         assert hasattr(cls, "related_events")
         assert hasattr(cls, "related_events_async")
