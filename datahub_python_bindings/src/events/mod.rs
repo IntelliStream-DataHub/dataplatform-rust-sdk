@@ -1,4 +1,4 @@
-use crate::PyIdCollection;
+use crate::{DataSetRef, PyIdCollection, StringOrList, opt_data_set_refs, opt_patterns};
 use crate::datetime::opt_py_datetime_to_utc;
 use crate::timeseries::datapoints::{
     PyDatapointString, PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
@@ -83,21 +83,27 @@ impl From<PyEventFilter> for EventFilter {
 
 #[pymethods]
 impl PyEventFilter {
+    /// The request body: the criteria, plus paging and ordering.
+    ///
+    /// `basic_filter` may be omitted, which places no restriction and returns whatever the tenant
+    /// has — the same thing an argument-free `BasicEventFilter()` does.
     #[new]
-    #[pyo3(signature=(basic_filter,limit=None,sort_by=None,sort_order=None,cursor=None))]
+    #[pyo3(signature=(basic_filter=None,limit=None,sort_by=None,sort_order=None,cursor=None))]
     fn new(
-        basic_filter: PyBasicEventFilter,
+        basic_filter: Option<PyBasicEventFilter>,
         limit: Option<u64>,
-        sort_by: Option<Vec<String>>,
+        sort_by: Option<StringOrList>,
         sort_order: Option<String>,
         cursor: Option<String>,
     ) -> Self {
         let mut filter = EventFilter::default();
-        filter.set_filter(basic_filter.into());
+        filter.set_filter(basic_filter.map(Into::into).unwrap_or_default());
         filter.set_limit(limit.unwrap_or(100));
+        // A bare string is a one-element list here as it is on every other filter field; only one
+        // property is used either way.
         if let Some(property) = sort_by {
             filter.set_sort(DataSort {
-                property,
+                property: property.into(),
                 order: sort_order,
             });
         }
@@ -125,10 +131,11 @@ impl PyEventFilter {
         self.inner.cursor()
     }
 
-    /// Resume a walk from where the previous page stopped: `<eventTime epoch millis>_<event id>`,
-    /// taken from the last event of that page (see `Event.page_cursor`).
+    /// Resume a walk from where the previous page stopped: the `next_cursor` of the previous
+    /// response, verbatim.
     ///
-    /// Setting this fixes the order to `(eventTime, id)` ascending, overriding `sort_by`.
+    /// Opaque — do not build or parse one. Send it with the same `sort_by`/`sort_order` that
+    /// produced it, or the request is refused with a 400.
     #[setter]
     pub fn set_cursor(&mut self, cursor: Option<String>) {
         match cursor {
@@ -148,11 +155,11 @@ impl PyEventFilter {
     }
 
     #[setter]
-    pub fn set_sort_by(&mut self, property: Option<Vec<String>>) {
+    pub fn set_sort_by(&mut self, property: Option<StringOrList>) {
         let order = self.inner.sort().and_then(|s| s.order.clone());
         match property {
             Some(property) => {
-                self.inner.set_sort(DataSort { property, order });
+                self.inner.set_sort(DataSort { property: property.into(), order });
             }
             None => {
                 self.inner.clear_sort();
@@ -198,14 +205,29 @@ impl From<PyBasicEventFilter> for BasicEventFilter {
 }
 #[pymethods]
 impl PyBasicEventFilter {
+    /// AND-combined criteria for `events.filter`.
+    ///
+    /// `external_ids`, `sources`, `types`, `sub_types` and `statuses` are **pattern** lists: `*`
+    /// and `%` are wildcards, `_` is literal, matching is case-insensitive, and an entry with no
+    /// wildcard matches exactly. Entries within a list OR together, so `types=["alarm", "warning"]`
+    /// is one call where the retired singular `type` needed two. Each also accepts a bare string.
+    ///
+    /// `metadata` entries must all be present, and a `None` value matches the key alone.
+    /// `related_resources` must **all** be attached to the event.
+    ///
+    /// `data_set_ids` takes numeric ids, external ids, or `IdCollection`s, and expands down the
+    /// dataset hierarchy, so naming a parent covers its children. **`None` and `[]` differ here**:
+    /// `None` places no restriction, `[]` narrows to no datasets and matches nothing.
+    ///
+    /// There is no `id`: events are keyed by UUID, and the field the api used to declare was typed
+    /// as a long that nothing read. Use `events.by_ids` to look one up.
     #[new]
     #[pyo3(signature=(
-        id=None,
-        external_id_prefix=None,
-        description=None,
-        source=None,
-        r#type=None,
-        sub_type=None,
+        external_ids=None,
+        sources=None,
+        types=None,
+        sub_types=None,
+        statuses=None,
         data_set_ids=None,
         event_time=None,
         metadata=None,
@@ -213,36 +235,36 @@ impl PyBasicEventFilter {
         created_time=None,
         last_updated_time=None,
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
-        id: Option<u64>,
-        external_id_prefix: Option<String>,
-        description: Option<String>,
-        source: Option<String>,
-        r#type: Option<String>,
-        sub_type: Option<String>,
-        data_set_ids: Option<Vec<u64>>,
+        external_ids: Option<StringOrList>,
+        sources: Option<StringOrList>,
+        types: Option<StringOrList>,
+        sub_types: Option<StringOrList>,
+        statuses: Option<StringOrList>,
+        data_set_ids: Option<Vec<DataSetRef>>,
         event_time: Option<PyTimeFilter>,
-        metadata: Option<HashMap<String, String>>,
+        metadata: Option<HashMap<String, Option<String>>>,
         related_resources: Option<Vec<PyIdCollection>>,
         created_time: Option<PyTimeFilter>,
         last_updated_time: Option<PyTimeFilter>,
     ) -> Self {
         Self {
-            inner: BasicEventFilter::new(
-                id,
-                external_id_prefix,
-                description,
-                source,
-                r#type,
-                sub_type,
-                data_set_ids,
-                event_time.map(|f| f.inner),
+            inner: BasicEventFilter {
+                external_ids: opt_patterns(external_ids),
+                sources: opt_patterns(sources),
+                types: opt_patterns(types),
+                sub_types: opt_patterns(sub_types),
+                statuses: opt_patterns(statuses),
+                data_set_ids: opt_data_set_refs(data_set_ids),
+                event_time: event_time.map(|f| f.inner),
                 metadata,
-                related_resources
-                    .map(|rr| rr.into_iter().map(IdAndExtId::from).collect()),
-                created_time.map(|f| f.inner),
-                last_updated_time.map(|f| f.inner),
-            ),
+                related_resources: related_resources
+                    .map(|rr| rr.into_iter().map(IdAndExtId::from).collect())
+                    .unwrap_or_default(),
+                created_time: created_time.map(|f| f.inner),
+                last_updated_time: last_updated_time.map(|f| f.inner),
+            },
         }
     }
 }

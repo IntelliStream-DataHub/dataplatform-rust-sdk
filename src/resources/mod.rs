@@ -74,7 +74,7 @@ impl ResourceService {
     }
     pub async fn search(
         &self,
-        payload: &SearchAndFilterForm,
+        payload: &SearchAndFilterForm<ResourceFilter>,
     ) -> Result<DataWrapper<Resource>, ResponseError> {
         let url = &format!("{}/search", self.base_url);
         self.execute_post_request::<DataWrapper<Resource>, _>(&url, &payload)
@@ -429,19 +429,22 @@ impl DataWrapperDeserialization for ResourceNetwork {
     }
 }
 
-/// Body of `POST /resources/filter`: the criteria, plus how many to return and in what order.
+/// Body of `POST /resources/filter`: the criteria, how many to return, and in what order.
+///
+/// The api once declared a `sort` that nothing read, so a caller could ask for an order and
+/// silently not get one. It is real now, and comes with keyset paging — see
+/// [`PageRequest`](crate::filters::PageRequest).
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceRetreiver {
     pub filter: ResourceFilter,
-    /// Defaults to 1000 server-side and is capped at 10000. A zero or negative value falls back to
-    /// the default rather than returning nothing.
+    /// Defaults to 1000 server-side and is capped at 10000 — above that the request is rejected
+    /// with 400. A zero or negative value falls back to the default rather than returning nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sort: Option<crate::filters::DataSort>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
+    /// Ordering and paging. Flattened, so `sort` and `cursor` sit beside `filter` and `limit`.
+    #[serde(flatten)]
+    pub paging: crate::filters::PageRequest,
 }
 
 impl ResourceRetreiver {
@@ -449,8 +452,7 @@ impl ResourceRetreiver {
         Self {
             filter,
             limit: None,
-            sort: None,
-            cursor: None,
+            paging: Default::default(),
         }
     }
 
@@ -459,57 +461,62 @@ impl ResourceRetreiver {
         self
     }
 
-    pub fn with_sort(mut self, sort: crate::filters::DataSort) -> Self {
-        self.sort = Some(sort);
-        self
-    }
-
-    pub fn with_cursor(mut self, cursor: &str) -> Self {
-        self.cursor = Some(cursor.to_string());
+    pub fn with_paging(mut self, paging: crate::filters::PageRequest) -> Self {
+        self.paging = paging;
         self
     }
 }
 
-/// Criteria for `POST /resources/filter`. Everything set is combined with AND.
+/// Criteria for `POST /resources/filter`, and the `filter` of `POST /resources/search`.
+/// Everything set is combined with AND.
 ///
-/// `name` and `source` are case-insensitive **substring** matches and accept `%` as a wildcard;
-/// `external_id` and `id` are exact.
+/// **This is the generic node query.** Unlike `/datasets/filter`, `/timeseries/filter` and
+/// `/events/filter`, which each answer for one type, this endpoint spans *every* node type —
+/// assets, timeseries, functions, resources, data sets and policies share one table and one set of
+/// criteria. Narrow it with [`node_types`](Self::node_types) when you want only some. Every node
+/// carries its type as a label, so a caller can tell what came back.
+///
+/// It behaved this way before, by omission — the query had no node-type predicate and single-table
+/// inheritance did the rest — which meant the breadth could not be narrowed and was not stated.
+///
+/// Most of it is the shared [`NodeFilter`](crate::filters::NodeFilter) — ids, external ids, names,
+/// sources, labels, metadata and the two timestamp windows — flattened onto the wire; read its
+/// rules for wildcards, case-insensitivity and what an empty list means.
+///
+/// The singular `id`, `external_id` and `name` this filter used to carry alongside the plural
+/// forms are gone. They were six fields for three concepts, and the two forms ANDed rather than
+/// merged, so sending both narrowed the query in a way no caller intended — a one-element list is
+/// the old behaviour.
+// Not PartialEq: `data_set_ids` holds `IdAndExtId`, which is intentionally non-comparable.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceFilter {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(with = "crate::serde_helper::opt_string_id")]
-    pub id: Option<u64>,
+    /// The criteria shared with timeseries and datasets, flattened into this filter's body.
+    #[serde(flatten)]
+    pub node: crate::filters::NodeFilter,
+    /// Restrict to these node types: `asset`, `timeseries`, `function`, `resource`, `dataset` or
+    /// `policy`. Case-insensitive; entries OR together; max 20.
+    ///
+    /// `None` means every type, which is what makes this the generic query. A name matching no
+    /// known type contributes nothing, so a list of only unknown names matches **nothing** rather
+    /// than quietly widening back to everything.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub external_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
+    pub node_types: Option<Vec<String>>,
+    /// Root nodes only (`Some(true)`) or non-root only (`Some(false)`).
+    ///
+    /// Not on [`NodeFilter`](crate::filters::NodeFilter) even though the column is shared: only
+    /// resources and assets form graph roots, and a data set is never one, so offering it on the
+    /// typed data set query would be offering a filter that always answers the same way.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_root: Option<bool>,
-    /// Ids only — unlike the event filter, this endpoint does not accept a data set's external id.
+    /// Restrict to resources in these data sets, each named by id **or external id** — the
+    /// endpoint used to accept ids only. A data set stands in for everything beneath it in the
+    /// `BELONGS_TO` hierarchy, so naming a parent covers its children.
+    ///
+    /// **`None` and empty differ**, unlike the lists on [`NodeFilter`](crate::filters::NodeFilter):
+    /// `None` places no restriction, `Some(vec![])` narrows to no data sets and matches nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub data_set_ids: Option<Vec<IdObject>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_time: Option<crate::filters::TimeFilter>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_updated_time: Option<crate::filters::TimeFilter>,
-}
-
-/// An id-only reference, the shape `ResourceFilter::data_set_ids` expects.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct IdObject {
-    #[serde(with = "crate::serde_helper::string_id")]
-    pub id: u64,
-}
-
-impl IdObject {
-    pub fn new(id: u64) -> Self {
-        Self { id }
-    }
+    pub data_set_ids: Option<Vec<IdAndExtId>>,
 }
 
 /// Request body for [`ResourceService::fetch_nearest`] (`POST /resources/fetch-nearest`).

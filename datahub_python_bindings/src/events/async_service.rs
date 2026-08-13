@@ -104,12 +104,13 @@ impl PyEventsServiceAsync {
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
 
-            let py_ts: Vec<PyEvent> = result
+            let next_cursor = result.next_cursor().map(str::to_string);
+            let items: Vec<PyEvent> = result
                 .get_items()
                 .iter()
                 .map(|ts| PyEvent::with_client(ts.clone(), service.clone()))
                 .collect();
-            Ok(py_ts)
+            Python::attach(|py| crate::PyPage::new(py, items, next_cursor))
         })
     }
 

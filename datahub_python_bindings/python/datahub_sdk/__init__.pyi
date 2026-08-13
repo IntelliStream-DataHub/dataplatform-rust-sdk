@@ -16,6 +16,53 @@ from uuid import UUID
 # an IdCollection wrapper, a numeric id, or an external_id string.
 Identifiable = Union["TimeSeries", "Resource", "Unit", "Event", "IdCollection", int, str]
 
+# A filter's pattern list. `*` and `%` are wildcards, `_` is literal, matching is
+# case-insensitive, and an entry with no wildcard matches exactly. Entries OR together.
+# A bare string means the same as a one-element list.
+PatternList = Union[str, Sequence[str]]
+
+# Metadata criteria: every entry must be present on the matched row. A `None` value matches
+# the key alone, whatever it carries.
+MetadataFilter = Mapping[str, Optional[str]]
+
+# How a filter names a data set: by numeric id, by external id, or by an explicit IdCollection.
+DataSetRef = Union[int, str, "IdCollection"]
+
+# A sort property, as one name or a one-element list. Only the first recognised entry is used.
+SortBy = Union[str, Sequence[str]]
+
+
+class Page(Sequence[Any]):
+    """One page of a filter result: the rows, plus where to continue from.
+
+    Behaves as a list — ``len()``, indexing, slicing, iteration, ``in`` and ``==`` against a plain
+    list all work — so code written before paging existed keeps working. What it adds is
+    ``next_cursor``, the only way to reach the next page: the api hands out an opaque cursor and
+    does not accept one a caller assembled.
+
+    The whole loop is::
+
+        page = client.timeseries.filter(TimeSeriesFilterForm(limit=100, sort_by="name"))
+        while True:
+            for ts in page:
+                ...
+            if page.next_cursor is None:
+                break
+            page = client.timeseries.filter(TimeSeriesFilterForm(
+                limit=100, sort_by="name", cursor=page.next_cursor))
+
+    ``next_cursor`` is ``None`` on the last page. A *full* page may still be the last one — the
+    server does not count the rows twice — so a walk ends with one request that comes back empty.
+
+    Not a ``list`` subclass, so ``isinstance(page, list)`` is ``False``; use ``page.items`` when
+    something demands a real list.
+    """
+    @property
+    def items(self) -> list[Any]: ...
+    @property
+    def next_cursor(self) -> str | None:
+        """Send back as the next request's ``cursor``, with the same sort that produced it."""
+
 
 # ====================== Errors ======================
 
@@ -186,20 +233,49 @@ class SearchAndFilterForm:
 
 
 class TimeSeriesFilterForm:
-    """AND-combined criteria for ``timeseries.filter`` (``POST /timeseries/filter``).
+    """AND-combined criteria for ``timeseries.filter`` (``POST /timeseries/filter``) and the
+    ``filter`` of ``timeseries.search``.
 
-    ``data_set_id`` expands down the dataset hierarchy server-side, so a master dataset
-    matches the timeseries of its child datasets too. ``metadata_key``/``metadata_value``
-    work together ("that key carries that value") or alone.
+    ``external_ids``, ``names``, ``sources``, ``units`` and ``unit_external_ids`` are pattern
+    lists — see ``PatternList``. ``labels`` must **all** be present; so must every ``metadata``
+    entry, where a ``None`` value matches the key alone. ``value_types`` is matched exactly
+    (case-insensitively) against ``BIGINT``, ``FLOAT``, ``FLOAT32``, ``NUMERIC``, ``DECIMAL32``,
+    ``TEXT``, ``MIXED``.
+
+    ``data_set_ids`` expands down the dataset hierarchy server-side, so a master dataset matches
+    the timeseries of its child datasets too. **``None`` and ``[]`` differ here**: ``None`` places
+    no restriction, ``[]`` narrows to no datasets and matches nothing. Every other list places no
+    restriction when empty.
+
+    ``limit`` defaults to the server's 1000 and is capped at 10000; a value <= 0 falls back to the
+    default rather than returning nothing.
+
+    ``sort_by`` names one property — ``id``, ``externalId``, ``name``, ``source``, ``description``,
+    ``createdTime``, ``lastUpdatedTime`` or ``dataSetId`` — with ``sort_order`` of ``"asc"`` or
+    ``"desc"``; ``id`` is always appended so the order is total. An unrecognised property falls
+    back to the default, newest created first. Nulls sort last ascending, first descending.
+
+    ``cursor`` continues a previous page: pass that response's ``next_cursor`` verbatim, with the
+    **same** sort it came from.
     """
     def __init__(
         self,
-        data_set_id: int | None = None,
-        unit: str | None = None,
-        unit_external_id: str | None = None,
-        metadata_key: str | None = None,
-        metadata_value: str | None = None,
+        ids: Sequence[int] | None = None,
+        external_ids: PatternList | None = None,
+        names: PatternList | None = None,
+        sources: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        data_set_ids: Sequence[DataSetRef] | None = None,
+        units: PatternList | None = None,
+        unit_external_ids: PatternList | None = None,
+        value_types: PatternList | None = None,
         limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
     ) -> None: ...
 
 
@@ -521,8 +597,16 @@ class TimeSeriesServiceSync:
     def by_ids(self, input: list[Identifiable]) -> list[TimeSeries]: ...
     def delete(self, input: list[Identifiable]) -> None: ...
     def update(self, input: list[TimeSeriesUpdate]) -> list[TimeSeries]: ...
-    def search(self, input: SearchAndFilterForm) -> list[TimeSeries]: ...
-    def filter(self, input: TimeSeriesFilterForm) -> list[TimeSeries]: ...
+    def search(
+        self, input: SearchAndFilterForm, filter: TimeSeriesFilterForm | None = None
+    ) -> list[TimeSeries]:
+        """Free-text search, optionally narrowed by the same criteria ``filter()`` takes.
+
+        The ``filter``'s own ``limit`` is not used here — the search form carries the cap. This is
+        the one search endpoint that actually applies its filter; see
+        ``python_tests/test_filter_search_bodies.py``.
+        """
+    def filter(self, input: TimeSeriesFilterForm) -> Page: ...
     def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
     def insert_from_lists(
         self,
@@ -543,8 +627,10 @@ class TimeSeriesServiceAsync:
     async def by_ids(self, input: list[Identifiable]) -> list[TimeSeries]: ...
     async def delete(self, input: list[Identifiable]) -> None: ...
     async def update(self, input: list[TimeSeriesUpdate]) -> list[TimeSeries]: ...
-    async def search(self, input: SearchAndFilterForm) -> list[TimeSeries]: ...
-    async def filter(self, input: TimeSeriesFilterForm) -> list[TimeSeries]: ...
+    async def search(
+        self, input: SearchAndFilterForm, filter: TimeSeriesFilterForm | None = None
+    ) -> list[TimeSeries]: ...
+    async def filter(self, input: TimeSeriesFilterForm) -> Page: ...
     async def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
     async def insert_from_lists(
         self,
@@ -641,17 +727,30 @@ class TimeFilter:
 
 
 class BasicEventFilter:
+    """AND-combined criteria for ``events.filter`` (``POST /events/filter``).
+
+    ``external_ids``, ``sources``, ``types``, ``sub_types`` and ``statuses`` are pattern lists —
+    see ``PatternList`` — so ``types=["alarm", "warning"]`` is one call. Every ``metadata`` entry
+    must be present, and a ``None`` value matches the key alone. Every entry of
+    ``related_resources`` must be attached to the event.
+
+    ``data_set_ids`` expands down the dataset hierarchy, so naming a parent covers its children.
+    **``None`` and ``[]`` differ here**: ``None`` places no restriction, ``[]`` narrows to no
+    datasets and matches nothing.
+
+    There is no ``id``: events are keyed by UUID, and the field the api used to declare was typed
+    as a long that nothing read. Use ``events.by_ids`` to look one up.
+    """
     def __init__(
         self,
-        id: int | None = None,
-        external_id_prefix: str | None = None,
-        description: str | None = None,
-        source: str | None = None,
-        type: str | None = None,
-        sub_type: str | None = None,
-        data_set_ids: list[int] | None = None,
+        external_ids: PatternList | None = None,
+        sources: PatternList | None = None,
+        types: PatternList | None = None,
+        sub_types: PatternList | None = None,
+        statuses: PatternList | None = None,
+        data_set_ids: Sequence[DataSetRef] | None = None,
         event_time: TimeFilter | None = None,
-        metadata: dict[str, str] | None = None,
+        metadata: MetadataFilter | None = None,
         related_resources: list[IdCollection] | None = None,
         created_time: TimeFilter | None = None,
         last_updated_time: TimeFilter | None = None,
@@ -659,7 +758,23 @@ class BasicEventFilter:
 
 
 class EventFilter:
-    def __init__(self, basic_filter: BasicEventFilter, limit: int | None = None) -> None: ...
+    """The ``events.filter`` request body. Omitting ``basic_filter`` places no restriction."""
+    def __init__(
+        self,
+        basic_filter: BasicEventFilter | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> None:
+        """``sort_by`` names one property — ``eventTime``, ``createdTime``, ``lastUpdatedTime``,
+        ``externalId``, ``type``, ``subType``, ``status``, ``source`` or ``dataSetId``. The default
+        is ``eventTime`` **ascending**, unlike the node filters' newest-created-first: it is the
+        order the cursor pages in, so paging does not change the order.
+
+        ``subType`` and ``status`` may be sorted by but **not paged** — they are nullable, and a
+        keyset boundary on them would skip the events that have no value.
+        """
     @property
     def filter(self) -> BasicEventFilter | None: ...
     @property
@@ -734,7 +849,7 @@ class EventsServiceSync:
     def get(self, id: UUID) -> Event | None: ...
     def delete(self, input: list[EventIdentifiable]) -> None: ...
     def update(self, input: list[EventUpdate]) -> list[Event]: ...
-    def filter(self, input: EventFilter) -> list[Event]: ...
+    def filter(self, input: EventFilter) -> Page: ...
     def search(self, input: EventSearch) -> list[Event]: ...
     def count(self) -> int: ...
     def list_dimension(
@@ -759,7 +874,7 @@ class EventsServiceAsync:
     async def get(self, id: UUID) -> Event | None: ...
     async def delete(self, input: list[EventIdentifiable]) -> None: ...
     async def update(self, input: list[EventUpdate]) -> list[Event]: ...
-    async def filter(self, input: EventFilter) -> list[Event]: ...
+    async def filter(self, input: EventFilter) -> Page: ...
     async def search(self, input: EventSearch) -> list[Event]: ...
     async def count(self) -> int: ...
     async def list_dimension(
@@ -840,34 +955,45 @@ class Dataset:
 # argument-free BasicDatasetFilter() places no restriction. An *empty* list or dict is likewise
 # no restriction rather than "match nothing".
 #
-# `names` and `source` are ILIKE patterns — you place the `%`. `external_ids` match exactly but
-# case-insensitively; `external_id_prefix` is anchored at the start. All `metadata` pairs must be
-# present. `write_protected`/`deactivated` are absent-until-set, so False matches "never set, or
-# set to false" — most datasets.
+# See the class docstring below for the pattern, label and metadata rules.
 class BasicDatasetFilter:
+    """AND-combined criteria for ``datasets.filter``.
+
+    ``external_ids``, ``names`` and ``sources`` are pattern lists — see ``PatternList`` — so
+    ``external_ids=["sap_*"]`` replaces the retired ``external_id_prefix`` and can be combined
+    with exact ids in the same list. ``labels`` must **all** be present; names are canonicalised,
+    so ``"pump a"`` finds the label stored as ``PUMP_A``. Every ``metadata`` entry must be present,
+    and a ``None`` value matches the key alone.
+
+    There is no ``data_set_ids``: a dataset is the thing other nodes are scoped by, and no
+    ``write_protected`` / ``deactivated`` either — both were removed server-side as inert, so a
+    filter carrying them looked like it was narrowing and was not.
+    """
     def __init__(
         self,
-        ids: list[int] | None = None,
-        external_ids: list[str] | None = None,
-        names: list[str] | None = None,
-        source: str | None = None,
-        metadata: dict[str, str] | None = None,
+        ids: Sequence[int] | None = None,
+        external_ids: PatternList | None = None,
+        names: PatternList | None = None,
+        sources: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
         created_time: TimeFilter | None = None,
         last_updated_time: TimeFilter | None = None,
-        external_id_prefix: str | None = None,
-        write_protected: bool | None = None,
-        deactivated: bool | None = None,
     ) -> None: ...
 
 
-# `limit` defaults to the server's 100 and may not exceed 10000. There is no paging, so a filter
+# `limit` defaults to the server's 1000 and may not exceed 10000. There is no paging, so a filter
 # broad enough to exceed the cap is truncated — narrow it instead.
 class DatasetFilter:
     def __init__(
         self,
         filter: BasicDatasetFilter | None = None,
         limit: int | None = None,
-    ) -> None: ...
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> None:
+        """See ``TimeSeriesFilterForm`` for the ``sort_by`` / ``sort_order`` / ``cursor`` rules."""
 
 
 # A partial update for one dataset. `dataset` names the target; only the fields you pass are sent,
@@ -882,8 +1008,6 @@ class DatasetUpdate:
         description: FieldStr | None = None,
         metadata: MapField | None = None,
         labels: ListFieldStr | None = None,
-        write_protected: FieldBool | None = None,
-        deactivated: FieldBool | None = None,
     ) -> None: ...
     @property
     def target_id(self) -> int | None: ...
@@ -895,16 +1019,18 @@ class DatasetUpdate:
 # id with underscores is a 400 — search on words and use filter() to look up by id. Results are
 # unranked.
 #
-# `update(...)`: do not set write_protected/deactivated in the same DatasetUpdate as a metadata
-# change — the server stores those flags as metadata and silently drops the metadata delta. Send
-# two updates.
+# `update(...)`: there is no write_protected/deactivated — both were removed server-side as inert.
 class DatasetsServiceSync:
     def list(self, limit: int | None = None) -> list[Dataset]: ...
     def create(self, input: list[Dataset]) -> list[Dataset]: ...
     def by_ids(self, input: list[Identifiable]) -> list[Dataset]: ...
     def delete(self, input: list[Identifiable]) -> None: ...
-    def filter(self, input: DatasetFilter) -> list[Dataset]: ...
-    def search(self, query: str, limit: int | None = None) -> list[Dataset]: ...
+    def filter(self, input: DatasetFilter) -> Page: ...
+    def search(
+        self, query: str, limit: int | None = None, filter: BasicDatasetFilter | None = None
+    ) -> list[Dataset]:
+        """Free-text search. The ``filter`` is declared by the endpoint and **currently ignored
+        server-side** — use ``filter()`` for criteria until that is fixed."""
     def update(self, input: list[DatasetUpdate]) -> list[Dataset]: ...
     def policies(self) -> list[Resource]: ...
 
@@ -914,8 +1040,10 @@ class DatasetsServiceAsync:
     async def create(self, input: list[Dataset]) -> list[Dataset]: ...
     async def by_ids(self, input: list[Identifiable]) -> list[Dataset]: ...
     async def delete(self, input: list[Identifiable]) -> None: ...
-    async def filter(self, input: DatasetFilter) -> list[Dataset]: ...
-    async def search(self, query: str, limit: int | None = None) -> list[Dataset]: ...
+    async def filter(self, input: DatasetFilter) -> Page: ...
+    async def search(
+        self, query: str, limit: int | None = None, filter: BasicDatasetFilter | None = None
+    ) -> list[Dataset]: ...
     async def update(self, input: list[DatasetUpdate]) -> list[Dataset]: ...
     async def policies(self) -> list[Resource]: ...
 
@@ -1128,14 +1256,72 @@ class ResourceUpdate:
     def labels(self) -> ListFieldStr | None: ...
 
 
+class ResourceFilter:
+    """AND-combined criteria for ``resources.filter`` and the ``filter`` of ``resources.search``.
+
+    The same arguments ``resources.filter`` takes as keywords, in an object — which is what
+    ``search`` needs, since a filter passed positionally there would be indistinguishable from the
+    search form.
+    """
+    def __init__(
+        self,
+        ids: Sequence[int] | None = None,
+        external_ids: PatternList | None = None,
+        names: PatternList | None = None,
+        sources: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        node_types: PatternList | None = None,
+        is_root: bool | None = None,
+        data_set_ids: Sequence[DataSetRef] | None = None,
+    ) -> None: ...
+
+
 class ResourcesServiceSync:
     def create(
         self, nodes: list[Resource], relations: list[RelForm] | None = None
     ) -> GraphResult: ...
     def by_ids(self, input: list[ResourceIdentifiable]) -> list[Resource]: ...
     def delete(self, input: list[ResourceIdentifiable]) -> None: ...
-    def search(self, input: SearchAndFilterForm) -> list[Resource]: ...
+    def search(
+        self, input: SearchAndFilterForm, filter: ResourceFilter | None = None
+    ) -> list[Resource]:
+        """Free-text search. The ``filter`` is declared by the endpoint and **currently ignored
+        server-side** — use ``filter()`` for criteria until that is fixed."""
     def update(self, input: list[ResourceUpdate]) -> GraphResult: ...
+    def get_by_id(self, id: int) -> Resource | None: ...
+    def filter(
+        self,
+        ids: Sequence[int] | None = None,
+        external_ids: PatternList | None = None,
+        names: PatternList | None = None,
+        sources: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        node_types: PatternList | None = None,
+        is_root: bool | None = None,
+        data_set_ids: Sequence[DataSetRef] | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """``POST /resources/filter`` — the generic node query; criteria combine with AND.
+
+        Spans **every node type** unless narrowed with ``node_types`` (``asset``, ``timeseries``,
+        ``function``, ``resource``, ``dataset``, ``policy``); every node carries its type as a
+        label so you can tell what came back.
+
+        ``external_ids``, ``names`` and ``sources`` are pattern lists; ``labels`` must all be
+        present; a ``None`` ``metadata`` value matches the key alone. ``data_set_ids`` expands
+        down the dataset hierarchy, and ``None`` (no restriction) differs from ``[]``
+        (narrow to no datasets, matching nothing). See ``TimeSeriesFilterForm`` for the sort and
+        cursor rules.
+        """
 
 
 class ResourcesServiceAsync:
@@ -1144,8 +1330,30 @@ class ResourcesServiceAsync:
     ) -> GraphResult: ...
     async def by_ids(self, input: list[ResourceIdentifiable]) -> list[Resource]: ...
     async def delete(self, input: list[ResourceIdentifiable]) -> None: ...
-    async def search(self, input: SearchAndFilterForm) -> list[Resource]: ...
+    async def search(
+        self, input: SearchAndFilterForm, filter: ResourceFilter | None = None
+    ) -> list[Resource]: ...
     async def update(self, input: list[ResourceUpdate]) -> GraphResult: ...
+    async def get_by_id(self, id: int) -> Resource | None: ...
+    async def filter(
+        self,
+        ids: Sequence[int] | None = None,
+        external_ids: PatternList | None = None,
+        names: PatternList | None = None,
+        sources: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        node_types: PatternList | None = None,
+        is_root: bool | None = None,
+        data_set_ids: Sequence[DataSetRef] | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """Async twin of ``ResourcesServiceSync.filter``."""
 
 
 # ====================== Labels ======================

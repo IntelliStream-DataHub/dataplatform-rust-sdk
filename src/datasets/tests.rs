@@ -221,7 +221,7 @@ fn dataset_update_serializes_only_touched_fields() {
 
     let upd = DatasetUpdate::by_external_id("sap_work_orders")
         .description(Field::value("SAP work orders — live sync"))
-        .write_protected(Field::value(true));
+        .labels(crate::fields::ListField::set(vec!["SAP".to_string()]));
     assert_eq!(
         serde_json::to_value(DataWrapper::from_vec(vec![upd])).unwrap(),
         serde_json::json!({
@@ -229,7 +229,7 @@ fn dataset_update_serializes_only_touched_fields() {
                 "externalId": "sap_work_orders",
                 "update": {
                     "description": { "set": "SAP work orders — live sync", "setNull": false },
-                    "writeProtected": { "set": true, "setNull": false }
+                    "labels": { "set": ["SAP"] }
                 }
             }]
         })
@@ -256,11 +256,13 @@ fn filter_body_matches_the_documented_wire_shape() {
     let min: DateTime<Utc> = "2026-01-01T00:00:00Z".parse().unwrap();
     let filter = DatasetFilter::from_filter(
         BasicDatasetFilter::new()
-            .set_names(vec!["SAP%".to_string()])
-            .set_source("sap".to_string())
-            .set_external_id_prefix("sap_".to_string())
-            .set_write_protected(false)
-            .set_metadata([("owner".to_string(), "plant-a".to_string())].into())
+            .set_names(vec!["SAP*".to_string()])
+            // The retired singular `source` is a list now, and the retired `externalIdPrefix` is
+            // just a trailing wildcard in the field that also takes exact ids.
+            .set_sources(vec!["sap".to_string(), "opc_*".to_string()])
+            .set_external_ids(vec!["sap_*".to_string()])
+            .set_labels(vec!["PUMP".to_string()])
+            .set_metadata([("owner".to_string(), Some("plant-a".to_string()))].into())
             .set_created_time(TimeFilter::After { min })
             .build(),
     );
@@ -268,17 +270,26 @@ fn filter_body_matches_the_documented_wire_shape() {
     let json: serde_json::Value = serde_json::to_value(&filter).unwrap();
     assert_eq!(json["limit"], 100);
     let f = &json["filter"];
-    assert_eq!(f["names"], serde_json::json!(["SAP%"]));
-    assert_eq!(f["source"], "sap");
-    assert_eq!(f["externalIdPrefix"], "sap_");
-    assert_eq!(f["writeProtected"], false);
+    // The shared node criteria are flattened, so they sit directly on the filter body rather than
+    // nested under a key the api does not read.
+    assert_eq!(f["names"], serde_json::json!(["SAP*"]));
+    assert_eq!(f["sources"], serde_json::json!(["sap", "opc_*"]));
+    assert_eq!(f["externalIds"], serde_json::json!(["sap_*"]));
+    assert_eq!(f["labels"], serde_json::json!(["PUMP"]));
     assert_eq!(f["metadata"]["owner"], "plant-a");
     assert_eq!(f["createdTime"]["min"], "2026-01-01T00:00:00Z");
+
+    // The fields the refactor removed must be gone: the api drops unknown keys silently, so a
+    // leftover one would narrow nothing and read as "no datasets match". `writeProtected` and
+    // `deactivated` went with them — they were inert server-side, so a filter carrying them looked
+    // like it was narrowing and was not.
+    for retired in ["source", "externalIdPrefix", "writeProtected", "deactivated"] {
+        assert!(f.get(retired).is_none(), "retired field {retired} is still sent: {f}");
+    }
 
     // Unset criteria are omitted, not sent as null: the backend reads an empty/absent list as "no
     // restriction", so a stray `"ids": null` is harmless, but omitting keeps the body honest.
     assert!(f.get("ids").is_none(), "unset ids should be omitted");
-    assert!(f.get("deactivated").is_none());
 
     // Ids go out as strings, like every other id on the wire.
     let by_id = DatasetFilter::from_filter(

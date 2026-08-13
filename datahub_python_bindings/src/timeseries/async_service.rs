@@ -142,17 +142,20 @@ impl PyTimeSeriesServiceAsync {
             Ok(py_ts)
         })
     }
+    #[pyo3(signature = (input, filter = None))]
     fn search<'p>(
         &self,
         py: Python<'p>,
         input: PySearchAndFilterForm,
+        filter: Option<PyTimeSeriesFilterForm>,
     ) -> PyResult<Bound<'p, PyAny>> {
+        let form = input.into_form(filter.map(|f| f.inner.filter));
         let service = self.api_service.clone();
 
         future_into_py(py, async move {
             let result = service
                 .time_series
-                .search(&input.into())
+                .search(&form)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
 
@@ -179,12 +182,13 @@ impl PyTimeSeriesServiceAsync {
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
 
-            let py_ts: Vec<PyTimeSeries> = result
+            let next_cursor = result.next_cursor().map(str::to_string);
+            let items: Vec<PyTimeSeries> = result
                 .get_items()
                 .iter()
                 .map(|ts| PyTimeSeries::with_client(ts.clone(), service.clone()))
                 .collect();
-            Ok(py_ts)
+            Python::attach(|py| crate::PyPage::new(py, items, next_cursor))
         })
     }
 

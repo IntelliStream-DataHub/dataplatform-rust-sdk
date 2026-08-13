@@ -3,7 +3,7 @@ mod tests;
 
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::fields::{Field, ListField, MapField};
-use crate::filters::TimeFilter;
+use crate::filters::{MetadataFilter, NodeFilter, TimeFilter};
 use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, SearchForm};
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::ResponseError;
@@ -108,8 +108,8 @@ impl DatasetsService {
     /// `^[\p{IsLatin}\p{Zs}\p{Nd}]+` — Latin letters, space separators and decimal digits only.
     /// Anything else, an underscore included, is a 400. So an external id is usually *not* a legal
     /// query even though the index covers it: `sap_work_orders` is rejected, `work orders` is not.
-    /// Search on words, and use [`filter`](Self::filter)'s `external_ids` or `external_id_prefix`
-    /// to look something up by id.
+    /// Search on words, and use [`filter`](Self::filter)'s `external_ids` — where a trailing `*`
+    /// is a prefix search — to look something up by id.
     ///
     /// [`search_by_query`](Self::search_by_query) is the shorthand for the common case.
     pub async fn search(
@@ -138,18 +138,9 @@ impl DatasetsService {
     /// action: this requires an all-datasets write grant and answers **403** without one, even for
     /// a caller who can write the dataset's contents.
     ///
-    /// # Do not combine a metadata change with `write_protected` / `deactivated`
-    ///
-    /// Those two flags are not columns — the server stores them as node metadata under
-    /// `property:is_write_protected` / `property:is_deactivated`. Setting either in the *same*
-    /// update as a `metadata` delta silently drops the delta: the flag write replaces the map the
-    /// delta was applied to, and the call still answers 200 with no hint that half of it was lost.
-    /// Send two updates instead. `test_write_protected_clobbers_metadata_in_one_call` in
-    /// `python_tests/test_datasets.py` encodes the intended behaviour and is marked xfail until the
-    /// server is fixed.
-    ///
-    /// The same storage choice means those keys are *visible* in [`Dataset::metadata`] — code that
-    /// iterates a dataset's metadata will see them next to its own entries.
+    /// There is no `write_protected` or `deactivated` here. Both were removed server-side as
+    /// inert: they were stored as node metadata rather than as columns, nothing read them, and
+    /// setting one in the same update as a `metadata` delta silently dropped the delta.
     pub async fn update<I>(&self, data: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<DatasetUpdate>>,
@@ -285,7 +276,6 @@ impl Dataset {
 /// # use dataplatform_rust_sdk::fields::Field;
 /// let update = DatasetUpdate::by_external_id("sap_work_orders")
 ///     .description(Field::value("SAP work orders — live sync"))
-///     .write_protected(Field::value(true));
 /// ```
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -345,16 +335,9 @@ impl DatasetUpdate {
         self
     }
 
-    /// Mark the dataset write-protected, blocking further writes to its contents.
-    pub fn write_protected(mut self, field: Field<bool>) -> Self {
-        self.update.write_protected = Some(field);
-        self
-    }
-
-    pub fn deactivated(mut self, field: Field<bool>) -> Self {
-        self.update.deactivated = Some(field);
-        self
-    }
+    // `write_protected` and `deactivated` used to be settable here. They were removed server-side
+    // as inert — stored as node metadata rather than as columns, read by nothing, and clobbering a
+    // metadata delta sent in the same update.
 }
 
 /// The changed fields of a [`DatasetUpdate`]. Every entry is optional: an unset field is left out
@@ -362,7 +345,8 @@ impl DatasetUpdate {
 ///
 /// The set mirrors the server's `DataSetFields` exactly. Note there is no `policies` or
 /// `connectedDataSets` here — the update endpoint does not accept them, whatever
-/// [`Dataset`] can carry on create.
+/// [`Dataset`] can carry on create — and no `writeProtected` / `deactivated`, which were removed
+/// as inert.
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DatasetUpdateFields {
@@ -376,10 +360,6 @@ pub struct DatasetUpdateFields {
     pub metadata: Option<MapField>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<ListField<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub write_protected: Option<Field<bool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deactivated: Option<Field<bool>>,
 }
 
 // `DatasetUpdate` identifies its target by id *or* external id, so it cannot implement
@@ -408,50 +388,29 @@ impl From<&Vec<DatasetUpdate>> for DataWrapper<DatasetUpdate> {
 
 /// Criteria for `POST /datasets/filter` and `POST /datasets/list`.
 ///
-/// Every field here is honoured by `DataSetCustomRepoImpl.filter`; nothing on it is decorative.
-/// A field left unset places no restriction, and so does an **empty** list or map — an empty `IN`
-/// is not valid SQL, and the backend reads "I built a list and had nothing to put in it" as
-/// "no restriction" rather than "match nothing".
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+/// Most of it is the shared [`NodeFilter`] — ids, external ids, names, sources, labels, metadata
+/// and the two timestamp windows — flattened onto the wire; read its rules for wildcards,
+/// case-insensitivity and what an empty list means. Only the two flags below are dataset-specific.
+///
+/// A data set has no `data_set_ids` of its own: it is the thing other nodes are scoped *by*, so
+/// the field would be asking which data set a data set belongs to.
+///
+/// The separate `external_id_prefix` is gone — `external_ids: ["sap_*"]` says the same thing in
+/// the field that was already there, and unlike the old prefix it can be given more than once and
+/// combined with exact ids. The singular `source` became the [`sources`](NodeFilter::sources)
+/// pattern list.
+///
+/// It adds **nothing** to the shared criteria, and that is the current truth rather than an
+/// oversight: the `write_protected` and `deactivated` flags it used to carry were removed
+/// server-side as inert. What distinguishes this filter from the generic node query
+/// ([`ResourceFilter`](crate::resources::ResourceFilter)) is now only which node type it answers
+/// for. A data-set-specific criterion belongs here when one exists.
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct BasicDatasetFilter {
-    /// Datasets with any of these numeric ids. Max 1000. Sent as strings, like every id on the wire.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        with = "crate::serde_helper::opt_string_id_vec"
-    )]
-    ids: Option<Vec<u64>>,
-    /// Datasets with any of these external ids. Max 1000. Matched on the hash of the lowercased
-    /// form, so this is exact but case-insensitive.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    external_ids: Option<Vec<String>>,
-    /// Datasets whose name matches any entry, as an ILIKE pattern — you place the `%`, so `"SAP%"`
-    /// is a prefix match and `"SAP work orders"` an exact one. Case-insensitive; entries OR
-    /// together. Max 1000.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    names: Option<Vec<String>>,
-    /// The source the dataset came from, as an ILIKE pattern. Max 128 characters.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source: Option<String>,
-    /// Metadata the dataset must carry. Several entries **AND** together ("has all of these"),
-    /// each matching key and value exactly.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    metadata: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    created_time: Option<TimeFilter>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    last_updated_time: Option<TimeFilter>,
-    /// Prefix match on the external id, anchored at the start and case-insensitive. Max 255.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    external_id_prefix: Option<String>,
-    /// The flag is stored as metadata that is absent until first set, so `Some(false)` matches
-    /// "no entry, or an entry saying false" — not just rows that carry the key.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    write_protected: Option<bool>,
-    /// Same absent-until-set semantics as [`write_protected`](Self::write_protected).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    deactivated: Option<bool>,
+    /// The criteria shared with resources and timeseries, flattened into this filter's body.
+    #[serde(flatten)]
+    pub node: NodeFilter,
 }
 
 impl BasicDatasetFilter {
@@ -459,43 +418,35 @@ impl BasicDatasetFilter {
         Self::default()
     }
     pub fn set_ids(&mut self, ids: Vec<u64>) -> &mut Self {
-        self.ids = Some(ids);
+        self.node.ids = Some(ids);
         self
     }
     pub fn set_external_ids(&mut self, external_ids: Vec<String>) -> &mut Self {
-        self.external_ids = Some(external_ids);
+        self.node.external_ids = Some(external_ids);
         self
     }
     pub fn set_names(&mut self, names: Vec<String>) -> &mut Self {
-        self.names = Some(names);
+        self.node.names = Some(names);
         self
     }
-    pub fn set_source(&mut self, source: String) -> &mut Self {
-        self.source = Some(source);
+    pub fn set_sources(&mut self, sources: Vec<String>) -> &mut Self {
+        self.node.sources = Some(sources);
         self
     }
-    pub fn set_metadata(&mut self, metadata: HashMap<String, String>) -> &mut Self {
-        self.metadata = Some(metadata);
+    pub fn set_labels(&mut self, labels: Vec<String>) -> &mut Self {
+        self.node.labels = Some(labels);
+        self
+    }
+    pub fn set_metadata(&mut self, metadata: MetadataFilter) -> &mut Self {
+        self.node.metadata = Some(metadata);
         self
     }
     pub fn set_created_time(&mut self, created_time: TimeFilter) -> &mut Self {
-        self.created_time = Some(created_time);
+        self.node.created_time = Some(created_time);
         self
     }
     pub fn set_last_updated_time(&mut self, last_updated_time: TimeFilter) -> &mut Self {
-        self.last_updated_time = Some(last_updated_time);
-        self
-    }
-    pub fn set_external_id_prefix(&mut self, external_id_prefix: String) -> &mut Self {
-        self.external_id_prefix = Some(external_id_prefix);
-        self
-    }
-    pub fn set_write_protected(&mut self, write_protected: bool) -> &mut Self {
-        self.write_protected = Some(write_protected);
-        self
-    }
-    pub fn set_deactivated(&mut self, deactivated: bool) -> &mut Self {
-        self.deactivated = Some(deactivated);
+        self.node.last_updated_time = Some(last_updated_time);
         self
     }
     pub fn build(&self) -> Self {
@@ -503,17 +454,20 @@ impl BasicDatasetFilter {
     }
 }
 
-/// Body of `POST /datasets/filter` and `POST /datasets/list`.
-///
-/// `DataSetRetreiver` also declares a `cursor`, but `DataSetService.filter` passes only the filter
-/// and the limit to the repository — there is no paging, so no cursor is exposed here.
+/// Body of `POST /datasets/filter` and `POST /datasets/list`: the criteria, how many to return,
+/// and in what order.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DatasetFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
     filter: Option<BasicDatasetFilter>,
-    /// Caps the result. Defaults to 100 server-side; above 10000 the request is rejected with 400,
-    /// and a value <= 0 is silently treated as the default.
+    /// Caps the result. Defaults to **1000** server-side; above 10000 the request is rejected with
+    /// 400, and a value <= 0 is silently treated as the default. The four filter endpoints had
+    /// drifted to two different defaults before the refactor, so which page size a caller got
+    /// depended on which entity they were asking about.
     limit: u64,
+    /// Ordering and paging. Flattened, so `sort` and `cursor` sit beside `filter` and `limit`.
+    #[serde(flatten)]
+    pub paging: crate::filters::PageRequest,
 }
 
 impl DatasetFilter {
@@ -521,6 +475,7 @@ impl DatasetFilter {
         Self {
             filter: None,
             limit: 100,
+            paging: Default::default(),
         }
     }
     pub fn from_filter(filter: BasicDatasetFilter) -> Self {
@@ -536,6 +491,11 @@ impl DatasetFilter {
     /// Max 10000 — the server answers 400 above that.
     pub fn set_limit(&mut self, limit: u64) -> &mut Self {
         self.limit = limit;
+        self
+    }
+    /// Order the page, and optionally continue a previous one.
+    pub fn set_paging(&mut self, paging: crate::filters::PageRequest) -> &mut Self {
+        self.paging = paging;
         self
     }
     pub fn build(&self) -> Self {
@@ -557,16 +517,31 @@ impl Default for DatasetFilter {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DatasetSearch {
     search: SearchForm,
+    /// The same criteria `POST /datasets/filter` takes.
+    ///
+    /// **The server declares this field and does not read it** — `DataSetService.search` passes
+    /// only the query and the limit to the repository. It is exposed so the gap is testable
+    /// rather than invisible; until it is closed, narrow with [`DatasetsService::filter`] instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filter: Option<BasicDatasetFilter>,
     /// Caps the result. Defaults to 100 server-side; unlike the filter endpoint the cap here is
-    /// **1000**, and above it the request is rejected with 400.
+    /// **1000**, and above it the request is rejected with 400. Note this is the *search* cap and
+    /// has not been folded into the shared `FilterDefaults` the filter endpoints now use.
     limit: u64,
 }
 impl DatasetSearch {
     pub fn new() -> Self {
         Self {
             search: SearchForm::new(),
+            filter: None,
             limit: 100,
         }
+    }
+
+    /// Attach the structured criteria. See the field note: the server currently ignores them.
+    pub fn set_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self {
+        self.filter = Some(filter);
+        self
     }
 
     /// A search carrying just the query — the only part of the form besides `limit` that the

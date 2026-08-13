@@ -127,7 +127,9 @@ def test_filter_by_external_id_prefix(sync_client, test_events,event_dataset):
     # Filter for "test_event_5" which should match index 5, 50-59
     test_events_5 = test_events[5]
     target_string = f"{event_dataset.external_id}_test_event_5"
-    basic_filter = datahub_sdk.BasicEventFilter(external_id_prefix=target_string)
+    # `external_id_prefix` is gone; a trailing `*` asks the same question in the field that
+    # also takes exact ids.
+    basic_filter = datahub_sdk.BasicEventFilter(external_ids=f"{target_string}*")
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
     results = poll_until(lambda: sync_client.events.filter(filt), lambda r: len(r) >= 1)
@@ -141,7 +143,7 @@ def test_filter_by_type(sync_client, test_events):
     # under indexing lag, so an exact ``== 1`` count is race-prone.
     target = test_events[10]
     basic_filter = datahub_sdk.BasicEventFilter(
-        type=target.type,
+        types=[target.type],
     )
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
@@ -154,7 +156,7 @@ def test_filter_by_type(sync_client, test_events):
 def test_filter_by_sub_type(sync_client, test_events):
     target = test_events[99]
     basic_filter = datahub_sdk.BasicEventFilter(
-        sub_type=target.sub_type,
+        sub_types=[target.sub_type],
     )
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
@@ -208,11 +210,13 @@ def test_filter_by_metadata(sync_client, test_events,target_idx):
         for e in results
     )
 
-def test_filter_by_source_and_description(sync_client, test_events):
+def test_filter_by_source(sync_client, test_events):
+    # The filter's `description` field is gone with the refactor — the events table has no
+    # searchable description column, and the field was accepted and ignored. Use /events/search
+    # for free text.
     target = test_events[7]
     basic_filter = datahub_sdk.BasicEventFilter(
-        source=target.source,
-        description=target.description
+        sources=[target.source],
     )
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter)
 
@@ -221,13 +225,10 @@ def test_filter_by_source_and_description(sync_client, test_events):
         lambda r: target.external_id in {e.external_id for e in r},
     )
     assert target.external_id in {e.external_id for e in results}
-    assert all(
-        e.source == target.source and e.description == target.description
-        for e in results
-    )
+    assert all(e.source == target.source for e in results)
 
 def test_filter_with_limit(sync_client, test_events,event_dataset):
-    basic_filter = datahub_sdk.BasicEventFilter(external_id_prefix=event_dataset.external_id)
+    basic_filter = datahub_sdk.BasicEventFilter(external_ids=f"{event_dataset.external_id}*")
     # Using the EventFilter limit field
     filt = datahub_sdk.EventFilter(basic_filter=basic_filter, limit=5)
 
@@ -297,7 +298,7 @@ def test_filter_by_created_time(sync_client, test_events, event_dataset):
     day = pd.Timedelta(days=1)
 
     after = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
-        external_id_prefix=event_dataset.external_id,
+        external_ids=f"{event_dataset.external_id}*",
         created_time=datahub_sdk.TimeFilter(start=now - day)))
     r = poll_until(lambda: sync_client.events.filter(after),
               lambda r: target.external_id in {e.external_id for e in r})
@@ -305,7 +306,7 @@ def test_filter_by_created_time(sync_client, test_events, event_dataset):
 
     # Now that we know it's propagated, the complementary window must exclude it.
     before = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
-        external_id_prefix=event_dataset.external_id,
+        external_ids=f"{event_dataset.external_id}*",
         created_time=datahub_sdk.TimeFilter(end=now - day)))
     r_before = sync_client.events.filter(before)
     assert target.external_id not in {e.external_id for e in r_before}, (
@@ -320,14 +321,14 @@ def test_filter_by_last_updated_time(sync_client, test_events, event_dataset):
     day = pd.Timedelta(days=1)
 
     after = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
-        external_id_prefix=event_dataset.external_id,
+        external_ids=f"{event_dataset.external_id}*",
         last_updated_time=datahub_sdk.TimeFilter(start=now - day)))
     r = poll_until(lambda: sync_client.events.filter(after),
               lambda r: target.external_id in {e.external_id for e in r})
     assert target.external_id in {e.external_id for e in r}, "last_updated_time (after) filter did not find the event"
 
     before = datahub_sdk.EventFilter(basic_filter=datahub_sdk.BasicEventFilter(
-        external_id_prefix=event_dataset.external_id,
+        external_ids=f"{event_dataset.external_id}*",
         last_updated_time=datahub_sdk.TimeFilter(end=now - day)))
     r_before = sync_client.events.filter(before)
     assert target.external_id not in {e.external_id for e in r_before}, (
@@ -497,7 +498,7 @@ def test_search_by_description(sync_client, dimension_events):
 def test_search_with_filter_and_limit(sync_client, dimension_events):
     # The free-text search can be narrowed with a BasicEventFilter and capped.
     token = dimension_events["token"]
-    basic_filter = datahub_sdk.BasicEventFilter(type=dimension_events["type"])
+    basic_filter = datahub_sdk.BasicEventFilter(types=[dimension_events["type"]])
     search = datahub_sdk.EventSearch(query=token, filter=basic_filter, limit=2)
     results = poll_until(lambda: sync_client.events.search(search), lambda r: len(r) >= 1, **POLL_SEARCH)
     assert len(results) >= 1  # not a vacuous pass on an empty result

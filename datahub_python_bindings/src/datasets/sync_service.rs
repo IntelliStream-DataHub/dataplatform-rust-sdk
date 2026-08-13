@@ -90,20 +90,22 @@ impl PyDatasetsServiceSync {
     }
 
     /// Datasets matching every criterion on the filter, newest first.
-    fn filter(&self, py: Python<'_>, input: PyDatasetFilter) -> PyResult<Vec<PyDataset>> {
+    fn filter(&self, py: Python<'_>, input: PyDatasetFilter) -> PyResult<crate::PyPage> {
         let service = self.api_service.clone();
-        py.detach(|| {
+        let (items, next_cursor) = py.detach(|| {
             let result = self
                 .runtime
                 .block_on(service.datasets.filter(&input.into()))
                 .map_err(crate::datahub_err)?;
-            let py_ds: Vec<PyDataset> = result
+            let next_cursor = result.next_cursor().map(str::to_string);
+            let items: Vec<PyDataset> = result
                 .get_items()
                 .iter()
                 .map(|d| PyDataset::with_client(d.clone(), service.clone()))
                 .collect();
-            Ok(py_ds)
-        })
+            Ok::<_, pyo3::PyErr>((items, next_cursor))
+        })?;
+        crate::PyPage::new(py, items, next_cursor)
     }
 
     /// Full-text search over a dataset's name, external id and description at once. The last term
@@ -115,11 +117,20 @@ impl PyDatasetsServiceSync {
     /// `query` must be 3–140 characters *and* Latin letters, spaces or digits only
     /// (`^[\p{IsLatin}\p{Zs}\p{Nd}]+`). An underscore is rejected with a 400, so an external id
     /// is usually not a legal query even though the index covers it — search on words, and use
-    /// `filter`'s `external_ids` / `external_id_prefix` to look up by id.
-    #[pyo3(signature = (query, limit = None))]
-    fn search(&self, py: Python<'_>, query: &str, limit: Option<u64>) -> PyResult<Vec<PyDataset>> {
+    /// `filter`'s `external_ids` (a trailing `*` is a prefix search) to look up by id.
+    ///
+    /// The `filter` argument is declared by the endpoint and **ignored server-side** today; use
+    /// `filter()` for criteria.
+    #[pyo3(signature = (query, limit = None, filter = None))]
+    fn search(
+        &self,
+        py: Python<'_>,
+        query: &str,
+        limit: Option<u64>,
+        filter: Option<crate::datasets::PyBasicDatasetFilter>,
+    ) -> PyResult<Vec<PyDataset>> {
         let service = self.api_service.clone();
-        let form = crate::datasets::dataset_search_form(query, limit);
+        let form = crate::datasets::dataset_search_form(query, limit, filter);
         py.detach(|| {
             let result = self
                 .runtime

@@ -1,13 +1,14 @@
 use crate::relations::{PyGraphResult, PyRelForm};
-use crate::resources::ResourceIdentifiable;
+use crate::resources::{PyResourceFilter, ResourceIdentifiable};
 use crate::resources::{PyResource, PyResourceNetwork, PyResourceUpdate};
 use dataplatform_rust_sdk::resources::ResourceUpdate;
 use crate::resources::async_service::PyResourcesServiceAsync;
-use crate::PySearchAndFilterForm;
+use crate::{DataSetRef, PySearchAndFilterForm, StringOrList, opt_data_set_refs, opt_patterns};
+use dataplatform_rust_sdk::filters::NodeFilter;
 use dataplatform_rust_sdk::generic::IdAndExtId;
 use dataplatform_rust_sdk::relations::RelForm;
 use dataplatform_rust_sdk::resources::{
-    FetchNearestResourcesForm, IdObject, RelatedResourcesForm, ResourceFilter, ResourceRetreiver,
+    FetchNearestResourcesForm, RelatedResourcesForm, ResourceFilter, ResourceRetreiver,
 };
 use dataplatform_rust_sdk::{ApiService, Resource};
 use pyo3::{PyResult, Python, pyclass, pymethods};
@@ -84,17 +85,20 @@ impl PyResourcesServiceSync {
 
         Ok(())
     }
+    #[pyo3(signature = (input, filter = None))]
     fn search<'py>(
         &self,
         py: Python<'py>,
         input: PySearchAndFilterForm,
+        filter: Option<PyResourceFilter>,
     ) -> PyResult<Vec<PyResource>> {
+        let form = input.into_form(filter.map(|f| f.inner));
         let service = self.api_service.clone();
 
         py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.resources.search(&input.into()))
+                .block_on(service.resources.search(&form))
                 .map_err(|e| crate::datahub_err(e))?;
 
             let py_res: Vec<PyResource> = result
@@ -136,38 +140,61 @@ impl PyResourcesServiceSync {
 
     /// `POST /resources/filter` — structured lookup; every criterion is combined with AND.
     ///
-    /// `name` and `source` are case-insensitive substring matches accepting `%` as a wildcard;
-    /// `external_id` and `id` are exact. `data_set_ids` takes numeric ids only.
-    #[pyo3(signature = (id=None, external_id=None, name=None, source=None, is_root=None,
-                        data_set_ids=None, metadata=None, limit=None))]
+    /// `external_ids`, `names` and `sources` are **pattern** lists: `*` and `%` are wildcards, `_`
+    /// is literal, matching is case-insensitive, and an entry with no wildcard matches exactly.
+    /// Entries OR within a list; the fields AND. Each also accepts a bare string. The singular
+    /// `id`/`external_id`/`name` these replaced are gone — a one-element list is the old
+    /// behaviour, without the two forms ANDing against each other.
+    ///
+    /// `labels` must **all** be present; a `None` `metadata` value matches the key alone.
+    ///
+    /// `data_set_ids` takes numeric ids, external ids, or `IdCollection`s — it used to take ids
+    /// only — and expands down the dataset hierarchy. **`None` and `[]` differ**: `None` places no
+    /// restriction, `[]` narrows to no datasets and matches nothing.
+    #[pyo3(signature = (ids=None, external_ids=None, names=None, sources=None, labels=None,
+                        metadata=None, created_time=None, last_updated_time=None, node_types=None,
+                        is_root=None, data_set_ids=None, limit=None, sort_by=None, sort_order=None,
+                        cursor=None))]
     #[allow(clippy::too_many_arguments)]
     fn filter<'py>(
         &self,
         py: Python<'py>,
-        id: Option<u64>,
-        external_id: Option<String>,
-        name: Option<String>,
-        source: Option<String>,
+        ids: Option<Vec<u64>>,
+        external_ids: Option<StringOrList>,
+        names: Option<StringOrList>,
+        sources: Option<StringOrList>,
+        labels: Option<StringOrList>,
+        metadata: Option<HashMap<String, Option<String>>>,
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        node_types: Option<StringOrList>,
         is_root: Option<bool>,
-        data_set_ids: Option<Vec<u64>>,
-        metadata: Option<HashMap<String, String>>,
+        data_set_ids: Option<Vec<DataSetRef>>,
         limit: Option<u64>,
-    ) -> PyResult<Vec<PyResource>> {
+        sort_by: Option<StringOrList>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
+    ) -> PyResult<crate::PyPage> {
         let retriever = build_resource_retriever(
-            id, external_id, name, source, is_root, data_set_ids, metadata, limit,
+            ids, external_ids, names, sources, labels, metadata, created_time,
+            last_updated_time, node_types, is_root, data_set_ids, limit, sort_by, sort_order,
+            cursor,
         );
         let service = self.api_service.clone();
-        py.detach(|| {
+        let (items, next_cursor) = py.detach(|| {
             let result = self
                 .runtime
                 .block_on(service.resources.filter(&retriever))
                 .map_err(|e| crate::datahub_err(e))?;
-            Ok(result
+            let next_cursor = result.next_cursor().map(str::to_string);
+            let items: Vec<PyResource> = result
                 .get_items()
                 .iter()
                 .map(|r| PyResource::with_client(r.clone(), service.clone()))
-                .collect())
-        })
+                .collect();
+            Ok::<_, pyo3::PyErr>((items, next_cursor))
+        })?;
+        crate::PyPage::new(py, items, next_cursor)
     }
 
     /// `POST /resources/fetch-nearest` — the closest `limit` nodes carrying one of `end_labels`,
@@ -226,35 +253,68 @@ impl PyResourcesServiceSync {
     }
 }
 
+/// The one place Python filter kwargs become a `ResourceFilter` — shared by `resources.filter`,
+/// `resources.search`'s `filter` argument, and the `ResourceFilter` class itself, so the three
+/// cannot drift into accepting different things.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_resource_filter(
+    ids: Option<Vec<u64>>,
+    external_ids: Option<StringOrList>,
+    names: Option<StringOrList>,
+    sources: Option<StringOrList>,
+    labels: Option<StringOrList>,
+    metadata: Option<HashMap<String, Option<String>>>,
+    created_time: Option<crate::events::PyTimeFilter>,
+    last_updated_time: Option<crate::events::PyTimeFilter>,
+    node_types: Option<StringOrList>,
+    is_root: Option<bool>,
+    data_set_ids: Option<Vec<DataSetRef>>,
+) -> ResourceFilter {
+    ResourceFilter {
+        node: NodeFilter {
+            ids,
+            external_ids: opt_patterns(external_ids),
+            names: opt_patterns(names),
+            sources: opt_patterns(sources),
+            labels: opt_patterns(labels),
+            metadata,
+            created_time: created_time.map(Into::into),
+            last_updated_time: last_updated_time.map(Into::into),
+        },
+        node_types: opt_patterns(node_types),
+        is_root,
+        data_set_ids: opt_data_set_refs(data_set_ids),
+    }
+}
+
 /// Shared by the sync and async `filter` bindings: turn Python kwargs into a `ResourceRetreiver`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_resource_retriever(
-    id: Option<u64>,
-    external_id: Option<String>,
-    name: Option<String>,
-    source: Option<String>,
+    ids: Option<Vec<u64>>,
+    external_ids: Option<StringOrList>,
+    names: Option<StringOrList>,
+    sources: Option<StringOrList>,
+    labels: Option<StringOrList>,
+    metadata: Option<HashMap<String, Option<String>>>,
+    created_time: Option<crate::events::PyTimeFilter>,
+    last_updated_time: Option<crate::events::PyTimeFilter>,
+    node_types: Option<StringOrList>,
     is_root: Option<bool>,
-    data_set_ids: Option<Vec<u64>>,
-    metadata: Option<HashMap<String, String>>,
+    data_set_ids: Option<Vec<DataSetRef>>,
     limit: Option<u64>,
+    sort_by: Option<StringOrList>,
+    sort_order: Option<String>,
+    cursor: Option<String>,
 ) -> ResourceRetreiver {
-    let filter = ResourceFilter {
-        id,
-        external_id,
-        name,
-        source,
-        is_root,
-        data_set_ids: data_set_ids
-            .map(|ids| ids.into_iter().map(IdObject::new).collect()),
-        metadata,
-        created_time: None,
-        last_updated_time: None,
-    };
+    let filter = build_resource_filter(
+        ids, external_ids, names, sources, labels, metadata, created_time, last_updated_time,
+        node_types, is_root, data_set_ids,
+    );
     let mut retriever = ResourceRetreiver::new(filter);
     if let Some(limit) = limit {
         retriever = retriever.with_limit(limit);
     }
-    retriever
+    retriever.with_paging(crate::build_page_request(sort_by, sort_order, cursor))
 }
 
 /// Shared by the sync and async `fetch_nearest` bindings.

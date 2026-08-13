@@ -601,3 +601,103 @@ async fn test_resource_geolocation_round_trips() -> Result<(), ResponseError> {
     cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
     Ok(())
 }
+
+/// The resource filter's wire shape. The shared node criteria are flattened, so they sit directly
+/// on the filter body; only `isRoot` and `dataSetIds` are the resource's own.
+#[test]
+fn resource_filter_matches_the_documented_wire_shape() {
+    use crate::filters::NodeFilter;
+
+    let filter = ResourceFilter {
+        node: NodeFilter {
+            ids: Some(vec![12]),
+            external_ids: Some(vec!["klp_pipe_*".to_string()]),
+            names: Some(vec!["pipe*".to_string()]),
+            sources: Some(vec!["sap".to_string()]),
+            labels: Some(vec!["PIPE".to_string()]),
+            metadata: Some([("work_order".to_string(), Some("wo-sap-12344".to_string()))].into()),
+            ..Default::default()
+        },
+        node_types: Some(vec!["resource".to_string(), "timeseries".to_string()]),
+        is_root: Some(true),
+        data_set_ids: Some(vec![
+            IdAndExtId::from_id(43),
+            IdAndExtId::from_external_id("data_set_sap"),
+        ]),
+    };
+
+    let f = serde_json::to_value(&filter).unwrap();
+    assert_eq!(f["ids"], serde_json::json!(["12"]));
+    assert_eq!(f["externalIds"], serde_json::json!(["klp_pipe_*"]));
+    assert_eq!(f["names"], serde_json::json!(["pipe*"]));
+    assert_eq!(f["sources"], serde_json::json!(["sap"]));
+    assert_eq!(f["labels"], serde_json::json!(["PIPE"]));
+    assert_eq!(f["nodeTypes"], serde_json::json!(["resource", "timeseries"]));
+    assert_eq!(f["isRoot"], true);
+    // Data sets are named by id *or* external id now; this endpoint used to take ids only.
+    assert_eq!(
+        f["dataSetIds"],
+        serde_json::json!([{"id": "43"}, {"externalId": "data_set_sap"}])
+    );
+
+    // The singular forms the plural ones replaced must be gone. They ANDed with the plurals rather
+    // than merging, and the api drops unknown keys silently, so a leftover `name` would narrow the
+    // query in a way the caller never asked for and never see an error.
+    for retired in ["id", "externalId", "name", "source"] {
+        assert!(f.get(retired).is_none(), "retired field {retired} is still sent: {f}");
+    }
+
+    // A criterion-free filter must place no restriction at all.
+    assert_eq!(
+        serde_json::to_value(ResourceFilter::default()).unwrap(),
+        serde_json::json!({})
+    );
+}
+
+/// `dataSetIds` is the one list where absent and empty mean opposite things — no restriction
+/// versus narrow-to-nothing — so the difference has to survive serialization.
+#[test]
+fn resource_filter_empty_data_set_scope_is_not_the_same_as_none() {
+    let narrowed_to_nothing = ResourceFilter {
+        data_set_ids: Some(vec![]),
+        ..Default::default()
+    };
+    assert_eq!(
+        serde_json::to_value(&narrowed_to_nothing).unwrap()["dataSetIds"],
+        serde_json::json!([])
+    );
+
+    let value = serde_json::to_value(ResourceFilter::default()).unwrap();
+    assert!(
+        !value.as_object().unwrap().contains_key("dataSetIds"),
+        "no restriction must omit the key rather than send null: {value}"
+    );
+}
+
+/// The request body around the filter: criteria, limit, and the flattened sort/cursor.
+///
+/// An unsorted, unpaged request must carry neither — a stray `"sort": null` is a field the server
+/// then has to make a decision about, and the point of the default order is that the caller did
+/// not ask for one.
+#[test]
+fn resource_retriever_omits_paging_until_it_is_asked_for() {
+    let value = serde_json::to_value(ResourceRetreiver::new(ResourceFilter::default())).unwrap();
+    let keys: Vec<&String> = value.as_object().unwrap().keys().collect();
+    assert_eq!(keys, vec!["filter"], "unexpected keys in the request body: {value}");
+
+    let with_limit = serde_json::to_value(
+        ResourceRetreiver::new(ResourceFilter::default()).with_limit(250),
+    )
+    .unwrap();
+    assert_eq!(with_limit["limit"], 250);
+
+    // Sort and cursor flatten in beside `filter` and `limit` rather than nesting.
+    let paged = serde_json::to_value(
+        ResourceRetreiver::new(ResourceFilter::default())
+            .with_limit(2)
+            .with_paging(crate::filters::PageRequest::desc("name").after("djF8bmFtZQ")),
+    )
+    .unwrap();
+    assert_eq!(paged["sort"], serde_json::json!({"property": ["name"], "order": "desc"}));
+    assert_eq!(paged["cursor"], "djF8bmFtZQ");
+}

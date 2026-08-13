@@ -14,7 +14,7 @@ reclaims orphans left by an earlier interrupted run; sweeping at the end tidies 
 anything the current run leaked.
 
 Only services whose *sync* client can enumerate are swept: timeseries (``list``),
-events (``filter`` by external-id prefix), subscriptions (``list``), and functions
+events (``filter`` by an external-id wildcard), subscriptions (``list``), and functions
 (``list``). Datasets, resources, and files have no usable sync ``list`` endpoint,
 so orphaned instances of those are not reclaimable this way — prefer fixed,
 self-healing external ids for them (a delete-before-create in the test/factory).
@@ -44,7 +44,7 @@ def _sweep(client) -> None:
     # Events — no list endpoint, but the filter API accepts an external-id prefix.
     try:
         filt = datahub_sdk.EventFilter(
-            basic_filter=datahub_sdk.BasicEventFilter(external_id_prefix=TEST_PREFIX)
+            basic_filter=datahub_sdk.BasicEventFilter(external_ids=f"{TEST_PREFIX}*")
         )
         _safe_delete_each(client.events.delete, _matching_prefix(client.events.filter(filt)))
     except Exception:
