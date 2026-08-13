@@ -87,6 +87,20 @@ impl EdgesService {
     ///
     /// Deletes the link only; the resources at each end are untouched. Idempotent: unknown ids are
     /// silently skipped, so this cannot be used to detect whether an edge existed.
+    ///
+    /// It will not, however, delete an edge that is an endpoint's only route to the graph root:
+    /// `ResourceService.delete` refuses rather than orphan the node, and the call comes back
+    /// **400** naming the resource that would be stranded:
+    ///
+    /// ```json
+    /// {"error":{"code":400,
+    ///           "fields":[{"externalId":"node_b","type":"strandedResource"}],
+    ///           "message":"Deleting this selection would disconnect resource(s) [node_b] from
+    ///                      the graph root. Include them in the deletion or keep a connecting path."}}
+    /// ```
+    ///
+    /// So an edge is separately deletable only when both endpoints stay reachable without it —
+    /// otherwise it goes away with the resources it connects.
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<EdgeProxy>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
