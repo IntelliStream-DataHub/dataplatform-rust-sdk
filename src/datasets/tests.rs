@@ -127,7 +127,7 @@ async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError>
         .datasets
         .filter(&DatasetFilter::from_filter(
             BasicDatasetFilter::new()
-                .set_external_ids(vec![ext_id.to_string()])
+                .set_external_id(vec![ext_id.to_string()])
                 .build(),
         ))
         .await?;
@@ -147,7 +147,7 @@ async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError>
         .datasets
         .filter(&DatasetFilter::from_filter(
             BasicDatasetFilter::new()
-                .set_external_ids(vec!["sdk_test_dataset_that_does_not_exist".to_string()])
+                .set_external_id(vec!["sdk_test_dataset_that_does_not_exist".to_string()])
                 .build(),
         ))
         .await?;
@@ -256,11 +256,11 @@ fn filter_body_matches_the_documented_wire_shape() {
     let min: DateTime<Utc> = "2026-01-01T00:00:00Z".parse().unwrap();
     let filter = DatasetFilter::from_filter(
         BasicDatasetFilter::new()
-            .set_names(vec!["SAP*".to_string()])
+            .set_name(vec!["SAP*".to_string()])
             // The retired singular `source` is a list now, and the retired `externalIdPrefix` is
             // just a trailing wildcard in the field that also takes exact ids.
-            .set_sources(vec!["sap".to_string(), "opc_*".to_string()])
-            .set_external_ids(vec!["sap_*".to_string()])
+            .set_source(vec!["sap".to_string(), "opc_*".to_string()])
+            .set_external_id(vec!["sap_*".to_string()])
             .set_labels(vec!["PUMP".to_string()])
             .set_metadata([("owner".to_string(), Some("plant-a".to_string()))].into())
             .set_created_time(TimeFilter::After { min })
@@ -272,9 +272,9 @@ fn filter_body_matches_the_documented_wire_shape() {
     let f = &json["filter"];
     // The shared node criteria are flattened, so they sit directly on the filter body rather than
     // nested under a key the api does not read.
-    assert_eq!(f["names"], serde_json::json!(["SAP*"]));
-    assert_eq!(f["sources"], serde_json::json!(["sap", "opc_*"]));
-    assert_eq!(f["externalIds"], serde_json::json!(["sap_*"]));
+    assert_eq!(f["name"], serde_json::json!(["SAP*"]));
+    assert_eq!(f["source"], serde_json::json!(["sap", "opc_*"]));
+    assert_eq!(f["externalId"], serde_json::json!(["sap_*"]));
     assert_eq!(f["labels"], serde_json::json!(["PUMP"]));
     assert_eq!(f["metadata"]["owner"], "plant-a");
     assert_eq!(f["createdTime"]["min"], "2026-01-01T00:00:00Z");
@@ -283,23 +283,25 @@ fn filter_body_matches_the_documented_wire_shape() {
     // leftover one would narrow nothing and read as "no datasets match". `writeProtected` and
     // `deactivated` went with them — they were inert server-side, so a filter carrying them looked
     // like it was narrowing and was not.
-    for retired in ["source", "externalIdPrefix", "writeProtected", "deactivated"] {
+    for retired in [
+        "externalIdPrefix", "writeProtected", "deactivated", "externalIds", "names", "sources",
+    ] {
         assert!(f.get(retired).is_none(), "retired field {retired} is still sent: {f}");
     }
 
     // Unset criteria are omitted, not sent as null: the backend reads an empty/absent list as "no
     // restriction", so a stray `"ids": null` is harmless, but omitting keeps the body honest.
-    assert!(f.get("ids").is_none(), "unset ids should be omitted");
+    assert!(f.get("id").is_none(), "unset id should be omitted");
 
     // Ids go out as strings, like every other id on the wire.
     let by_id = DatasetFilter::from_filter(
         BasicDatasetFilter::new()
-            .set_ids(vec![12, 9_007_199_254_740_993])
+            .set_id(vec![12, 9_007_199_254_740_993])
             .build(),
     );
     let json: serde_json::Value = serde_json::to_value(&by_id).unwrap();
     assert_eq!(
-        json["filter"]["ids"],
+        json["filter"]["id"],
         serde_json::json!(["12", "9007199254740993"]),
         "ids must be strings so a large id survives a JavaScript client"
     );

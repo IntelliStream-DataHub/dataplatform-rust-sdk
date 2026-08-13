@@ -381,25 +381,25 @@ impl From<PyBasicDatasetFilter> for BasicDatasetFilter {
 
 #[pymethods]
 impl PyBasicDatasetFilter {
-    /// `external_ids`, `names` and `sources` are **pattern** lists: `*` and `%` are wildcards, `_`
+    /// `external_id`, `name` and `source` are **pattern** lists: `*` and `%` are wildcards, `_`
     /// is literal, matching is case-insensitive, and an entry with no wildcard matches exactly. So
-    /// `names=["SAP*", "Plant A"]` mixes a prefix search with one exact name, and
-    /// `external_ids=["sap_*"]` replaces the retired `external_id_prefix`. Entries OR within a
+    /// `name=["SAP*", "Plant A"]` mixes a prefix search with one exact name, and
+    /// `external_id=["sap_*"]` replaces the retired `external_id_prefix`. Entries OR within a
     /// list; the fields AND. Each also accepts a bare string.
     ///
     /// `labels` must **all** be present; names are canonicalised, so `"pump a"` finds the label
     /// stored as `PUMP_A`. `metadata` entries must all be present too, and a `None` value matches
     /// the key alone.
     ///
-    /// There is no `data_set_ids`: a dataset is the thing other nodes are scoped by. There is no
+    /// There is no `data_set_id`: a dataset is the thing other nodes are scoped by. There is no
     /// `write_protected` or `deactivated` either — both were removed server-side as inert, so a
     /// filter carrying them looked like it was narrowing and was not.
     #[new]
     #[pyo3(signature = (
-        ids = None,
-        external_ids = None,
-        names = None,
-        sources = None,
+        id = None,
+        external_id = None,
+        name = None,
+        source = None,
         labels = None,
         metadata = None,
         created_time = None,
@@ -407,27 +407,27 @@ impl PyBasicDatasetFilter {
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
-        ids: Option<Vec<u64>>,
-        external_ids: Option<StringOrList>,
-        names: Option<StringOrList>,
-        sources: Option<StringOrList>,
+        id: Option<Vec<u64>>,
+        external_id: Option<StringOrList>,
+        name: Option<StringOrList>,
+        source: Option<StringOrList>,
         labels: Option<StringOrList>,
         metadata: Option<HashMap<String, Option<String>>>,
         created_time: Option<PyTimeFilter>,
         last_updated_time: Option<PyTimeFilter>,
     ) -> Self {
         let mut filter = BasicDatasetFilter::new();
-        if let Some(ids) = ids {
-            filter.set_ids(ids);
+        if let Some(id) = id {
+            filter.set_id(id);
         }
-        if let Some(external_ids) = external_ids {
-            filter.set_external_ids(external_ids.into());
+        if let Some(external_id) = external_id {
+            filter.set_external_id(external_id.into());
         }
-        if let Some(names) = names {
-            filter.set_names(names.into());
+        if let Some(name) = name {
+            filter.set_name(name.into());
         }
-        if let Some(sources) = sources {
-            filter.set_sources(sources.into());
+        if let Some(source) = source {
+            filter.set_source(source.into());
         }
         if let Some(labels) = labels {
             filter.set_labels(labels.into());

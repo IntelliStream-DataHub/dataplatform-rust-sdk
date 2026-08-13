@@ -2,8 +2,8 @@
 
 The event filter is deliberately not a node filter: events live in ClickHouse, their id is a UUID
 where a node's is a long, and the table has no ``name`` column. What it does instead is match the
-node base field for field wherever ClickHouse can back it, so ``externalIds``, ``sources``,
-``metadata``, ``createdTime``, ``lastUpdatedTime`` and ``dataSetIds`` carry the same names and
+node base field for field wherever ClickHouse can back it, so ``externalId``, ``source``,
+``metadata``, ``createdTime``, ``lastUpdatedTime`` and ``dataSetId`` carry the same names and
 semantics they have there — including the ``*`` / ``%`` wildcards, the literal ``_`` and the
 case-insensitive OR-within-a-list matching. This suite checks that parity holds in practice, not
 just on paper.
@@ -12,14 +12,14 @@ What the refactor changed here:
 
 * ``type``, ``subType`` and ``status`` were single exact strings while the rest of the filter took
   lists, which made the most-used event criteria the least capable ones — "alarms and warnings"
-  needed two calls. They are pattern lists now.
-* ``externalIdPrefix`` is gone; a trailing ``*`` in ``externalIds`` says the same thing and composes
+  needed two calls. They keep their names and take pattern lists now; a bare string still works.
+* ``externalIdPrefix`` is gone; a trailing ``*`` in ``externalId`` says the same thing and composes
   with exact ids.
 * ``id`` is gone. It was typed as a long while an event's id is a UUID string, and nothing read it,
   so filtering by it silently did nothing.
 * ``description`` is gone — there is nothing on the events table for it to match. Use
   ``/events/search``.
-* ``dataSetIds`` now expands the hierarchy. It used to match the listed ids exactly, so filtering
+* ``dataSetId`` now expands the hierarchy. It used to match the listed ids exactly, so filtering
   on a parent returned none of its children's events while the same filter against timeseries
   returned them.
 
@@ -42,14 +42,14 @@ def externals(results):
 
 @pytest.fixture
 def flt(sync_client, prefix):
-    """Filter within this run's corpus unless the test overrides ``external_ids``.
+    """Filter within this run's corpus unless the test overrides ``external_id``.
 
     Polls until the result stops being empty *or* the timeout elapses, then returns what it has —
     so a test expecting an empty set pays the timeout only when it is about to fail anyway, and a
     test expecting rows rides out projection lag.
     """
     def _filter(limit=None, expect_rows=True, **criteria):
-        criteria.setdefault("external_ids", f"{prefix}*")
+        criteria.setdefault("external_id", f"{prefix}*")
         request = datahub_sdk.EventFilter(
             datahub_sdk.BasicEventFilter(**criteria), limit=limit or 100)
 
@@ -82,32 +82,32 @@ def warning(prefix):
 # --------------------------------------------------------------------------- #
 
 def test_types_match_exactly_and_as_patterns(flt, event_corpus, alarm, warning, token):
-    assert flt(types=[f"alarm_{token}"]) == {alarm}
-    assert flt(types=["alarm_*"]) == {alarm}
-    assert flt(types=["*_" + token]) == {alarm, warning}
-    assert flt(types=["no_such_type"], expect_rows=False) == set()
+    assert flt(type=[f"alarm_{token}"]) == {alarm}
+    assert flt(type=["alarm_*"]) == {alarm}
+    assert flt(type=["*_" + token]) == {alarm, warning}
+    assert flt(type=["no_such_type"], expect_rows=False) == set()
 
 
 def test_type_entries_or_together(flt, event_corpus, alarm, warning, token):
     """"Alarms and warnings" is one call now. It needed two before, even though the aggregation
     endpoint's own ``groupBy=type`` hands you several at once."""
-    assert flt(types=[f"alarm_{token}", f"warning_{token}"]) == {alarm, warning}
-    assert flt(types=["no_such_type", f"alarm_{token}"]) == {alarm}
+    assert flt(type=[f"alarm_{token}", f"warning_{token}"]) == {alarm, warning}
+    assert flt(type=["no_such_type", f"alarm_{token}"]) == {alarm}
 
 
 def test_types_are_case_insensitive(flt, event_corpus, alarm, token):
-    assert flt(types=[f"ALARM_{token}".upper()]) == {alarm}
+    assert flt(type=[f"ALARM_{token}".upper()]) == {alarm}
 
 
 def test_sub_types_and_statuses_are_pattern_lists_too(flt, event_corpus, alarm, warning):
-    assert flt(sub_types=["electrical"]) == {alarm}
-    assert flt(sub_types=["electr*"]) == {alarm}
-    assert flt(sub_types=["electrical", "mechanical"]) == {alarm, warning}
+    assert flt(sub_type=["electrical"]) == {alarm}
+    assert flt(sub_type=["electr*"]) == {alarm}
+    assert flt(sub_type=["electrical", "mechanical"]) == {alarm, warning}
 
-    assert flt(statuses=["OPEN"]) == {alarm}
-    assert flt(statuses=["open"]) == {alarm}, "statuses match case-insensitively"
-    assert flt(statuses=["OPEN", "CLOSED"]) == {alarm, warning}
-    assert flt(statuses=["NO_SUCH_STATUS"], expect_rows=False) == set()
+    assert flt(status=["OPEN"]) == {alarm}
+    assert flt(status=["open"]) == {alarm}, "statuses match case-insensitively"
+    assert flt(status=["OPEN", "CLOSED"]) == {alarm, warning}
+    assert flt(status=["NO_SUCH_STATUS"], expect_rows=False) == set()
 
 
 # --------------------------------------------------------------------------- #
@@ -116,10 +116,10 @@ def test_sub_types_and_statuses_are_pattern_lists_too(flt, event_corpus, alarm, 
 
 def test_external_ids_wildcard_search(flt, event_corpus, alarm, warning, prefix):
     """The pattern half of the field; the literal half is below."""
-    assert flt(external_ids=[f"{prefix}*"]) == {alarm, warning}
-    assert flt(external_ids=["*_ev_alarm_1"]) >= {alarm}
-    assert flt(external_ids=[f"{prefix}_ev_alarm%"]) == {alarm, warning}
-    assert flt(external_ids=[f"*{prefix[-8:]}_ev_*"]) == {alarm, warning}
+    assert flt(external_id=[f"{prefix}*"]) == {alarm, warning}
+    assert flt(external_id=["*_ev_alarm_1"]) >= {alarm}
+    assert flt(external_id=[f"{prefix}_ev_alarm%"]) == {alarm, warning}
+    assert flt(external_id=[f"*{prefix[-8:]}_ev_*"]) == {alarm, warning}
 
 
 def test_an_exact_external_id_matches_the_event(flt, event_corpus, alarm, warning):
@@ -132,14 +132,14 @@ def test_an_exact_external_id_matches_the_event(flt, event_corpus, alarm, warnin
     comparison could never be true. A wire DTO has no tenant and cannot produce that value at all,
     which is why the literals now travel unhashed and are compared as text.
     """
-    assert flt(external_ids=[alarm]) == {alarm}
-    assert flt(external_ids=[warning]) == {warning}
-    assert flt(external_ids=[alarm, warning]) == {alarm, warning}
-    assert flt(external_ids=["no_such_external_id"], expect_rows=False) == set()
+    assert flt(external_id=[alarm]) == {alarm}
+    assert flt(external_id=[warning]) == {warning}
+    assert flt(external_id=[alarm, warning]) == {alarm, warning}
+    assert flt(external_id=["no_such_external_id"], expect_rows=False) == set()
 
 
 def test_an_exact_external_id_is_case_sensitive_where_a_pattern_is_not(flt, event_corpus, alarm):
-    """The two halves of ``externalIds`` disagree about case, deliberately.
+    """The two halves of ``externalId`` disagree about case, deliberately.
 
     An event's ``external_id_hash`` is BLAKE3 over the external id **verbatim**, so a literal entry
     can only match an exactly-equal string; the wildcard branch beside it goes through ILIKE and
@@ -151,17 +151,17 @@ def test_an_exact_external_id_is_case_sensitive_where_a_pattern_is_not(flt, even
     place the event filter does *not* match the node contract it otherwise mirrors, and it is
     invisible until someone upper-cases an id.
     """
-    assert flt(external_ids=[alarm]) == {alarm}
-    assert flt(external_ids=[alarm.upper()], expect_rows=False) == set(), \
+    assert flt(external_id=[alarm]) == {alarm}
+    assert flt(external_id=[alarm.upper()], expect_rows=False) == set(), \
         "a literal entry is compared against the verbatim hash"
     # The same id with a trailing wildcard takes the ILIKE path, which folds case.
-    assert flt(external_ids=[f"{alarm.upper()}*"]) == {alarm}
+    assert flt(external_id=[f"{alarm.upper()}*"]) == {alarm}
 
 
 def test_an_exact_id_and_a_pattern_mix_in_one_list(flt, event_corpus, alarm, warning, prefix):
     """The two halves of the field are separate query paths — literals by equality, wildcards by
     ILIKE — OR'd together. A list carrying both has to return the union, not one or the other."""
-    assert flt(external_ids=[alarm, f"{prefix}_ev_alarmX*"]) == {alarm, warning}
+    assert flt(external_id=[alarm, f"{prefix}_ev_alarmX*"]) == {alarm, warning}
 
 
 def test_external_id_underscore_is_literal(flt, event_corpus, alarm, warning, prefix):
@@ -170,24 +170,24 @@ def test_external_id_underscore_is_literal(flt, event_corpus, alarm, warning, pr
     Written with a trailing ``*`` so the comparison goes down the ILIKE path — the one that has to
     escape ``_``. The literal path compares whole strings and cannot confuse the two.
     """
-    assert flt(external_ids=[f"{prefix}_ev_alarm_1*"]) == {alarm}
-    assert flt(external_ids=[f"{prefix}_ev_alarmX1*"]) == {warning}
+    assert flt(external_id=[f"{prefix}_ev_alarm_1*"]) == {alarm}
+    assert flt(external_id=[f"{prefix}_ev_alarmX1*"]) == {warning}
 
 
 def test_external_ids_are_case_insensitive(flt, event_corpus, alarm, prefix):
-    assert flt(external_ids=[f"{prefix}_EV_ALARM_1*".upper()]) == {alarm}
+    assert flt(external_id=[f"{prefix}_EV_ALARM_1*".upper()]) == {alarm}
 
 
 def test_external_id_entries_or_together(flt, event_corpus, alarm, warning, prefix):
     """This is what replaced ``externalIdPrefix``, which could be given once and not combined."""
-    assert flt(external_ids=[f"{prefix}_ev_alarm_1*", "*_ev_alarmX1"]) == {alarm, warning}
+    assert flt(external_id=[f"{prefix}_ev_alarm_1*", "*_ev_alarmX1"]) == {alarm, warning}
 
 
 def test_sources_match_as_patterns_with_a_literal_underscore(flt, event_corpus, alarm, warning, token):
-    assert flt(sources=[f"opc_{token}"]) == {alarm}
-    assert flt(sources=[f"opcX{token}"]) == {warning}
-    assert flt(sources=["opc*"]) == {alarm, warning}
-    assert flt(sources=[f"OPC_{token}".upper()]) == {alarm}
+    assert flt(source=[f"opc_{token}"]) == {alarm}
+    assert flt(source=[f"opcX{token}"]) == {warning}
+    assert flt(source=["opc*"]) == {alarm, warning}
+    assert flt(source=[f"OPC_{token}".upper()]) == {alarm}
 
 
 # --------------------------------------------------------------------------- #
@@ -209,9 +209,9 @@ def test_metadata_key_and_value_and_the_key_only_form(flt, event_corpus, alarm, 
 
 def test_data_set_scope_by_id_and_by_external_id(flt, event_corpus, datasets, alarm):
     _parent, child = datasets
-    assert flt(data_set_ids=[child.id]) == {alarm}
-    assert flt(data_set_ids=[child.external_id]) == {alarm}
-    assert flt(data_set_ids=[datahub_sdk.IdCollection(id=child.id)]) == {alarm}
+    assert flt(data_set_id=[child.id]) == {alarm}
+    assert flt(data_set_id=[child.external_id]) == {alarm}
+    assert flt(data_set_id=[datahub_sdk.IdCollection(id=child.id)]) == {alarm}
 
 
 def test_a_parent_data_set_stands_in_for_its_children(flt, event_corpus, datasets, alarm, warning):
@@ -219,7 +219,7 @@ def test_a_parent_data_set_stands_in_for_its_children(flt, event_corpus, dataset
     both — it used to return only the warning, because events matched the listed ids exactly while
     every other filter expanded the hierarchy."""
     parent, _child = datasets
-    assert flt(data_set_ids=[parent.id]) == {alarm, warning}
+    assert flt(data_set_id=[parent.id]) == {alarm, warning}
 
 
 def test_empty_and_absent_data_set_scopes_are_opposites(sync_client, event_corpus, prefix, both):
@@ -227,7 +227,7 @@ def test_empty_and_absent_data_set_scopes_are_opposites(sync_client, event_corpu
     so the SDK has to keep them apart all the way onto the wire."""
     def run(data_set_ids):
         return externals(sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_ids=f"{prefix}*", data_set_ids=data_set_ids))))
+            datahub_sdk.BasicEventFilter(external_id=f"{prefix}*", data_set_id=data_set_ids))))
 
     assert run([]) == set()
     assert poll_until(lambda: run(None), bool, timeout=10.0) == both
@@ -235,8 +235,8 @@ def test_empty_and_absent_data_set_scopes_are_opposites(sync_client, event_corpu
 
 def test_a_data_set_reference_naming_nothing_contributes_nothing(flt, event_corpus, datasets, alarm):
     _parent, child = datasets
-    assert flt(data_set_ids=["no_such_data_set_at_all"], expect_rows=False) == set()
-    assert flt(data_set_ids=["no_such_data_set_at_all", child.external_id]) == {alarm}
+    assert flt(data_set_id=["no_such_data_set_at_all"], expect_rows=False) == set()
+    assert flt(data_set_id=["no_such_data_set_at_all", child.external_id]) == {alarm}
 
 
 # --------------------------------------------------------------------------- #
@@ -282,7 +282,7 @@ def test_related_resources_must_all_be_attached(sync_client, datasets, token):
     try:
         def run(related):
             return externals(sync_client.events.filter(datahub_sdk.EventFilter(
-                datahub_sdk.BasicEventFilter(external_ids=f"{own_prefix}_ev_*",
+                datahub_sdk.BasicEventFilter(external_id=f"{own_prefix}_ev_*",
                                              related_resources=related))))
 
         by_a = [datahub_sdk.IdCollection(external_id=res_a)]
@@ -353,8 +353,8 @@ def test_an_absent_filter_places_no_restriction(sync_client, event_corpus, both)
 def test_empty_and_blank_lists_place_no_restriction(sync_client, event_corpus, prefix, both, empty):
     scoped = poll_until(
         lambda: externals(sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_ids=f"{prefix}*", types=empty,
-                                         sub_types=empty, statuses=empty, sources=empty)))),
+            datahub_sdk.BasicEventFilter(external_id=f"{prefix}*", type=empty,
+                                         sub_type=empty, status=empty, source=empty)))),
         bool,
         timeout=10.0,
     )
@@ -362,20 +362,20 @@ def test_empty_and_blank_lists_place_no_restriction(sync_client, event_corpus, p
 
 
 def test_none_valued_criteria_are_omitted(flt, event_corpus, both):
-    assert flt(types=None, sub_types=None, statuses=None, sources=None,
-               metadata=None, data_set_ids=None) == both
+    assert flt(type=None, sub_type=None, status=None, source=None,
+               metadata=None, data_set_id=None) == both
 
 
 def test_garbled_criteria_match_nothing_without_erroring(flt, event_corpus):
     for garbage in ["!!!##$$^&()", "' OR 1=1 --", "\\", "%%%%_____", "😀"]:
-        assert flt(types=[garbage], expect_rows=False) == set(), f"{garbage!r} should match nothing"
+        assert flt(type=[garbage], expect_rows=False) == set(), f"{garbage!r} should match nothing"
 
 
 def test_a_bare_string_means_a_one_element_list(sync_client, event_corpus, prefix, alarm, token):
     scalar = sync_client.events.filter(datahub_sdk.EventFilter(
-        datahub_sdk.BasicEventFilter(external_ids=f"{prefix}*", types=f"alarm_{token}")))
+        datahub_sdk.BasicEventFilter(external_id=f"{prefix}*", type=f"alarm_{token}")))
     listed = sync_client.events.filter(datahub_sdk.EventFilter(
-        datahub_sdk.BasicEventFilter(external_ids=[f"{prefix}*"], types=[f"alarm_{token}"])))
+        datahub_sdk.BasicEventFilter(external_id=[f"{prefix}*"], type=[f"alarm_{token}"])))
     assert externals(scalar) == externals(listed) == {alarm}
 
 
@@ -386,7 +386,7 @@ def test_a_bare_string_means_a_one_element_list(sync_client, event_corpus, prefi
 def test_limit_caps_the_page(sync_client, event_corpus, prefix):
     capped = poll_until(
         lambda: sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_ids=f"{prefix}*"), limit=1)),
+            datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=1)),
         bool,
         timeout=10.0,
     )
@@ -396,7 +396,7 @@ def test_limit_caps_the_page(sync_client, event_corpus, prefix):
 def test_a_limit_above_the_ceiling_is_refused(sync_client, prefix):
     with pytest.raises(DataHubException) as excinfo:
         sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_ids=f"{prefix}*"), limit=10_001))
+            datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=10_001))
     assert excinfo.value.status_code == 400
 
 
@@ -405,7 +405,7 @@ def _ordered_page(sync_client, prefix, both, **sort):
         event.external_id
         for event in poll_until(
             lambda: sync_client.events.filter(datahub_sdk.EventFilter(
-                datahub_sdk.BasicEventFilter(external_ids=f"{prefix}*"), limit=100, **sort)),
+                datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=100, **sort)),
             lambda found: externals(found) >= both,
             timeout=10.0,
         )
@@ -460,7 +460,7 @@ def test_the_default_order_is_event_time_then_id_ascending(sync_client, datasets
         expected = [externals_by_offset[i] for i in range(6)]
         page = poll_until(
             lambda: sync_client.events.filter(datahub_sdk.EventFilter(
-                datahub_sdk.BasicEventFilter(external_ids=f"{own_prefix}*"), limit=100)),
+                datahub_sdk.BasicEventFilter(external_id=f"{own_prefix}*"), limit=100)),
             lambda found: externals(found) == set(expected),
             timeout=20.0,
         )
@@ -473,19 +473,20 @@ def test_the_default_order_is_event_time_then_id_ascending(sync_client, datasets
 
 
 def test_the_retired_criteria_are_not_accepted(sync_client):
-    """``external_id_prefix``, the singular ``type``/``sub_type``/``source``, ``description`` and
-    ``id`` are gone from the binding as well as the wire. A ``TypeError`` beats the alternative:
-    the api drops unknown keys silently, so a leftover ``type=`` would place no restriction and
-    return the whole tenant while looking like a narrowed query.
+    """``external_id_prefix``, ``description``, ``id`` and the plural spellings the pattern fields
+    briefly carried are gone from the binding as well as the wire. A ``TypeError`` beats the
+    alternative: the api drops unknown keys silently, so a leftover ``types=`` would place no
+    restriction and return the whole tenant while looking like a narrowed query.
     """
-    for retired, value in [("external_id_prefix", "p"), ("type", "alarm"), ("sub_type", "x"),
-                           ("source", "sap"), ("description", "x"), ("id", 1)]:
+    for retired, value in [("external_id_prefix", "p"), ("description", "x"), ("id", 1),
+                           ("external_ids", "p*"), ("types", ["alarm"]), ("sub_types", ["x"]),
+                           ("statuses", ["OPEN"]), ("sources", ["sap"]), ("data_set_ids", [1])]:
         with pytest.raises(TypeError):
             datahub_sdk.BasicEventFilter(**{retired: value})
 
 
 @pytest.mark.asyncio
 async def test_async_filter_matches_the_sync_one(async_client, sync_client, event_corpus, prefix):
-    request = datahub_sdk.EventFilter(datahub_sdk.BasicEventFilter(external_ids=f"{prefix}*"))
+    request = datahub_sdk.EventFilter(datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"))
     assert externals(await async_client.events.filter(request)) == externals(
         sync_client.events.filter(request))

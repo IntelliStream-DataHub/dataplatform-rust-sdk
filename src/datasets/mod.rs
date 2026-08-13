@@ -108,7 +108,7 @@ impl DatasetsService {
     /// `^[\p{IsLatin}\p{Zs}\p{Nd}]+` — Latin letters, space separators and decimal digits only.
     /// Anything else, an underscore included, is a 400. So an external id is usually *not* a legal
     /// query even though the index covers it: `sap_work_orders` is rejected, `work orders` is not.
-    /// Search on words, and use [`filter`](Self::filter)'s `external_ids` — where a trailing `*`
+    /// Search on words, and use [`filter`](Self::filter)'s `external_id` — where a trailing `*`
     /// is a prefix search — to look something up by id.
     ///
     /// [`search_by_query`](Self::search_by_query) is the shorthand for the common case.
@@ -392,13 +392,13 @@ impl From<&Vec<DatasetUpdate>> for DataWrapper<DatasetUpdate> {
 /// and the two timestamp windows — flattened onto the wire; read its rules for wildcards,
 /// case-insensitivity and what an empty list means. Only the two flags below are dataset-specific.
 ///
-/// A data set has no `data_set_ids` of its own: it is the thing other nodes are scoped *by*, so
+/// A data set has no `data_set_id` of its own: it is the thing other nodes are scoped *by*, so
 /// the field would be asking which data set a data set belongs to.
 ///
-/// The separate `external_id_prefix` is gone — `external_ids: ["sap_*"]` says the same thing in
+/// The separate `external_id_prefix` is gone — `external_id: ["sap_*"]` says the same thing in
 /// the field that was already there, and unlike the old prefix it can be given more than once and
-/// combined with exact ids. The singular `source` became the [`sources`](NodeFilter::sources)
-/// pattern list.
+/// combined with exact ids. `source` keeps its name but is a [pattern list](NodeFilter::source)
+/// now rather than one exact string.
 ///
 /// It adds **nothing** to the shared criteria, and that is the current truth rather than an
 /// oversight: the `write_protected` and `deactivated` flags it used to carry were removed
@@ -417,20 +417,20 @@ impl BasicDatasetFilter {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn set_ids(&mut self, ids: Vec<u64>) -> &mut Self {
-        self.node.ids = Some(ids);
+    pub fn set_id(&mut self, id: Vec<u64>) -> &mut Self {
+        self.node.id = Some(id);
         self
     }
-    pub fn set_external_ids(&mut self, external_ids: Vec<String>) -> &mut Self {
-        self.node.external_ids = Some(external_ids);
+    pub fn set_external_id(&mut self, external_id: Vec<String>) -> &mut Self {
+        self.node.external_id = Some(external_id);
         self
     }
-    pub fn set_names(&mut self, names: Vec<String>) -> &mut Self {
-        self.node.names = Some(names);
+    pub fn set_name(&mut self, name: Vec<String>) -> &mut Self {
+        self.node.name = Some(name);
         self
     }
-    pub fn set_sources(&mut self, sources: Vec<String>) -> &mut Self {
-        self.node.sources = Some(sources);
+    pub fn set_source(&mut self, source: Vec<String>) -> &mut Self {
+        self.node.source = Some(source);
         self
     }
     pub fn set_labels(&mut self, labels: Vec<String>) -> &mut Self {

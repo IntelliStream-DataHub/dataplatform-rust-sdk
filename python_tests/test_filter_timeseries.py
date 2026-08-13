@@ -1,8 +1,8 @@
 """``POST /timeseries/filter`` — the refactored contract, end to end.
 
 The filter is mostly the shared node criteria (ids, externalIds, names, sources, labels, metadata,
-createdTime, lastUpdatedTime) plus what only a timeseries has: ``dataSetIds``, ``units``,
-``unitExternalIds`` and ``valueTypes``. The node half is covered here in depth and only spot-checked
+createdTime, lastUpdatedTime) plus what only a timeseries has: ``dataSetId``, ``unit``,
+``unitExternalId`` and ``valueType``. The node half is covered here in depth and only spot-checked
 in the resource and dataset suites, since all three go through one ``NodePredicateBuilder``.
 
 What the refactor removed, and why a test would not notice on its own: the scalar ``dataSetId``,
@@ -42,11 +42,11 @@ def flt(sync_client, prefix):
     """Filter within this run's corpus, unless the test says otherwise.
 
     Every call is scoped to ``<prefix>*`` by default, so an assertion can compare an exact set
-    without caring what else lives in the tenant. Pass ``external_ids=...`` to override the scope —
+    without caring what else lives in the tenant. Pass ``external_id=...`` to override the scope —
     which the external-id tests do, since the scope is what they are testing.
     """
     def _filter(**criteria):
-        criteria.setdefault("external_ids", f"{prefix}*")
+        criteria.setdefault("external_id", f"{prefix}*")
         return externals(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(**criteria)))
     return _filter
 
@@ -56,15 +56,15 @@ def flt(sync_client, prefix):
 # --------------------------------------------------------------------------- #
 
 def test_external_ids_exact_match(sync_client, flt, timeseries_corpus, prefix):
-    assert flt(external_ids=[f"{prefix}_ts_pump_1"]) == {f"{prefix}_ts_pump_1"}
+    assert flt(external_id=[f"{prefix}_ts_pump_1"]) == {f"{prefix}_ts_pump_1"}
 
 
 def test_external_ids_wildcards_at_either_end(sync_client, flt, timeseries_corpus, prefix):
     everything = {ts.external_id for ts in timeseries_corpus.values()}
 
-    assert flt(external_ids=[f"{prefix}*"]) == everything, "trailing wildcard = prefix search"
-    assert flt(external_ids=[f"*_ts_valve_1"]) >= {f"{prefix}_ts_valve_1"}, "leading = suffix search"
-    assert flt(external_ids=[f"*{prefix[-8:]}_ts_pump*"]) == {
+    assert flt(external_id=[f"{prefix}*"]) == everything, "trailing wildcard = prefix search"
+    assert flt(external_id=[f"*_ts_valve_1"]) >= {f"{prefix}_ts_valve_1"}, "leading = suffix search"
+    assert flt(external_id=[f"*{prefix[-8:]}_ts_pump*"]) == {
         f"{prefix}_ts_pump_1", f"{prefix}_ts_pumpX1"
     }, "wildcards at both ends = contains search"
 
@@ -72,7 +72,7 @@ def test_external_ids_wildcards_at_either_end(sync_client, flt, timeseries_corpu
 def test_percent_is_a_wildcard_too(flt, timeseries_corpus, prefix):
     """``%`` and ``*`` mean the same thing, so a caller who thinks in SQL and one who thinks in
     shell globs both get what they meant."""
-    assert flt(external_ids=[f"{prefix}%"]) == flt(external_ids=[f"{prefix}*"])
+    assert flt(external_id=[f"{prefix}%"]) == flt(external_id=[f"{prefix}*"])
 
 
 def test_underscore_is_literal_not_a_single_character_wildcard(flt, timeseries_corpus, prefix):
@@ -82,15 +82,15 @@ def test_underscore_is_literal_not_a_single_character_wildcard(flt, timeseries_c
     one character" and return both, leaving a caller who wanted the one they named with no way to
     ask for it — external ids on this platform are built out of underscores.
     """
-    assert flt(external_ids=[f"{prefix}_ts_pump_1"]) == {f"{prefix}_ts_pump_1"}
-    assert flt(external_ids=[f"{prefix}_ts_pumpX1"]) == {f"{prefix}_ts_pumpX1"}
+    assert flt(external_id=[f"{prefix}_ts_pump_1"]) == {f"{prefix}_ts_pump_1"}
+    assert flt(external_id=[f"{prefix}_ts_pumpX1"]) == {f"{prefix}_ts_pumpX1"}
 
 
 def test_external_ids_are_case_insensitive(flt, timeseries_corpus, prefix):
     """Literal entries resolve through a hash of the lowercased id, patterns through ILIKE — so
     both halves of the field agree with how external ids are compared everywhere else."""
-    assert flt(external_ids=[f"{prefix}_ts_pump_1".upper()]) == {f"{prefix}_ts_pump_1"}
-    assert flt(external_ids=[f"{prefix}_TS_PUMP*".upper()]) == {
+    assert flt(external_id=[f"{prefix}_ts_pump_1".upper()]) == {f"{prefix}_ts_pump_1"}
+    assert flt(external_id=[f"{prefix}_TS_PUMP*".upper()]) == {
         f"{prefix}_ts_pump_1", f"{prefix}_ts_pumpX1"
     }
 
@@ -98,7 +98,7 @@ def test_external_ids_are_case_insensitive(flt, timeseries_corpus, prefix):
 def test_external_id_entries_or_together(flt, timeseries_corpus, prefix):
     """One list mixes an exact id with a pattern; the entries OR. This is what replaced the
     standalone ``externalIdPrefix``, which could be given once and could not be combined."""
-    assert flt(external_ids=[f"{prefix}_ts_valve_1", f"{prefix}_ts_pump*"]) == {
+    assert flt(external_id=[f"{prefix}_ts_valve_1", f"{prefix}_ts_pump*"]) == {
         ts.external_id for ts in timeseries_corpus.values()
     }
 
@@ -108,19 +108,19 @@ def test_external_id_entries_or_together(flt, timeseries_corpus, prefix):
 # --------------------------------------------------------------------------- #
 
 def test_names_match_as_patterns_and_or_together(flt, timeseries_corpus, token):
-    assert flt(names=[f"Pump Alpha {token}"]) == {timeseries_corpus["pump_1"].external_id}
-    assert flt(names=[f"Pump * {token}"]) == {
+    assert flt(name=[f"Pump Alpha {token}"]) == {timeseries_corpus["pump_1"].external_id}
+    assert flt(name=[f"Pump * {token}"]) == {
         timeseries_corpus["pump_1"].external_id,
         timeseries_corpus["pump_x1"].external_id,
     }
-    assert flt(names=[f"Pump Alpha {token}", f"Valve Gamma {token}"]) == {
+    assert flt(name=[f"Pump Alpha {token}", f"Valve Gamma {token}"]) == {
         timeseries_corpus["pump_1"].external_id,
         timeseries_corpus["valve"].external_id,
     }
 
 
 def test_names_are_case_insensitive(flt, timeseries_corpus, token):
-    assert flt(names=[f"pump alpha {token}".upper()]) == {
+    assert flt(name=[f"pump alpha {token}".upper()]) == {
         timeseries_corpus["pump_1"].external_id
     }
 
@@ -132,22 +132,22 @@ def test_a_bare_string_means_a_one_element_list(sync_client, timeseries_corpus, 
     making the single form a `TypeError` would tax the common case to serve the rare one.
     """
     scalar = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}*", names=f"Pump Alpha {token}"))
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", name=f"Pump Alpha {token}"))
     listed = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=[f"{prefix}*"], names=[f"Pump Alpha {token}"]))
+        datahub_sdk.TimeSeriesFilterForm(external_id=[f"{prefix}*"], name=[f"Pump Alpha {token}"]))
     assert externals(scalar) == externals(listed) == {timeseries_corpus["pump_1"].external_id}
 
 
 def test_ids_match_exactly(flt, timeseries_corpus):
     target = timeseries_corpus["pump_1"]
-    assert flt(ids=[target.id]) == {target.external_id}
-    assert flt(ids=[target.id, timeseries_corpus["valve"].id]) == {
+    assert flt(id=[target.id]) == {target.external_id}
+    assert flt(id=[target.id, timeseries_corpus["valve"].id]) == {
         target.external_id, timeseries_corpus["valve"].external_id
     }
 
 
 def test_an_unknown_id_matches_nothing_rather_than_erroring(flt, timeseries_corpus):
-    assert flt(ids=[999_999_999_999]) == set()
+    assert flt(id=[999_999_999_999]) == set()
 
 
 # --------------------------------------------------------------------------- #
@@ -195,47 +195,47 @@ def test_an_unknown_metadata_key_matches_nothing(flt, timeseries_corpus, token):
 # --------------------------------------------------------------------------- #
 
 def test_units_match_as_patterns(flt, timeseries_corpus):
-    assert flt(units=["bar"]) == {
+    assert flt(unit=["bar"]) == {
         timeseries_corpus["pump_1"].external_id, timeseries_corpus["valve"].external_id
     }
-    assert flt(units=["cels*"]) == {timeseries_corpus["pump_x1"].external_id}
-    assert flt(units=["BAR"]) == flt(units=["bar"]), "units match case-insensitively"
-    assert flt(units=["watt"]) == set()
+    assert flt(unit=["cels*"]) == {timeseries_corpus["pump_x1"].external_id}
+    assert flt(unit=["BAR"]) == flt(unit=["bar"]), "units match case-insensitively"
+    assert flt(unit=["watt"]) == set()
 
 
 def test_units_entries_or_together(flt, timeseries_corpus):
     """The retired scalar ``unit`` needed one call per unit; a list is one call."""
-    assert flt(units=["bar", "celsius"]) == {ts.external_id for ts in timeseries_corpus.values()}
+    assert flt(unit=["bar", "celsius"]) == {ts.external_id for ts in timeseries_corpus.values()}
 
 
 def test_unit_external_ids_are_a_pattern_list(flt, timeseries_corpus):
     """It used to be a single exact string, so naming two unit catalogue entries took two calls."""
-    assert flt(unit_external_ids=["pressure_bar"]) == {
+    assert flt(unit_external_id=["pressure_bar"]) == {
         timeseries_corpus["pump_1"].external_id, timeseries_corpus["valve"].external_id
     }
-    assert flt(unit_external_ids=["pressure_*", "temperature_c"]) == {
+    assert flt(unit_external_id=["pressure_*", "temperature_c"]) == {
         ts.external_id for ts in timeseries_corpus.values()
     }
 
 
 def test_value_types_match_exactly_and_case_insensitively(flt, timeseries_corpus):
-    assert flt(value_types=["FLOAT"]) == {
+    assert flt(value_type=["FLOAT"]) == {
         timeseries_corpus["pump_1"].external_id, timeseries_corpus["pump_x1"].external_id
     }
-    assert flt(value_types=["float"]) == flt(value_types=["FLOAT"])
-    assert flt(value_types=["TEXT"]) == {timeseries_corpus["valve"].external_id}
-    assert flt(value_types=["FLOAT", "TEXT"]) == {ts.external_id for ts in timeseries_corpus.values()}
+    assert flt(value_type=["float"]) == flt(value_type=["FLOAT"])
+    assert flt(value_type=["TEXT"]) == {timeseries_corpus["valve"].external_id}
+    assert flt(value_type=["FLOAT", "TEXT"]) == {ts.external_id for ts in timeseries_corpus.values()}
 
 
 def test_value_types_are_not_patterns(flt, timeseries_corpus):
     """A closed catalogue of seven values, so a wildcard over it would only ever be a way to
     misspell one of them. ``FLOA*`` is not a prefix search — it is a value that does not exist."""
-    assert flt(value_types=["FLOA*"]) == set()
-    assert flt(value_types=["%"]) == set()
+    assert flt(value_type=["FLOA*"]) == set()
+    assert flt(value_type=["%"]) == set()
 
 
 def test_an_unknown_value_type_matches_nothing(flt, timeseries_corpus):
-    assert flt(value_types=["NOT_A_VALUE_TYPE"]) == set()
+    assert flt(value_type=["NOT_A_VALUE_TYPE"]) == set()
 
 
 # --------------------------------------------------------------------------- #
@@ -252,8 +252,8 @@ def test_none_valued_criteria_are_omitted_entirely(sync_client, timeseries_corpu
     """Passing ``None`` is the same as not passing the argument — it must not reach the wire as a
     ``null`` the server then reads as a restriction."""
     assert externals(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-        external_ids=f"{prefix}*", names=None, units=None, value_types=None, metadata=None,
-        ids=None, labels=None, sources=None, data_set_ids=None,
+        external_id=f"{prefix}*", name=None, unit=None, value_type=None, metadata=None,
+        id=None, labels=None, source=None, data_set_id=None,
     ))) == {ts.external_id for ts in timeseries_corpus.values()}
 
 
@@ -263,10 +263,10 @@ def test_an_empty_or_blank_list_places_no_restriction(sync_client, timeseries_co
     it means "no restriction" far more often than "match nothing". Blank entries are dropped on the
     same reasoning, so an all-blank list behaves like an empty one.
 
-    ``data_set_ids`` is the documented exception and is covered separately.
+    ``data_set_id`` is the documented exception and is covered separately.
     """
     scoped = externals(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-        external_ids=f"{prefix}*", names=empty, units=empty, labels=empty, value_types=empty)))
+        external_id=f"{prefix}*", name=empty, unit=empty, labels=empty, value_type=empty)))
     assert scoped == {ts.external_id for ts in timeseries_corpus.values()}
 
 
@@ -274,12 +274,12 @@ def test_a_garbled_pattern_matches_nothing_without_erroring(flt, timeseries_corp
     """Punctuation soup is a value that happens not to exist, not a malformed request. The
     escaping means none of it reaches SQL as syntax."""
     for garbage in ["!!!##$$^&()", "' OR 1=1 --", "\\", "%%%%_____", "😀"]:
-        assert flt(external_ids=[garbage]) == set(), f"{garbage!r} should match nothing"
+        assert flt(external_id=[garbage]) == set(), f"{garbage!r} should match nothing"
 
 
 def test_a_bare_wildcard_matches_everything_in_scope(flt, timeseries_corpus, prefix):
     """``*`` on its own is a legitimate "any" rather than a no-op."""
-    assert flt(names=["*"]) == {ts.external_id for ts in timeseries_corpus.values()}
+    assert flt(name=["*"]) == {ts.external_id for ts in timeseries_corpus.values()}
 
 
 # --------------------------------------------------------------------------- #
@@ -291,9 +291,9 @@ def test_data_set_scope_by_id_and_by_external_id(flt, timeseries_corpus, dataset
     ``dataSetId`` and nothing else."""
     _parent, child = datasets
     in_child = {timeseries_corpus["pump_1"].external_id, timeseries_corpus["pump_x1"].external_id}
-    assert flt(data_set_ids=[child.id]) == in_child
-    assert flt(data_set_ids=[child.external_id]) == in_child
-    assert flt(data_set_ids=[datahub_sdk.IdCollection(id=child.id)]) == in_child
+    assert flt(data_set_id=[child.id]) == in_child
+    assert flt(data_set_id=[child.external_id]) == in_child
+    assert flt(data_set_id=[datahub_sdk.IdCollection(id=child.id)]) == in_child
 
 
 def test_a_parent_data_set_stands_in_for_its_children(flt, timeseries_corpus, datasets):
@@ -301,7 +301,7 @@ def test_a_parent_data_set_stands_in_for_its_children(flt, timeseries_corpus, da
     expansion a *grant* on that data set applies, so a filter can never see rows an ACL would not
     have let through, or miss rows it would."""
     parent, _child = datasets
-    assert flt(data_set_ids=[parent.id]) == {ts.external_id for ts in timeseries_corpus.values()}
+    assert flt(data_set_id=[parent.id]) == {ts.external_id for ts in timeseries_corpus.values()}
 
 
 def test_an_explicit_empty_data_set_scope_matches_nothing(sync_client, timeseries_corpus, prefix):
@@ -310,7 +310,7 @@ def test_an_explicit_empty_data_set_scope_matches_nothing(sync_client, timeserie
     opposite of what they asked for.
     """
     assert externals(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-        external_ids=f"{prefix}*", data_set_ids=[]))) == set()
+        external_id=f"{prefix}*", data_set_id=[]))) == set()
 
 
 def test_an_omitted_data_set_scope_places_no_restriction(flt, timeseries_corpus):
@@ -322,9 +322,9 @@ def test_a_data_set_external_id_naming_nothing_contributes_nothing(flt, timeseri
     """An unresolvable reference is dropped, so a scope of *only* unknown data sets resolves to
     the empty set and matches nothing — it does not fall back to "unrestricted"."""
     _parent, child = datasets
-    assert flt(data_set_ids=["no_such_data_set_at_all"]) == set()
+    assert flt(data_set_id=["no_such_data_set_at_all"]) == set()
     # Mixed with a real one, the unknown entry simply drops out.
-    assert flt(data_set_ids=["no_such_data_set_at_all", child.external_id]) == {
+    assert flt(data_set_id=["no_such_data_set_at_all", child.external_id]) == {
         timeseries_corpus["pump_1"].external_id, timeseries_corpus["pump_x1"].external_id
     }
 
@@ -347,7 +347,7 @@ def test_sources_is_accepted_and_narrows(flt, timeseries_corpus):
     """``TimeSeries`` has no ``source`` attribute in this SDK, so there is nothing to match
     positively — but the criterion must still narrow rather than be ignored. If it were dropped,
     this would come back with the whole corpus."""
-    assert flt(sources=["definitely_not_a_source"]) == set()
+    assert flt(source=["definitely_not_a_source"]) == set()
 
 
 # --------------------------------------------------------------------------- #
@@ -376,15 +376,15 @@ def test_created_time_window_bounds_the_result(flt, timeseries_corpus):
 
 def test_separate_criteria_and_together(flt, timeseries_corpus, token):
     """Within a field, entries OR; across fields, they AND."""
-    assert flt(units=["bar"], value_types=["FLOAT"]) == {
+    assert flt(unit=["bar"], value_type=["FLOAT"]) == {
         timeseries_corpus["pump_1"].external_id
     }
-    assert flt(units=["bar"], value_types=["FLOAT"], names=[f"Valve * {token}"]) == set()
+    assert flt(unit=["bar"], value_type=["FLOAT"], name=[f"Valve * {token}"]) == set()
 
 
 def test_limit_caps_the_page(sync_client, timeseries_corpus, prefix):
     capped = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}*", limit=2))
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=2))
     assert len(capped) == 2
 
 
@@ -392,14 +392,14 @@ def test_limit_zero_falls_back_to_the_default(sync_client, timeseries_corpus, pr
     """SQL reads ``LIMIT 0`` as "return nothing", which is indistinguishable from "nothing matched"
     — so the server treats a non-positive limit as unset instead."""
     assert externals(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-        external_ids=f"{prefix}*", limit=0))) == {ts.external_id for ts in timeseries_corpus.values()}
+        external_id=f"{prefix}*", limit=0))) == {ts.external_id for ts in timeseries_corpus.values()}
 
 
 def test_a_limit_above_the_ceiling_is_refused(sync_client, prefix):
     """10000 is the cap, and exceeding it is a 400 rather than a silently clamped page."""
     with pytest.raises(DataHubException) as excinfo:
         sync_client.timeseries.filter(
-            datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}*", limit=10_001))
+            datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=10_001))
     assert excinfo.value.status_code == 400
 
 
@@ -410,13 +410,13 @@ def test_a_negative_limit_is_rejected_client_side(sync_client, prefix):
     """
     with pytest.raises(OverflowError):
         sync_client.timeseries.filter(
-            datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}*", limit=-5))
+            datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=-5))
 
 
 @pytest.mark.asyncio
 async def test_async_filter_matches_the_sync_one(async_client, sync_client, timeseries_corpus, prefix):
     from_async = await async_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}*", units=["bar"]))
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", unit=["bar"]))
     from_sync = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}*", units=["bar"]))
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", unit=["bar"]))
     assert externals(from_async) == externals(from_sync)

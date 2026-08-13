@@ -530,9 +530,9 @@ impl PyResource {
 /// `search` methods need, since a filter passed positionally there would be indistinguishable
 /// from the search form.
 ///
-/// `external_ids`, `names` and `sources` are pattern lists: `*` and `%` are wildcards, `_` is
+/// `external_id`, `name` and `source` are pattern lists: `*` and `%` are wildcards, `_` is
 /// literal, matching is case-insensitive, and an entry with no wildcard matches exactly. `labels`
-/// must **all** be present. A `None` `metadata` value matches the key alone. `data_set_ids` takes
+/// must **all** be present. A `None` `metadata` value matches the key alone. `data_set_id` takes
 /// numeric ids, external ids or `IdCollection`s and expands down the dataset hierarchy; `None`
 /// (no restriction) differs from `[]` (narrow to no datasets, matching nothing).
 #[pyclass(module = "datahub_sdk", name = "ResourceFilter", from_py_object)]
@@ -544,36 +544,36 @@ pub struct PyResourceFilter {
 #[pymethods]
 impl PyResourceFilter {
     #[new]
-    #[pyo3(signature = (ids=None, external_ids=None, names=None, sources=None, labels=None,
-                        metadata=None, created_time=None, last_updated_time=None, node_types=None,
-                        is_root=None, data_set_ids=None))]
+    #[pyo3(signature = (id=None, external_id=None, name=None, source=None, labels=None,
+                        metadata=None, created_time=None, last_updated_time=None, node_type=None,
+                        is_root=None, data_set_id=None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
-        ids: Option<Vec<u64>>,
-        external_ids: Option<crate::StringOrList>,
-        names: Option<crate::StringOrList>,
-        sources: Option<crate::StringOrList>,
+        id: Option<Vec<u64>>,
+        external_id: Option<crate::StringOrList>,
+        name: Option<crate::StringOrList>,
+        source: Option<crate::StringOrList>,
         labels: Option<crate::StringOrList>,
         metadata: Option<HashMap<String, Option<String>>>,
         created_time: Option<crate::events::PyTimeFilter>,
         last_updated_time: Option<crate::events::PyTimeFilter>,
-        node_types: Option<crate::StringOrList>,
+        node_type: Option<crate::StringOrList>,
         is_root: Option<bool>,
-        data_set_ids: Option<Vec<crate::DataSetRef>>,
+        data_set_id: Option<Vec<crate::DataSetRef>>,
     ) -> Self {
         Self {
             inner: crate::resources::sync_service::build_resource_filter(
-                ids,
-                external_ids,
-                names,
-                sources,
+                id,
+                external_id,
+                name,
+                source,
                 labels,
                 metadata,
                 created_time,
                 last_updated_time,
-                node_types,
+                node_type,
                 is_root,
-                data_set_ids,
+                data_set_id,
             ),
         }
     }

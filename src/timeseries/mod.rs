@@ -127,7 +127,7 @@ impl TimeSeriesService {
 
     /// `POST /timeseries/filter` — structured, AND-combined filtering.
     ///
-    /// `data_set_ids` is expanded down the dataset hierarchy server-side: filtering on a master
+    /// `data_set_id` is expanded down the dataset hierarchy server-side: filtering on a master
     /// dataset also returns the timeseries attached to its child datasets, children of children
     /// included. Datasets the caller lacks read access to are silently omitted. Results come
     /// newest first, capped by the form's `limit` (backend default 1000, max 10000).
@@ -514,12 +514,12 @@ fn buffered_string_wrapper() -> DataWrapper<String> {
 /// and the two timestamp windows — flattened onto the wire, so read its rules for wildcards,
 /// case-insensitivity and what an empty list means. The rest is what only a timeseries has.
 ///
-/// The scalar `data_set_id` is gone in favour of [`data_set_ids`](Self::data_set_ids), which takes
-/// ids *or* external ids and expands the hierarchy the same way; it was the one filter in the
-/// family that could only be pointed at a single data set. The `metadata_key`/`metadata_value`
-/// pair is gone too: it existed only because the metadata map could not express "has this key,
-/// whatever its value", and a `None` value says that now.
-// Not PartialEq: `data_set_ids` holds `IdAndExtId`, which is intentionally non-comparable.
+/// [`data_set_id`](Self::data_set_id) keeps its name but is now a list taking ids *or* external
+/// ids, expanding the hierarchy the same way; it was the one filter in the family that could only
+/// be pointed at a single data set. The `metadata_key`/`metadata_value` pair is gone too: it
+/// existed only because the metadata map could not express "has this key, whatever its value", and
+/// a `None` value says that now.
+// Not PartialEq: `data_set_id` holds `IdAndExtId`, which is intentionally non-comparable.
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeSeriesFilter {
@@ -533,14 +533,14 @@ pub struct TimeSeriesFilter {
     /// **`None` and empty differ**, unlike the lists on [`NodeFilter`]: `None` places no
     /// restriction, `Some(vec![])` narrows to no data sets and matches nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub data_set_ids: Option<Vec<IdAndExtId>>,
+    pub data_set_id: Option<Vec<IdAndExtId>>,
     /// Timeseries whose unit matches any of these patterns, e.g. `["kg/hr", "deg_*"]`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub units: Option<Vec<String>>,
+    pub unit: Option<Vec<String>>,
     /// Timeseries whose unit external id — the catalogue id, not the display symbol — matches any
     /// of these patterns. It used to be a single exact string, so naming two units took two calls.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub unit_external_ids: Option<Vec<String>>,
+    pub unit_external_id: Option<Vec<String>>,
     /// Timeseries storing any of these value types: `BIGINT`, `FLOAT`, `FLOAT32`, `NUMERIC`,
     /// `DECIMAL32`, `TEXT` or `MIXED`.
     ///
@@ -548,7 +548,7 @@ pub struct TimeSeriesFilter {
     /// the platform ships, so a wildcard over it would only ever be a way to misspell one of seven
     /// known values. An entry naming no known type simply matches nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub value_types: Option<Vec<String>>,
+    pub value_type: Option<Vec<String>>,
 }
 
 /// Request body for [`TimeSeriesService::filter`]: the criteria, an optional result cap (backend

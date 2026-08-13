@@ -46,7 +46,7 @@ def ts_sorted(sync_client, prefix):
     """The sortable timeseries corpus, in the order the server returns it."""
     def _sorted(**paging):
         return ids_of(sync_client.timeseries.filter(
-            datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}_sort_ts_*", **paging)))
+            datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*", **paging)))
     return _sorted
 
 
@@ -76,21 +76,21 @@ def test_sorting_by_id(ts_sorted, by_index, sync_client, prefix):
     """``id`` is both a sortable property and the implicit tie-breaker. Ids are assigned in
     creation order, which is deliberately not index order — so this is a third distinct sequence."""
     rows = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}_sort_ts_*", sort_by="id",
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*", sort_by="id",
                                          sort_order="asc"))
     numeric = [ts.id for ts in rows]
     assert numeric == sorted(numeric)
     assert set(ids_of(rows)) == set(by_index)
 
     descending = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}_sort_ts_*", sort_by="id",
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*", sort_by="id",
                                          sort_order="desc"))
     assert [ts.id for ts in descending] == sorted(numeric, reverse=True)
 
 
 def test_sorting_by_created_time_is_creation_order(ts_sorted, sync_client, prefix):
     rows = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}_sort_ts_*",
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*",
                                          sort_by="createdTime", sort_order="asc"))
     stamps = [ts.created_time for ts in rows]
     assert stamps == sorted(stamps), f"not ascending by createdTime: {stamps}"
@@ -100,9 +100,9 @@ def test_sorting_by_created_time_is_creation_order(ts_sorted, sync_client, prefi
 def test_the_default_order_is_newest_created_first(ts_sorted, sync_client, prefix):
     """What the node filters returned before they could be sorted, kept as the default."""
     unsorted = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}_sort_ts_*"))
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*"))
     explicit = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}_sort_ts_*",
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*",
                                          sort_by="createdTime", sort_order="desc"))
     assert ids_of(unsorted) == ids_of(explicit)
 
@@ -160,13 +160,13 @@ def test_ties_are_broken_by_id(sync_client, prefix, sortable_timeseries):
     """
     def page():
         return ids_of(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-            external_ids=f"{prefix}_sort_ts_*", sort_by="dataSetId", sort_order="asc")))
+            external_id=f"{prefix}_sort_ts_*", sort_by="dataSetId", sort_order="asc")))
 
     first, second = page(), page()
     assert first == second, "a tied sort must still be deterministic"
 
     by_id = {ts.external_id: ts.id for ts in sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}_sort_ts_*"))}
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*"))}
     assert [by_id[external_id] for external_id in first] == sorted(by_id.values()), \
         "ties should fall back to id ascending"
 
@@ -175,9 +175,9 @@ def test_the_tie_breaker_follows_the_sort_direction(sync_client, prefix, sortabl
     """Descending means descending all the way down, or the two halves of the order disagree and a
     keyset boundary lands in the wrong place."""
     descending = ids_of(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-        external_ids=f"{prefix}_sort_ts_*", sort_by="dataSetId", sort_order="desc")))
+        external_id=f"{prefix}_sort_ts_*", sort_by="dataSetId", sort_order="desc")))
     by_id = {ts.external_id: ts.id for ts in sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}_sort_ts_*"))}
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*"))}
     assert [by_id[external_id] for external_id in descending] == sorted(
         by_id.values(), reverse=True)
 
@@ -195,7 +195,7 @@ def test_nulls_sort_last_ascending_and_first_descending(sync_client, null_source
     """
     def page(order):
         return ids_of(sync_client.resources.filter(
-            external_ids=f"{prefix}_ns_*", node_types=["asset", "resource"],
+            external_id=f"{prefix}_ns_*", node_type=["asset", "resource"],
             sort_by="source", sort_order=order))
 
     without_source = null_source_resources["none"]["external_id"]
@@ -219,7 +219,7 @@ def test_datasets_sort_by_name(sync_client, datasets, prefix, token):
 
     def page(order):
         return ids_of(sync_client.datasets.filter(datahub_sdk.DatasetFilter(
-            datahub_sdk.BasicDatasetFilter(external_ids=f"{prefix}_ds_*"),
+            datahub_sdk.BasicDatasetFilter(external_id=f"{prefix}_ds_*"),
             sort_by="name", sort_order=order)))
 
     # "Filter Child" sorts before "Filter Parent".
@@ -230,7 +230,7 @@ def test_datasets_sort_by_name(sync_client, datasets, prefix, token):
 def test_resources_sort_by_name(sync_client, null_source_resources, prefix):
     def page(order):
         return ids_of(sync_client.resources.filter(
-            external_ids=f"{prefix}_ns_*", node_types=["asset", "resource"],
+            external_id=f"{prefix}_ns_*", node_type=["asset", "resource"],
             sort_by="name", sort_order=order))
 
     ascending = page("asc")
@@ -246,7 +246,7 @@ def test_resources_sort_by_name(sync_client, null_source_resources, prefix):
 def ev_sorted(sync_client, prefix, sortable_events):
     def _sorted(**paging):
         request = datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_ids=f"{prefix}_sort_ev_*"), limit=50, **paging)
+            datahub_sdk.BasicEventFilter(external_id=f"{prefix}_sort_ev_*"), limit=50, **paging)
         return poll_until(
             lambda: ids_of(sync_client.events.filter(request)),
             lambda found: len(found) >= 4,
@@ -317,5 +317,5 @@ def test_events_sort_by_a_nullable_property(ev_sorted, sortable_events):
 async def test_async_sorting_matches_the_sync_client(async_client, sync_client, prefix,
                                                      sortable_timeseries, by_index):
     from_async = await async_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-        external_ids=f"{prefix}_sort_ts_*", sort_by="name", sort_order="asc"))
+        external_id=f"{prefix}_sort_ts_*", sort_by="name", sort_order="asc"))
     assert ids_of(from_async) == by_index

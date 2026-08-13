@@ -603,47 +603,47 @@ async fn test_resource_geolocation_round_trips() -> Result<(), ResponseError> {
 }
 
 /// The resource filter's wire shape. The shared node criteria are flattened, so they sit directly
-/// on the filter body; only `isRoot` and `dataSetIds` are the resource's own.
+/// on the filter body; only `isRoot` and `dataSetId` are the resource's own.
 #[test]
 fn resource_filter_matches_the_documented_wire_shape() {
     use crate::filters::NodeFilter;
 
     let filter = ResourceFilter {
         node: NodeFilter {
-            ids: Some(vec![12]),
-            external_ids: Some(vec!["klp_pipe_*".to_string()]),
-            names: Some(vec!["pipe*".to_string()]),
-            sources: Some(vec!["sap".to_string()]),
+            id: Some(vec![12]),
+            external_id: Some(vec!["klp_pipe_*".to_string()]),
+            name: Some(vec!["pipe*".to_string()]),
+            source: Some(vec!["sap".to_string()]),
             labels: Some(vec!["PIPE".to_string()]),
             metadata: Some([("work_order".to_string(), Some("wo-sap-12344".to_string()))].into()),
             ..Default::default()
         },
-        node_types: Some(vec!["resource".to_string(), "timeseries".to_string()]),
+        node_type: Some(vec!["resource".to_string(), "timeseries".to_string()]),
         is_root: Some(true),
-        data_set_ids: Some(vec![
+        data_set_id: Some(vec![
             IdAndExtId::from_id(43),
             IdAndExtId::from_external_id("data_set_sap"),
         ]),
     };
 
     let f = serde_json::to_value(&filter).unwrap();
-    assert_eq!(f["ids"], serde_json::json!(["12"]));
-    assert_eq!(f["externalIds"], serde_json::json!(["klp_pipe_*"]));
-    assert_eq!(f["names"], serde_json::json!(["pipe*"]));
-    assert_eq!(f["sources"], serde_json::json!(["sap"]));
+    assert_eq!(f["id"], serde_json::json!(["12"]));
+    assert_eq!(f["externalId"], serde_json::json!(["klp_pipe_*"]));
+    assert_eq!(f["name"], serde_json::json!(["pipe*"]));
+    assert_eq!(f["source"], serde_json::json!(["sap"]));
     assert_eq!(f["labels"], serde_json::json!(["PIPE"]));
-    assert_eq!(f["nodeTypes"], serde_json::json!(["resource", "timeseries"]));
+    assert_eq!(f["nodeType"], serde_json::json!(["resource", "timeseries"]));
     assert_eq!(f["isRoot"], true);
     // Data sets are named by id *or* external id now; this endpoint used to take ids only.
     assert_eq!(
-        f["dataSetIds"],
+        f["dataSetId"],
         serde_json::json!([{"id": "43"}, {"externalId": "data_set_sap"}])
     );
 
-    // The singular forms the plural ones replaced must be gone. They ANDed with the plurals rather
-    // than merging, and the api drops unknown keys silently, so a leftover `name` would narrow the
-    // query in a way the caller never asked for and never see an error.
-    for retired in ["id", "externalId", "name", "source"] {
+    // Each criterion is one list under the singular name the api binds. The plural spellings it
+    // briefly used must be gone: unknown keys are dropped silently, so a leftover `names` would
+    // place no restriction and return everything the caller can read.
+    for retired in ["ids", "externalIds", "names", "sources", "nodeTypes", "dataSetIds"] {
         assert!(f.get(retired).is_none(), "retired field {retired} is still sent: {f}");
     }
 
@@ -654,22 +654,22 @@ fn resource_filter_matches_the_documented_wire_shape() {
     );
 }
 
-/// `dataSetIds` is the one list where absent and empty mean opposite things — no restriction
+/// `dataSetId` is the one list where absent and empty mean opposite things — no restriction
 /// versus narrow-to-nothing — so the difference has to survive serialization.
 #[test]
 fn resource_filter_empty_data_set_scope_is_not_the_same_as_none() {
     let narrowed_to_nothing = ResourceFilter {
-        data_set_ids: Some(vec![]),
+        data_set_id: Some(vec![]),
         ..Default::default()
     };
     assert_eq!(
-        serde_json::to_value(&narrowed_to_nothing).unwrap()["dataSetIds"],
+        serde_json::to_value(&narrowed_to_nothing).unwrap()["dataSetId"],
         serde_json::json!([])
     );
 
     let value = serde_json::to_value(ResourceFilter::default()).unwrap();
     assert!(
-        !value.as_object().unwrap().contains_key("dataSetIds"),
+        !value.as_object().unwrap().contains_key("dataSetId"),
         "no restriction must omit the key rather than send null: {value}"
     );
 }

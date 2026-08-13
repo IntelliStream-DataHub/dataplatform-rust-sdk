@@ -207,15 +207,17 @@ impl From<PyBasicEventFilter> for BasicEventFilter {
 impl PyBasicEventFilter {
     /// AND-combined criteria for `events.filter`.
     ///
-    /// `external_ids`, `sources`, `types`, `sub_types` and `statuses` are **pattern** lists: `*`
-    /// and `%` are wildcards, `_` is literal, matching is case-insensitive, and an entry with no
-    /// wildcard matches exactly. Entries within a list OR together, so `types=["alarm", "warning"]`
-    /// is one call where the retired singular `type` needed two. Each also accepts a bare string.
+    /// `external_id`, `source`, `type`, `sub_type` and `status` are **pattern** lists: `*` and `%`
+    /// are wildcards, `_` is literal, matching is case-insensitive, and an entry with no wildcard
+    /// matches exactly. Entries within a list OR together, so `type=["alarm", "warning"]` is one
+    /// call where the old scalar `type` needed two. Each is named in the singular because each also
+    /// accepts a bare string, which is what most calls pass.
     ///
     /// `metadata` entries must all be present, and a `None` value matches the key alone.
-    /// `related_resources` must **all** be attached to the event.
+    /// `related_resources` keeps its plural — its entries **AND**, so all of them must be attached
+    /// to the event.
     ///
-    /// `data_set_ids` takes numeric ids, external ids, or `IdCollection`s, and expands down the
+    /// `data_set_id` takes numeric ids, external ids, or `IdCollection`s, and expands down the
     /// dataset hierarchy, so naming a parent covers its children. **`None` and `[]` differ here**:
     /// `None` places no restriction, `[]` narrows to no datasets and matches nothing.
     ///
@@ -223,12 +225,12 @@ impl PyBasicEventFilter {
     /// as a long that nothing read. Use `events.by_ids` to look one up.
     #[new]
     #[pyo3(signature=(
-        external_ids=None,
-        sources=None,
-        types=None,
-        sub_types=None,
-        statuses=None,
-        data_set_ids=None,
+        external_id=None,
+        source=None,
+        r#type=None,
+        sub_type=None,
+        status=None,
+        data_set_id=None,
         event_time=None,
         metadata=None,
         related_resources=None,
@@ -237,12 +239,12 @@ impl PyBasicEventFilter {
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
-        external_ids: Option<StringOrList>,
-        sources: Option<StringOrList>,
-        types: Option<StringOrList>,
-        sub_types: Option<StringOrList>,
-        statuses: Option<StringOrList>,
-        data_set_ids: Option<Vec<DataSetRef>>,
+        external_id: Option<StringOrList>,
+        source: Option<StringOrList>,
+        r#type: Option<StringOrList>,
+        sub_type: Option<StringOrList>,
+        status: Option<StringOrList>,
+        data_set_id: Option<Vec<DataSetRef>>,
         event_time: Option<PyTimeFilter>,
         metadata: Option<HashMap<String, Option<String>>>,
         related_resources: Option<Vec<PyIdCollection>>,
@@ -251,12 +253,12 @@ impl PyBasicEventFilter {
     ) -> Self {
         Self {
             inner: BasicEventFilter {
-                external_ids: opt_patterns(external_ids),
-                sources: opt_patterns(sources),
-                types: opt_patterns(types),
-                sub_types: opt_patterns(sub_types),
-                statuses: opt_patterns(statuses),
-                data_set_ids: opt_data_set_refs(data_set_ids),
+                external_id: opt_patterns(external_id),
+                source: opt_patterns(source),
+                r#type: opt_patterns(r#type),
+                sub_type: opt_patterns(sub_type),
+                status: opt_patterns(status),
+                data_set_id: opt_data_set_refs(data_set_id),
                 event_time: event_time.map(|f| f.inner),
                 metadata,
                 related_resources: related_resources

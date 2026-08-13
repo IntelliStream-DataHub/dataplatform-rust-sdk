@@ -674,7 +674,7 @@ pub(crate) fn build_page_request(
 /// A filter's pattern list, as Python may write it: one string or a list of them.
 ///
 /// The api accepts a bare scalar wherever it declares a list, because filter fields went plural
-/// while most calls still pass one value. Mirroring that here keeps `names="pump_a"` from being a
+/// while most calls still pass one value. Mirroring that here keeps `name="pump_a"` from being a
 /// `TypeError` the caller has to look up. The SDK always sends the canonical list form.
 #[derive(FromPyObject)]
 pub(crate) enum StringOrList {
@@ -693,7 +693,7 @@ impl From<StringOrList> for Vec<String> {
     }
 }
 
-/// A data set named in a filter's `data_set_ids`: a numeric id, an external id, or an explicit
+/// A data set named in a filter's `data_set_id`: a numeric id, an external id, or an explicit
 /// `IdCollection` carrying either. The three spellings all reach the wire as `{"id": ...}` /
 /// `{"externalId": ...}`.
 #[derive(FromPyObject)]
@@ -720,7 +720,7 @@ pub(crate) fn opt_patterns(value: Option<StringOrList>) -> Option<Vec<String>> {
 
 /// Turn an optional data-set argument into the reference list the filter field expects.
 ///
-/// An empty list is preserved rather than dropped: on `data_set_ids` alone, `[]` means "narrow to
+/// An empty list is preserved rather than dropped: on `data_set_id` alone, `[]` means "narrow to
 /// no data sets" and `None` means "no restriction", and those are opposite answers.
 pub(crate) fn opt_data_set_refs(value: Option<Vec<DataSetRef>>) -> Option<Vec<IdAndExtId>> {
     value.map(|refs| refs.into_iter().map(Into::into).collect())
@@ -786,7 +786,7 @@ impl From<PyTimeSeriesFilterForm> for TimeSeriesFilterForm {
 impl PyTimeSeriesFilterForm {
     /// AND-combined criteria for `timeseries.filter` and the `filter` of `timeseries.search`.
     ///
-    /// `external_ids`, `names`, `sources`, `units` and `unit_external_ids` are **pattern** lists:
+    /// `external_id`, `name`, `source`, `unit` and `unit_external_id` are **pattern** lists:
     /// `*` and `%` are wildcards, `_` is literal, matching is case-insensitive, and an entry with
     /// no wildcard matches exactly. Entries within a list OR together; the fields AND. Each of
     /// them also accepts a bare string.
@@ -795,10 +795,10 @@ impl PyTimeSeriesFilterForm {
     /// value matches the key alone — `{"health": None}` finds anything tagged `health`, which is
     /// what the retired `metadata_key`-without-`metadata_value` used to mean.
     ///
-    /// `value_types` is matched exactly (case-insensitively) against the closed catalogue
+    /// `value_type` is matched exactly (case-insensitively) against the closed catalogue
     /// `BIGINT`, `FLOAT`, `FLOAT32`, `NUMERIC`, `DECIMAL32`, `TEXT`, `MIXED`.
     ///
-    /// `data_set_ids` takes numeric ids, external ids, or `IdCollection`s, and expands down the
+    /// `data_set_id` takes numeric ids, external ids, or `IdCollection`s, and expands down the
     /// dataset hierarchy server-side, so a master dataset matches its children's timeseries too.
     /// **`None` and `[]` differ here**: `None` places no restriction, `[]` narrows to no datasets
     /// and matches nothing. Every other list is "no restriction" when empty.
@@ -813,18 +813,18 @@ impl PyTimeSeriesFilterForm {
     /// the **same** sort it came from — a mismatch is a 400, not a quietly short page.
     #[new]
     #[pyo3(signature = (
-        ids=None,
-        external_ids=None,
-        names=None,
-        sources=None,
+        id=None,
+        external_id=None,
+        name=None,
+        source=None,
         labels=None,
         metadata=None,
         created_time=None,
         last_updated_time=None,
-        data_set_ids=None,
-        units=None,
-        unit_external_ids=None,
-        value_types=None,
+        data_set_id=None,
+        unit=None,
+        unit_external_id=None,
+        value_type=None,
         limit=None,
         sort_by=None,
         sort_order=None,
@@ -832,18 +832,18 @@ impl PyTimeSeriesFilterForm {
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        ids: Option<Vec<u64>>,
-        external_ids: Option<StringOrList>,
-        names: Option<StringOrList>,
-        sources: Option<StringOrList>,
+        id: Option<Vec<u64>>,
+        external_id: Option<StringOrList>,
+        name: Option<StringOrList>,
+        source: Option<StringOrList>,
         labels: Option<StringOrList>,
         metadata: Option<HashMap<String, Option<String>>>,
         created_time: Option<crate::events::PyTimeFilter>,
         last_updated_time: Option<crate::events::PyTimeFilter>,
-        data_set_ids: Option<Vec<DataSetRef>>,
-        units: Option<StringOrList>,
-        unit_external_ids: Option<StringOrList>,
-        value_types: Option<StringOrList>,
+        data_set_id: Option<Vec<DataSetRef>>,
+        unit: Option<StringOrList>,
+        unit_external_id: Option<StringOrList>,
+        value_type: Option<StringOrList>,
         limit: Option<u64>,
         sort_by: Option<StringOrList>,
         sort_order: Option<String>,
@@ -853,19 +853,19 @@ impl PyTimeSeriesFilterForm {
             inner: TimeSeriesFilterForm {
                 filter: TimeSeriesFilter {
                     node: NodeFilter {
-                        ids,
-                        external_ids: opt_patterns(external_ids),
-                        names: opt_patterns(names),
-                        sources: opt_patterns(sources),
+                        id,
+                        external_id: opt_patterns(external_id),
+                        name: opt_patterns(name),
+                        source: opt_patterns(source),
                         labels: opt_patterns(labels),
                         metadata,
                         created_time: created_time.map(Into::into),
                         last_updated_time: last_updated_time.map(Into::into),
                     },
-                    data_set_ids: opt_data_set_refs(data_set_ids),
-                    units: opt_patterns(units),
-                    unit_external_ids: opt_patterns(unit_external_ids),
-                    value_types: opt_patterns(value_types),
+                    data_set_id: opt_data_set_refs(data_set_id),
+                    unit: opt_patterns(unit),
+                    unit_external_id: opt_patterns(unit_external_id),
+                    value_type: opt_patterns(value_type),
                 },
                 limit,
                 paging: build_page_request(sort_by, sort_order, cursor),

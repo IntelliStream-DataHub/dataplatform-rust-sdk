@@ -61,7 +61,7 @@ def ts_page(sync_client, prefix):
     """One page of the sortable timeseries corpus."""
     def _page(**paging):
         return sync_client.timeseries.filter(
-            datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}_sort_ts_*", **paging))
+            datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*", **paging))
     return _page
 
 
@@ -109,7 +109,7 @@ def test_a_page_behaves_like_a_list(ts_page, by_index):
 
 def test_an_empty_page_is_falsey(sync_client, prefix):
     page = sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids="no_such_external_id_at_all"))
+        datahub_sdk.TimeSeriesFilterForm(external_id="no_such_external_id_at_all"))
     assert len(page) == 0
     assert bool(page) is False
     assert page == []
@@ -165,7 +165,7 @@ def test_paging_the_default_order(ts_page, sync_client, prefix):
     """No explicit sort, so the walk runs in the default newest-created-first order."""
     rows, _requests = walk(ts_page, limit=2)
     expected = ids_of(sync_client.timeseries.filter(
-        datahub_sdk.TimeSeriesFilterForm(external_ids=f"{prefix}_sort_ts_*", limit=100)))
+        datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*", limit=100)))
     assert rows == expected
 
 
@@ -181,7 +181,7 @@ def test_paging_across_a_run_of_tied_values(ts_page, sync_client, prefix):
     assert len(set(rows)) == 6, f"a tied boundary repeated or dropped rows: {rows}"
 
     unpaged = ids_of(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-        external_ids=f"{prefix}_sort_ts_*", sort_by="dataSetId", sort_order="asc", limit=100)))
+        external_id=f"{prefix}_sort_ts_*", sort_by="dataSetId", sort_order="asc", limit=100)))
     assert rows == unpaged
 
 
@@ -287,7 +287,7 @@ def test_a_malformed_boundary_is_a_400_and_not_a_500(sync_client, prefix, sortab
         cursor = forge_cursor(property_name, "asc", "5", "not-a-number")
         with pytest.raises(DataHubException) as excinfo:
             sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-                external_ids=f"{prefix}_sort_ts_*", limit=2, sort_by=property_name, cursor=cursor))
+                external_id=f"{prefix}_sort_ts_*", limit=2, sort_by=property_name, cursor=cursor))
         assert excinfo.value.status_code == 400, \
             f"{property_name}: {excinfo.value.status_code} {excinfo.value.message[:100]}"
 
@@ -303,7 +303,7 @@ def test_an_injection_payload_in_the_cursor_boundary_is_data(sync_client, prefix
     """
     def page_after(boundary):
         return ids_of(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-            external_ids=f"{prefix}_sort_ts_*", limit=10, sort_by="name", sort_order="asc",
+            external_id=f"{prefix}_sort_ts_*", limit=10, sort_by="name", sort_order="asc",
             cursor=forge_cursor("name", "asc", "1", boundary))))
 
     ordinary = page_after("!")
@@ -312,7 +312,7 @@ def test_an_injection_payload_in_the_cursor_boundary_is_data(sync_client, prefix
 
     # And the table is still there afterwards.
     assert ids_of(sync_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-        external_ids=f"{prefix}_sort_ts_*", sort_by="name", sort_order="asc"))) == by_index
+        external_id=f"{prefix}_sort_ts_*", sort_by="name", sort_order="asc"))) == by_index
 
 
 # --------------------------------------------------------------------------- #
@@ -371,7 +371,7 @@ def test_datasets_page(sync_client, datasets, prefix):
 
     def page(cursor=None):
         return sync_client.datasets.filter(datahub_sdk.DatasetFilter(
-            datahub_sdk.BasicDatasetFilter(external_ids=f"{prefix}_ds_*"),
+            datahub_sdk.BasicDatasetFilter(external_id=f"{prefix}_ds_*"),
             limit=1, sort_by="name", sort_order="asc", cursor=cursor))
 
     rows, requests = walk(lambda cursor=None, **_: page(cursor))
@@ -384,7 +384,7 @@ def test_resources_page(sync_client, sortable_timeseries, prefix):
     corpus rather than every node sharing the prefix."""
     def page(cursor=None):
         return sync_client.resources.filter(
-            external_ids=f"{prefix}_sort_ts_*", node_types=["timeseries"],
+            external_id=f"{prefix}_sort_ts_*", node_type=["timeseries"],
             limit=2, sort_by="externalId", sort_order="asc", cursor=cursor)
 
     rows, _requests = walk(lambda cursor=None, **_: page(cursor))
@@ -399,7 +399,7 @@ def test_resources_page(sync_client, sortable_timeseries, prefix):
 def ev_page(sync_client, prefix, sortable_events):
     def _page(**paging):
         request = datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_ids=f"{prefix}_sort_ev_*"), **paging)
+            datahub_sdk.BasicEventFilter(external_id=f"{prefix}_sort_ev_*"), **paging)
         return sync_client.events.filter(request)
     return _page
 
@@ -481,11 +481,11 @@ def test_an_exhausted_event_walk_omits_the_cursor_rather_than_nulling_it(ev_page
 async def test_async_paging_matches_the_sync_client(async_client, sync_client, prefix,
                                                     sortable_timeseries, by_index):
     first = await async_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-        external_ids=f"{prefix}_sort_ts_*", limit=2, sort_by="name", sort_order="asc"))
+        external_id=f"{prefix}_sort_ts_*", limit=2, sort_by="name", sort_order="asc"))
     assert ids_of(first) == by_index[:2]
     assert first.next_cursor is not None
 
     second = await async_client.timeseries.filter(datahub_sdk.TimeSeriesFilterForm(
-        external_ids=f"{prefix}_sort_ts_*", limit=2, sort_by="name", sort_order="asc",
+        external_id=f"{prefix}_sort_ts_*", limit=2, sort_by="name", sort_order="asc",
         cursor=first.next_cursor))
     assert ids_of(second) == by_index[2:4]

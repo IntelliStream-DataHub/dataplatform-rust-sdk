@@ -160,33 +160,33 @@ impl PyResourcesServiceAsync {
 
     /// `POST /resources/filter` — structured lookup; every criterion is combined with AND.
     /// See the sync twin for the pattern, label and data-set-scope rules.
-    #[pyo3(signature = (ids=None, external_ids=None, names=None, sources=None, labels=None,
-                        metadata=None, created_time=None, last_updated_time=None, node_types=None,
-                        is_root=None, data_set_ids=None, limit=None, sort_by=None, sort_order=None,
+    #[pyo3(signature = (id=None, external_id=None, name=None, source=None, labels=None,
+                        metadata=None, created_time=None, last_updated_time=None, node_type=None,
+                        is_root=None, data_set_id=None, limit=None, sort_by=None, sort_order=None,
                         cursor=None))]
     #[allow(clippy::too_many_arguments)]
     fn filter<'py>(
         &self,
         py: Python<'py>,
-        ids: Option<Vec<u64>>,
-        external_ids: Option<StringOrList>,
-        names: Option<StringOrList>,
-        sources: Option<StringOrList>,
+        id: Option<Vec<u64>>,
+        external_id: Option<StringOrList>,
+        name: Option<StringOrList>,
+        source: Option<StringOrList>,
         labels: Option<StringOrList>,
         metadata: Option<HashMap<String, Option<String>>>,
         created_time: Option<crate::events::PyTimeFilter>,
         last_updated_time: Option<crate::events::PyTimeFilter>,
-        node_types: Option<StringOrList>,
+        node_type: Option<StringOrList>,
         is_root: Option<bool>,
-        data_set_ids: Option<Vec<DataSetRef>>,
+        data_set_id: Option<Vec<DataSetRef>>,
         limit: Option<u64>,
         sort_by: Option<StringOrList>,
         sort_order: Option<String>,
         cursor: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let retriever = crate::resources::sync_service::build_resource_retriever(
-            ids, external_ids, names, sources, labels, metadata, created_time,
-            last_updated_time, node_types, is_root, data_set_ids, limit, sort_by, sort_order,
+            id, external_id, name, source, labels, metadata, created_time,
+            last_updated_time, node_type, is_root, data_set_id, limit, sort_by, sort_order,
             cursor,
         );
         let service = self.api_service.clone();

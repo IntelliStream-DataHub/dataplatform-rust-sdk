@@ -19,7 +19,7 @@ Deliberate details, because filter semantics turn on them:
     match both. One entity cannot show that; two can.
 
 ``sap_<token>`` vs ``sapX<token>``
-    The same trick for ``sources``, which has no hashed column and is matched purely by pattern.
+    The same trick for ``source``, which has no hashed column and is matched purely by pattern.
 
 parent and child data sets
     Joined by a ``BELONGS_TO`` edge so the hierarchy expansion is testable: entities live in the
@@ -69,7 +69,7 @@ def datasets(sync_client, prefix, token):
     """A parent data set and a child beneath it in the ``BELONGS_TO`` hierarchy.
 
     Returns ``(parent, child)``. The hierarchy is what makes "filtering on a parent returns the
-    child's contents" testable, which is the behaviour every ``dataSetIds`` field now promises.
+    child's contents" testable, which is the behaviour every ``dataSetId`` field now promises.
     """
     parent_ext = f"{prefix}_ds_parent"
     child_ext = f"{prefix}_ds_child"
@@ -201,7 +201,7 @@ def event_corpus(sync_client, datasets, prefix, token):
     # Poll rather than sleep: the projection lag is usually milliseconds and occasionally seconds.
     def visible():
         return sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_ids=f"{prefix}*"), limit=50))
+            datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=50))
 
     found = poll_until(visible, lambda events: len(events) >= len(specs))
     assert len(found) >= len(specs), (
@@ -316,7 +316,7 @@ def sortable_events(sync_client, datasets, prefix, token):
 
     def visible():
         return sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_ids=f"{prefix}_sort_ev_*"), limit=50))
+            datahub_sdk.BasicEventFilter(external_id=f"{prefix}_sort_ev_*"), limit=50))
 
     found = poll_until(visible, lambda events: len(events) >= len(specs))
     assert len(found) >= len(specs), "the sortable event corpus never became visible"
