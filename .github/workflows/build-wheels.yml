@@ -10,6 +10,7 @@ jobs:
   linux:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - { runner: ubuntu-22.04, target: x86_64 }
@@ -36,6 +37,7 @@ jobs:
   musllinux:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - { runner: ubuntu-22.04, target: x86_64 }
@@ -60,6 +62,7 @@ jobs:
   windows:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - { runner: windows-latest, target: x64 }
@@ -83,6 +86,7 @@ jobs:
   macos:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - { runner: macos-15-intel, target: x86_64 }
