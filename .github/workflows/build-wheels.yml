@@ -27,7 +27,6 @@ jobs:
           working-directory: datahub_python_bindings
           target: ${{ matrix.platform.target }}
           args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: auto
       - uses: actions/upload-artifact@v6
         with:
@@ -52,7 +51,6 @@ jobs:
           working-directory: datahub_python_bindings
           target: ${{ matrix.platform.target }}
           args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: musllinux_1_2
       - uses: actions/upload-artifact@v6
         with:
@@ -77,7 +75,6 @@ jobs:
           working-directory: datahub_python_bindings
           target: ${{ matrix.platform.target }}
           args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - uses: actions/upload-artifact@v6
         with:
           name: wheels-windows-${{ matrix.platform.target }}
@@ -101,7 +98,6 @@ jobs:
           working-directory: datahub_python_bindings
           target: ${{ matrix.platform.target }}
           args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - uses: actions/upload-artifact@v6
         with:
           name: wheels-macos-${{ matrix.platform.target }}
