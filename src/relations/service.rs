@@ -101,6 +101,12 @@ impl EdgesService {
     ///
     /// So an edge is separately deletable only when both endpoints stay reachable without it —
     /// otherwise it goes away with the resources it connects.
+    ///
+    /// The check reads the graph projection, which lags the write, and acting too early gets the
+    /// *wrong answer* rather than an error: the projection cannot yet see what the edge was
+    /// holding up, so the delete succeeds and strands the node. Measured in `relations::tests`,
+    /// deleting immediately after creating the edge was wrongly allowed 6 times out of 6, while
+    /// the same delete 500ms later was refused 6 out of 6.
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<EdgeProxy>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
