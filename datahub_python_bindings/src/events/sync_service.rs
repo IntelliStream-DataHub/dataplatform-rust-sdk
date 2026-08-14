@@ -2,10 +2,10 @@ use crate::events::{
     EventIdentifyable, PyEvent, PyEventDimension, PyEventFilter, PyEventSearch, PyEventUpdate,
 };
 use crate::{PyIdCollection, PySearchAndFilterForm};
-use dataplatform_rust_sdk::events::{EventDimension, EventIdCollection, EventUpdate};
-use dataplatform_rust_sdk::filters::EventFilter;
-use dataplatform_rust_sdk::generic::DataWrapper;
-use dataplatform_rust_sdk::{
+use intellistream_datahub_sdk::events::{EventDimension, EventIdCollection, EventUpdate};
+use intellistream_datahub_sdk::filters::EventFilter;
+use intellistream_datahub_sdk::generic::DataWrapper;
+use intellistream_datahub_sdk::{
     ApiService, Event, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection,
 };
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tokio::runtime;
 use uuid::Uuid;
 
-#[pyclass(module = "datahub_sdk", name = "EventsServiceSync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "EventsServiceSync")]
 pub struct PyEventsServiceSync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,

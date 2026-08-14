@@ -6,9 +6,9 @@ backend is unreachable (the fixture takes care of that).
 """
 import asyncio
 
-import datahub_sdk
+import intellistream_datahub_sdk
 import pytest
-from datahub_sdk import DataHubException, GraphResult, RelForm, Resource
+from intellistream_datahub_sdk import DataHubException, GraphResult, RelForm, Resource
 
 from fixtures import async_client, unique_id
 
@@ -105,7 +105,7 @@ async def test_search_resources(async_client):
     try:
         await asyncio.sleep(SEARCH_INDEX_DELAY)
 
-        form = datahub_sdk.SearchAndFilterForm(query=name, limit=5)
+        form = intellistream_datahub_sdk.SearchAndFilterForm(query=name, limit=5)
         results = await async_client.resources.search(form)
         assert isinstance(results, list)
         assert len(results) <= 5

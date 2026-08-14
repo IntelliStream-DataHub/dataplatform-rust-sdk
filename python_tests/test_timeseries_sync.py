@@ -3,7 +3,7 @@ from datetime import datetime, tzinfo, timezone, timedelta
 
 import numpy as np
 import pytest
-import datahub_sdk
+import intellistream_datahub_sdk
 import pandas as pd
 import polars as pl
 from python_tests.fixtures import *
@@ -50,7 +50,7 @@ def test_list_negative_limit_rejected(sync_client):
     ]
 )
 def test_retrieve_datapoints(sync_client,start,end,inserted_data,ts_float,test_data):
-    datapoints_filter = datahub_sdk.RetrieveFilter(start=start,end=end,ts= ts_float)
+    datapoints_filter = intellistream_datahub_sdk.RetrieveFilter(start=start,end=end,ts= ts_float)
     datapoints =  sync_client.timeseries.retrieve_datapoints(datapoints_filter)
     datapoints = datapoints[0].as_dict()
     s = pd.Series(datapoints["values"], index=datapoints["timestamps"])
@@ -61,7 +61,7 @@ def test_retrieve_datapoints(sync_client,start,end,inserted_data,ts_float,test_d
     assert np.allclose(s,test_data[start:end])
 def test_create_timeseries_invalid_value_type(sync_client):
     with pytest.raises(ValueError):
-        invalid = datahub_sdk.TimeSeries(name="test insert",value_type="invalid_string",unit="a.u")
+        invalid = intellistream_datahub_sdk.TimeSeries(name="test insert",value_type="invalid_string",unit="a.u")
         sync_client.timeseries.create([invalid])
 
 @pytest.mark.parametrize(
@@ -78,12 +78,12 @@ def test_create_timeseries_invalid_value_type(sync_client):
 def test_delete_datapoints(sync_client,fresh_inserted_data,ts_float,start,end,test_data):
     #start = pd.Timestamp('2023-04-01', tz='UTC')
     #send = pd.Timestamp('2023-04-03', tz='UTC')
-    delete_target = datahub_sdk.DeleteFilter(ts=ts_float, inclusive_begin=start,exclusive_end=end)
+    delete_target = intellistream_datahub_sdk.DeleteFilter(ts=ts_float, inclusive_begin=start,exclusive_end=end)
     sync_client.timeseries.delete_datapoints([delete_target])
     # asyncio.sleep(20)
     """ # commented out because it takes a while to delete datapoints making test flaky
      fix could be to create special test query with final
-    datapoints_filter = datahub_sdk.RetrieveFilter(start=pd.Timestamp("2023-01-01",tz='UTC'),
+    datapoints_filter = intellistream_datahub_sdk.RetrieveFilter(start=pd.Timestamp("2023-01-01",tz='UTC'),
                                                      end=pd.Timestamp("2023-05-01",tz='UTC'),
                                                      ts= ts_float)
     datapoints =  sync_client.timeseries.retrieve_datapoints(datapoints_filter)
@@ -118,29 +118,29 @@ def test_insert(sync_client,make_ts,timestamps,values,value_type):
     created = make_ts(name="test insert", value_type=value_type)
 
     if value_type == "bigint":
-        data = [datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
+        data = [intellistream_datahub_sdk.DatapointString.from_int(ind,val) for ind,val in zip(timestamps,values)]
     elif value_type == "float":
-        data = [datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
+        data = [intellistream_datahub_sdk.DatapointString.from_float(ind,val) for ind,val in zip(timestamps,values)]
 
-    vals=datahub_sdk.DatapointsCollectionString(datapoints=data,ts=created)
+    vals=intellistream_datahub_sdk.DatapointsCollectionString(datapoints=data,ts=created)
     inserted_datapoints = sync_client.timeseries.insert_datapoints(input=[vals])
     # A successful insert is acknowledged with 204 No Content, so the body carries no items.
     assert inserted_datapoints == []
-    retrieved_datapoints = sync_client.timeseries.retrieve_datapoints(datahub_sdk.RetrieveFilter(
+    retrieved_datapoints = sync_client.timeseries.retrieve_datapoints(intellistream_datahub_sdk.RetrieveFilter(
         start=pd.Timestamp("2019-01-01",tz="UTC"),
         end=pd.Timestamp("2025-01-01",tz="UTC"),
         ts=created))
     assert retrieved_datapoints
 
 def test_insert_datapoints_missing_timeseries_returns_not_found(sync_client):
-    nonexistent = datahub_sdk.TimeSeries(
+    nonexistent = intellistream_datahub_sdk.TimeSeries(
         external_id="nonexistent_ts_for_404_test",
         value_type="float",
         unit="a.u",
     )
-    dp = datahub_sdk.DatapointString.from_float(pd.Timestamp("2025-01-01", tz="UTC"), 42.0)
-    vals = datahub_sdk.DatapointsCollectionString(datapoints=[dp], ts=nonexistent)
-    with pytest.raises(datahub_sdk.DataHubException) as exc_info:
+    dp = intellistream_datahub_sdk.DatapointString.from_float(pd.Timestamp("2025-01-01", tz="UTC"), 42.0)
+    vals = intellistream_datahub_sdk.DatapointsCollectionString(datapoints=[dp], ts=nonexistent)
+    with pytest.raises(intellistream_datahub_sdk.DataHubException) as exc_info:
         sync_client.timeseries.insert_datapoints(input=[vals])
     assert exc_info.value.status_code == 404
     assert "Could not find following timeseries" in exc_info.value.message
@@ -148,7 +148,7 @@ def test_insert_datapoints_missing_timeseries_returns_not_found(sync_client):
 
 def test_invalid_retrieve_latest_datapoint(sync_client):
     with pytest.raises(IndexError):
-        nonexistant_ts = datahub_sdk.TimeSeries(external_id="nonexistent_ts",value_type="bigint",unit="a.u")
+        nonexistant_ts = intellistream_datahub_sdk.TimeSeries(external_id="nonexistent_ts",value_type="bigint",unit="a.u")
         sync_client.timeseries.retrieve_latest_datapoints(input=[nonexistant_ts])[0]
 
 """
@@ -158,7 +158,7 @@ Bellow are draft tests for invalid input
 @pytest.mark.parametrize("metadata", [{"vec": [0,1,2]},{"value_params": {"nested": {}}},{"nonstringable": print}])
 def test_reject_invalid_timeseries_metadata(sync_client,metadata):
     with pytest.raises(ValueError):
-        test_insert_ts = datahub_sdk.TimeSeries(
+        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
             name="valid name",
             metadata=metadata,
         )
@@ -167,7 +167,7 @@ def test_reject_invalid_timeseries_metadata(sync_client,metadata):
 @pytest.mark.parametrize("name", ["valid name"])
 def test_reject_invalid_timeseries_name(sync_client,name):
     with pytest.raises(ValueError):
-        test_insert_ts = datahub_sdk.TimeSeries(
+        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
             name=name,
         )
          sync_client.timeseries.delete([test_insert_ts])
@@ -175,7 +175,7 @@ def test_reject_invalid_timeseries_name(sync_client,name):
 @pytest.mark.parametrize("external_id", [1,12,"a","ab"])
 def test_reject_invalid_timeseries_metadata(sync_client,external_id):
     with pytest.raises(ValueError):
-        test_insert_ts = datahub_sdk.TimeSeries(
+        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
             name="valid name",
             external_id=external_id,
         )
@@ -185,7 +185,7 @@ def test_reject_invalid_timeseries_metadata(sync_client,external_id):
 @pytest.mark.parametrize("value_type", ["",None,"big_int","strings","hex"])
 def test_reject_invalid_timeseries_metadata(sync_client,value_type):
     with pytest.raises(ValueError):
-        test_insert_ts = datahub_sdk.TimeSeries(
+        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
             name="valid name",
             value_type=value_type,
         )
@@ -196,7 +196,7 @@ def test_reject_invalid_timeseries_metadata(sync_client,value_type):
 @pytest.mark.parametrize("unit_external_id", ["",None,0],marks=pytest.mark.xfail(reason="TBD what are invalid units"))
 def test_reject_invalid_timeseries_unit(sync_client,units,unit_external_id):
     with pytest.raises(ValueError):
-        test_insert_ts = datahub_sdk.TimeSeries(
+        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
             name="valid name",
             units=units,
             unit_external_id=unit_external_id,
@@ -214,13 +214,13 @@ def test_timeseries_update_with_fields(sync_client, make_ts):
 
     # 2. Prepare Update Fields using Field structs
     # Note: TimeSeriesUpdate.__init__ expects these types for specific fields
-    new_name = datahub_sdk.FieldStr(value="Updated Name")
-    new_unit = datahub_sdk.FieldStr(value="Updated Unit")
-    new_metadata = datahub_sdk.MapField.delta(add={"status": "updated", "version": "2"})
+    new_name = intellistream_datahub_sdk.FieldStr(value="Updated Name")
+    new_unit = intellistream_datahub_sdk.FieldStr(value="Updated Unit")
+    new_metadata = intellistream_datahub_sdk.MapField.delta(add={"status": "updated", "version": "2"})
 
     # 3. Create the Update object
     # The first argument 'ts' is the Identifyable (the created_ts itself)
-    ts_update = datahub_sdk.TimeSeriesUpdate(
+    ts_update = intellistream_datahub_sdk.TimeSeriesUpdate(
         created_ts,
         name=new_name,
         unit=new_unit,
@@ -243,9 +243,9 @@ def test_timeseries_update_set_null(sync_client, make_ts):
     created_ts = make_ts(name="Null Test", description="I should be deleted", value_type="text")
 
     # Use FieldStr with set_null=True to clear the description
-    null_description = datahub_sdk.FieldStr(set_null=True)
+    null_description = intellistream_datahub_sdk.FieldStr(set_null=True)
 
-    ts_update = datahub_sdk.TimeSeriesUpdate(
+    ts_update = intellistream_datahub_sdk.TimeSeriesUpdate(
         created_ts,
         description=null_description
     )

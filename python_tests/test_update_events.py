@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-import datahub_sdk
+import intellistream_datahub_sdk
 from fixtures import make_dataset, make_resource, sync_client, unique_id
 from polling import poll_until
 
@@ -55,9 +55,9 @@ def new_event(sync_client):
         kwargs.setdefault("external_id", unique_id("evt_upd"))
         kwargs.setdefault("type", "sdk_update_probe")
         kwargs.setdefault("event_time", datetime.now(timezone.utc))
-        event = sync_client.events.create([datahub_sdk.Event(**kwargs)])[0]
+        event = sync_client.events.create([intellistream_datahub_sdk.Event(**kwargs)])[0]
         created_ids.append(event.id)
-        _apply(sync_client, datahub_sdk.EventUpdate(event))
+        _apply(sync_client, intellistream_datahub_sdk.EventUpdate(event))
         return event
 
     yield _make
@@ -91,8 +91,8 @@ def test_scalar_set_value(sync_client, new_event, field, value, attr):
         source="original_source",
     )
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, **{field: datahub_sdk.FieldStr(value=value)}
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, **{field: intellistream_datahub_sdk.FieldStr(value=value)}
     ))
     assert getattr(updated, attr) == value
 
@@ -118,8 +118,8 @@ def test_scalar_set_null(sync_client, new_event, field, attr):
         source="please_clear_me",
     )
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, **{field: datahub_sdk.FieldStr(set_null=True)}
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, **{field: intellistream_datahub_sdk.FieldStr(set_null=True)}
     ))
     assert getattr(updated, attr) is None
 
@@ -133,9 +133,9 @@ def test_type_set_null(sync_client, new_event):
     """
     event = new_event(type="sdk_clearable_type")
 
-    with pytest.raises(datahub_sdk.DataHubException):
-        _apply(sync_client, datahub_sdk.EventUpdate(
-            event, type=datahub_sdk.FieldStr(set_null=True)
+    with pytest.raises(intellistream_datahub_sdk.DataHubException):
+        _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+            event, type=intellistream_datahub_sdk.FieldStr(set_null=True)
         ))
 
 
@@ -147,8 +147,8 @@ def test_external_id_set_value(sync_client, new_event):
     event = new_event()
     new_ext = unique_id("evt_renamed")
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, external_id=datahub_sdk.FieldStr(value=new_ext)
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, external_id=intellistream_datahub_sdk.FieldStr(value=new_ext)
     ))
     assert updated.external_id == new_ext
 
@@ -163,8 +163,8 @@ def test_external_id_set_value(sync_client, new_event):
 def test_external_id_set_null(sync_client, new_event):
     event = new_event()
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, external_id=datahub_sdk.FieldStr(set_null=True)
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, external_id=intellistream_datahub_sdk.FieldStr(set_null=True)
     ))
     assert updated.external_id is None
 
@@ -178,8 +178,8 @@ def test_event_time_set_value(sync_client, new_event):
     event = new_event(event_time=datetime(2025, 1, 1, tzinfo=timezone.utc))
     when = datetime(2026, 3, 4, 5, 6, 7, tzinfo=timezone.utc)
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, event_time=datahub_sdk.FieldStr(value=when.isoformat())
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, event_time=intellistream_datahub_sdk.FieldStr(value=when.isoformat())
     ))
     assert updated.event_time.replace(microsecond=0) == when
 
@@ -187,9 +187,9 @@ def test_event_time_set_value(sync_client, new_event):
 def test_event_time_unparseable_is_rejected(sync_client, new_event):
     event = new_event()
 
-    with pytest.raises(datahub_sdk.DataHubException):
-        sync_client.events.update([datahub_sdk.EventUpdate(
-            event, event_time=datahub_sdk.FieldStr(value="not a timestamp")
+    with pytest.raises(intellistream_datahub_sdk.DataHubException):
+        sync_client.events.update([intellistream_datahub_sdk.EventUpdate(
+            event, event_time=intellistream_datahub_sdk.FieldStr(value="not a timestamp")
         )])
 
 
@@ -198,8 +198,8 @@ def test_event_time_set_null(sync_client, new_event):
     when = datetime(2025, 1, 1, tzinfo=timezone.utc)
     event = new_event(event_time=when)
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, event_time=datahub_sdk.FieldStr(set_null=True)
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, event_time=intellistream_datahub_sdk.FieldStr(set_null=True)
     ))
     assert updated.event_time != when
 
@@ -212,8 +212,8 @@ def test_data_set_id_set_value(sync_client, new_event, make_dataset):
     dataset = make_dataset(name=unique_id("evt_upd_ds"))
     event = new_event()
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, data_set_id=datahub_sdk.FieldU64(value=dataset.id)
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, data_set_id=intellistream_datahub_sdk.FieldU64(value=dataset.id)
     ))
     assert updated.data_set_id == dataset.id
 
@@ -223,8 +223,8 @@ def test_data_set_id_set_null(sync_client, new_event, make_dataset):
     dataset = make_dataset(name=unique_id("evt_upd_ds_null"))
     event = new_event(data_set_id=dataset.id)
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, data_set_id=datahub_sdk.FieldU64(set_null=True)
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, data_set_id=intellistream_datahub_sdk.FieldU64(set_null=True)
     ))
     assert updated.data_set_id is None
 
@@ -238,9 +238,9 @@ def test_data_set_id_unknown_is_rejected(sync_client, new_event):
     """The resource update rejects this with 400; the event update accepts it."""
     event = new_event()
 
-    with pytest.raises(datahub_sdk.DataHubException):
-        sync_client.events.update([datahub_sdk.EventUpdate(
-            event, data_set_id=datahub_sdk.FieldU64(value=2**62)
+    with pytest.raises(intellistream_datahub_sdk.DataHubException):
+        sync_client.events.update([intellistream_datahub_sdk.EventUpdate(
+            event, data_set_id=intellistream_datahub_sdk.FieldU64(value=2**62)
         )])
 
 
@@ -251,8 +251,8 @@ def test_data_set_id_unknown_is_rejected(sync_client, new_event):
 def test_metadata_set_replaces_whole_map(sync_client, new_event):
     event = new_event(metadata={"a": "1", "b": "2"})
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, metadata=datahub_sdk.MapField.set({"only": "9"})
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, metadata=intellistream_datahub_sdk.MapField.set({"only": "9"})
     ))
     md = updated.metadata or {}
     assert md.get("only") == "9"
@@ -262,8 +262,8 @@ def test_metadata_set_replaces_whole_map(sync_client, new_event):
 def test_metadata_add_merges_and_overwrites(sync_client, new_event):
     event = new_event(metadata={"keep": "1", "overwrite": "old"})
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, metadata=datahub_sdk.MapField.delta(add={"overwrite": "new", "added": "2"})
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, metadata=intellistream_datahub_sdk.MapField.delta(add={"overwrite": "new", "added": "2"})
     ))
     md = updated.metadata or {}
     assert md.get("keep") == "1"
@@ -274,8 +274,8 @@ def test_metadata_add_merges_and_overwrites(sync_client, new_event):
 def test_metadata_remove_keys(sync_client, new_event):
     event = new_event(metadata={"a": "1", "b": "2", "c": "3"})
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, metadata=datahub_sdk.MapField.delta(remove=["b", "c"])
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, metadata=intellistream_datahub_sdk.MapField.delta(remove=["b", "c"])
     ))
     md = updated.metadata or {}
     assert md.get("a") == "1"
@@ -286,8 +286,8 @@ def test_metadata_cleared_by_an_empty_set(sync_client, new_event):
     """``MapField`` has no ``setNull``; an empty ``set`` is how a map is emptied."""
     event = new_event(metadata={"a": "1", "b": "2"})
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, metadata=datahub_sdk.MapField.set({})
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, metadata=intellistream_datahub_sdk.MapField.set({})
     ))
     assert not (updated.metadata or {})
 
@@ -300,9 +300,9 @@ def test_metadata_cleared_by_an_empty_set(sync_client, new_event):
 def two_resources(sync_client, make_resource):
     ext_a, ext_b = unique_id("evt_rel_a"), unique_id("evt_rel_b")
     make_resource([
-        datahub_sdk.Resource(external_id=ext_a, name="Event update probe A",
+        intellistream_datahub_sdk.Resource(external_id=ext_a, name="Event update probe A",
                              is_root=True, labels=["ASSET"]),
-        datahub_sdk.Resource(external_id=ext_b, name="Event update probe B",
+        intellistream_datahub_sdk.Resource(external_id=ext_b, name="Event update probe B",
                              is_root=True, labels=["ASSET"]),
     ])
     return ext_a, ext_b
@@ -314,12 +314,12 @@ def _related_ext_ids(event):
 
 def test_related_resources_set_replaces_list(sync_client, new_event, two_resources):
     ext_a, ext_b = two_resources
-    event = new_event(related_resources=[datahub_sdk.IdCollection(external_id=ext_a)])
+    event = new_event(related_resources=[intellistream_datahub_sdk.IdCollection(external_id=ext_a)])
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
         event,
-        related_resources=datahub_sdk.ListFieldIdCollection.set(
-            [datahub_sdk.IdCollection(external_id=ext_b)]
+        related_resources=intellistream_datahub_sdk.ListFieldIdCollection.set(
+            [intellistream_datahub_sdk.IdCollection(external_id=ext_b)]
         ),
     ))
     assert _related_ext_ids(updated) == [ext_b]
@@ -327,12 +327,12 @@ def test_related_resources_set_replaces_list(sync_client, new_event, two_resourc
 
 def test_related_resources_add_keeps_existing(sync_client, new_event, two_resources):
     ext_a, ext_b = two_resources
-    event = new_event(related_resources=[datahub_sdk.IdCollection(external_id=ext_a)])
+    event = new_event(related_resources=[intellistream_datahub_sdk.IdCollection(external_id=ext_a)])
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
         event,
-        related_resources=datahub_sdk.ListFieldIdCollection.delta(
-            add=[datahub_sdk.IdCollection(external_id=ext_b)]
+        related_resources=intellistream_datahub_sdk.ListFieldIdCollection.delta(
+            add=[intellistream_datahub_sdk.IdCollection(external_id=ext_b)]
         ),
     ))
     assert _related_ext_ids(updated) == sorted([ext_a, ext_b])
@@ -341,14 +341,14 @@ def test_related_resources_add_keeps_existing(sync_client, new_event, two_resour
 def test_related_resources_remove(sync_client, new_event, two_resources):
     ext_a, ext_b = two_resources
     event = new_event(related_resources=[
-        datahub_sdk.IdCollection(external_id=ext_a),
-        datahub_sdk.IdCollection(external_id=ext_b),
+        intellistream_datahub_sdk.IdCollection(external_id=ext_a),
+        intellistream_datahub_sdk.IdCollection(external_id=ext_b),
     ])
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
         event,
-        related_resources=datahub_sdk.ListFieldIdCollection.delta(
-            remove=[datahub_sdk.IdCollection(external_id=ext_a)]
+        related_resources=intellistream_datahub_sdk.ListFieldIdCollection.delta(
+            remove=[intellistream_datahub_sdk.IdCollection(external_id=ext_a)]
         ),
     ))
     assert _related_ext_ids(updated) == [ext_b]
@@ -357,10 +357,10 @@ def test_related_resources_remove(sync_client, new_event, two_resources):
 def test_related_resources_cleared_by_an_empty_set(sync_client, new_event, two_resources):
     """The list has no ``setNull`` either; an empty ``set`` detaches every resource."""
     ext_a, _ = two_resources
-    event = new_event(related_resources=[datahub_sdk.IdCollection(external_id=ext_a)])
+    event = new_event(related_resources=[intellistream_datahub_sdk.IdCollection(external_id=ext_a)])
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
-        event, related_resources=datahub_sdk.ListFieldIdCollection.set([])
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, related_resources=intellistream_datahub_sdk.ListFieldIdCollection.set([])
     ))
     assert updated.related_resources == []
 
@@ -368,7 +368,7 @@ def test_related_resources_cleared_by_an_empty_set(sync_client, new_event, two_r
 def test_related_resource_without_an_identifier_is_rejected(sync_client, new_event):
     """An entry naming neither an id nor an external id cannot be built at all."""
     with pytest.raises(Exception):
-        datahub_sdk.IdCollection()
+        intellistream_datahub_sdk.IdCollection()
 
 
 # --------------------------------------------------------------------------- #
@@ -378,12 +378,12 @@ def test_related_resource_without_an_identifier_is_rejected(sync_client, new_eve
 def test_multiple_fields_in_one_update(sync_client, new_event):
     event = new_event(description="orig", status="new", metadata={"k": "v"})
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
         event,
-        description=datahub_sdk.FieldStr(value="multi desc"),
-        status=datahub_sdk.FieldStr(value="resolved"),
-        source=datahub_sdk.FieldStr(value="multi_source"),
-        metadata=datahub_sdk.MapField.delta(add={"k2": "v2"}),
+        description=intellistream_datahub_sdk.FieldStr(value="multi desc"),
+        status=intellistream_datahub_sdk.FieldStr(value="resolved"),
+        source=intellistream_datahub_sdk.FieldStr(value="multi_source"),
+        metadata=intellistream_datahub_sdk.MapField.delta(add={"k2": "v2"}),
     ))
 
     assert updated.description == "multi desc"
@@ -396,8 +396,8 @@ def test_multiple_fields_in_one_update(sync_client, new_event):
 def test_update_persists_beyond_the_echo(sync_client, new_event):
     event = new_event(description="before")
 
-    _apply(sync_client, datahub_sdk.EventUpdate(
-        event, description=datahub_sdk.FieldStr(value="after")
+    _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event, description=intellistream_datahub_sdk.FieldStr(value="after")
     ))
 
     stored = poll_until(
@@ -410,7 +410,7 @@ def test_update_persists_beyond_the_echo(sync_client, new_event):
 def test_noop_update_preserves_existing_fields(sync_client, new_event):
     event = new_event(description="keep me", status="new", metadata={"a": "1"})
 
-    updated = _apply(sync_client, datahub_sdk.EventUpdate(event))
+    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(event))
 
     assert updated.description == "keep me"
     assert updated.status == "new"
@@ -420,18 +420,18 @@ def test_noop_update_preserves_existing_fields(sync_client, new_event):
 def test_update_targeting_by_uuid_and_by_external_id(sync_client, new_event):
     event = new_event(description="orig")
 
-    by_uuid = _apply(sync_client, datahub_sdk.EventUpdate(
-        event.id, description=datahub_sdk.FieldStr(value="by uuid")
+    by_uuid = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event.id, description=intellistream_datahub_sdk.FieldStr(value="by uuid")
     ))
     assert by_uuid.description == "by uuid"
 
-    by_ext = _apply(sync_client, datahub_sdk.EventUpdate(
-        event.external_id, description=datahub_sdk.FieldStr(value="by external id")
+    by_ext = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
+        event.external_id, description=intellistream_datahub_sdk.FieldStr(value="by external id")
     ))
     assert by_ext.description == "by external id"
 
 
 def test_update_of_an_unknown_event_changes_nothing(sync_client):
-    assert sync_client.events.update([datahub_sdk.EventUpdate(
-        uuid.uuid4(), description=datahub_sdk.FieldStr(value="nobody")
+    assert sync_client.events.update([intellistream_datahub_sdk.EventUpdate(
+        uuid.uuid4(), description=intellistream_datahub_sdk.FieldStr(value="nobody")
     )]) == []

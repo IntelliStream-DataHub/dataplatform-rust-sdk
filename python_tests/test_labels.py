@@ -7,7 +7,7 @@ deleting a label still used by a resource is rejected with 400.
 import time
 
 import pytest
-from datahub_sdk import DataHubException, Label, Resource
+from intellistream_datahub_sdk import DataHubException, Label, Resource
 
 from fixtures import async_client, make_resource, sync_client, unique_id
 

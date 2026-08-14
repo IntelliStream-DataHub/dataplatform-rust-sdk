@@ -9,16 +9,16 @@ use crate::{
     PyTimeSeriesFilterForm,
 };
 use crate::datetime::py_datetime_to_utc;
-use dataplatform_rust_sdk::generic::{
+use intellistream_datahub_sdk::generic::{
     DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter,
 };
-use dataplatform_rust_sdk::{ApiService, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection};
+use intellistream_datahub_sdk::{ApiService, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection};
 use pyo3::prelude::*;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_sdk", name = "TimeSeriesServiceAsync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeriesServiceAsync")]
 pub struct PyTimeSeriesServiceAsync {
     pub api_service: Arc<ApiService>,
 }

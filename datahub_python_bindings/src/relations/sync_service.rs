@@ -1,13 +1,13 @@
 use crate::relations::{
     EdgeIdentifiable, PyEdgeProxy, PyGraphResult, PyRelForm, PyRelTypeForm, PyRelationshipType,
 };
-use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::relations::{RelForm, RelTypeForm};
-use dataplatform_rust_sdk::ApiService;
+use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::relations::{RelForm, RelTypeForm};
+use intellistream_datahub_sdk::ApiService;
 use pyo3::{pyclass, pymethods, PyResult, Python};
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_sdk", name = "EdgesServiceSync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "EdgesServiceSync")]
 pub struct PyEdgesServiceSync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,

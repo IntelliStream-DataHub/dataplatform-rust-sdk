@@ -17,7 +17,7 @@ env-loading path the rest of the suite uses.
 """
 import os
 
-import datahub_sdk
+import intellistream_datahub_sdk
 import pytest
 
 from fixtures import ENV_FILE
@@ -87,14 +87,14 @@ def _federated_kwargs(env):
 
 
 def _assert_lists_units_sync(base_url, kwargs):
-    client = datahub_sdk.DataHubClient(base_url, **kwargs)
+    client = intellistream_datahub_sdk.DataHubClient(base_url, **kwargs)
     units = client.units.list()
     assert isinstance(units, list)
     assert len(units) > 0
 
 
 async def _assert_lists_units_async(base_url, kwargs):
-    client = datahub_sdk.AsyncDataHubClient(base_url, **kwargs)
+    client = intellistream_datahub_sdk.AsyncDataHubClient(base_url, **kwargs)
     units = await client.units.list()
     assert isinstance(units, list)
     assert len(units) > 0

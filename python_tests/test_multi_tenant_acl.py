@@ -69,7 +69,7 @@ Three things worth knowing before reading the assertions:
 import os
 import uuid
 
-import datahub_sdk
+import intellistream_datahub_sdk
 import pytest
 
 from fixtures import ENV_FILE, unique_id
@@ -88,7 +88,7 @@ def search_marker():
 def make_resource(external_id, name=None, data_set_id=None, description=None):
     """A resource the backend will accept. ``labels`` is @NotNull server-side, so it has to
     be set even though the Python constructor defaults it to None."""
-    return datahub_sdk.Resource(
+    return intellistream_datahub_sdk.Resource(
         name=name or external_id,
         external_id=external_id,
         data_set_id=data_set_id,
@@ -136,7 +136,7 @@ def client_for(env, prefix, scope=SCOPE_ALL_ORGS):
     client_secret = env.get(f"{prefix}_CLIENT_SECRET")
     if not (client_id and client_secret):
         pytest.skip(f"{prefix}_CLIENT_ID / _SECRET not configured")
-    return datahub_sdk.DataHubClient(
+    return intellistream_datahub_sdk.DataHubClient(
         env["BASE_URL"],
         token_url=env["TOKEN_URI"],
         client_id=client_id,
@@ -155,7 +155,7 @@ def require_healthy_realm(env):
     control = client_for(env, "MT_ORG_A")
     try:
         control.units.list()
-    except datahub_sdk.DataHubException as e:
+    except intellistream_datahub_sdk.DataHubException as e:
         pytest.skip(
             f"the control principal MT_ORG_A is itself refused with HTTP {e.status_code}, "
             "so a 401 would prove nothing — fix the realm first "
@@ -177,7 +177,7 @@ def test_multi_org_principal_with_wildcard_scope_is_rejected(env):
     require_healthy_realm(env)
     multi = client_for(env, "MT_MULTI")
 
-    with pytest.raises(datahub_sdk.DataHubException) as excinfo:
+    with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
         multi.units.list()
     assert excinfo.value.status_code == 401
 
@@ -191,7 +191,7 @@ def test_principal_without_an_organization_selector_is_rejected(env):
     require_healthy_realm(env)
     multi = client_for(env, "MT_MULTI", scope=None)
 
-    with pytest.raises(datahub_sdk.DataHubException) as excinfo:
+    with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
         multi.units.list()
     assert excinfo.value.status_code == 401
 
@@ -233,7 +233,7 @@ def _visible(client, external_id):
     """
     try:
         return bool(client.resources.by_ids([external_id]))
-    except datahub_sdk.DataHubException as e:
+    except intellistream_datahub_sdk.DataHubException as e:
         if e.status_code == 404:
             return False
         raise
@@ -258,7 +258,7 @@ def test_same_external_id_in_two_orgs_are_independent(env):
         for client in (org_a, org_b):
             try:
                 client.resources.delete([external_id])
-            except datahub_sdk.DataHubException:
+            except intellistream_datahub_sdk.DataHubException:
                 pass
 
 
@@ -275,7 +275,7 @@ def acl_dataset_id(env):
     admin = client_for(env, "MT_ORG_A")
     try:
         found = admin.datasets.by_ids([external_id])
-    except datahub_sdk.DataHubException as e:
+    except intellistream_datahub_sdk.DataHubException as e:
         if e.status_code == 401:
             # The seeding principal's own token is refused, so there is nothing to test here.
             # test_single_org_principal_with_wildcard_scope_succeeds is the one that fails loudly.
@@ -297,7 +297,7 @@ def test_read_only_grant_reads_but_cannot_write(env, acl_dataset_id):
         assert _visible(reader, seeded), "a read grant should see the seeded resource"
 
         denied = unique_id("mt_acl_denied")
-        with pytest.raises(datahub_sdk.DataHubException) as excinfo:
+        with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
             reader.resources.create([make_resource(denied, data_set_id=acl_dataset_id)])
         assert excinfo.value.status_code == 403
         # Unlike a 401, a 403 does carry a body — RFC 9457 problem+json naming the
@@ -326,7 +326,7 @@ def test_write_only_grant_writes_but_cannot_read(env, acl_dataset_id):
     written = unique_id("mt_acl_write")
     created = writer.resources.create([make_resource(written, data_set_id=acl_dataset_id)])
     try:
-        with pytest.raises(datahub_sdk.DataHubException) as excinfo:
+        with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
             created.nodes[0].neighbors()
         assert excinfo.value.status_code == 403
         assert "read" in excinfo.value.message
@@ -340,8 +340,8 @@ def test_dataset_management_requires_a_blanket_write_grant(env):
     writer = client_for(env, "MT_WRITEONLY")
 
     external_id = unique_id("mt_acl_ds")
-    with pytest.raises(datahub_sdk.DataHubException) as excinfo:
-        writer.datasets.create([datahub_sdk.Dataset(external_id=external_id, name=external_id)])
+    with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
+        writer.datasets.create([intellistream_datahub_sdk.Dataset(external_id=external_id, name=external_id)])
     assert excinfo.value.status_code == 403
     assert "manage" in excinfo.value.message or "all-datasets" in excinfo.value.message
 
@@ -359,7 +359,7 @@ def test_search_omits_denied_rows_rather_than_raising(env, acl_dataset_id):
     marker = search_marker()
     admin.resources.create([make_resource(seeded, name=marker, data_set_id=acl_dataset_id)])
     try:
-        form = datahub_sdk.SearchAndFilterForm(query=marker)
+        form = intellistream_datahub_sdk.SearchAndFilterForm(query=marker)
         # Control first, so an empty result below means 'narrowed', not 'never created'.
         assert any(r.external_id == seeded for r in admin.resources.search(form))
         assert not any(r.external_id == seeded for r in outsider.resources.search(form))

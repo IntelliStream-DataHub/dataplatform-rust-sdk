@@ -11,16 +11,16 @@ use crate::{
     PyMapField,
 };
 use chrono::{DateTime, Utc};
-use dataplatform_rust_sdk::fields::{Field, ListField, MapField};
-use dataplatform_rust_sdk::generic::{
+use intellistream_datahub_sdk::fields::{Field, ListField, MapField};
+use intellistream_datahub_sdk::generic::{
     Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId,
     RetrieveFilter,
 };
 use crate::events::PyEvent;
 use crate::resources::{PyResource, PyResourceNetwork};
-use dataplatform_rust_sdk::filters::{BasicEventFilter, EventFilter};
-use dataplatform_rust_sdk::resources::RelatedResourcesForm;
-use dataplatform_rust_sdk::{ApiService, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
+use intellistream_datahub_sdk::filters::{BasicEventFilter, EventFilter};
+use intellistream_datahub_sdk::resources::RelatedResourcesForm;
+use intellistream_datahub_sdk::{ApiService, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateFields};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pyclass;
@@ -84,7 +84,7 @@ pub mod sync_service;
 ///             the connected node (a Timeseries, Dataset, Asset or Policy)
 ///
 ///
-#[pyclass(module = "datahub_sdk", name = "TimeSeries")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeries")]
 #[derive(Clone)]
 pub struct PyTimeSeries {
     pub inner: TimeSeries,
@@ -227,7 +227,7 @@ impl From<PyTimeseriesIdentifiable> for IdAndExtId {
 /// ----------
 /// ts: Timeseries
 #[pyclass(
-    module = "datahub_sdk",
+    module = "intellistream_datahub_sdk",
     name = "TimeSeriesUpdate",
     from_py_object
 )]
@@ -345,7 +345,7 @@ impl PyTimeSeriesUpdate {
 /// ----------
 ///
 ///
-#[pyclass(module = "datahub_sdk", name = "DeleteFilter")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "DeleteFilter")]
 #[derive(Clone, Debug)]
 pub struct PyDeleteFilter {
     inner: DeleteFilter,
@@ -404,7 +404,7 @@ impl PyDeleteFilter {
 /// ("decimal" is accepted as an alias for Float and normalised to "float")
 ///
 /// from pyhton these can be passed directly as case-insensitive literal strings
-#[pyclass(module = "datahub_sdk", skip_from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", skip_from_py_object)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "camelCase")] // Ensures internal string representation is lowercase
 pub enum ValueType {

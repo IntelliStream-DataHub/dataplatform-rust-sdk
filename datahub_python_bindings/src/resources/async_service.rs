@@ -1,17 +1,17 @@
 use crate::relations::{PyGraphResult, PyRelForm};
 use crate::resources::{PyResourceFilter, PyResourceNetwork, PyResourceUpdate, ResourceIdentifiable};
-use dataplatform_rust_sdk::resources::ResourceUpdate;
+use intellistream_datahub_sdk::resources::ResourceUpdate;
 use crate::{DataSetRef, PyResource, PySearchAndFilterForm, StringOrList};
-use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::relations::RelForm;
-use dataplatform_rust_sdk::resources::RelatedResourcesForm;
-use dataplatform_rust_sdk::{ApiService, Resource};
+use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::relations::RelForm;
+use intellistream_datahub_sdk::resources::RelatedResourcesForm;
+use intellistream_datahub_sdk::{ApiService, Resource};
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_sdk", name = "ResourcesServiceAsync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "ResourcesServiceAsync")]
 pub struct PyResourcesServiceAsync {
     pub api_service: Arc<ApiService>,
 }

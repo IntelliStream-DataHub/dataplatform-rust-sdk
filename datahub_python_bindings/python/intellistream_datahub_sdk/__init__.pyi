@@ -1,8 +1,8 @@
-"""Type stubs for the datahub_sdk pyo3 extension module.
+"""Type stubs for the intellistream_datahub_sdk pyo3 extension module.
 
 The runtime is a single flat module: every class is exported at the top level.
 This stub matches that structure; do not introduce submodules unless the Rust
-registration in src/lib.rs::datahub_sdk() also adds them.
+registration in src/lib.rs::intellistream_datahub_sdk() also adds them.
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-import datahub_sdk
+import intellistream_datahub_sdk
 from python_tests.fixtures import *  # noqa: F401,F403  (sync_client fixture)
 
 
@@ -31,11 +31,11 @@ def test_search_finds_created_series(sync_client, make_ts, field):
     time.sleep(SEARCH_INDEX_DELAY)
 
     if field == "name":
-        form = datahub_sdk.SearchAndFilterForm(name=unique_name)
+        form = intellistream_datahub_sdk.SearchAndFilterForm(name=unique_name)
     elif field == "query":
-        form = datahub_sdk.SearchAndFilterForm(query=unique_name)
+        form = intellistream_datahub_sdk.SearchAndFilterForm(query=unique_name)
     else:
-        form = datahub_sdk.SearchAndFilterForm(description=unique_description)
+        form = intellistream_datahub_sdk.SearchAndFilterForm(description=unique_description)
 
     results = sync_client.timeseries.search(form)
     assert isinstance(results, list)

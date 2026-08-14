@@ -5,12 +5,12 @@ use crate::timeseries::datapoints::{
 };
 use crate::{DatahubIdentity, Identifiable};
 use crate::{PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm, PyTimeSeriesFilterForm};
-use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
-use dataplatform_rust_sdk::{ApiService, TimeSeriesUpdateCollection};
+use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
+use intellistream_datahub_sdk::{ApiService, TimeSeriesUpdateCollection};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_sdk", name = "TimeSeriesServiceSync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeriesServiceSync")]
 pub struct PyTimeSeriesServiceSync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,

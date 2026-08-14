@@ -4,19 +4,43 @@ build-backend = "maturin"
 
 [tool.maturin]
 bindings = "pyo3"
-# This tells maturin that the python package is in the 'python' folder
 python-source = "python"
-# The name of the compiled rust module (must match lib.name in Cargo.toml)
-module-name = "datahub_sdk"
+module-name = "intellistream_datahub_sdk._core"
+exclude = ["**/__pycache__/**"]
 
 [project]
-name = "datahub-sdk"
+name = "intellistream-datahub-sdk"
 
 version = "0.1.0"
-description = "Python bindings for the DataHub Rust SDK"
+description = "Python bindings for the IntelliStream DataHub SDK: time series and datapoints, events, resources and relationship edges, files, datasets, labels and subscriptions."
+readme = "README.md"
+authors = [{ name = "IntelliStream AS", email = "support@intellistream.ai" }]
+license = "Apache-2.0"
 requires-python = ">=3.9"
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Rust",
-    "Operating System :: OS Independent",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
+
+[project.urls]
+Repository = "https://github.com/IntelliStream-DataHub/dataplatform-rust-sdk"
+Issues = "https://github.com/IntelliStream-DataHub/dataplatform-rust-sdk/issues"

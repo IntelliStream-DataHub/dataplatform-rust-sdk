@@ -28,8 +28,8 @@ Events reach the filter projection asynchronously, so reads here poll rather tha
 import pandas as pd
 import pytest
 
-import datahub_sdk
-from datahub_sdk import DataHubException
+import intellistream_datahub_sdk
+from intellistream_datahub_sdk import DataHubException
 
 from fixtures import async_client, sync_client, unique_id  # noqa: F401  (fixtures)
 from filter_fixtures import datasets, event_corpus, prefix, token  # noqa: F401  (fixtures)
@@ -50,8 +50,8 @@ def flt(sync_client, prefix):
     """
     def _filter(limit=None, expect_rows=True, **criteria):
         criteria.setdefault("external_id", f"{prefix}*")
-        request = datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(**criteria), limit=limit or 100)
+        request = intellistream_datahub_sdk.EventFilter(
+            intellistream_datahub_sdk.BasicEventFilter(**criteria), limit=limit or 100)
 
         def fetch():
             return externals(sync_client.events.filter(request))
@@ -211,7 +211,7 @@ def test_data_set_scope_by_id_and_by_external_id(flt, event_corpus, datasets, al
     _parent, child = datasets
     assert flt(data_set_id=[child.id]) == {alarm}
     assert flt(data_set_id=[child.external_id]) == {alarm}
-    assert flt(data_set_id=[datahub_sdk.IdCollection(id=child.id)]) == {alarm}
+    assert flt(data_set_id=[intellistream_datahub_sdk.IdCollection(id=child.id)]) == {alarm}
 
 
 def test_a_parent_data_set_stands_in_for_its_children(flt, event_corpus, datasets, alarm, warning):
@@ -226,8 +226,8 @@ def test_empty_and_absent_data_set_scopes_are_opposites(sync_client, event_corpu
     """``None`` is "no data set restriction", ``[]`` is "narrow to no data sets". Opposite answers,
     so the SDK has to keep them apart all the way onto the wire."""
     def run(data_set_ids):
-        return externals(sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_id=f"{prefix}*", data_set_id=data_set_ids))))
+        return externals(sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
+            intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}*", data_set_id=data_set_ids))))
 
     assert run([]) == set()
     assert poll_until(lambda: run(None), bool, timeout=10.0) == both
@@ -262,39 +262,39 @@ def test_related_resources_must_all_be_attached(sync_client, datasets, token):
         except Exception:
             pass
     created = sync_client.resources.create([
-        datahub_sdk.Resource(external_id=res_a, name=f"RR A {token}", labels=["ASSET"],
+        intellistream_datahub_sdk.Resource(external_id=res_a, name=f"RR A {token}", labels=["ASSET"],
                              is_root=True, data_set_id=child.id),
-        datahub_sdk.Resource(external_id=res_b, name=f"RR B {token}", labels=["ASSET"],
+        intellistream_datahub_sdk.Resource(external_id=res_b, name=f"RR B {token}", labels=["ASSET"],
                              is_root=True, data_set_id=child.id),
     ])
     resource_id = {r.external_id: r.id for r in created.nodes}
 
     now = pd.Timestamp.now(tz="UTC")
     sync_client.events.create([
-        datahub_sdk.Event(external_id=ev_both, type=f"rr_{token}", event_time=now,
+        intellistream_datahub_sdk.Event(external_id=ev_both, type=f"rr_{token}", event_time=now,
                           data_set_id=child.id,
-                          related_resources=[datahub_sdk.IdCollection(external_id=res_a),
-                                             datahub_sdk.IdCollection(external_id=res_b)]),
-        datahub_sdk.Event(external_id=ev_one, type=f"rr_{token}", event_time=now,
+                          related_resources=[intellistream_datahub_sdk.IdCollection(external_id=res_a),
+                                             intellistream_datahub_sdk.IdCollection(external_id=res_b)]),
+        intellistream_datahub_sdk.Event(external_id=ev_one, type=f"rr_{token}", event_time=now,
                           data_set_id=child.id,
-                          related_resources=[datahub_sdk.IdCollection(external_id=res_a)]),
+                          related_resources=[intellistream_datahub_sdk.IdCollection(external_id=res_a)]),
     ])
     try:
         def run(related):
-            return externals(sync_client.events.filter(datahub_sdk.EventFilter(
-                datahub_sdk.BasicEventFilter(external_id=f"{own_prefix}_ev_*",
+            return externals(sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
+                intellistream_datahub_sdk.BasicEventFilter(external_id=f"{own_prefix}_ev_*",
                                              related_resources=related))))
 
-        by_a = [datahub_sdk.IdCollection(external_id=res_a)]
+        by_a = [intellistream_datahub_sdk.IdCollection(external_id=res_a)]
         assert poll_until(lambda: run(by_a), lambda r: len(r) >= 2, timeout=15.0) == {ev_both, ev_one}
 
         # Both required: only the event carrying both qualifies.
-        by_both = [datahub_sdk.IdCollection(external_id=res_a),
-                   datahub_sdk.IdCollection(external_id=res_b)]
+        by_both = [intellistream_datahub_sdk.IdCollection(external_id=res_a),
+                   intellistream_datahub_sdk.IdCollection(external_id=res_b)]
         assert run(by_both) == {ev_both}
 
         # A numeric id names the same resource as its external id.
-        assert run([datahub_sdk.IdCollection(id=resource_id[res_b])]) == {ev_both}
+        assert run([intellistream_datahub_sdk.IdCollection(id=resource_id[res_b])]) == {ev_both}
     finally:
         try:
             sync_client.events.delete([ev_both, ev_one])
@@ -320,17 +320,17 @@ def test_event_time_window_bounds_the_result(flt, event_corpus, alarm, warning):
     meaning wearing the name of the first.
     """
     now = pd.Timestamp.now(tz="UTC")
-    assert flt(event_time=datahub_sdk.TimeFilter(start=now - pd.Timedelta(hours=1))) == {warning}
-    assert flt(event_time=datahub_sdk.TimeFilter(end=now - pd.Timedelta(hours=1))) == {alarm}
-    assert flt(event_time=datahub_sdk.TimeFilter(
+    assert flt(event_time=intellistream_datahub_sdk.TimeFilter(start=now - pd.Timedelta(hours=1))) == {warning}
+    assert flt(event_time=intellistream_datahub_sdk.TimeFilter(end=now - pd.Timedelta(hours=1))) == {alarm}
+    assert flt(event_time=intellistream_datahub_sdk.TimeFilter(
         start=now - pd.Timedelta(days=3), end=now + pd.Timedelta(hours=1))) == {alarm, warning}
 
 
 def test_created_time_is_ingest_time_not_event_time(flt, event_corpus, both):
     """Both events were ingested just now, however far apart their event times are."""
     now = pd.Timestamp.now(tz="UTC")
-    assert flt(created_time=datahub_sdk.TimeFilter(start=now - pd.Timedelta(minutes=10))) == both
-    assert flt(created_time=datahub_sdk.TimeFilter(end=now - pd.Timedelta(days=1)),
+    assert flt(created_time=intellistream_datahub_sdk.TimeFilter(start=now - pd.Timedelta(minutes=10))) == both
+    assert flt(created_time=intellistream_datahub_sdk.TimeFilter(end=now - pd.Timedelta(days=1)),
                expect_rows=False) == set()
 
 
@@ -342,7 +342,7 @@ def test_an_absent_filter_places_no_restriction(sync_client, event_corpus, both)
     """An argument-free filter returns the tenant's events, not none of them."""
     everything = poll_until(
         lambda: externals(sync_client.events.filter(
-            datahub_sdk.EventFilter(limit=1000))),
+            intellistream_datahub_sdk.EventFilter(limit=1000))),
         lambda found: found >= both,
         timeout=15.0,
     )
@@ -352,8 +352,8 @@ def test_an_absent_filter_places_no_restriction(sync_client, event_corpus, both)
 @pytest.mark.parametrize("empty", [[], ["", "  "]])
 def test_empty_and_blank_lists_place_no_restriction(sync_client, event_corpus, prefix, both, empty):
     scoped = poll_until(
-        lambda: externals(sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_id=f"{prefix}*", type=empty,
+        lambda: externals(sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
+            intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}*", type=empty,
                                          sub_type=empty, status=empty, source=empty)))),
         bool,
         timeout=10.0,
@@ -372,10 +372,10 @@ def test_garbled_criteria_match_nothing_without_erroring(flt, event_corpus):
 
 
 def test_a_bare_string_means_a_one_element_list(sync_client, event_corpus, prefix, alarm, token):
-    scalar = sync_client.events.filter(datahub_sdk.EventFilter(
-        datahub_sdk.BasicEventFilter(external_id=f"{prefix}*", type=f"alarm_{token}")))
-    listed = sync_client.events.filter(datahub_sdk.EventFilter(
-        datahub_sdk.BasicEventFilter(external_id=[f"{prefix}*"], type=[f"alarm_{token}"])))
+    scalar = sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
+        intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}*", type=f"alarm_{token}")))
+    listed = sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
+        intellistream_datahub_sdk.BasicEventFilter(external_id=[f"{prefix}*"], type=[f"alarm_{token}"])))
     assert externals(scalar) == externals(listed) == {alarm}
 
 
@@ -385,8 +385,8 @@ def test_a_bare_string_means_a_one_element_list(sync_client, event_corpus, prefi
 
 def test_limit_caps_the_page(sync_client, event_corpus, prefix):
     capped = poll_until(
-        lambda: sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=1)),
+        lambda: sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
+            intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=1)),
         bool,
         timeout=10.0,
     )
@@ -395,8 +395,8 @@ def test_limit_caps_the_page(sync_client, event_corpus, prefix):
 
 def test_a_limit_above_the_ceiling_is_refused(sync_client, prefix):
     with pytest.raises(DataHubException) as excinfo:
-        sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=10_001))
+        sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
+            intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=10_001))
     assert excinfo.value.status_code == 400
 
 
@@ -404,8 +404,8 @@ def _ordered_page(sync_client, prefix, both, **sort):
     return [
         event.external_id
         for event in poll_until(
-            lambda: sync_client.events.filter(datahub_sdk.EventFilter(
-                datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=100, **sort)),
+            lambda: sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
+                intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=100, **sort)),
             lambda found: externals(found) >= both,
             timeout=10.0,
         )
@@ -453,14 +453,14 @@ def test_the_default_order_is_event_time_then_id_ascending(sync_client, datasets
     externals_by_offset = {i: f"{own_prefix}_{i}" for i in range(6)}
 
     for offset in order_of_creation:
-        sync_client.events.create([datahub_sdk.Event(
+        sync_client.events.create([intellistream_datahub_sdk.Event(
             external_id=externals_by_offset[offset], type=f"ord_{token}",
             event_time=base + pd.Timedelta(minutes=offset), data_set_id=child.id)])
     try:
         expected = [externals_by_offset[i] for i in range(6)]
         page = poll_until(
-            lambda: sync_client.events.filter(datahub_sdk.EventFilter(
-                datahub_sdk.BasicEventFilter(external_id=f"{own_prefix}*"), limit=100)),
+            lambda: sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
+                intellistream_datahub_sdk.BasicEventFilter(external_id=f"{own_prefix}*"), limit=100)),
             lambda found: externals(found) == set(expected),
             timeout=20.0,
         )
@@ -482,11 +482,11 @@ def test_the_retired_criteria_are_not_accepted(sync_client):
                            ("external_ids", "p*"), ("types", ["alarm"]), ("sub_types", ["x"]),
                            ("statuses", ["OPEN"]), ("sources", ["sap"]), ("data_set_ids", [1])]:
         with pytest.raises(TypeError):
-            datahub_sdk.BasicEventFilter(**{retired: value})
+            intellistream_datahub_sdk.BasicEventFilter(**{retired: value})
 
 
 @pytest.mark.asyncio
 async def test_async_filter_matches_the_sync_one(async_client, sync_client, event_corpus, prefix):
-    request = datahub_sdk.EventFilter(datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"))
+    request = intellistream_datahub_sdk.EventFilter(intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"))
     assert externals(await async_client.events.filter(request)) == externals(
         sync_client.events.filter(request))

@@ -8,7 +8,7 @@ import os
 import time
 from datetime import datetime, timezone
 
-import datahub_sdk
+import intellistream_datahub_sdk
 import pandas as pd
 import pytest
 
@@ -28,7 +28,7 @@ def test_create_list_delete(sync_client, subscription_timeseries):
     ts_a_ext, ts_b_ext = subscription_timeseries
     sub_ext = unique_id("sub")
 
-    sub = datahub_sdk.Subscription(
+    sub = intellistream_datahub_sdk.Subscription(
         external_id=sub_ext,
         name=f"Sub Test {sub_ext}",
         timeseries=[ts_a_ext, ts_b_ext],
@@ -52,8 +52,8 @@ def test_create_list_delete(sync_client, subscription_timeseries):
         assert any(s.external_id == sub_ext for s in filtered)
 
         # Same call via an explicit retriever.
-        retriever = datahub_sdk.SubscriptionRetriever(
-            filter=datahub_sdk.SubscriptionFilter(timeseries=[ts_a_ext]),
+        retriever = intellistream_datahub_sdk.SubscriptionRetriever(
+            filter=intellistream_datahub_sdk.SubscriptionFilter(timeseries=[ts_a_ext]),
             limit=100,
         )
         filtered_via_retriever = sync_client.subscriptions.list(retriever)
@@ -77,7 +77,7 @@ def test_create_over_missing_timeseries_raises(sync_client):
     that refusal to the caller as an exception — the same exception surface a dataset-ACL 403 uses.
     (A genuine 403 needs a token without dataset read access, which this single-token harness can't
     mint; the create-side refusal path is exercised here.)"""
-    sub = datahub_sdk.Subscription(
+    sub = intellistream_datahub_sdk.Subscription(
         external_id=unique_id("sub_missing_ts"),
         name="Sub Over Missing TS",
         timeseries=[unique_id("nonexistent_ts")],
@@ -87,7 +87,7 @@ def test_create_over_missing_timeseries_raises(sync_client):
 
 
 def test_list_rejects_retriever_and_kwargs_together(sync_client):
-    retriever = datahub_sdk.SubscriptionRetriever()
+    retriever = intellistream_datahub_sdk.SubscriptionRetriever()
     with pytest.raises(ValueError):
         sync_client.subscriptions.list(retriever, limit=10)
 
@@ -103,11 +103,11 @@ def test_ws_datapoint_as_float():
     via a deserialized SubscriptionMessage we can build by sending a real datapoint over the
     listen stream — covered by the listen test below. Here we only sanity-check that the
     types are exposed."""
-    assert hasattr(datahub_sdk, "WsDatapoint")
-    assert hasattr(datahub_sdk, "SubscriptionMessage")
-    assert hasattr(datahub_sdk, "SubscriptionListener")
-    assert hasattr(datahub_sdk, "EventAction")
-    assert hasattr(datahub_sdk, "EventObject")
+    assert hasattr(intellistream_datahub_sdk, "WsDatapoint")
+    assert hasattr(intellistream_datahub_sdk, "SubscriptionMessage")
+    assert hasattr(intellistream_datahub_sdk, "SubscriptionListener")
+    assert hasattr(intellistream_datahub_sdk, "EventAction")
+    assert hasattr(intellistream_datahub_sdk, "EventObject")
 
 
 # --- Listen end-to-end -----------------------------------------------------------------
@@ -122,7 +122,7 @@ def test_listen_end_to_end(sync_client):
     ts_ext = unique_id("listen_ts")
     sub_ext = unique_id("listen")
 
-    ts = datahub_sdk.TimeSeries(
+    ts = intellistream_datahub_sdk.TimeSeries(
         external_id=ts_ext,
         name="Sub Listen TS",
         value_type="float",
@@ -131,7 +131,7 @@ def test_listen_end_to_end(sync_client):
     )
     sync_client.timeseries.create([ts])
 
-    sub = datahub_sdk.Subscription(
+    sub = intellistream_datahub_sdk.Subscription(
         external_id=sub_ext,
         name=f"Sub Listen {sub_ext}",
         timeseries=[ts_ext],
@@ -187,14 +187,14 @@ def test_listen_context_manager_closes_cleanly(sync_client):
     ts_ext = unique_id("ctx_ts")
     sub_ext = unique_id("ctx")
 
-    ts = datahub_sdk.TimeSeries(
+    ts = intellistream_datahub_sdk.TimeSeries(
         external_id=ts_ext,
         name="Sub Ctx TS",
         value_type="float",
         unit="a.u",
     )
     sync_client.timeseries.create([ts])
-    sub = datahub_sdk.Subscription(
+    sub = intellistream_datahub_sdk.Subscription(
         external_id=sub_ext,
         name=f"Sub Ctx {sub_ext}",
         timeseries=[ts_ext],
@@ -226,11 +226,11 @@ def test_listen_fans_out_all_bound_timeseries(sync_client):
     sub_ext = f"sub_fan_{suffix}"
 
     ts_objs = [
-        datahub_sdk.TimeSeries(external_id=ext, name=f"Fan TS {i}", value_type="float", unit="a.u")
+        intellistream_datahub_sdk.TimeSeries(external_id=ext, name=f"Fan TS {i}", value_type="float", unit="a.u")
         for i, ext in enumerate(ts_exts)
     ]
     sync_client.timeseries.create(ts_objs)
-    sub = datahub_sdk.Subscription(
+    sub = intellistream_datahub_sdk.Subscription(
         external_id=sub_ext, name=f"Fan Sub {suffix}", timeseries=ts_exts
     )
     sync_client.subscriptions.create([sub])
@@ -307,11 +307,11 @@ def test_listen_partial_refusal_keeps_valid_subscription(sync_client):
     sub_ext = unique_id("sub_mix")
     bogus_ext = unique_id("sub_mix_missing")
 
-    ts = datahub_sdk.TimeSeries(
+    ts = intellistream_datahub_sdk.TimeSeries(
         external_id=ts_ext, name="Sub Mix TS", value_type="float", unit="a.u"
     )
     sync_client.timeseries.create([ts])
-    sub = datahub_sdk.Subscription(
+    sub = intellistream_datahub_sdk.Subscription(
         external_id=sub_ext, name=f"Sub Mix {sub_ext}", timeseries=[ts_ext]
     )
     sync_client.subscriptions.create([sub])

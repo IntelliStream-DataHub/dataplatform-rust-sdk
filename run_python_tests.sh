@@ -2,7 +2,7 @@
 #
 # Setup-and-run wrapper for the Python (PyO3) test suite.
 #
-# The tests import the *compiled* `datahub_sdk` module, not the Rust sources, so a
+# The tests import the *compiled* `intellistream_datahub_sdk` module, not the Rust sources, so a
 # stale `.so` silently masquerades as a source bug (e.g. ids deserialized as the old
 # numeric type after the wire format changed to strings). This script always rebuilds
 # the bindings before running, so the tests reflect the current `src/` and
@@ -84,7 +84,7 @@ if [[ $DO_BUILD -eq 1 ]]; then
     command -v maturin >/dev/null 2>&1 || die "maturin not found; drop --no-deps or 'pip install maturin'"
     build_flags=()
     [[ $RELEASE -eq 1 ]] && build_flags+=(--release)
-    log "Building datahub_sdk bindings with 'maturin develop ${build_flags[*]}'"
+    log "Building intellistream_datahub_sdk bindings with 'maturin develop ${build_flags[*]}'"
     ( cd "$BINDINGS_DIR" && maturin develop "${build_flags[@]}" )
 else
     warn "Skipping 'maturin develop' (--no-build): tests run against the existing .so, which may be stale"

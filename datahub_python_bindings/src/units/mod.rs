@@ -1,4 +1,4 @@
-use dataplatform_rust_sdk::{TimeSeries, Unit};
+use intellistream_datahub_sdk::{TimeSeries, Unit};
 use pyo3::{pyclass, pymethods};
 use std::collections::HashMap;
 
@@ -33,7 +33,7 @@ pub mod sync_service;
 /// source_reference:
 ///     url to the source of the unit
 ///
-#[pyclass(module = "datahub_sdk", name = "Unit")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "Unit")]
 #[derive(Clone)]
 pub struct PyUnit {
     pub inner: Unit,

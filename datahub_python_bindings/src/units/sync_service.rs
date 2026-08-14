@@ -1,12 +1,12 @@
 use crate::PyIdCollection;
 use crate::units::PyUnit;
-use dataplatform_rust_sdk::ApiService;
-use dataplatform_rust_sdk::generic::{DataWrapper, IdAndExtId};
+use intellistream_datahub_sdk::ApiService;
+use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
 use pyo3::prelude::*;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
-#[pyclass(module = "datahub_sdk", name = "UnitServiceSync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "UnitServiceSync")]
 pub(crate) struct PyUnitServiceSync {
     pub(crate) api_service: Arc<ApiService>,
     pub(crate) runtime: Arc<Runtime>,

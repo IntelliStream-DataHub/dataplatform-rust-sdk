@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    name: Manifest versions agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: |
+          set -euo pipefail
+          crate=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          binding=$(grep -m1 '^version' datahub_python_bindings/Cargo.toml | cut -d'"' -f2)
+          py=$(grep -m1 '^version' datahub_python_bindings/pyproject.toml | cut -d'"' -f2)
+          echo "crate=$crate binding=$binding pyproject=$py"
+          if [ "$crate" != "$binding" ] || [ "$crate" != "$py" ]; then
+            echo "::error::manifest versions disagree: $crate / $binding / $py"
+            exit 1
+          fi
+
+  crate:
+    name: Crate builds, tests and packages
+    runs-on: ubuntu-latest
+    needs: versions
+    steps:
+      - uses: actions/checkout@v6
+      # cargo publish verifies default features only, so a feature-gated module can break
+      # without failing a release. `blocking` did exactly that.
+      - run: cargo build --all-features
+      - run: cargo test --no-run --all-features
+      - run: cargo publish --dry-run
+
+  wheels:
+    name: Wheels
+    needs: versions
+    uses: ./.github/workflows/build-wheels.yml

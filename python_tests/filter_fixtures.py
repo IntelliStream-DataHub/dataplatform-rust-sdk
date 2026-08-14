@@ -37,7 +37,7 @@ import uuid
 import pandas as pd
 import pytest
 
-import datahub_sdk
+import intellistream_datahub_sdk
 
 from fixtures import TEST_PREFIX
 from polling import poll_until
@@ -78,17 +78,17 @@ def datasets(sync_client, prefix, token):
     _delete_quietly(sync_client.datasets.delete, [child_ext, parent_ext])
 
     parent = sync_client.datasets.create([
-        datahub_sdk.Dataset(external_id=parent_ext, name=f"Filter Parent {token}",
+        intellistream_datahub_sdk.Dataset(external_id=parent_ext, name=f"Filter Parent {token}",
                             metadata={"tier": "gold", f"dsonly_{token}": "yes"})
     ])[0]
     child = sync_client.datasets.create([
-        datahub_sdk.Dataset(external_id=child_ext, name=f"Filter Child {token}",
+        intellistream_datahub_sdk.Dataset(external_id=child_ext, name=f"Filter Child {token}",
                             metadata={"tier": "silver"})
     ])[0]
     # Stored from = parent, to = child. Reversing it silently produces no hierarchy at all: the
     # closure query walks rel_start -> rel_end and simply finds nothing to descend into.
     sync_client.edges.create([
-        datahub_sdk.RelForm(relationship_type="BELONGS_TO",
+        intellistream_datahub_sdk.RelForm(relationship_type="BELONGS_TO",
                             from_external_id=parent.external_id,
                             to_external_id=child.external_id)
     ])
@@ -128,7 +128,7 @@ def timeseries_corpus(sync_client, datasets, prefix, token):
     }
     _delete_quietly(sync_client.timeseries.delete, [s["external_id"] for s in specs.values()])
     created = sync_client.timeseries.create(
-        [datahub_sdk.TimeSeries(**spec) for spec in specs.values()]
+        [intellistream_datahub_sdk.TimeSeries(**spec) for spec in specs.values()]
     )
     by_external_id = {ts.external_id: ts for ts in created}
     corpus = {key: by_external_id[spec["external_id"]] for key, spec in specs.items()}
@@ -159,7 +159,7 @@ def resource_corpus(sync_client, datasets, prefix, token):
         ),
     }
     _delete_quietly(sync_client.resources.delete, [s["external_id"] for s in specs.values()])
-    sync_client.resources.create([datahub_sdk.Resource(**spec) for spec in specs.values()])
+    sync_client.resources.create([intellistream_datahub_sdk.Resource(**spec) for spec in specs.values()])
     # Read them back so the fixture hands out server-assigned ids.
     stored = {
         r.external_id: r
@@ -196,12 +196,12 @@ def event_corpus(sync_client, datasets, prefix, token):
         ),
     }
     externals = [s["external_id"] for s in specs.values()]
-    sync_client.events.create([datahub_sdk.Event(**spec) for spec in specs.values()])
+    sync_client.events.create([intellistream_datahub_sdk.Event(**spec) for spec in specs.values()])
 
     # Poll rather than sleep: the projection lag is usually milliseconds and occasionally seconds.
     def visible():
-        return sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=50))
+        return sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
+            intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=50))
 
     found = poll_until(visible, lambda events: len(events) >= len(specs))
     assert len(found) >= len(specs), (
@@ -246,7 +246,7 @@ def sortable_timeseries(sync_client, datasets, prefix, token):
     }
     _delete_quietly(sync_client.timeseries.delete, [s["external_id"] for s in specs.values()])
     for index in creation_order:
-        sync_client.timeseries.create([datahub_sdk.TimeSeries(
+        sync_client.timeseries.create([intellistream_datahub_sdk.TimeSeries(
             external_id=specs[index]["external_id"], name=specs[index]["name"],
             unit="bar", value_type="float", data_set_id=child.id)])
         time.sleep(0.02)
@@ -273,7 +273,7 @@ def null_source_resources(sync_client, datasets, prefix, token):
     externals = [s["external_id"] for s in specs.values()]
     _delete_quietly(sync_client.resources.delete, externals)
     sync_client.resources.create([
-        datahub_sdk.Resource(labels=["ASSET"], is_root=True, **spec) for spec in specs.values()
+        intellistream_datahub_sdk.Resource(labels=["ASSET"], is_root=True, **spec) for spec in specs.values()
     ])
 
     yield specs
@@ -306,7 +306,7 @@ def sortable_events(sync_client, datasets, prefix, token):
         spec["type"] = f"{spec['type_letter']}_type_{token}"
 
     sync_client.events.create([
-        datahub_sdk.Event(
+        intellistream_datahub_sdk.Event(
             external_id=spec["external_id"], type=spec["type"], sub_type="electrical",
             status=spec["status"], source=f"src_{token}", data_set_id=child.id,
             event_time=base + pd.Timedelta(minutes=spec["offset"]),
@@ -315,8 +315,8 @@ def sortable_events(sync_client, datasets, prefix, token):
     ])
 
     def visible():
-        return sync_client.events.filter(datahub_sdk.EventFilter(
-            datahub_sdk.BasicEventFilter(external_id=f"{prefix}_sort_ev_*"), limit=50))
+        return sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
+            intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}_sort_ev_*"), limit=50))
 
     found = poll_until(visible, lambda events: len(events) >= len(specs))
     assert len(found) >= len(specs), "the sortable event corpus never became visible"

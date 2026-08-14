@@ -7,7 +7,7 @@
 //! there is exactly one implementation of each call.
 //!
 //! ```no_run
-//! use dataplatform_rust_sdk::blocking;
+//! use intellistream_datahub_sdk::blocking;
 //!
 //! let api = blocking::create_api_service();
 //! let series = api.time_series.search_by_name("engine").unwrap();

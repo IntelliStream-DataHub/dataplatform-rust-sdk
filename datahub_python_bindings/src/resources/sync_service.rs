@@ -1,21 +1,21 @@
 use crate::relations::{PyGraphResult, PyRelForm};
 use crate::resources::{PyResourceFilter, ResourceIdentifiable};
 use crate::resources::{PyResource, PyResourceNetwork, PyResourceUpdate};
-use dataplatform_rust_sdk::resources::ResourceUpdate;
+use intellistream_datahub_sdk::resources::ResourceUpdate;
 use crate::resources::async_service::PyResourcesServiceAsync;
 use crate::{DataSetRef, PySearchAndFilterForm, StringOrList, opt_data_set_refs, opt_patterns};
-use dataplatform_rust_sdk::filters::NodeFilter;
-use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::relations::RelForm;
-use dataplatform_rust_sdk::resources::{
+use intellistream_datahub_sdk::filters::NodeFilter;
+use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::relations::RelForm;
+use intellistream_datahub_sdk::resources::{
     FetchNearestResourcesForm, RelatedResourcesForm, ResourceFilter, ResourceRetreiver,
 };
-use dataplatform_rust_sdk::{ApiService, Resource};
+use intellistream_datahub_sdk::{ApiService, Resource};
 use pyo3::{PyResult, Python, pyclass, pymethods};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_sdk", name = "ResourcesServiceSync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "ResourcesServiceSync")]
 pub struct PyResourcesServiceSync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,

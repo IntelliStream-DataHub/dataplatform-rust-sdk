@@ -6,12 +6,12 @@ use crate::timeseries::datapoints::{
 };
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
 use crate::{PyFieldStr, PyFieldU64, PyListFieldIdCollection, PyMapField};
-use dataplatform_rust_sdk::filters::{BasicEventFilter, DataSort, EventFilter, TimeFilter};
-use dataplatform_rust_sdk::events::{
+use intellistream_datahub_sdk::filters::{BasicEventFilter, DataSort, EventFilter, TimeFilter};
+use intellistream_datahub_sdk::events::{
     EventDimension, EventIdCollection, EventSearch, EventUpdate, EventUpdateFields,
 };
-use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::{ApiService, Event, TimeSeries};
+use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::{ApiService, Event, TimeSeries};
 use std::sync::Arc;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -23,7 +23,7 @@ pub mod async_service;
 pub mod general;
 pub mod sync_service;
 
-#[pyclass(module = "datahub_sdk", name = "Event", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "Event", from_py_object)]
 #[derive(Clone)]
 pub struct PyEvent {
     pub inner: Event,
@@ -65,7 +65,7 @@ impl PyEvent {
     }
 }
 
-#[pyclass(module = "datahub_sdk", name = "EventFilter", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "EventFilter", from_py_object)]
 #[derive(Clone)]
 pub struct PyEventFilter {
     pub inner: EventFilter,
@@ -185,7 +185,7 @@ impl PyEventFilter {
 }
 
 #[pyclass(
-    module = "datahub_sdk",
+    module = "intellistream_datahub_sdk",
     name = "BasicEventFilter",
     from_py_object
 )]
@@ -270,7 +270,7 @@ impl PyBasicEventFilter {
         }
     }
 }
-#[pyclass(module = "datahub_sdk", name = "TimeFilter", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "TimeFilter", from_py_object)]
 #[derive(Clone)]
 pub struct PyTimeFilter {
     inner: TimeFilter,
@@ -328,7 +328,7 @@ impl PyTimeFilter {
 /// carries the `id` (UUID) and/or the `external_id`. Construct with either or both:
 /// `EventIdCollection(id=my_uuid)` or `EventIdCollection(external_id="...")`.
 #[pyclass(
-    module = "datahub_sdk",
+    module = "intellistream_datahub_sdk",
     name = "EventIdCollection",
     from_py_object
 )]
@@ -405,7 +405,7 @@ impl From<EventIdentifyable> for EventIdCollection {
 /// `external_id`; every field is optional and uses the same wrappers as the other services
 /// (`FieldStr`/`FieldU64` for scalars, `ListFieldU64`/`ListFieldStr` for the related-resource
 /// lists, `MapField` for metadata). Mirrors `ResourceUpdate`.
-#[pyclass(module = "datahub_sdk", name = "EventUpdate")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "EventUpdate")]
 #[derive(Clone)]
 pub struct PyEventUpdate {
     pub inner: EventUpdate,
@@ -481,7 +481,7 @@ impl PyEventUpdate {
 /// Request body for `events.search`. `query` is the free-text phrase matched against event
 /// descriptions; `filter` optionally narrows the candidate set (same fields as `BasicEventFilter`),
 /// and `limit` caps the result (server max 1000).
-#[pyclass(module = "datahub_sdk", name = "EventSearch")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "EventSearch")]
 #[derive(Clone)]
 pub struct PyEventSearch {
     pub inner: EventSearch,
@@ -518,7 +518,7 @@ impl PyEventSearch {
 /// Served from dimension tables the write path maintains, not from a scan of the events — cheap
 /// enough for a typeahead, but *eventually consistent*: a new value appears once the write path
 /// records it, and a value no event carries any more lingers until the server's reconcile.
-#[pyclass(module = "datahub_sdk", name = "EventDimension", eq, eq_int, frozen, hash)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "EventDimension", eq, eq_int, frozen, hash)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum PyEventDimension {
     TYPE,

@@ -2,12 +2,12 @@ pub(crate) mod async_service;
 pub(crate) mod sync_service;
 
 use crate::resources::PyResource;
-use dataplatform_rust_sdk::graph_data_wrapper::GraphDataWrapper;
-use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::relations::{
+use intellistream_datahub_sdk::graph_data_wrapper::GraphDataWrapper;
+use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::relations::{
     EdgeProxy, RelForm, RelTypeForm, RelatedNode, RelationDirection, RelationshipType,
 };
-use dataplatform_rust_sdk::{ApiService, Resource};
+use intellistream_datahub_sdk::{ApiService, Resource};
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, pyclass, pymethods};
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// for tests and round-trip serde — in normal use these are returned by the server
 /// inside a `GraphResult`. The Python attribute is `relationship_type` even though
 /// the wire field is `"type"`.
-#[pyclass(module = "datahub_sdk", name = "EdgeProxy")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "EdgeProxy")]
 #[derive(Clone)]
 pub struct PyEdgeProxy {
     pub inner: EdgeProxy,
@@ -109,7 +109,7 @@ impl PyEdgeProxy {
 /// one is connected to, with `relationship_type` and (on read) `direction`/`edge_id`.
 /// Constructible from Python for the create path — pass `id` **or** `external_id` plus a
 /// `relationship_type`; `direction` and `edge_id` are server-assigned and read-only.
-#[pyclass(module = "datahub_sdk", name = "RelatedNode")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "RelatedNode")]
 #[derive(Clone)]
 pub struct PyRelatedNode {
     pub inner: RelatedNode,
@@ -209,7 +209,7 @@ impl PyRelatedNode {
 /// Request-side edge form mirroring server-side `RelForm`. Pair this with a list
 /// of `Resource` and pass both to `ResourcesService.create()`. `relationship_type`
 /// is keyword-required; the server snake-uppercases it.
-#[pyclass(module = "datahub_sdk", name = "RelForm")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "RelForm")]
 #[derive(Clone)]
 pub struct PyRelForm {
     pub inner: RelForm,
@@ -350,7 +350,7 @@ impl PyRelForm {
 
 /// Python view of `GraphDataWrapper<Resource>`: the nodes and relations returned
 /// from a graph operation. `.nodes` is `list[Resource]`, `.relations` is `list[EdgeProxy]`.
-#[pyclass(module = "datahub_sdk", name = "GraphResult")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "GraphResult")]
 #[derive(Clone)]
 pub struct PyGraphResult {
     pub nodes: Vec<PyResource>,
@@ -392,7 +392,7 @@ impl PyGraphResult {
 ///
 /// Types are normally created on demand the first time a name is used; this is what one looks
 /// like once stored.
-#[pyclass(module = "datahub_sdk", name = "RelationshipType")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "RelationshipType")]
 #[derive(Clone)]
 pub struct PyRelationshipType {
     pub inner: RelationshipType,
@@ -435,7 +435,7 @@ impl PyRelationshipType {
 ///
 /// The server uppercase-snake-cases `name`, so `"Flows To"` and `"flows_to"` both land on
 /// `FLOWS_TO`. A name that normalises to nothing (only symbols) is rejected with status 400.
-#[pyclass(module = "datahub_sdk", name = "RelTypeForm", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "RelTypeForm", from_py_object)]
 #[derive(Clone)]
 pub struct PyRelTypeForm {
     pub inner: RelTypeForm,

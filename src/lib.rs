@@ -85,8 +85,8 @@ pub struct ApiService {
 ///
 /// ```no_run
 /// fn main() {
-///     dataplatform_rust_sdk::block_on(async {
-///         let api = dataplatform_rust_sdk::create_api_service();
+///     intellistream_datahub_sdk::block_on(async {
+///         let api = intellistream_datahub_sdk::create_api_service();
 ///         // .await SDK calls here
 ///     });
 /// }

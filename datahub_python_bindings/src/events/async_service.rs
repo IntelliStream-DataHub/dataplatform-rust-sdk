@@ -4,9 +4,9 @@ use crate::events::{
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
 use crate::timeseries::{PyTimeSeries, PyTimeSeriesUpdate};
 use crate::{PyIdCollection, PySearchAndFilterForm};
-use dataplatform_rust_sdk::events::{EventDimension, EventIdCollection, EventUpdate};
-use dataplatform_rust_sdk::generic::DataWrapper;
-use dataplatform_rust_sdk::{
+use intellistream_datahub_sdk::events::{EventDimension, EventIdCollection, EventUpdate};
+use intellistream_datahub_sdk::generic::DataWrapper;
+use intellistream_datahub_sdk::{
     ApiService, Event, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection,
 };
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
@@ -14,7 +14,7 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 use uuid::Uuid;
 
-#[pyclass(module = "datahub_sdk", name = "EventsServiceAsync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "EventsServiceAsync")]
 pub struct PyEventsServiceAsync {
     pub api_service: Arc<ApiService>,
 }

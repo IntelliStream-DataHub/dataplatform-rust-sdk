@@ -4,9 +4,9 @@ pub mod sync_service;
 use crate::datetime::opt_py_datetime_to_utc;
 use crate::resources::PyResource;
 use chrono::{DateTime, Utc};
-use dataplatform_rust_sdk::files::{FileDownload, FileUpdate};
-use dataplatform_rust_sdk::generic::{INode, IdAndExtId};
-use dataplatform_rust_sdk::{ApiService, FileUpload};
+use intellistream_datahub_sdk::files::{FileDownload, FileUpdate};
+use intellistream_datahub_sdk::generic::{INode, IdAndExtId};
+use intellistream_datahub_sdk::{ApiService, FileUpload};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyType};
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_sdk", name = "INode", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "INode", from_py_object)]
 #[derive(Clone)]
 pub struct PyINode {
     inner: INode,
@@ -262,7 +262,7 @@ impl PyINode {
         })
     }
 }
-#[pyclass(module = "datahub_sdk", name = "FileUpload", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "FileUpload", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyFileUpload {
     pub inner: FileUpload,
@@ -430,7 +430,7 @@ impl From<PyFileIdentifiable> for IdAndExtId {
 
 /// A partial update for one file or folder. Identify the node with `id` or `external_id`; every
 /// other argument is optional and only sent when given, so an omitted field is left unchanged.
-#[pyclass(module = "datahub_sdk", name = "FileUpdate", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "FileUpdate", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyFileUpdate {
     pub inner: FileUpdate,
@@ -513,7 +513,7 @@ impl PyFileUpdate {
 }
 
 /// The result of a download: the file's bytes plus what the server said they are.
-#[pyclass(module = "datahub_sdk", name = "FileDownload")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "FileDownload")]
 #[derive(Clone, Debug)]
 pub struct PyFileDownload {
     pub inner: FileDownload,

@@ -20,8 +20,8 @@ query in a way no caller intended.
 """
 import pytest
 
-import datahub_sdk
-from datahub_sdk import DataHubException
+import intellistream_datahub_sdk
+from intellistream_datahub_sdk import DataHubException
 
 from fixtures import async_client, sync_client, unique_id  # noqa: F401  (fixtures)
 from filter_fixtures import (  # noqa: F401  (fixtures)
@@ -156,7 +156,7 @@ def test_data_set_scope_accepts_ids_external_ids_and_collections(flt, resource_c
     assert flt(data_set_id=[child.id]) == both
     assert flt(data_set_id=[child.external_id]) == both, \
         "an external id is a valid data set reference here now; it used to be ids only"
-    assert flt(data_set_id=[datahub_sdk.IdCollection(external_id=child.external_id)]) == both
+    assert flt(data_set_id=[intellistream_datahub_sdk.IdCollection(external_id=child.external_id)]) == both
 
 
 def test_a_parent_data_set_stands_in_for_its_children(flt, resource_corpus, datasets):

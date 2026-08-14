@@ -1,0 +1,152 @@
+name: Build wheels
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { runner: ubuntu-22.04, target: x86_64, manylinux: auto }
+          - { runner: ubuntu-22.04, target: x86, manylinux: auto }
+          # manylinux2014 is CentOS 7 with GCC 4.8, which does not define __ARM_ARCH when
+          # preprocessing .S files; ring's asm_base.h refuses to assemble without it.
+          - { runner: ubuntu-22.04, target: aarch64, manylinux: "2_28" }
+          - { runner: ubuntu-22.04, target: armv7, manylinux: auto }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: datahub_python_bindings
+          key: ${{ matrix.platform.target }}
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: datahub_python_bindings
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
+          manylinux: ${{ matrix.platform.manylinux }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-linux-${{ matrix.platform.target }}
+          path: datahub_python_bindings/dist
+
+  musllinux:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { runner: ubuntu-22.04, target: x86_64 }
+          - { runner: ubuntu-22.04, target: aarch64 }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: datahub_python_bindings
+          key: ${{ matrix.platform.target }}
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: datahub_python_bindings
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
+          manylinux: musllinux_1_2
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-musllinux-${{ matrix.platform.target }}
+          path: datahub_python_bindings/dist
+
+  windows:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { runner: windows-latest, target: x64 }
+          - { runner: windows-11-arm, target: aarch64 }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: datahub_python_bindings
+          key: ${{ matrix.platform.target }}
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: datahub_python_bindings
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-windows-${{ matrix.platform.target }}
+          path: datahub_python_bindings/dist
+
+  macos:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { runner: macos-15-intel, target: x86_64 }
+          - { runner: macos-latest, target: aarch64 }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: datahub_python_bindings
+          key: ${{ matrix.platform.target }}
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: datahub_python_bindings
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-macos-${{ matrix.platform.target }}
+          path: datahub_python_bindings/dist
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: datahub_python_bindings
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-sdist
+          path: datahub_python_bindings/dist
+
+  smoke-test:
+    name: Install and import the wheel
+    runs-on: ubuntu-latest
+    needs: linux
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v7
+        with:
+          name: wheels-linux-x86_64
+          path: dist
+      - run: |
+          pip install dist/*.whl
+          python -c "import intellistream_datahub_sdk as dh; print(dh.DataHubClient)"

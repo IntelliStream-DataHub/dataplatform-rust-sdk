@@ -1,15 +1,15 @@
 pub(crate) mod async_service;
 pub(crate) mod sync_service;
 
-use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::labels::Label;
+use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::labels::Label;
 use pyo3::{pyclass, pymethods, FromPyObject, PyResult};
 use pyo3::exceptions::PyValueError;
 
 /// A DataHub label (the CRUD entity behind `client.labels`). `name` is the identifier callers
 /// set; `id`/`color` are usually assigned by the server. Also the shape returned inside a
 /// `ResourceNetwork` from `resources.fetch_related` (where `color`/`i18n_code` are `None`).
-#[pyclass(module = "datahub_sdk", name = "Label", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "Label", from_py_object)]
 #[derive(Clone)]
 pub struct PyLabel {
     pub inner: Label,
@@ -28,8 +28,8 @@ impl From<PyLabel> for Label {
 
 /// The graph-DTO label from a traversal carries only id/name/description; widen it to the unified
 /// `Label` so `ResourceNetwork.labels` and `client.labels` return one and the same Python class.
-impl From<dataplatform_rust_sdk::resources::Label> for PyLabel {
-    fn from(l: dataplatform_rust_sdk::resources::Label) -> Self {
+impl From<intellistream_datahub_sdk::resources::Label> for PyLabel {
+    fn from(l: intellistream_datahub_sdk::resources::Label) -> Self {
         PyLabel {
             inner: Label {
                 id: l.id,

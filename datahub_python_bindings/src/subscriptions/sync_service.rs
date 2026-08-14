@@ -3,16 +3,16 @@ use crate::subscriptions::{
     PyDataSort, PySubscription, PySubscriptionRetriever, SubscriptionIdentifyable,
     SubscriptionTimeseriesId,
 };
-use dataplatform_rust_sdk::ApiService;
-use dataplatform_rust_sdk::generic::IdAndExtId;
-use dataplatform_rust_sdk::subscriptions::{
+use intellistream_datahub_sdk::ApiService;
+use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::subscriptions::{
     Subscription, SubscriptionFilter, SubscriptionRetriever,
 };
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 use std::sync::Arc;
 
-#[pyclass(module = "datahub_sdk", name = "SubscriptionsServiceSync")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionsServiceSync")]
 pub struct PySubscriptionsServiceSync {
     pub api_service: Arc<ApiService>,
     pub runtime: Arc<tokio::runtime::Runtime>,

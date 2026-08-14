@@ -4,17 +4,17 @@ Mirrors the `vocabulary` module in `src/events/tests.rs`. These answer "what val
 tenant actually use?" for the four categorical event fields, so they back filter dropdowns and
 autocompletes. They return plain strings, not events.
 """
-import datahub_sdk
+import intellistream_datahub_sdk
 import pytest
 
 from fixtures import async_client, sync_client
 
 
 DIMENSIONS = [
-    datahub_sdk.EventDimension.TYPE,
-    datahub_sdk.EventDimension.SUB_TYPE,
-    datahub_sdk.EventDimension.STATUS,
-    datahub_sdk.EventDimension.SOURCE,
+    intellistream_datahub_sdk.EventDimension.TYPE,
+    intellistream_datahub_sdk.EventDimension.SUB_TYPE,
+    intellistream_datahub_sdk.EventDimension.STATUS,
+    intellistream_datahub_sdk.EventDimension.SOURCE,
 ]
 
 
@@ -33,16 +33,16 @@ def test_list_dimensions_are_distinct(sync_client):
 
 def test_named_helpers_match_the_generic_form(sync_client):
     assert sync_client.events.list_types() == sync_client.events.list_dimension(
-        datahub_sdk.EventDimension.TYPE
+        intellistream_datahub_sdk.EventDimension.TYPE
     )
     assert sync_client.events.list_sub_types() == sync_client.events.list_dimension(
-        datahub_sdk.EventDimension.SUB_TYPE
+        intellistream_datahub_sdk.EventDimension.SUB_TYPE
     )
     assert sync_client.events.list_statuses() == sync_client.events.list_dimension(
-        datahub_sdk.EventDimension.STATUS
+        intellistream_datahub_sdk.EventDimension.STATUS
     )
     assert sync_client.events.list_sources() == sync_client.events.list_dimension(
-        datahub_sdk.EventDimension.SOURCE
+        intellistream_datahub_sdk.EventDimension.SOURCE
     )
 
 
@@ -106,7 +106,7 @@ async def test_async_vocabulary(async_client):
     assert isinstance(types, list)
 
     assert types == await async_client.events.list_dimension(
-        datahub_sdk.EventDimension.TYPE
+        intellistream_datahub_sdk.EventDimension.TYPE
     )
 
     if types:
