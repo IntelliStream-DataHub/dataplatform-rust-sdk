@@ -2,6 +2,7 @@
 name = "intellistream-datahub-sdk"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.85"
 description = "Async Rust SDK for the IntelliStream DataHub REST API: time series and datapoints, events, resources and relationship edges, files, datasets, labels and subscriptions."
 license = "Apache-2.0"
 repository = "https://github.com/IntelliStream-DataHub/dataplatform-rust-sdk"
