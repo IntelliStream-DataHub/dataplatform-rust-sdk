@@ -7,8 +7,8 @@ description = "Async Rust SDK for the IntelliStream DataHub REST API: time serie
 license = "Apache-2.0"
 repository = "https://github.com/IntelliStream-DataHub/dataplatform-rust-sdk"
 readme = "README.md"
-keywords = ["datahub", "sdk", "timeseries", "iot", "api-client"]
-categories = ["api-bindings", "asynchronous"]
+keywords = ["datahub", "sdk", "client", "time-series", "iot"]
+categories = ["api-bindings", "database", "asynchronous"]
 exclude = [
     "/datahub_python_bindings",
     "/python_tests",
