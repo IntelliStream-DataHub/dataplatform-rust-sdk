@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    name: Tag matches the manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: |
+          set -euo pipefail
+          crate=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          binding=$(grep -m1 '^version' datahub_python_bindings/Cargo.toml | cut -d'"' -f2)
+          py=$(grep -m1 '^version' datahub_python_bindings/pyproject.toml | cut -d'"' -f2)
+          echo "crate=$crate binding=$binding pyproject=$py tag=$GITHUB_REF_NAME"
+          if [ "$crate" != "$binding" ] || [ "$crate" != "$py" ]; then
+            echo "::error::manifest versions disagree: $crate / $binding / $py"
+            exit 1
+          fi
+          # Final releases only: a prerelease cannot satisfy all three manifests at once,
+          # since Cargo wants semver (0.5.0-rc.1) and PyPI wants PEP 440 (0.5.0rc1).
+          if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$GITHUB_REF_NAME' is not a release tag (expected vX.Y.Z)"
+            exit 1
+          fi
+          if [ "${GITHUB_REF_NAME#v}" != "$crate" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match manifest version $crate"
+            exit 1
+          fi
+
+  crate:
+    name: Crate builds, tests and packages
+    runs-on: ubuntu-latest
+    needs: versions
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo build --all-features
+      - run: cargo test --no-run --all-features
+      - run: cargo publish --dry-run
+
+  wheels:
+    name: Wheels
+    needs: versions
+    uses: ./.github/workflows/build-wheels.yml
+
+  pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [crate, wheels]
+    environment: release
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v7
+      - uses: actions/attest@v4
+        with:
+          subject-path: 'wheels-*/*'
+      - uses: astral-sh/setup-uv@v7
+      - run: uv publish --trusted-publishing always 'wheels-*/*'
+
+  crates-io:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: [crate, wheels]
+    environment: release
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
