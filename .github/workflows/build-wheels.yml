@@ -13,10 +13,12 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - { runner: ubuntu-22.04, target: x86_64 }
-          - { runner: ubuntu-22.04, target: x86 }
-          - { runner: ubuntu-22.04, target: aarch64 }
-          - { runner: ubuntu-22.04, target: armv7 }
+          - { runner: ubuntu-22.04, target: x86_64, manylinux: auto }
+          - { runner: ubuntu-22.04, target: x86, manylinux: auto }
+          # manylinux2014 is CentOS 7 with GCC 4.8, which does not define __ARM_ARCH when
+          # preprocessing .S files; ring's asm_base.h refuses to assemble without it.
+          - { runner: ubuntu-22.04, target: aarch64, manylinux: "2_28" }
+          - { runner: ubuntu-22.04, target: armv7, manylinux: auto }
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -31,7 +33,7 @@ jobs:
           working-directory: datahub_python_bindings
           target: ${{ matrix.platform.target }}
           args: --release --out dist
-          manylinux: auto
+          manylinux: ${{ matrix.platform.manylinux }}
       - uses: actions/upload-artifact@v6
         with:
           name: wheels-linux-${{ matrix.platform.target }}
