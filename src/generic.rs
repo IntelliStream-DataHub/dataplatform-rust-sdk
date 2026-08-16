@@ -336,7 +336,26 @@ impl SearchForm {
 }
 
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+/// One series, and the window of datapoints to remove from it, for
+/// [`delete_datapoints`](crate::TimeSeriesService::delete_datapoints).
+///
+/// Name the series with either [`id`](Self::id) or [`external_id`](Self::external_id). The window
+/// is half-open and **both** bounds are optional, so there are four calls to be made:
+///
+/// | Bounds set | What the api deletes |
+/// |---|---|
+/// | begin and end | The half-open window between them |
+/// | begin only | Everything from that instant onward |
+/// | end only | Everything before that instant |
+/// | neither | Every datapoint of the series, leaving its definition, edges and subscriptions |
+///
+/// The last one is how a series is emptied and refilled, a backfill that went in wrong being the
+/// usual reason. To delete the series itself instead, use
+/// [`delete`](crate::TimeSeriesService::delete), which takes its datapoints with it.
+///
+/// A 204 means the request was accepted, not that the rows are gone: the purge is asynchronous, so
+/// a read straight afterwards can still see them. None of it can be undone.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct DeleteFilter {
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
@@ -349,16 +368,27 @@ pub struct DeleteFilter {
 }
 
 impl DeleteFilter {
-    pub(crate) fn new() -> Self {
-        DeleteFilter {
-            id: None,
-            external_id: None,
-            inclusive_begin: None,
-            exclusive_end: None,
-        }
+    /// A filter naming no series and no window. Set [`id`](Self::id) or
+    /// [`external_id`](Self::external_id) before sending it: an item naming neither is a 400.
+    #[must_use]
+    pub fn new() -> Self {
+        DeleteFilter::default()
     }
 
-    pub(crate) fn from_external_id(
+    /// The window to clear from the series with this external id. `None` leaves that side of the
+    /// window open, and `None` for both clears the whole series.
+    ///
+    /// ```no_run
+    /// # use chrono::{TimeZone, Utc};
+    /// # use intellistream_datahub_sdk::generic::DeleteFilter;
+    /// // Everything recorded before 2026 goes; the series itself stays.
+    /// let old = DeleteFilter::from_external_id(
+    ///     "engine_temperature".to_string(),
+    ///     None,
+    ///     Some(Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()));
+    /// ```
+    #[must_use]
+    pub fn from_external_id(
         external_id: String,
         inclusive_begin: Option<DateTime<Utc>>,
         exclusive_end: Option<DateTime<Utc>>,
@@ -371,7 +401,9 @@ impl DeleteFilter {
         }
     }
 
-    pub(crate) fn from_id(
+    /// As [`from_external_id`](Self::from_external_id), naming the series by its id.
+    #[must_use]
+    pub fn from_id(
         id: u64,
         inclusive_begin: Option<DateTime<Utc>>,
         exclusive_end: Option<DateTime<Utc>>,
@@ -1081,5 +1113,58 @@ mod auth_failure_tests {
             let explained = explain_auth_failure(error(code, "original"), &token);
             assert_eq!(explained.get_message(), "original", "{code} should pass through");
         }
+    }
+}
+
+#[cfg(test)]
+mod delete_filter_tests {
+    use super::{DataWrapper, DeleteFilter};
+    use chrono::{TimeZone, Utc};
+    use serde_json::json;
+
+    #[test]
+    fn a_window_serialises_under_the_api_field_names() {
+        let filter = DeleteFilter::from_external_id(
+            "engine_temperature".to_string(),
+            Some(Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()),
+            Some(Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap()),
+        );
+
+        let body = serde_json::to_value(DataWrapper::from_vec(vec![filter])).unwrap();
+
+        // The api rejects unknown fields outright, so the camelCase renames are load-bearing:
+        // begin/end under any other name is a 400 rather than a wider delete.
+        assert_eq!(
+            body["items"][0],
+            json!({
+                "id": null,
+                "externalId": "engine_temperature",
+                "inclusiveBegin": "2026-01-01T00:00:00Z",
+                "exclusiveEnd": "2026-02-01T00:00:00Z",
+            })
+        );
+    }
+
+    #[test]
+    fn both_bounds_open_means_clear_the_whole_series() {
+        let filter = DeleteFilter::from_external_id("engine_temperature".to_string(), None, None);
+
+        let body = serde_json::to_value(DataWrapper::from_vec(vec![filter])).unwrap();
+
+        // An absent bound has to reach the api as an explicit null rather than being dropped or
+        // defaulted to an instant: null on both sides is what it reads as "every datapoint".
+        assert_eq!(body["items"][0]["inclusiveBegin"], json!(null));
+        assert_eq!(body["items"][0]["exclusiveEnd"], json!(null));
+    }
+
+    #[test]
+    fn an_id_target_goes_out_as_a_string() {
+        let filter = DeleteFilter::from_id(9007199254740993, None, None);
+
+        let body = serde_json::to_value(DataWrapper::from_vec(vec![filter])).unwrap();
+
+        // Ids are 64-bit and JSON numbers are not, so they travel as strings everywhere.
+        assert_eq!(body["items"][0]["id"], json!("9007199254740993"));
+        assert_eq!(body["items"][0]["externalId"], json!(null));
     }
 }

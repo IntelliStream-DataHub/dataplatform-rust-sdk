@@ -339,12 +339,31 @@ impl PyTimeSeriesUpdate {
     }
 }
 
-/// Python wrapper for DeleteFilter, represents a request for deleting datapoints
+/// One series, and the window of datapoints to remove from it, for `delete_datapoints`.
+///
+/// Both bounds are optional and the window is half-open, so:
+/// give both to clear the window between them, `inclusive_begin` alone to clear everything from
+/// that instant onward, `exclusive_end` alone to clear everything before it, and neither to clear
+/// every datapoint of the series while keeping its definition, edges and subscriptions.
+///
+/// The purge is asynchronous: the call returns once the request is accepted, and a read straight
+/// afterwards can still see the datapoints. It cannot be undone.
 ///
 /// Parameters
 /// ----------
+/// ts : Identifiable
+///     The series, as an external id, an id, or a TimeSeries.
+/// inclusive_begin : datetime | None
+///     Start of the window, included. Must be timezone-aware.
+/// exclusive_end : datetime | None
+///     End of the window, excluded. Must be timezone-aware.
 ///
-///
+/// Examples
+/// --------
+/// >>> # everything recorded before 2026 goes; the series itself stays
+/// >>> f = DeleteFilter(ts="engine_temperature",
+/// ...                  exclusive_end=pd.Timestamp("2026-01-01", tz="UTC"))
+/// >>> client.timeseries.delete_datapoints([f])
 #[pyclass(module = "intellistream_datahub_sdk", name = "DeleteFilter")]
 #[derive(Clone, Debug)]
 pub struct PyDeleteFilter {
@@ -384,9 +403,12 @@ impl PyDeleteFilter {
     pub fn target_id(&self) -> Option<u64> {
         self.inner.id
     }
+    // Returns the external id, not a second copy of the id: this getter used to return
+    // `self.inner.id` under an Option<u64>, so the external id a filter was built from was
+    // unreadable and `DeleteFilter(ts="engine_temperature").target_external_id` was None.
     #[getter]
-    pub fn target_external_id(&self) -> Option<u64> {
-        self.inner.id
+    pub fn target_external_id(&self) -> Option<String> {
+        self.inner.external_id.clone()
     }
     #[getter]
     pub fn inclusive_begin(&self) -> Option<DateTime<Utc>> {
