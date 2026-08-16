@@ -90,6 +90,13 @@ impl TimeSeriesService {
         self.create(&dw).await
     }
 
+    /// Deletes each named series **and its datapoints**.
+    ///
+    /// Remove any subscription or edge referencing the series first; the api refuses to strand
+    /// one. The definition is gone when this returns, and the datapoints follow shortly after,
+    /// asynchronously. Nothing can read them in between, since every read resolves the series
+    /// first. To empty a series but keep it, see
+    /// [`delete_datapoints`](Self::delete_datapoints).
     pub async fn delete(
         &self,
         json: &DataWrapper<IdAndExtId>,
@@ -433,6 +440,14 @@ impl TimeSeriesService {
             .await
     }
 
+    /// Clears a window of datapoints from each named series, leaving the series themselves alone.
+    ///
+    /// Each [`DeleteFilter`] carries its own window, and both of its bounds are optional: see the
+    /// type for what each combination deletes, including the both-open call that empties a series
+    /// without losing its definition. An item naming a series that does not exist is a 400 for the
+    /// whole request.
+    ///
+    /// The purge is asynchronous, so a 204 means accepted rather than done.
     pub async fn delete_datapoints(
         &self,
         json: &DataWrapper<DeleteFilter>,
