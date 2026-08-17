@@ -20,7 +20,12 @@ pub struct GraphDataWrapper<T: GraphNode, R = EdgeProxy> {
     #[serde(alias = "items")]
     pub nodes: Option<Vec<T>>,
     pub relations: Option<Vec<R>>,
+    /// Set from the raw body of a non-2xx response, never carried in one. Skipped both ways: this
+    /// struct doubles as the request body for the resource and function create/update endpoints,
+    /// and the api rejects a body naming a field it does not have.
+    #[serde(skip)]
     pub error_body: Option<String>,
+    #[serde(skip)]
     pub http_status_code: Option<u16>,
 }
 

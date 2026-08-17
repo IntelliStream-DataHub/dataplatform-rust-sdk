@@ -76,12 +76,7 @@ from fixtures import ENV_FILE, unique_id
 
 
 def search_marker():
-    """A token that is safe to put in ``search.query``.
-
-    The backend validates the query against ``^[\\p{IsLatin}\\p{Zs}\\p{Nd}]+`` — letters,
-    spaces and digits only — and 400s on anything else. Every external id here has
-    underscores, so searching for one directly is a client error, not a miss.
-    """
+    """A token unique enough to identify one entity through ``search.query``."""
     return f"pytestmt{uuid.uuid4().hex[:12]}"
 
 

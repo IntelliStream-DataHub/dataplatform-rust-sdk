@@ -184,14 +184,19 @@ def event_corpus(sync_client, datasets, prefix, token):
     parent, child = datasets
     now = pd.Timestamp.now(tz="UTC")
     specs = {
+        # The descriptions carry the run token because `/events/search` is free text over the
+        # description column and nothing else — without one these events are unfindable by search,
+        # and a search test would fail at its baseline rather than at what it means to assert.
         "alarm": dict(
             external_id=f"{prefix}_ev_alarm_1", type=f"alarm_{token}", sub_type="electrical",
             status="OPEN", source=f"opc_{token}", data_set_id=child.id,
+            description=f"alarm {token} open electrical",
             event_time=now - pd.Timedelta(days=2), metadata={f"evk_{token}": "one"},
         ),
         "warning": dict(
             external_id=f"{prefix}_ev_alarmX1", type=f"warning_{token}", sub_type="mechanical",
             status="CLOSED", source=f"opcX{token}", data_set_id=parent.id,
+            description=f"alarm {token} closed mechanical",
             event_time=now, metadata={f"evk_{token}": "two"},
         ),
     }

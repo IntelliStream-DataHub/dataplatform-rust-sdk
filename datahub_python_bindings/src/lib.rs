@@ -731,7 +731,7 @@ pub(crate) fn opt_data_set_refs(value: Option<Vec<DataSetRef>>) -> Option<Vec<Id
 #[pyclass(module = "intellistream_datahub_sdk", name = "SearchAndFilterForm")]
 #[derive(Clone)]
 pub struct PySearchAndFilterForm {
-    pub search: SearchForm,
+    pub query: Option<String>,
     pub limit: Option<u64>,
 }
 
@@ -740,7 +740,7 @@ impl PySearchAndFilterForm {
     pub(crate) fn into_form<F>(self, filter: Option<F>) -> SearchAndFilterForm<F> {
         SearchAndFilterForm {
             filter,
-            search: Some(self.search),
+            search: Some(SearchForm { query: self.query }),
             limit: self.limit,
         }
     }
@@ -749,19 +749,10 @@ impl PySearchAndFilterForm {
 #[pymethods]
 impl PySearchAndFilterForm {
     #[new]
-    #[pyo3(signature = (name=None, query=None, description=None, limit=None))]
-    pub fn new(
-        name: Option<String>,
-        query: Option<String>,
-        description: Option<String>,
-        limit: Option<u64>,
-    ) -> Self {
+    #[pyo3(signature = (query=None, limit=None))]
+    pub fn new(query: Option<String>, limit: Option<u64>) -> Self {
         Self {
-            search: SearchForm {
-                name,
-                description,
-                query,
-            },
+            query,
             limit,
         }
     }

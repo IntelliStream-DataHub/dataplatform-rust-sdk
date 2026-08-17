@@ -1,21 +1,16 @@
 """The ``filter`` on the four ``/search`` endpoints.
 
-Each search endpoint declares a ``filter`` in its request schema, of the same type its own
-``/filter`` endpoint takes. Only **one** of the four reads it.
+Each search endpoint declares a ``filter`` of the same type its own ``/filter`` endpoint takes, and
+all four now apply it. Three of them used to accept one and drop it on the floor — the tests below
+were ``xfail(strict=True)`` for exactly that, encoding the contract a caller reading the OpenAPI
+document would expect, and they went green when the server closed the gap rather than having to be
+rewritten.
 
-``/timeseries/search`` applies it, and the refactor is what made that true for the whole filter
-rather than a hand-picked few fields: ``narrowToFilter`` now re-runs the search hits through the
-filter endpoint's own query instead of re-implementing three predicates in Java. The fields it did
-not hand-roll — ids, externalIds, names, and later everything inherited from the node base — were
-accepted and quietly dropped, so a search narrowed by ``name`` returned rows that did not match it.
+The contract they pin: the phrase decides which rows are candidates, the filter only ever *removes*
+some of them, and ``limit`` caps what survives. So a filter can never widen a search, and omitting
+it returns the phrase's hits as found.
 
-``/resources/search``, ``/datasets/search`` and ``/events/search`` still accept a filter and ignore
-it. Those cases are ``xfail(strict=True)``: they encode the behaviour a caller reading the OpenAPI
-document would expect, so they turn green the day the gap closes rather than having to be rewritten.
-Asserting the *current* behaviour instead would mean writing a test that has to be deleted to fix
-the bug, and that reads as though the gap were deliberate.
-
-Free-text search is also ranked and fuzzy where a filter is exact, so these tests assert membership
+Free-text search is ranked and fuzzy where a filter is exact, so these tests assert membership
 ("the filter removed the row it should have") rather than exact result sets.
 """
 import pytest
@@ -39,7 +34,7 @@ def externals(results):
 
 
 # --------------------------------------------------------------------------- #
-# /timeseries/search — the one that honours its filter
+# /timeseries/search — the one that has always honoured its filter
 # --------------------------------------------------------------------------- #
 
 def test_timeseries_search_finds_the_corpus_before_any_filtering(sync_client, timeseries_corpus, token):
@@ -165,15 +160,9 @@ async def test_timeseries_search_filter_works_on_the_async_client(
 
 
 # --------------------------------------------------------------------------- #
-# The three that accept a filter and ignore it
+# The three that used to accept a filter and ignore it
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.xfail(
-    reason="ResourceService.search reads only search.query and limit; the ResourceSearch body's "
-           "`filter` is declared in the OpenAPI schema and never looked at, so a caller who "
-           "narrows a resource search is silently not narrowed. Server-side.",
-    strict=True,
-)
 def test_resource_search_honours_its_filter(sync_client, resource_corpus, token):
     query = f"Node {token}"
     unfiltered = poll_until(
@@ -189,11 +178,6 @@ def test_resource_search_honours_its_filter(sync_client, resource_corpus, token)
     assert externals(narrowed) == {resource_corpus["root"].external_id}
 
 
-@pytest.mark.xfail(
-    reason="DataSetService.search passes only form.getSearch().getQuery() and the limit to the "
-           "repository; the Data Set Search body's `filter` is declared and ignored. Server-side.",
-    strict=True,
-)
 def test_dataset_search_honours_its_filter(sync_client, datasets, token):
     parent, child = datasets
     query = f"Filter {token}"
@@ -208,11 +192,6 @@ def test_dataset_search_honours_its_filter(sync_client, datasets, token):
     assert externals(narrowed) == {parent.external_id}
 
 
-@pytest.mark.xfail(
-    reason="EventService.search passes only the query and the limit to ClickHouseEventService."
-           "search; the EventSearch body's `filter` is declared and ignored. Server-side.",
-    strict=True,
-)
 def test_event_search_honours_its_filter(sync_client, event_corpus, prefix, token):
     query = f"alarm {token}"
     unfiltered = poll_until(
@@ -222,22 +201,3 @@ def test_event_search_honours_its_filter(sync_client, event_corpus, prefix, toke
     narrowed = sync_client.events.search(intellistream_datahub_sdk.EventSearch(
         query, filter=intellistream_datahub_sdk.BasicEventFilter(status=["CLOSED"])))
     assert externals(narrowed) == {f"{prefix}_ev_alarmX1"}
-
-
-def test_the_ignored_filters_are_at_least_accepted(sync_client, resource_corpus, datasets, token):
-    """Until the three above are fixed, passing a filter must still not *break* the search.
-
-    Worth pinning separately: "silently ignored" and "rejected as an unknown field" are different
-    failures, and a caller migrating to the new contract hits this before they hit the xfails.
-    """
-    parent, _child = datasets
-    assert sync_client.resources.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=f"Node {token}"),
-        filter=intellistream_datahub_sdk.ResourceFilter(labels=["FLT_BETA"]),
-    ) is not None
-    assert sync_client.datasets.search(
-        f"Filter {token}", filter=intellistream_datahub_sdk.BasicDatasetFilter(metadata={"tier": "gold"})
-    ) is not None
-    assert sync_client.events.search(intellistream_datahub_sdk.EventSearch(
-        f"alarm {token}", filter=intellistream_datahub_sdk.BasicEventFilter(status=["CLOSED"]))
-    ) is not None

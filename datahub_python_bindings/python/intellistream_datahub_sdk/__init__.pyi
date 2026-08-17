@@ -224,11 +224,21 @@ class IdCollection:
 
 
 class SearchAndFilterForm:
+    """The free-text half of a search request, shared by all four search endpoints.
+
+    ``query`` is required by the server, and bounded at 3–140 characters. The
+    structured half is the ``filter`` argument of the ``search`` method itself, because each
+    entity's search declares its own filter type; it narrows the phrase's hits and never widens
+    them, so omitting it returns the hits as found. ``limit`` defaults to 100 and caps at 1000.
+
+    ``name`` and ``description`` used to sit here, honoured only by ``timeseries.search`` and only
+    one at a time. Both are gone: ``query`` already covers the description column, and a name is
+    matched through the filter's ``name`` pattern list.
+    """
+
     def __init__(
         self,
-        name: str | None = None,
         query: str | None = None,
-        description: str | None = None,
         limit: int | None = None,
     ) -> None: ...
 
@@ -819,6 +829,14 @@ EventIdentifiable = Union[Event, EventIdCollection, UUID, str]
 
 
 class EventUpdate:
+    """Field-level changes for one event.
+
+    There is deliberately no ``event_time``: an event's time is immutable after creation. The
+    server's events table is partitioned by it, so the mutation cannot move the row and is refused
+    outright; the api dropped the field from its update form, and sending it now is a ``400``
+    naming the field. Record a corrected time as a new event, or delete and re-create.
+    """
+
     def __init__(
         self,
         event: EventIdentifiable,
@@ -831,7 +849,6 @@ class EventUpdate:
         metadata: MapField | None = None,
         source: FieldStr | None = None,
         related_resources: ListFieldIdCollection | None = None,
-        event_time: FieldStr | None = None,
     ) -> None: ...
     @property
     def target_id(self) -> UUID | None: ...

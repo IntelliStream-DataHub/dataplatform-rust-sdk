@@ -585,8 +585,6 @@ pub(crate) fn dataset_search_form(
     if let Some(limit) = limit {
         form.set_limit(limit);
     }
-    // Accepted by the endpoint's schema and then ignored server-side; exposed so the gap is
-    // testable rather than invisible. See `test_filter_search_bodies.py`.
     if let Some(filter) = filter {
         form.set_filter(filter.into());
     }

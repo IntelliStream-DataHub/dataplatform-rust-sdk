@@ -95,21 +95,17 @@ impl DatasetsService {
     /// (the query is `websearch_to_tsquery` with `:*` appended), which is what makes this usable
     /// from a search box mid-word.
     ///
-    /// Results are **not ranked** — the query has no `ORDER BY`, so row order is whatever the
-    /// index scan produced. Do not read the first item as the best match.
+    /// Results are ranked by `ts_rank` and tie-broken by id, so the order is both meaningful and
+    /// stable across identical requests. That costs the index's early exit — every matching row is
+    /// scored before `limit` applies.
     ///
-    /// The form's `search.query` and `limit` both reach the server; its `filter` is accepted and
-    /// then ignored, so use [`filter`](Self::filter) for criteria. No match is an empty item list,
-    /// not an error — the 404 the OpenAPI annotation still advertises was removed server-side.
+    /// The whole form reaches the server: `filter` narrows the phrase's hits and can never widen
+    /// them. No match is an empty item list, not an error — the 404 the OpenAPI annotation still
+    /// advertises was removed server-side.
     ///
-    /// # The query charset is narrow
-    ///
-    /// `query` is validated at 3–140 characters **and** against
-    /// `^[\p{IsLatin}\p{Zs}\p{Nd}]+` — Latin letters, space separators and decimal digits only.
-    /// Anything else, an underscore included, is a 400. So an external id is usually *not* a legal
-    /// query even though the index covers it: `sap_work_orders` is rejected, `work orders` is not.
-    /// Search on words, and use [`filter`](Self::filter)'s `external_id` — where a trailing `*`
-    /// is a prefix search — to look something up by id.
+    /// `query` is validated at 3–140 characters and nothing else. It used to be held to
+    /// `^[\p{IsLatin}\p{Zs}\p{Nd}]+` as well, which rejected every snake_case external id and
+    /// every non-Latin script; searching for `sap_work_orders` works now.
     ///
     /// [`search_by_query`](Self::search_by_query) is the shorthand for the common case.
     pub async fn search(

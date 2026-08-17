@@ -431,7 +431,6 @@ impl PyEventUpdate {
         metadata = None,
         source = None,
         related_resources = None,
-        event_time = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn __init__(
@@ -445,7 +444,6 @@ impl PyEventUpdate {
         metadata: Option<PyMapField>,
         source: Option<PyFieldStr>,
         related_resources: Option<PyListFieldIdCollection>,
-        event_time: Option<PyFieldStr>,
     ) -> Self {
         let ident = EventIdCollection::from(event);
         Self {
@@ -462,7 +460,6 @@ impl PyEventUpdate {
                     metadata: metadata.map(Into::into),
                     source: source.map(Into::into),
                     related_resources: related_resources.map(Into::into),
-                    event_time: event_time.map(Into::into),
                 },
             },
         }

@@ -666,11 +666,16 @@ impl From<&Vec<EventIdCollection>> for DataWrapper<EventIdCollection> {
 }
 
 /// Request body for [`EventsService::search`] (`POST /events/search`). `search.query` is the
-/// free-text phrase to match against event descriptions; `filter` optionally narrows the candidate
-/// set with the same fields as [`BasicEventFilter`], and `limit` caps the result (server max 1000).
+/// free-text phrase to match against event descriptions; `filter` optionally narrows the phrase's
+/// hits with the same fields as [`BasicEventFilter`], and `limit` caps what survives (default 100,
+/// server max 1000).
+///
+/// Same shape as the other three searches. The filter narrows and never widens, so omitting it
+/// returns the phrase's hits as found — which is why it is skipped rather than sent empty.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EventSearch {
-    filter: BasicEventFilter,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filter: Option<BasicEventFilter>,
     search: SearchForm,
     limit: usize,
 }
@@ -678,7 +683,7 @@ pub struct EventSearch {
 impl EventSearch {
     pub fn new() -> Self {
         Self {
-            filter: BasicEventFilter::default(),
+            filter: None,
             search: SearchForm::new(),
             limit: 100,
         }
@@ -686,17 +691,14 @@ impl EventSearch {
 
     /// Build a search for the given free-text query, with no extra filter and the default limit.
     pub fn from_query(query: &str) -> Self {
-        let mut search = SearchForm::new();
-        search.query = Some(query.to_string());
         Self {
-            filter: BasicEventFilter::default(),
-            search,
-            limit: 100,
+            search: SearchForm::from_query(query),
+            ..Self::new()
         }
     }
 
     pub fn set_filter(&mut self, filter: BasicEventFilter) -> &mut Self {
-        self.filter = filter;
+        self.filter = Some(filter);
         self
     }
 
@@ -807,13 +809,6 @@ impl EventUpdate {
         self
     }
 
-    /// Change the event `eventTime`. The value is sent to the server as a string, so it must be a
-    /// parseable timestamp — e.g. `Field::value(when.to_rfc3339())`.
-    pub fn event_time(mut self, field: Field<String>) -> Self {
-        self.update.event_time = Some(field);
-        self
-    }
-
     /// Change the event `metadata` (`set` / `add` / `remove` via [`MapField`]).
     pub fn metadata(mut self, field: MapField) -> Self {
         self.update.metadata = Some(field);
@@ -832,6 +827,12 @@ impl EventUpdate {
 /// serialized; the server applies just those. String/number fields use the two-way [`Field`]
 /// (`set` / `setNull`); `metadata` and the related-resource list use the three-way
 /// [`MapField`] / [`ListField`] (`set` / `add` / `remove`).
+///
+/// There is deliberately no `event_time`: an event's time is immutable after creation. The
+/// server's events table is partitioned by it, so the mutation cannot move the row and is refused
+/// outright — the api dropped the field from its update form rather than keep answering `200` to a
+/// change it could not make. Sending it now gets a `400` naming the field. Record a corrected time
+/// as a new event, or delete and re-create.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct EventUpdateFields {
@@ -853,8 +854,6 @@ pub struct EventUpdateFields {
     pub source: Option<Field<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub related_resources: Option<ListField<IdAndExtId>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub event_time: Option<Field<String>>,
 }
 
 impl From<EventUpdate> for DataWrapper<EventUpdate> {

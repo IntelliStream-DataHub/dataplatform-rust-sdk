@@ -311,12 +311,7 @@ fn unique_id(kind: &str) -> String {
     crate::tests::ids::unique_id(&format!("mt_{kind}"))
 }
 
-/// A token that is safe to put in `search.query`.
-///
-/// The backend validates the query against `^[\p{IsLatin}\p{Zs}\p{Nd}]+` — letters, spaces and
-/// digits only — and rejects anything else with a 400. Every external id here contains
-/// underscores, so searching for one directly is a client error, not a miss. Hex from a UUID
-/// satisfies the pattern and is still unique enough to identify one entity.
+/// A token unique enough to identify one entity through `search.query`.
 fn search_marker() -> String {
     crate::tests::ids::unique_token("mt")
 }

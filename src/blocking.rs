@@ -10,7 +10,7 @@
 //! use intellistream_datahub_sdk::blocking;
 //!
 //! let api = blocking::create_api_service();
-//! let series = api.time_series.search_by_name("engine").unwrap();
+//! let series = api.time_series.search_by_query("engine").unwrap();
 //! for ts in series.get_items() {
 //!     println!("{}", ts.external_id);
 //! }
@@ -165,9 +165,7 @@ impl TimeSeriesService {
         fn update(json: &TimeSeriesUpdateCollection) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn by_ids(json: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn search(form: &SearchAndFilterForm<TimeSeriesFilter>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
-        fn search_by_name(name: &str) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn search_by_query(query: &str) -> Result<DataWrapper<TimeSeries>, ResponseError>;
-        fn search_by_description(query: &str) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn insert_datapoint(id: Option<u64>, external_id: Option<String>, timestamp: DateTime<Utc>, value: String) -> Result<DataWrapper<String>, ResponseError>;
         fn insert_datapoints(json: &mut DataWrapper<DatapointsCollection<DatapointString>>) -> Result<DataWrapper<String>, ResponseError>;
         fn retrieve_datapoints(json: &DataWrapper<RetrieveFilter>) -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>;
