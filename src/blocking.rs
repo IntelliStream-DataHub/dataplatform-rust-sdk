@@ -10,7 +10,7 @@
 //! use intellistream_datahub_sdk::blocking;
 //!
 //! let api = blocking::create_api_service();
-//! let series = api.time_series.search_by_name("engine").unwrap();
+//! let series = api.time_series.search_by_query("engine").unwrap();
 //! for ts in series.get_items() {
 //!     println!("{}", ts.external_id);
 //! }
@@ -28,10 +28,10 @@ use chrono::{DateTime, Utc};
 use tokio::runtime::Runtime;
 
 use crate::datahub::DataHubConfig;
-use crate::datasets::{Dataset, DatasetFilter, DatasetSearch, DatasetUpdate};
+use crate::datasets::{BasicDatasetFilter, Dataset, DatasetFilter, DatasetUpdate};
 use crate::events::{Event, EventDimension, EventIdCollection};
 use crate::files::{FileDownload, FileUpdate, FileUpload};
-use crate::filters::EventFilter;
+use crate::filters::{BasicEventFilter, EventFilter};
 use crate::functions::Function;
 use crate::generic::{
     DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, INode, IdAndExtId,
@@ -165,9 +165,7 @@ impl TimeSeriesService {
         fn update(json: &TimeSeriesUpdateCollection) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn by_ids(json: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn search(form: &SearchAndFilterForm<TimeSeriesFilter>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
-        fn search_by_name(name: &str) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn search_by_query(query: &str) -> Result<DataWrapper<TimeSeries>, ResponseError>;
-        fn search_by_description(query: &str) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn insert_datapoint(id: Option<u64>, external_id: Option<String>, timestamp: DateTime<Utc>, value: String) -> Result<DataWrapper<String>, ResponseError>;
         fn insert_datapoints(json: &mut DataWrapper<DatapointsCollection<DatapointString>>) -> Result<DataWrapper<String>, ResponseError>;
         fn retrieve_datapoints(json: &DataWrapper<RetrieveFilter>) -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>;
@@ -236,6 +234,7 @@ impl EventsService {
         fn list_sources(limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
         fn search_sources(query: &str, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
         fn filter(filter: &EventFilter) -> Result<DataWrapper<Event>, ResponseError>;
+        fn search(search: &SearchAndFilterForm<BasicEventFilter>) -> Result<DataWrapper<Event>, ResponseError>;
     }
 
     delegate_into! { events =>
@@ -260,7 +259,7 @@ impl DatasetsService {
     delegate! { datasets =>
         fn list(limit: Option<u64>) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn filter(filter: &DatasetFilter) -> Result<DataWrapper<Dataset>, ResponseError>;
-        fn search(search: &DatasetSearch) -> Result<DataWrapper<Dataset>, ResponseError>;
+        fn search(search: &SearchAndFilterForm<BasicDatasetFilter>) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn search_by_query(query: &str) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn policies() -> Result<DataWrapper<Resource>, ResponseError>;
     }

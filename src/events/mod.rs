@@ -7,7 +7,7 @@ use crate::fields::{Field, ListField, MapField};
 use crate::filters::{BasicEventFilter, EventFilter};
 use crate::generic::{
     ApiServiceProvider, DataHubEntity, DataWrapper, DataWrapperDeserialization, IdAndExtId,
-    SearchForm,
+    SearchAndFilterForm,
 };
 use crate::http::ResponseError;
 use crate::ApiService;
@@ -207,7 +207,10 @@ impl EventsService {
     /// Free-text search over event descriptions (`POST /events/search`). Matching is fuzzy and
     /// word-aware; results are ranked by relevance. For structured filters (time ranges, types,
     /// related resources) use [`filter`](Self::filter) instead — it is faster and more predictable.
-    pub async fn search(&self, search: &EventSearch) -> Result<DataWrapper<Event>, ResponseError> {
+    pub async fn search(
+        &self,
+        search: &SearchAndFilterForm<BasicEventFilter>,
+    ) -> Result<DataWrapper<Event>, ResponseError> {
         let path = &format!("{}/search", self.base_url);
         self.execute_post_request::<DataWrapper<Event>, _>(path, search)
             .await
@@ -665,62 +668,6 @@ impl From<&Vec<EventIdCollection>> for DataWrapper<EventIdCollection> {
     }
 }
 
-/// Request body for [`EventsService::search`] (`POST /events/search`). `search.query` is the
-/// free-text phrase to match against event descriptions; `filter` optionally narrows the candidate
-/// set with the same fields as [`BasicEventFilter`], and `limit` caps the result (server max 1000).
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct EventSearch {
-    filter: BasicEventFilter,
-    search: SearchForm,
-    limit: usize,
-}
-
-impl EventSearch {
-    pub fn new() -> Self {
-        Self {
-            filter: BasicEventFilter::default(),
-            search: SearchForm::new(),
-            limit: 100,
-        }
-    }
-
-    /// Build a search for the given free-text query, with no extra filter and the default limit.
-    pub fn from_query(query: &str) -> Self {
-        let mut search = SearchForm::new();
-        search.query = Some(query.to_string());
-        Self {
-            filter: BasicEventFilter::default(),
-            search,
-            limit: 100,
-        }
-    }
-
-    pub fn set_filter(&mut self, filter: BasicEventFilter) -> &mut Self {
-        self.filter = filter;
-        self
-    }
-
-    pub fn set_search(&mut self, search: SearchForm) -> &mut Self {
-        self.search = search;
-        self
-    }
-
-    pub fn set_limit(&mut self, limit: usize) -> &mut Self {
-        self.limit = limit;
-        self
-    }
-
-    pub fn build(&self) -> Self {
-        self.clone()
-    }
-}
-
-impl Default for EventSearch {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// One event's update in `POST /events/update`. Target the event by UUID `id` or `external_id`,
 /// then layer on the field changes. Each setter takes the field-change struct directly, so one
 /// method per field covers every operation that field supports — [`Field::value`] / [`Field::null`]
@@ -807,13 +754,6 @@ impl EventUpdate {
         self
     }
 
-    /// Change the event `eventTime`. The value is sent to the server as a string, so it must be a
-    /// parseable timestamp — e.g. `Field::value(when.to_rfc3339())`.
-    pub fn event_time(mut self, field: Field<String>) -> Self {
-        self.update.event_time = Some(field);
-        self
-    }
-
     /// Change the event `metadata` (`set` / `add` / `remove` via [`MapField`]).
     pub fn metadata(mut self, field: MapField) -> Self {
         self.update.metadata = Some(field);
@@ -832,6 +772,12 @@ impl EventUpdate {
 /// serialized; the server applies just those. String/number fields use the two-way [`Field`]
 /// (`set` / `setNull`); `metadata` and the related-resource list use the three-way
 /// [`MapField`] / [`ListField`] (`set` / `add` / `remove`).
+///
+/// There is deliberately no `event_time`: an event's time is immutable after creation. The
+/// server's events table is partitioned by it, so the mutation cannot move the row and is refused
+/// outright — the api dropped the field from its update form rather than keep answering `200` to a
+/// change it could not make. Sending it now gets a `400` naming the field. Record a corrected time
+/// as a new event, or delete and re-create.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct EventUpdateFields {
@@ -853,8 +799,6 @@ pub struct EventUpdateFields {
     pub source: Option<Field<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub related_resources: Option<ListField<IdAndExtId>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub event_time: Option<Field<String>>,
 }
 
 impl From<EventUpdate> for DataWrapper<EventUpdate> {

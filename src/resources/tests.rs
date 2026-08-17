@@ -1,7 +1,7 @@
 use super::*;
 use crate::create_api_service;
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
-use crate::generic::{IdAndExtId, SearchForm};
+use crate::generic::{IdAndExtId, SearchAndFilterForm};
 use crate::relations::RelForm;
 use crate::tests::cleanup::{
     cleanup_datasets, cleanup_functions, cleanup_resources, cleanup_timeseries,
@@ -108,24 +108,8 @@ async fn test_search_resources() -> Result<(), ResponseError> {
     let api_service = create_api_service();
     let test_resources = create_test_resources();
     // Delete timeseries first, in case a test failed and the time series exists
-    let query = SearchAndFilterForm {
-        search: Some(SearchForm {
-            name: None,
-            description: None,
-            query: Some("test resource".to_string()),
-        }),
-        limit: Some(5),
-        filter: None,
-    };
-    let query2 = SearchAndFilterForm {
-        search: Some(SearchForm {
-            name: None,
-            description: None,
-            query: Some("test resource".to_string()),
-        }),
-        limit: None,
-        filter: None,
-    };
+    let query = SearchAndFilterForm::<ResourceFilter>::new("test resource").with_limit(5);
+    let query2 = SearchAndFilterForm::<ResourceFilter>::new("test resource");
 
     let test_data = api_service
         .resources

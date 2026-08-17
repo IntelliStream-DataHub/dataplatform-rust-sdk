@@ -1,21 +1,16 @@
 """The ``filter`` on the four ``/search`` endpoints.
 
-Each search endpoint declares a ``filter`` in its request schema, of the same type its own
-``/filter`` endpoint takes. Only **one** of the four reads it.
+Each search endpoint declares a ``filter`` of the same type its own ``/filter`` endpoint takes, and
+all four now apply it. Three of them used to accept one and drop it on the floor — the tests below
+were ``xfail(strict=True)`` for exactly that, encoding the contract a caller reading the OpenAPI
+document would expect, and they went green when the server closed the gap rather than having to be
+rewritten.
 
-``/timeseries/search`` applies it, and the refactor is what made that true for the whole filter
-rather than a hand-picked few fields: ``narrowToFilter`` now re-runs the search hits through the
-filter endpoint's own query instead of re-implementing three predicates in Java. The fields it did
-not hand-roll — ids, externalIds, names, and later everything inherited from the node base — were
-accepted and quietly dropped, so a search narrowed by ``name`` returned rows that did not match it.
+The contract they pin: the phrase decides which rows are candidates, the filter only ever *removes*
+some of them, and ``limit`` caps what survives. So a filter can never widen a search, and omitting
+it returns the phrase's hits as found.
 
-``/resources/search``, ``/datasets/search`` and ``/events/search`` still accept a filter and ignore
-it. Those cases are ``xfail(strict=True)``: they encode the behaviour a caller reading the OpenAPI
-document would expect, so they turn green the day the gap closes rather than having to be rewritten.
-Asserting the *current* behaviour instead would mean writing a test that has to be deleted to fix
-the bug, and that reads as though the gap were deliberate.
-
-Free-text search is also ranked and fuzzy where a filter is exact, so these tests assert membership
+Free-text search is ranked and fuzzy where a filter is exact, so these tests assert membership
 ("the filter removed the row it should have") rather than exact result sets.
 """
 import pytest
@@ -39,14 +34,14 @@ def externals(results):
 
 
 # --------------------------------------------------------------------------- #
-# /timeseries/search — the one that honours its filter
+# /timeseries/search — the one that has always honoured its filter
 # --------------------------------------------------------------------------- #
 
 def test_timeseries_search_finds_the_corpus_before_any_filtering(sync_client, timeseries_corpus, token):
     """The baseline every test below narrows from. If this is empty the search index has not caught
     up and the narrowing assertions would pass for the wrong reason."""
     hits = poll_until(
-        lambda: sync_client.timeseries.search(intellistream_datahub_sdk.SearchAndFilterForm(query=f"Pump Alpha {token}")),
+        lambda: sync_client.timeseries.search(f"Pump Alpha {token}"),
         bool,
     )
     assert timeseries_corpus["pump_1"].external_id in externals(hits)
@@ -57,7 +52,7 @@ def test_timeseries_search_filter_narrows_on_an_inherited_node_field(sync_client
     hand-rolled post-filter did not implement — it was accepted and dropped."""
     query = f"Pump {token}"
     unfiltered = poll_until(
-        lambda: sync_client.timeseries.search(intellistream_datahub_sdk.SearchAndFilterForm(query=query)),
+        lambda: sync_client.timeseries.search(query),
         lambda hits: len(externals(hits)) >= 2,
     )
     assert externals(unfiltered) >= {
@@ -65,7 +60,7 @@ def test_timeseries_search_filter_narrows_on_an_inherited_node_field(sync_client
     }
 
     narrowed = sync_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=query),
+        query,
         filter=intellistream_datahub_sdk.TimeSeriesFilterForm(name=[f"Pump Alpha {token}"]),
     )
     assert externals(narrowed) == {timeseries_corpus["pump_1"].external_id}
@@ -74,13 +69,13 @@ def test_timeseries_search_filter_narrows_on_an_inherited_node_field(sync_client
 def test_timeseries_search_filter_narrows_on_a_timeseries_only_field(sync_client, timeseries_corpus, token):
     query = f"Pump {token}"
     by_unit = sync_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=query),
+        query,
         filter=intellistream_datahub_sdk.TimeSeriesFilterForm(unit=["celsius"]),
     )
     assert externals(by_unit) == {timeseries_corpus["pump_x1"].external_id}
 
     by_value_type = sync_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=query),
+        query,
         filter=intellistream_datahub_sdk.TimeSeriesFilterForm(value_type=["TEXT"]),
     )
     assert externals(by_value_type) == set(), "both Pump series are FLOAT"
@@ -89,13 +84,13 @@ def test_timeseries_search_filter_narrows_on_a_timeseries_only_field(sync_client
 def test_timeseries_search_filter_narrows_by_metadata_and_labels(sync_client, timeseries_corpus, token):
     query = f"Pump {token}"
     by_metadata = sync_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=query),
+        query,
         filter=intellistream_datahub_sdk.TimeSeriesFilterForm(metadata={f"tsk_{token}": "beta"}),
     )
     assert externals(by_metadata) == {timeseries_corpus["pump_x1"].external_id}
 
     by_label = sync_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=query),
+        query,
         filter=intellistream_datahub_sdk.TimeSeriesFilterForm(labels=["NO_SUCH_LABEL_XYZ"]),
     )
     assert externals(by_label) == set()
@@ -111,14 +106,14 @@ def test_timeseries_search_filter_narrows_by_data_set(sync_client, timeseries_co
     query = f"{token}"
 
     in_child = sync_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=query),
+        query,
         filter=intellistream_datahub_sdk.TimeSeriesFilterForm(data_set_id=[child.id]),
     )
     assert timeseries_corpus["valve"].external_id not in externals(in_child)
 
     # Naming the parent covers the child, so the whole corpus is back in scope.
     under_parent = sync_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=query),
+        query,
         filter=intellistream_datahub_sdk.TimeSeriesFilterForm(data_set_id=[parent.id]),
     )
     assert externals(under_parent) >= {
@@ -130,7 +125,7 @@ def test_timeseries_search_filter_is_optional(sync_client, timeseries_corpus, to
     """Omitting it must place no restriction — the search has to keep working for callers who never
     pass one."""
     with_none = sync_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=f"Pump Alpha {token}"), filter=None)
+        f"Pump Alpha {token}", filter=None)
     assert timeseries_corpus["pump_1"].external_id in externals(with_none)
 
 
@@ -141,11 +136,11 @@ def test_timeseries_search_ranking_survives_the_filter(sync_client, timeseries_c
     """
     query = f"{token}"
     unfiltered = [ts.external_id for ts in poll_until(
-        lambda: sync_client.timeseries.search(intellistream_datahub_sdk.SearchAndFilterForm(query=query)),
+        lambda: sync_client.timeseries.search(query),
         lambda hits: len(hits) >= 2,
     )]
     filtered = [ts.external_id for ts in sync_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=query),
+        query,
         filter=intellistream_datahub_sdk.TimeSeriesFilterForm(value_type=["FLOAT"]),
     )]
 
@@ -158,42 +153,31 @@ async def test_timeseries_search_filter_works_on_the_async_client(
     async_client, sync_client, timeseries_corpus, token
 ):
     narrowed = await async_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=f"Pump {token}"),
+        f"Pump {token}",
         filter=intellistream_datahub_sdk.TimeSeriesFilterForm(name=[f"Pump Alpha {token}"]),
     )
     assert externals(narrowed) == {timeseries_corpus["pump_1"].external_id}
 
 
 # --------------------------------------------------------------------------- #
-# The three that accept a filter and ignore it
+# The three that used to accept a filter and ignore it
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.xfail(
-    reason="ResourceService.search reads only search.query and limit; the ResourceSearch body's "
-           "`filter` is declared in the OpenAPI schema and never looked at, so a caller who "
-           "narrows a resource search is silently not narrowed. Server-side.",
-    strict=True,
-)
 def test_resource_search_honours_its_filter(sync_client, resource_corpus, token):
     query = f"Node {token}"
     unfiltered = poll_until(
-        lambda: sync_client.resources.search(intellistream_datahub_sdk.SearchAndFilterForm(query=query)),
+        lambda: sync_client.resources.search(query),
         lambda hits: len(externals(hits)) >= 2,
     )
     assert externals(unfiltered) >= {r.external_id for r in resource_corpus.values()}
 
     narrowed = sync_client.resources.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=query),
+        query,
         filter=intellistream_datahub_sdk.ResourceFilter(labels=["FLT_BETA"]),
     )
     assert externals(narrowed) == {resource_corpus["root"].external_id}
 
 
-@pytest.mark.xfail(
-    reason="DataSetService.search passes only form.getSearch().getQuery() and the limit to the "
-           "repository; the Data Set Search body's `filter` is declared and ignored. Server-side.",
-    strict=True,
-)
 def test_dataset_search_honours_its_filter(sync_client, datasets, token):
     parent, child = datasets
     query = f"Filter {token}"
@@ -208,36 +192,12 @@ def test_dataset_search_honours_its_filter(sync_client, datasets, token):
     assert externals(narrowed) == {parent.external_id}
 
 
-@pytest.mark.xfail(
-    reason="EventService.search passes only the query and the limit to ClickHouseEventService."
-           "search; the EventSearch body's `filter` is declared and ignored. Server-side.",
-    strict=True,
-)
 def test_event_search_honours_its_filter(sync_client, event_corpus, prefix, token):
     query = f"alarm {token}"
     unfiltered = poll_until(
-        lambda: sync_client.events.search(intellistream_datahub_sdk.EventSearch(query)), bool)
+        lambda: sync_client.events.search(query), bool)
     assert externals(unfiltered), "the event search index never returned the corpus"
 
-    narrowed = sync_client.events.search(intellistream_datahub_sdk.EventSearch(
-        query, filter=intellistream_datahub_sdk.BasicEventFilter(status=["CLOSED"])))
+    narrowed = sync_client.events.search(
+        query, filter=intellistream_datahub_sdk.BasicEventFilter(status=["CLOSED"]))
     assert externals(narrowed) == {f"{prefix}_ev_alarmX1"}
-
-
-def test_the_ignored_filters_are_at_least_accepted(sync_client, resource_corpus, datasets, token):
-    """Until the three above are fixed, passing a filter must still not *break* the search.
-
-    Worth pinning separately: "silently ignored" and "rejected as an unknown field" are different
-    failures, and a caller migrating to the new contract hits this before they hit the xfails.
-    """
-    parent, _child = datasets
-    assert sync_client.resources.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=f"Node {token}"),
-        filter=intellistream_datahub_sdk.ResourceFilter(labels=["FLT_BETA"]),
-    ) is not None
-    assert sync_client.datasets.search(
-        f"Filter {token}", filter=intellistream_datahub_sdk.BasicDatasetFilter(metadata={"tier": "gold"})
-    ) is not None
-    assert sync_client.events.search(intellistream_datahub_sdk.EventSearch(
-        f"alarm {token}", filter=intellistream_datahub_sdk.BasicEventFilter(status=["CLOSED"]))
-    ) is not None

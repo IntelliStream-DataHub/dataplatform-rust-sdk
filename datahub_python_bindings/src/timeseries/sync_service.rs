@@ -4,7 +4,7 @@ use crate::timeseries::datapoints::{
     PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
 };
 use crate::{DatahubIdentity, Identifiable};
-use crate::{PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm, PyTimeSeriesFilterForm};
+use crate::{PyIdCollection, PyRetrieveFilter, PyTimeSeriesFilterForm};
 use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
 use intellistream_datahub_sdk::{ApiService, TimeSeriesUpdateCollection};
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -127,14 +127,15 @@ impl PyTimeSeriesServiceSync {
             Ok(py_ts)
         })
     }
-    #[pyo3(signature = (input, filter = None))]
+    #[pyo3(signature = (query, filter = None, limit = None))]
     fn search<'p>(
         &self,
         py: Python<'p>,
-        input: PySearchAndFilterForm,
+        query: String,
         filter: Option<PyTimeSeriesFilterForm>,
+        limit: Option<u64>,
     ) -> PyResult<Vec<PyTimeSeries>> {
-        let form = input.into_form(filter.map(|f| f.inner.filter));
+        let form = crate::search_form(query, filter.map(|f| f.inner.filter), limit);
         let service = self.api_service.clone();
 
         py.detach(|| {

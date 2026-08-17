@@ -4,7 +4,7 @@ mod tests;
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::fields::{Field, ListField, MapField};
 use crate::filters::{MetadataFilter, NodeFilter, TimeFilter};
-use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, SearchForm};
+use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, SearchAndFilterForm};
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::ResponseError;
 use crate::resources::Resource;
@@ -95,26 +95,22 @@ impl DatasetsService {
     /// (the query is `websearch_to_tsquery` with `:*` appended), which is what makes this usable
     /// from a search box mid-word.
     ///
-    /// Results are **not ranked** — the query has no `ORDER BY`, so row order is whatever the
-    /// index scan produced. Do not read the first item as the best match.
+    /// Results are ranked by `ts_rank` and tie-broken by id, so the order is both meaningful and
+    /// stable across identical requests. That costs the index's early exit — every matching row is
+    /// scored before `limit` applies.
     ///
-    /// The form's `search.query` and `limit` both reach the server; its `filter` is accepted and
-    /// then ignored, so use [`filter`](Self::filter) for criteria. No match is an empty item list,
-    /// not an error — the 404 the OpenAPI annotation still advertises was removed server-side.
+    /// The whole form reaches the server: `filter` narrows the phrase's hits and can never widen
+    /// them. No match is an empty item list, not an error — the 404 the OpenAPI annotation still
+    /// advertises was removed server-side.
     ///
-    /// # The query charset is narrow
-    ///
-    /// `query` is validated at 3–140 characters **and** against
-    /// `^[\p{IsLatin}\p{Zs}\p{Nd}]+` — Latin letters, space separators and decimal digits only.
-    /// Anything else, an underscore included, is a 400. So an external id is usually *not* a legal
-    /// query even though the index covers it: `sap_work_orders` is rejected, `work orders` is not.
-    /// Search on words, and use [`filter`](Self::filter)'s `external_id` — where a trailing `*`
-    /// is a prefix search — to look something up by id.
+    /// `query` is validated at 3–140 characters and nothing else. It used to be held to
+    /// `^[\p{IsLatin}\p{Zs}\p{Nd}]+` as well, which rejected every snake_case external id and
+    /// every non-Latin script; searching for `sap_work_orders` works now.
     ///
     /// [`search_by_query`](Self::search_by_query) is the shorthand for the common case.
     pub async fn search(
         &self,
-        search: &DatasetSearch,
+        search: &SearchAndFilterForm<BasicDatasetFilter>,
     ) -> Result<DataWrapper<Dataset>, ResponseError> {
         let path = &format!("{}/search", self.base_url);
         self.execute_post_request(path, &search).await
@@ -126,7 +122,7 @@ impl DatasetsService {
         &self,
         query: &str,
     ) -> Result<DataWrapper<Dataset>, ResponseError> {
-        self.search(&DatasetSearch::from_query(query)).await
+        self.search(&SearchAndFilterForm::new(query)).await
     }
 
     /// `POST /datasets/update` — partial update of one or more datasets.
@@ -509,61 +505,3 @@ impl Default for DatasetFilter {
     }
 }
 
-/// Body of `POST /datasets/search`.
-///
-/// `DataSetSearch` declares a `filter` too, but `DataSetService.search` passes only
-/// `form.getSearch().getQuery()` and `form.getLimit()` to the repository, so no criteria field is
-/// exposed here. Use [`DatasetsService::filter`] for criteria.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DatasetSearch {
-    search: SearchForm,
-    /// The same criteria `POST /datasets/filter` takes.
-    ///
-    /// **The server declares this field and does not read it** — `DataSetService.search` passes
-    /// only the query and the limit to the repository. It is exposed so the gap is testable
-    /// rather than invisible; until it is closed, narrow with [`DatasetsService::filter`] instead.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    filter: Option<BasicDatasetFilter>,
-    /// Caps the result. Defaults to 100 server-side; unlike the filter endpoint the cap here is
-    /// **1000**, and above it the request is rejected with 400. Note this is the *search* cap and
-    /// has not been folded into the shared `FilterDefaults` the filter endpoints now use.
-    limit: u64,
-}
-impl DatasetSearch {
-    pub fn new() -> Self {
-        Self {
-            search: SearchForm::new(),
-            filter: None,
-            limit: 100,
-        }
-    }
-
-    /// Attach the structured criteria. See the field note: the server currently ignores them.
-    pub fn set_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self {
-        self.filter = Some(filter);
-        self
-    }
-
-    /// A search carrying just the query — the only part of the form besides `limit` that the
-    /// server reads. Must be 3–140 characters or the server answers 400.
-    pub fn from_query(query: &str) -> Self {
-        let mut search = SearchForm::new();
-        search.query = Some(query.to_string());
-        Self {
-            search,
-            ..Self::new()
-        }
-    }
-    pub fn set_search(&mut self, search: SearchForm) -> &mut Self {
-        self.search = search;
-        self
-    }
-    /// Max 1000 — the server answers 400 above that.
-    pub fn set_limit(&mut self, limit: u64) -> &mut Self {
-        self.limit = limit;
-        self
-    }
-    pub fn build(&self) -> Self {
-        self.clone()
-    }
-}

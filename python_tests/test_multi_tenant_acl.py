@@ -76,12 +76,7 @@ from fixtures import ENV_FILE, unique_id
 
 
 def search_marker():
-    """A token that is safe to put in ``search.query``.
-
-    The backend validates the query against ``^[\\p{IsLatin}\\p{Zs}\\p{Nd}]+`` — letters,
-    spaces and digits only — and 400s on anything else. Every external id here has
-    underscores, so searching for one directly is a client error, not a miss.
-    """
+    """A token unique enough to identify one entity through ``search.query``."""
     return f"pytestmt{uuid.uuid4().hex[:12]}"
 
 
@@ -359,9 +354,8 @@ def test_search_omits_denied_rows_rather_than_raising(env, acl_dataset_id):
     marker = search_marker()
     admin.resources.create([make_resource(seeded, name=marker, data_set_id=acl_dataset_id)])
     try:
-        form = intellistream_datahub_sdk.SearchAndFilterForm(query=marker)
         # Control first, so an empty result below means 'narrowed', not 'never created'.
-        assert any(r.external_id == seeded for r in admin.resources.search(form))
-        assert not any(r.external_id == seeded for r in outsider.resources.search(form))
+        assert any(r.external_id == seeded for r in admin.resources.search(marker))
+        assert not any(r.external_id == seeded for r in outsider.resources.search(marker))
     finally:
         admin.resources.delete([seeded])

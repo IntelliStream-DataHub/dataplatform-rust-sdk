@@ -6,7 +6,6 @@ use crate::fields::{Field, ListField, MapField};
 use crate::generic::{
     ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection,
     DeleteFilter, IdAndExtId, RetrieveFilter, SearchAndFilterForm,
-    SearchForm,
 };
 use crate::filters::NodeFilter;
 use crate::relations::RelatedNode;
@@ -123,6 +122,8 @@ impl TimeSeriesService {
             .await
     }
 
+    /// `POST /timeseries/search` — free-text phrase, optionally narrowed by a
+    /// [`TimeSeriesFilter`]. Same body shape as the other three searches.
     pub async fn search(
         &self,
         form: &SearchAndFilterForm<TimeSeriesFilter>,
@@ -147,37 +148,15 @@ impl TimeSeriesService {
             .await
     }
 
-    pub async fn search_by_name(
-        &self,
-        name: &str,
-    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        let mut search_form = SearchForm::new();
-        search_form.name = Some(name.to_string());
-        let mut search_and_filter_form = SearchAndFilterForm::new();
-        search_and_filter_form.search = Some(search_form);
-        self.search(&search_and_filter_form).await
-    }
-
+    /// Free-text search with no narrowing. `search_by_name` and `search_by_description` used to sit
+    /// beside this: both set fields the api has since dropped, so match a name with
+    /// [`filter`](Self::filter)'s `name` pattern list instead — the phrase here already covers the
+    /// description column.
     pub async fn search_by_query(
         &self,
         query: &str,
     ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        let mut search_form = SearchForm::new();
-        search_form.query = Some(query.to_string());
-        let mut search_and_filter_form = SearchAndFilterForm::new();
-        search_and_filter_form.search = Some(search_form);
-        self.search(&search_and_filter_form).await
-    }
-
-    pub async fn search_by_description(
-        &self,
-        query: &str,
-    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        let mut search_form = SearchForm::new();
-        search_form.description = Some(query.to_string());
-        let mut search_and_filter_form = SearchAndFilterForm::new();
-        search_and_filter_form.search = Some(search_form);
-        self.search(&search_and_filter_form).await
+        self.search(&SearchAndFilterForm::new(query)).await
     }
 
     pub async fn insert_datapoint(

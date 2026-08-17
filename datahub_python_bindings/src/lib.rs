@@ -726,44 +726,18 @@ pub(crate) fn opt_data_set_refs(value: Option<Vec<DataSetRef>>) -> Option<Vec<Id
     value.map(|refs| refs.into_iter().map(Into::into).collect())
 }
 
-/// The free-text half of a `search` request. The structured half is the `filter` argument of the
-/// `search` method itself, because each entity's search declares its own filter type.
-#[pyclass(module = "intellistream_datahub_sdk", name = "SearchAndFilterForm")]
-#[derive(Clone)]
-pub struct PySearchAndFilterForm {
-    pub search: SearchForm,
-    pub limit: Option<u64>,
-}
-
-impl PySearchAndFilterForm {
-    /// Combine the free-text half with an entity-specific filter into the request body.
-    pub(crate) fn into_form<F>(self, filter: Option<F>) -> SearchAndFilterForm<F> {
-        SearchAndFilterForm {
-            filter,
-            search: Some(self.search),
-            limit: self.limit,
-        }
-    }
-}
-
-#[pymethods]
-impl PySearchAndFilterForm {
-    #[new]
-    #[pyo3(signature = (name=None, query=None, description=None, limit=None))]
-    pub fn new(
-        name: Option<String>,
-        query: Option<String>,
-        description: Option<String>,
-        limit: Option<u64>,
-    ) -> Self {
-        Self {
-            search: SearchForm {
-                name,
-                description,
-                query,
-            },
-            limit,
-        }
+/// The request body every `search` binding builds: a required phrase, an optional entity filter,
+/// and an optional limit. Python callers pass the three as arguments, so the form itself is not
+/// exposed.
+pub(crate) fn search_form<F>(
+    query: String,
+    filter: Option<F>,
+    limit: Option<u64>,
+) -> SearchAndFilterForm<F> {
+    SearchAndFilterForm {
+        filter,
+        search: SearchForm { query },
+        limit,
     }
 }
 
@@ -1220,7 +1194,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::datasets::PyBasicDatasetFilter>()?;
     m.add_class::<crate::datasets::PyDatasetFilter>()?;
     m.add_class::<crate::datasets::PyDatasetUpdate>()?;
-    m.add_class::<PySearchAndFilterForm>()?;
     m.add_class::<PyTimeSeriesFilterForm>()?;
     m.add_class::<crate::resources::PyResourceFilter>()?;
     m.add_class::<PyPage>()?;

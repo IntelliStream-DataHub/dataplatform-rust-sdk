@@ -3,11 +3,13 @@
 Every field of ``EventUpdate`` gets a set-a-value test and a clear-it test, plus the
 add/remove delta paths for the two collection fields (``metadata``, ``related_resources``).
 
-Four fields have **no ``setNull`` branch server-side** — ``externalId``, ``eventTime``,
-``dataSetId``, and the two collections — so a ``setNull`` there is silently a no-op rather
-than an error. The tests below pin that as behaviour; ``xfail(strict=False)`` marks the ones
-where clearing is the arguably-correct answer, so they flip to xpass if the server grows the
-branch.
+``eventTime`` is **not** an update field: an event's time is immutable after creation, so the
+api has no such field and rejects a body naming one.
+
+Three fields have **no ``setNull`` branch server-side** — ``externalId``, ``dataSetId``, and the
+two collections — so a ``setNull`` there is silently a no-op rather than an error. The tests
+below pin that as behaviour; ``xfail(strict=False)`` marks the ones where clearing is the
+arguably-correct answer, so they flip to xpass if the server grows the branch.
 
 The update response echoes the stored event, so assertions read it directly; a re-read is only
 used where persistence itself is the point (the event projection lags a write).
@@ -170,38 +172,30 @@ def test_external_id_set_null(sync_client, new_event):
 
 
 # --------------------------------------------------------------------------- #
-# event_time
+# event_time — not updatable at all
 # --------------------------------------------------------------------------- #
 
-def test_event_time_set_value(sync_client, new_event):
-    """The value goes over the wire as a string, so it must be a parseable timestamp."""
-    event = new_event(event_time=datetime(2025, 1, 1, tzinfo=timezone.utc))
-    when = datetime(2026, 3, 4, 5, 6, 7, tzinfo=timezone.utc)
+def test_event_time_is_not_an_update_field():
+    """An event's time is immutable after creation.
 
-    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
-        event, event_time=intellistream_datahub_sdk.FieldStr(value=when.isoformat())
-    ))
-    assert updated.event_time.replace(microsecond=0) == when
-
-
-def test_event_time_unparseable_is_rejected(sync_client, new_event):
-    event = new_event()
-
-    with pytest.raises(intellistream_datahub_sdk.DataHubException):
-        sync_client.events.update([intellistream_datahub_sdk.EventUpdate(
-            event, event_time=intellistream_datahub_sdk.FieldStr(value="not a timestamp")
-        )])
+    The server's events table is partitioned by it, so the mutation cannot move the row and is
+    refused outright; the api answers a body naming ``eventTime`` with a 400 rather than the
+    false 200 it used to. The binding drops the keyword so the request is never built.
+    """
+    with pytest.raises(TypeError):
+        intellistream_datahub_sdk.EventUpdate(
+            uuid.uuid4(), event_time=intellistream_datahub_sdk.FieldStr(value="2026-03-04T05:06:07+00:00")
+        )
 
 
-@_NO_SETNULL_BRANCH
-def test_event_time_set_null(sync_client, new_event):
+def test_event_time_survives_an_update_of_other_fields(sync_client, new_event):
     when = datetime(2025, 1, 1, tzinfo=timezone.utc)
     event = new_event(event_time=when)
 
     updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
-        event, event_time=intellistream_datahub_sdk.FieldStr(set_null=True)
+        event, description=intellistream_datahub_sdk.FieldStr(value="untouched event time")
     ))
-    assert updated.event_time != when
+    assert updated.event_time.replace(microsecond=0) == when
 
 
 # --------------------------------------------------------------------------- #

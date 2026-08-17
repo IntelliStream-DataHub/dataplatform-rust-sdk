@@ -179,8 +179,13 @@ def test_external_ids_are_case_insensitive(flt, event_corpus, alarm, prefix):
 
 
 def test_external_id_entries_or_together(flt, event_corpus, alarm, warning, prefix):
-    """This is what replaced ``externalIdPrefix``, which could be given once and not combined."""
-    assert flt(external_id=[f"{prefix}_ev_alarm_1*", "*_ev_alarmX1"]) == {alarm, warning}
+    """This is what replaced ``externalIdPrefix``, which could be given once and not combined.
+
+    Both entries carry the run's prefix. A leading wildcard (``*_ev_alarmX1``) would also match the
+    events every previous run left behind, so the assertion failed against accumulated state rather
+    than against the OR.
+    """
+    assert flt(external_id=[f"{prefix}_ev_alarm_1*", f"{prefix}*_ev_alarmX1"]) == {alarm, warning}
 
 
 def test_sources_match_as_patterns_with_a_literal_underscore(flt, event_corpus, alarm, warning, token):

@@ -164,11 +164,11 @@ def test_sync_filter_by_metadata_and_prefix(sync_client, make_dataset):
 
 
 def test_sync_search(sync_client, make_dataset):
-    """Search matches the name, and the query charset is narrow.
+    """Search matches the name, and the phrase may be anything 3 characters or longer.
 
-    The server validates `query` against `^[\\p{IsLatin}\\p{Zs}\\p{Nd}]+` — letters,
-    spaces and digits only. An external id is therefore usually *not* a legal
-    query even though the index covers it, because it contains underscores.
+    ``query`` used to be validated against `^[\\p{IsLatin}\\p{Zs}\\p{Nd}]+` — letters, spaces and
+    digits — which made an external id an illegal query even though the index covers it, since the
+    convention here is snake_case. Only the length bounds remain.
     """
     token = uuid.uuid4().hex[:12]
     ext_id = unique_id("ds_search")
@@ -181,10 +181,10 @@ def test_sync_search(sync_client, make_dataset):
     with pytest.raises(intellistream_datahub_sdk.DataHubException):
         sync_client.datasets.search("ab")
 
-    # An underscore is outside the allowed charset — this is what stops an
-    # external id from being usable as a query.
-    with pytest.raises(intellistream_datahub_sdk.DataHubException):
-        sync_client.datasets.search(f"sdk_{token}")
+    by_ext_id = sync_client.datasets.search(ext_id)
+    assert any(d.external_id == ext_id for d in by_ext_id), (
+        "an external id is a legal query now, and the index covers it"
+    )
 
 
 def test_sync_update(sync_client, make_dataset):

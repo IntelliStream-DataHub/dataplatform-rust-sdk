@@ -1,7 +1,7 @@
 use crate::events::{
-    EventIdentifyable, PyEvent, PyEventDimension, PyEventFilter, PyEventSearch, PyEventUpdate,
+    EventIdentifyable, PyBasicEventFilter, PyEvent, PyEventDimension, PyEventFilter, PyEventUpdate,
 };
-use crate::{PyIdCollection, PySearchAndFilterForm};
+use crate::{PyIdCollection};
 use intellistream_datahub_sdk::events::{EventDimension, EventIdCollection, EventUpdate};
 use intellistream_datahub_sdk::filters::EventFilter;
 use intellistream_datahub_sdk::generic::DataWrapper;
@@ -133,12 +133,20 @@ impl PyEventsServiceSync {
     }
 
     /// Free-text search over event descriptions, ranked by relevance.
-    fn search(&self, py: Python<'_>, input: PyEventSearch) -> PyResult<Vec<PyEvent>> {
+    #[pyo3(signature = (query, filter = None, limit = None))]
+    fn search(
+        &self,
+        py: Python<'_>,
+        query: String,
+        filter: Option<PyBasicEventFilter>,
+        limit: Option<u64>,
+    ) -> PyResult<Vec<PyEvent>> {
+        let form = crate::search_form(query, filter.map(Into::into), limit);
         let service = self.api_service.clone();
         py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.events.search(&input.into()))
+                .block_on(service.events.search(&form))
                 .map_err(crate::datahub_err)?;
             let py_ts: Vec<PyEvent> = result
                 .get_items()

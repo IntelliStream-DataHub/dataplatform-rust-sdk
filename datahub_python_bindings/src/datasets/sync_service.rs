@@ -2,7 +2,7 @@ use crate::datasets::{
     DatasetIdentifiable, PyDataset, PyDatasetFilter, PyDatasetUpdate,
 };
 use crate::resources::PyResource;
-use crate::{PyIdCollection, PySearchAndFilterForm};
+use crate::{PyIdCollection};
 use intellistream_datahub_sdk::datasets::{Dataset, DatasetUpdate};
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::{ApiService, Resource};
@@ -111,26 +111,23 @@ impl PyDatasetsServiceSync {
     /// Full-text search over a dataset's name, external id and description at once. The last term
     /// is a prefix match, so this works from a search box mid-word.
     ///
-    /// Results are **not** ranked — do not read the first item as the best match. `limit` caps the
-    /// result at 1000, and no match is an empty list rather than an error.
+    /// Results are ranked and tie-broken by id, so the first item is the best match and the order
+    /// is stable. `limit` caps the result at 1000, and no match is an empty list rather than an
+    /// error.
     ///
-    /// `query` must be 3–140 characters *and* Latin letters, spaces or digits only
-    /// (`^[\p{IsLatin}\p{Zs}\p{Nd}]+`). An underscore is rejected with a 400, so an external id
-    /// is usually not a legal query even though the index covers it — search on words, and use
-    /// `filter`'s `external_id` (a trailing `*` is a prefix search) to look up by id.
-    ///
-    /// The `filter` argument is declared by the endpoint and **ignored server-side** today; use
-    /// `filter()` for criteria.
-    #[pyo3(signature = (query, limit = None, filter = None))]
+    /// `query` must be 3–140 characters; the Latin-letters-spaces-digits pattern that used to sit
+    /// alongside that is gone, so an external id is a legal query. `filter` narrows the phrase's
+    /// hits and never widens them.
+    #[pyo3(signature = (query, filter = None, limit = None))]
     fn search(
         &self,
         py: Python<'_>,
         query: &str,
-        limit: Option<u64>,
         filter: Option<crate::datasets::PyBasicDatasetFilter>,
+        limit: Option<u64>,
     ) -> PyResult<Vec<PyDataset>> {
         let service = self.api_service.clone();
-        let form = crate::datasets::dataset_search_form(query, limit, filter);
+        let form = crate::search_form(query.to_string(), filter.map(Into::into), limit);
         py.detach(|| {
             let result = self
                 .runtime

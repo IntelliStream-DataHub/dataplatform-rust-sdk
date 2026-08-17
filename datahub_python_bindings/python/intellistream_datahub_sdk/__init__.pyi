@@ -223,16 +223,6 @@ class IdCollection:
     def external_id(self) -> str | None: ...
 
 
-class SearchAndFilterForm:
-    def __init__(
-        self,
-        name: str | None = None,
-        query: str | None = None,
-        description: str | None = None,
-        limit: int | None = None,
-    ) -> None: ...
-
-
 class TimeSeriesFilterForm:
     """AND-combined criteria for ``timeseries.filter`` (``POST /timeseries/filter``) and the
     ``filter`` of ``timeseries.search``.
@@ -615,13 +605,17 @@ class TimeSeriesServiceSync:
     def delete(self, input: list[Identifiable]) -> None: ...
     def update(self, input: list[TimeSeriesUpdate]) -> list[TimeSeries]: ...
     def search(
-        self, input: SearchAndFilterForm, filter: TimeSeriesFilterForm | None = None
+        self,
+        query: str,
+        filter: TimeSeriesFilterForm | None = None,
+        limit: int | None = None,
     ) -> list[TimeSeries]:
-        """Free-text search, optionally narrowed by the same criteria ``filter()`` takes.
+        """Free-text search for ``query``, ranked by relevance.
 
-        The ``filter``'s own ``limit`` is not used here — the search form carries the cap. This is
-        the one search endpoint that actually applies its filter; see
-        ``python_tests/test_filter_search_bodies.py``.
+        ``filter`` takes the same criteria as ``filter()`` and only ever removes hits from the
+        phrase's — it cannot widen them, so omitting it returns them as found. ``limit`` caps what
+        survives, defaulting to 100 and capping at 1000; the ``filter`` endpoints use 1000/10000,
+        which is easy to conflate.
         """
     def filter(self, input: TimeSeriesFilterForm) -> Page: ...
     def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
@@ -645,7 +639,10 @@ class TimeSeriesServiceAsync:
     async def delete(self, input: list[Identifiable]) -> None: ...
     async def update(self, input: list[TimeSeriesUpdate]) -> list[TimeSeries]: ...
     async def search(
-        self, input: SearchAndFilterForm, filter: TimeSeriesFilterForm | None = None
+        self,
+        query: str,
+        filter: TimeSeriesFilterForm | None = None,
+        limit: int | None = None,
     ) -> list[TimeSeries]: ...
     async def filter(self, input: TimeSeriesFilterForm) -> Page: ...
     async def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
@@ -819,6 +816,14 @@ EventIdentifiable = Union[Event, EventIdCollection, UUID, str]
 
 
 class EventUpdate:
+    """Field-level changes for one event.
+
+    There is deliberately no ``event_time``: an event's time is immutable after creation. The
+    server's events table is partitioned by it, so the mutation cannot move the row and is refused
+    outright; the api dropped the field from its update form, and sending it now is a ``400``
+    naming the field. Record a corrected time as a new event, or delete and re-create.
+    """
+
     def __init__(
         self,
         event: EventIdentifiable,
@@ -831,21 +836,11 @@ class EventUpdate:
         metadata: MapField | None = None,
         source: FieldStr | None = None,
         related_resources: ListFieldIdCollection | None = None,
-        event_time: FieldStr | None = None,
     ) -> None: ...
     @property
     def target_id(self) -> UUID | None: ...
     @property
     def target_external_id(self) -> str | None: ...
-
-
-class EventSearch:
-    def __init__(
-        self,
-        query: str,
-        filter: BasicEventFilter | None = None,
-        limit: int | None = None,
-    ) -> None: ...
 
 
 class EventDimension:
@@ -868,7 +863,12 @@ class EventsServiceSync:
     def delete(self, input: list[EventIdentifiable]) -> None: ...
     def update(self, input: list[EventUpdate]) -> list[Event]: ...
     def filter(self, input: EventFilter) -> Page: ...
-    def search(self, input: EventSearch) -> list[Event]: ...
+    def search(
+        self,
+        query: str,
+        filter: BasicEventFilter | None = None,
+        limit: int | None = None,
+    ) -> list[Event]: ...
     def count(self) -> int: ...
     def list_dimension(
         self,
@@ -893,7 +893,12 @@ class EventsServiceAsync:
     async def delete(self, input: list[EventIdentifiable]) -> None: ...
     async def update(self, input: list[EventUpdate]) -> list[Event]: ...
     async def filter(self, input: EventFilter) -> Page: ...
-    async def search(self, input: EventSearch) -> list[Event]: ...
+    async def search(
+        self,
+        query: str,
+        filter: BasicEventFilter | None = None,
+        limit: int | None = None,
+    ) -> list[Event]: ...
     async def count(self) -> int: ...
     async def list_dimension(
         self,
@@ -1045,10 +1050,18 @@ class DatasetsServiceSync:
     def delete(self, input: list[Identifiable]) -> None: ...
     def filter(self, input: DatasetFilter) -> Page: ...
     def search(
-        self, query: str, limit: int | None = None, filter: BasicDatasetFilter | None = None
+        self,
+        query: str,
+        filter: BasicDatasetFilter | None = None,
+        limit: int | None = None,
     ) -> list[Dataset]:
-        """Free-text search. The ``filter`` is declared by the endpoint and **currently ignored
-        server-side** — use ``filter()`` for criteria until that is fixed."""
+        """Free-text search for ``query``, ranked by relevance.
+
+        ``filter`` takes the same criteria as ``filter()`` and only ever removes hits from the
+        phrase's — it cannot widen them, so omitting it returns them as found. ``limit`` caps what
+        survives, defaulting to 100 and capping at 1000; the ``filter`` endpoints use 1000/10000,
+        which is easy to conflate.
+        """
     def update(self, input: list[DatasetUpdate]) -> list[Dataset]: ...
     def policies(self) -> list[Resource]: ...
 
@@ -1060,7 +1073,10 @@ class DatasetsServiceAsync:
     async def delete(self, input: list[Identifiable]) -> None: ...
     async def filter(self, input: DatasetFilter) -> Page: ...
     async def search(
-        self, query: str, limit: int | None = None, filter: BasicDatasetFilter | None = None
+        self,
+        query: str,
+        filter: BasicDatasetFilter | None = None,
+        limit: int | None = None,
     ) -> list[Dataset]: ...
     async def update(self, input: list[DatasetUpdate]) -> list[Dataset]: ...
     async def policies(self) -> list[Resource]: ...
@@ -1305,10 +1321,18 @@ class ResourcesServiceSync:
     def by_ids(self, input: list[ResourceIdentifiable]) -> list[Resource]: ...
     def delete(self, input: list[ResourceIdentifiable]) -> None: ...
     def search(
-        self, input: SearchAndFilterForm, filter: ResourceFilter | None = None
+        self,
+        query: str,
+        filter: ResourceFilter | None = None,
+        limit: int | None = None,
     ) -> list[Resource]:
-        """Free-text search. The ``filter`` is declared by the endpoint and **currently ignored
-        server-side** — use ``filter()`` for criteria until that is fixed."""
+        """Free-text search for ``query``, ranked by relevance.
+
+        ``filter`` takes the same criteria as ``filter()`` and only ever removes hits from the
+        phrase's — it cannot widen them, so omitting it returns them as found. ``limit`` caps what
+        survives, defaulting to 100 and capping at 1000; the ``filter`` endpoints use 1000/10000,
+        which is easy to conflate.
+        """
     def update(self, input: list[ResourceUpdate]) -> GraphResult: ...
     def get_by_id(self, id: int) -> Resource | None: ...
     def filter(
@@ -1350,7 +1374,10 @@ class ResourcesServiceAsync:
     async def by_ids(self, input: list[ResourceIdentifiable]) -> list[Resource]: ...
     async def delete(self, input: list[ResourceIdentifiable]) -> None: ...
     async def search(
-        self, input: SearchAndFilterForm, filter: ResourceFilter | None = None
+        self,
+        query: str,
+        filter: ResourceFilter | None = None,
+        limit: int | None = None,
     ) -> list[Resource]: ...
     async def update(self, input: list[ResourceUpdate]) -> GraphResult: ...
     async def get_by_id(self, id: int) -> Resource | None: ...

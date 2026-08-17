@@ -203,7 +203,7 @@
 
 use crate::datahub::DataHubConfig;
 use crate::datasets::Dataset;
-use crate::generic::{DataWrapper, IdAndExtId, SearchAndFilterForm, SearchForm};
+use crate::generic::{DataWrapper, IdAndExtId, SearchAndFilterForm};
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::resources::{RelatedResourcesForm, Resource};
@@ -311,12 +311,7 @@ fn unique_id(kind: &str) -> String {
     crate::tests::ids::unique_id(&format!("mt_{kind}"))
 }
 
-/// A token that is safe to put in `search.query`.
-///
-/// The backend validates the query against `^[\p{IsLatin}\p{Zs}\p{Nd}]+` — letters, spaces and
-/// digits only — and rejects anything else with a 400. Every external id here contains
-/// underscores, so searching for one directly is a client error, not a miss. Hex from a UUID
-/// satisfies the pattern and is still unique enough to identify one entity.
+/// A token unique enough to identify one entity through `search.query`.
 fn search_marker() -> String {
     crate::tests::ids::unique_token("mt")
 }
@@ -719,10 +714,7 @@ async fn multi_tenant_entity_created_in_one_org_is_invisible_from_the_other(
         "org B must not read org A's entity by external id — got {from_b:?}"
     );
 
-    let mut search = SearchAndFilterForm::new();
-    let mut form = SearchForm::new();
-    form.query = Some(marker.clone());
-    search.search = Some(form);
+    let search = SearchAndFilterForm::new(marker.clone());
 
     // Control: org A does find it by the same query, so an empty result for B means "isolated",
     // not "the query never matched anything".
@@ -950,10 +942,7 @@ async fn acl_list_and_search_omit_rows_rather_than_denying() -> Result<(), Respo
         )
         .await?;
 
-    let mut search = SearchAndFilterForm::new();
-    let mut form = SearchForm::new();
-    form.query = Some(marker.clone());
-    search.search = Some(form);
+    let search = SearchAndFilterForm::new(marker.clone());
 
     // Control: the admin does find it, so an empty result below means "narrowed", not "not there".
     let seen_by_admin = admin.service.resources.search(&search).await?;

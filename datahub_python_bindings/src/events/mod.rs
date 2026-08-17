@@ -8,7 +8,7 @@ use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
 use crate::{PyFieldStr, PyFieldU64, PyListFieldIdCollection, PyMapField};
 use intellistream_datahub_sdk::filters::{BasicEventFilter, DataSort, EventFilter, TimeFilter};
 use intellistream_datahub_sdk::events::{
-    EventDimension, EventIdCollection, EventSearch, EventUpdate, EventUpdateFields,
+    EventDimension, EventIdCollection, EventUpdate, EventUpdateFields,
 };
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::{ApiService, Event, TimeSeries};
@@ -431,7 +431,6 @@ impl PyEventUpdate {
         metadata = None,
         source = None,
         related_resources = None,
-        event_time = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn __init__(
@@ -445,7 +444,6 @@ impl PyEventUpdate {
         metadata: Option<PyMapField>,
         source: Option<PyFieldStr>,
         related_resources: Option<PyListFieldIdCollection>,
-        event_time: Option<PyFieldStr>,
     ) -> Self {
         let ident = EventIdCollection::from(event);
         Self {
@@ -462,7 +460,6 @@ impl PyEventUpdate {
                     metadata: metadata.map(Into::into),
                     source: source.map(Into::into),
                     related_resources: related_resources.map(Into::into),
-                    event_time: event_time.map(Into::into),
                 },
             },
         }
@@ -475,41 +472,6 @@ impl PyEventUpdate {
     #[getter]
     fn target_external_id(&self) -> Option<&str> {
         self.inner.external_id.as_deref()
-    }
-}
-
-/// Request body for `events.search`. `query` is the free-text phrase matched against event
-/// descriptions; `filter` optionally narrows the candidate set (same fields as `BasicEventFilter`),
-/// and `limit` caps the result (server max 1000).
-#[pyclass(module = "intellistream_datahub_sdk", name = "EventSearch")]
-#[derive(Clone)]
-pub struct PyEventSearch {
-    pub inner: EventSearch,
-}
-
-impl From<PyEventSearch> for EventSearch {
-    fn from(v: PyEventSearch) -> Self {
-        v.inner
-    }
-}
-
-#[pymethods]
-impl PyEventSearch {
-    #[new]
-    #[pyo3(signature = (query, filter = None, limit = None))]
-    pub fn __init__(
-        query: String,
-        filter: Option<PyBasicEventFilter>,
-        limit: Option<usize>,
-    ) -> Self {
-        let mut search = EventSearch::from_query(&query);
-        if let Some(filter) = filter {
-            search.set_filter(filter.into());
-        }
-        search.set_limit(limit.unwrap_or(100));
-        Self {
-            inner: search.build(),
-        }
     }
 }
 
@@ -546,6 +508,5 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBasicEventFilter>()?;
     m.add_class::<PyTimeFilter>()?;
     m.add_class::<PyEventUpdate>()?;
-    m.add_class::<PyEventSearch>()?;
     Ok(())
 }

@@ -5,7 +5,7 @@ use crate::timeseries::{
     PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate, PyTimeseriesIdentifiable,
 };
 use crate::{
-    DatahubIdentity, Identifiable, PyIdCollection, PyRetrieveFilter, PySearchAndFilterForm,
+    DatahubIdentity, Identifiable, PyIdCollection, PyRetrieveFilter,
     PyTimeSeriesFilterForm,
 };
 use crate::datetime::py_datetime_to_utc;
@@ -142,14 +142,15 @@ impl PyTimeSeriesServiceAsync {
             Ok(py_ts)
         })
     }
-    #[pyo3(signature = (input, filter = None))]
+    #[pyo3(signature = (query, filter = None, limit = None))]
     fn search<'p>(
         &self,
         py: Python<'p>,
-        input: PySearchAndFilterForm,
+        query: String,
         filter: Option<PyTimeSeriesFilterForm>,
+        limit: Option<u64>,
     ) -> PyResult<Bound<'p, PyAny>> {
-        let form = input.into_form(filter.map(|f| f.inner.filter));
+        let form = crate::search_form(query, filter.map(|f| f.inner.filter), limit);
         let service = self.api_service.clone();
 
         future_into_py(py, async move {
