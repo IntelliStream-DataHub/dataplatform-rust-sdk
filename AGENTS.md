@@ -178,6 +178,16 @@ A PyO3 crate (built with maturin) that wraps this SDK as the Python package `int
 
 The Python test suite in `python_tests/` imports the **compiled** `intellistream_datahub_sdk` module, not the Rust sources — a stale `.so` silently masks source changes. Always run it through `./run_python_tests.sh`, which rebuilds via `maturin develop` first. Extra args are forwarded to pytest (`./run_python_tests.sh -k timeseries`); `--release`, `--no-build`, and `--no-deps` are consumed by the script itself.
 
+Every entity a test creates carries `TEST_PREFIX` — `pytest_` in Python, `rust_sdk_` in Rust — and
+`python_tests/conftest.py` sweeps that prefix off the backend at session start and end, which is
+what catches a run killed before its fixtures could tear down. Nodes go through `/resources/filter`,
+the generic node query, so resources and data sets are covered along with timeseries and functions;
+the sweep skipped those two for a long time and they were, by a wide margin, what accumulated.
+Deletes repeat while they make progress — the backend refuses to delete the START of an edge, and a
+data set stands above everything that belongs to it — and whatever survives is reported as a
+warning rather than swallowed. **Give a new entity a `unique_id()`**: a fixed external id strands on
+the first run that dies mid-test and collides on every run after.
+
 ## Conventions
 
 - `#[serde(rename = "camelCase")]` or explicit `#[serde(rename = "...")]` on fields — the backend is camelCase, Rust is snake_case.
