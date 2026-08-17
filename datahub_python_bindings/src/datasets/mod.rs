@@ -9,7 +9,7 @@ use crate::{PyFieldBool, PyFieldStr, PyListFieldStr, PyMapField};
 use intellistream_datahub_sdk::filters::{BasicEventFilter, EventFilter};
 use intellistream_datahub_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
 use intellistream_datahub_sdk::datasets::{
-    BasicDatasetFilter, Dataset, DatasetFilter, DatasetSearch, DatasetUpdate, DatasetUpdateFields,
+    BasicDatasetFilter, Dataset, DatasetFilter, DatasetUpdate, DatasetUpdateFields,
 };
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::resources::RelatedResourcesForm;
@@ -568,25 +568,4 @@ impl PyDatasetUpdate {
     fn target_external_id(&self) -> Option<&str> {
         self.inner.external_id.as_deref()
     }
-}
-
-/// Build the `datasets.search` body from a query and optional cap.
-///
-/// The Rust SDK has both `search(&DatasetSearch)` and the `search_by_query` shorthand, but the
-/// server reads only the query and the limit off that form — its `filter` is accepted and ignored.
-/// So Python gets one `search(query, limit=None)` rather than a form class whose only useful
-/// fields are the two arguments here.
-pub(crate) fn dataset_search_form(
-    query: &str,
-    limit: Option<u64>,
-    filter: Option<PyBasicDatasetFilter>,
-) -> DatasetSearch {
-    let mut form = DatasetSearch::new(query);
-    if let Some(limit) = limit {
-        form.set_limit(limit);
-    }
-    if let Some(filter) = filter {
-        form.set_filter(filter.into());
-    }
-    form.build()
 }

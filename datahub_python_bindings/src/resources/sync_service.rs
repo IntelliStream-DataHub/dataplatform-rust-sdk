@@ -3,7 +3,7 @@ use crate::resources::{PyResourceFilter, ResourceIdentifiable};
 use crate::resources::{PyResource, PyResourceNetwork, PyResourceUpdate};
 use intellistream_datahub_sdk::resources::ResourceUpdate;
 use crate::resources::async_service::PyResourcesServiceAsync;
-use crate::{DataSetRef, PySearchAndFilterForm, StringOrList, opt_data_set_refs, opt_patterns};
+use crate::{DataSetRef, StringOrList, opt_data_set_refs, opt_patterns};
 use intellistream_datahub_sdk::filters::NodeFilter;
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::relations::RelForm;
@@ -85,14 +85,15 @@ impl PyResourcesServiceSync {
 
         Ok(())
     }
-    #[pyo3(signature = (input, filter = None))]
+    #[pyo3(signature = (query, filter = None, limit = None))]
     fn search<'py>(
         &self,
         py: Python<'py>,
-        input: PySearchAndFilterForm,
+        query: String,
         filter: Option<PyResourceFilter>,
+        limit: Option<u64>,
     ) -> PyResult<Vec<PyResource>> {
-        let form = input.into_form(filter.map(|f| f.inner));
+        let form = crate::search_form(query, filter.map(|f| f.inner), limit);
         let service = self.api_service.clone();
 
         py.detach(|| {

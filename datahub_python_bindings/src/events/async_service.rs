@@ -1,9 +1,9 @@
 use crate::events::{
-    EventIdentifyable, PyEvent, PyEventDimension, PyEventFilter, PyEventSearch, PyEventUpdate,
+    EventIdentifyable, PyBasicEventFilter, PyEvent, PyEventDimension, PyEventFilter, PyEventUpdate,
 };
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
 use crate::timeseries::{PyTimeSeries, PyTimeSeriesUpdate};
-use crate::{PyIdCollection, PySearchAndFilterForm};
+use crate::{PyIdCollection};
 use intellistream_datahub_sdk::events::{EventDimension, EventIdCollection, EventUpdate};
 use intellistream_datahub_sdk::generic::DataWrapper;
 use intellistream_datahub_sdk::{
@@ -155,12 +155,20 @@ impl PyEventsServiceAsync {
     }
 
     /// Free-text search over event descriptions, ranked by relevance.
-    fn search<'py>(&self, py: Python<'py>, input: PyEventSearch) -> PyResult<Bound<'py, PyAny>> {
+    #[pyo3(signature = (query, filter = None, limit = None))]
+    fn search<'py>(
+        &self,
+        py: Python<'py>,
+        query: String,
+        filter: Option<PyBasicEventFilter>,
+        limit: Option<u64>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let form = crate::search_form(query, filter.map(Into::into), limit);
         let service = self.api_service.clone();
         future_into_py(py, async move {
             let result = service
                 .events
-                .search(&input.into())
+                .search(&form)
                 .await
                 .map_err(crate::datahub_err)?;
             let py_ts: Vec<PyEvent> = result

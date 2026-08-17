@@ -354,9 +354,8 @@ def test_search_omits_denied_rows_rather_than_raising(env, acl_dataset_id):
     marker = search_marker()
     admin.resources.create([make_resource(seeded, name=marker, data_set_id=acl_dataset_id)])
     try:
-        form = intellistream_datahub_sdk.SearchAndFilterForm(query=marker)
         # Control first, so an empty result below means 'narrowed', not 'never created'.
-        assert any(r.external_id == seeded for r in admin.resources.search(form))
-        assert not any(r.external_id == seeded for r in outsider.resources.search(form))
+        assert any(r.external_id == seeded for r in admin.resources.search(marker))
+        assert not any(r.external_id == seeded for r in outsider.resources.search(marker))
     finally:
         admin.resources.delete([seeded])

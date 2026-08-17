@@ -7,7 +7,7 @@ use crate::fields::{Field, ListField, MapField};
 use crate::filters::{BasicEventFilter, EventFilter};
 use crate::generic::{
     ApiServiceProvider, DataHubEntity, DataWrapper, DataWrapperDeserialization, IdAndExtId,
-    SearchForm,
+    SearchAndFilterForm,
 };
 use crate::http::ResponseError;
 use crate::ApiService;
@@ -207,7 +207,10 @@ impl EventsService {
     /// Free-text search over event descriptions (`POST /events/search`). Matching is fuzzy and
     /// word-aware; results are ranked by relevance. For structured filters (time ranges, types,
     /// related resources) use [`filter`](Self::filter) instead — it is faster and more predictable.
-    pub async fn search(&self, search: &EventSearch) -> Result<DataWrapper<Event>, ResponseError> {
+    pub async fn search(
+        &self,
+        search: &SearchAndFilterForm<BasicEventFilter>,
+    ) -> Result<DataWrapper<Event>, ResponseError> {
         let path = &format!("{}/search", self.base_url);
         self.execute_post_request::<DataWrapper<Event>, _>(path, search)
             .await
@@ -662,51 +665,6 @@ impl From<Vec<EventIdCollection>> for DataWrapper<EventIdCollection> {
 impl From<&Vec<EventIdCollection>> for DataWrapper<EventIdCollection> {
     fn from(value: &Vec<EventIdCollection>) -> Self {
         DataWrapper::from_vec(value.clone())
-    }
-}
-
-/// Request body for [`EventsService::search`] (`POST /events/search`). `search.query` is the
-/// free-text phrase to match against event descriptions; `filter` optionally narrows the phrase's
-/// hits with the same fields as [`BasicEventFilter`], and `limit` caps what survives (default 100,
-/// server max 1000).
-///
-/// Same shape as the other three searches. The filter narrows and never widens, so omitting it
-/// returns the phrase's hits as found — which is why it is skipped rather than sent empty.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct EventSearch {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    filter: Option<BasicEventFilter>,
-    search: SearchForm,
-    limit: usize,
-}
-
-impl EventSearch {
-    /// A search for the given free-text query, with no extra filter and the default limit.
-    pub fn new(query: impl Into<String>) -> Self {
-        Self {
-            filter: None,
-            search: SearchForm::new(query),
-            limit: 100,
-        }
-    }
-
-    pub fn set_filter(&mut self, filter: BasicEventFilter) -> &mut Self {
-        self.filter = Some(filter);
-        self
-    }
-
-    pub fn set_search(&mut self, search: SearchForm) -> &mut Self {
-        self.search = search;
-        self
-    }
-
-    pub fn set_limit(&mut self, limit: usize) -> &mut Self {
-        self.limit = limit;
-        self
-    }
-
-    pub fn build(&self) -> Self {
-        self.clone()
     }
 }
 

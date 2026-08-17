@@ -1,7 +1,7 @@
 use crate::relations::{PyGraphResult, PyRelForm};
 use crate::resources::{PyResourceFilter, PyResourceNetwork, PyResourceUpdate, ResourceIdentifiable};
 use intellistream_datahub_sdk::resources::ResourceUpdate;
-use crate::{DataSetRef, PyResource, PySearchAndFilterForm, StringOrList};
+use crate::{DataSetRef, PyResource, StringOrList};
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::relations::RelForm;
 use intellistream_datahub_sdk::resources::RelatedResourcesForm;
@@ -95,14 +95,15 @@ impl PyResourcesServiceAsync {
             Ok(py_ts)
         })
     }
-    #[pyo3(signature = (input, filter = None))]
+    #[pyo3(signature = (query, filter = None, limit = None))]
     fn search<'py>(
         &self,
         py: Python<'py>,
-        input: PySearchAndFilterForm,
+        query: String,
         filter: Option<PyResourceFilter>,
+        limit: Option<u64>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let form = input.into_form(filter.map(|f| f.inner));
+        let form = crate::search_form(query, filter.map(|f| f.inner), limit);
         let service = self.api_service.clone();
 
         future_into_py(py, async move {

@@ -487,7 +487,7 @@ def test_update_event(sync_client, single_event):
 def test_search_by_description(sync_client, dimension_events):
     token = dimension_events["token"]
     results = poll_until(
-        lambda: sync_client.events.search(intellistream_datahub_sdk.EventSearch(query=token)),
+        lambda: sync_client.events.search(token),
         lambda r: len(r) >= 1,
         **POLL_SEARCH,
     )
@@ -499,8 +499,11 @@ def test_search_with_filter_and_limit(sync_client, dimension_events):
     # The free-text search can be narrowed with a BasicEventFilter and capped.
     token = dimension_events["token"]
     basic_filter = intellistream_datahub_sdk.BasicEventFilter(type=[dimension_events["type"]])
-    search = intellistream_datahub_sdk.EventSearch(query=token, filter=basic_filter, limit=2)
-    results = poll_until(lambda: sync_client.events.search(search), lambda r: len(r) >= 1, **POLL_SEARCH)
+    results = poll_until(
+        lambda: sync_client.events.search(token, filter=basic_filter, limit=2),
+        lambda r: len(r) >= 1,
+        **POLL_SEARCH,
+    )
     assert len(results) >= 1  # not a vacuous pass on an empty result
     assert len(results) <= 2
     assert all(e.type == dimension_events["type"] for e in results)

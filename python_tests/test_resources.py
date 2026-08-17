@@ -112,8 +112,7 @@ def test_search_resources(sync_client):
     try:
         time.sleep(SEARCH_INDEX_DELAY)
 
-        form = intellistream_datahub_sdk.SearchAndFilterForm(query=name, limit=5)
-        results = sync_client.resources.search(form)
+        results = sync_client.resources.search(name, limit=5)
         assert isinstance(results, list)
         assert len(results) <= 5
         assert any(r.external_id == ext_id for r in results), (

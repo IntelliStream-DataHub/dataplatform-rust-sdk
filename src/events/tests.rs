@@ -573,7 +573,8 @@ mod uuid_serde {
 /// Serde round-trips for the request bodies added for the event update/search endpoints. These
 /// pin the wire shape (`camelCase`, `type` not `r#type`, `set`/`add`/`remove`) without a backend.
 mod update_search_serde {
-    use crate::events::{EventSearch, EventUpdate};
+    use crate::events::EventUpdate;
+    use crate::generic::SearchAndFilterForm;
     use crate::fields::{Field, ListField, MapField};
     use crate::filters::BasicEventFilter;
     use crate::generic::{DataWrapper, IdAndExtId};
@@ -683,12 +684,11 @@ mod update_search_serde {
 
     #[test]
     fn event_search_serializes_query_filter_and_limit() {
-        let mut search = EventSearch::new("overpressure");
-        search
-            .set_filter(BasicEventFilter::default().set_type(&["alarm"]).build())
-            .set_limit(25);
+        let search = SearchAndFilterForm::new("overpressure")
+            .with_filter(BasicEventFilter::default().set_type(&["alarm"]).build())
+            .with_limit(25);
 
-        let v = to_value(&search.build());
+        let v = to_value(&search);
         assert_eq!(v["search"]["query"], json!("overpressure"));
         // `type` takes a list under its own name; the plural key it briefly used is not bound by
         // the api, so a leftover one would drop the criterion without an error.

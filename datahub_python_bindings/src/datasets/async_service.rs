@@ -2,7 +2,7 @@ use crate::datasets::{
     DatasetIdentifiable, PyDataset, PyDatasetFilter, PyDatasetUpdate,
 };
 use crate::resources::PyResource;
-use crate::{DatahubIdentity, Identifiable, PyIdCollection, PySearchAndFilterForm};
+use crate::{DatahubIdentity, Identifiable, PyIdCollection};
 use intellistream_datahub_sdk::ApiService;
 use intellistream_datahub_sdk::datasets::{Dataset, DatasetUpdate};
 use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
@@ -137,16 +137,16 @@ impl PyDatasetsServiceAsync {
     /// `query` must be 3–140 characters; the Latin-letters-spaces-digits pattern that used to sit
     /// alongside that is gone, so an external id is a legal query. `filter` narrows the phrase's
     /// hits and never widens them.
-    #[pyo3(signature = (query, limit = None, filter = None))]
+    #[pyo3(signature = (query, filter = None, limit = None))]
     fn search<'p>(
         &self,
         py: Python<'p>,
         query: &str,
-        limit: Option<u64>,
         filter: Option<crate::datasets::PyBasicDatasetFilter>,
+        limit: Option<u64>,
     ) -> PyResult<Bound<'p, PyAny>> {
         let service = self.api_service.clone();
-        let form = crate::datasets::dataset_search_form(query, limit, filter);
+        let form = crate::search_form(query.to_string(), filter.map(Into::into), limit);
         future_into_py(py, async move {
             let result = service
                 .datasets

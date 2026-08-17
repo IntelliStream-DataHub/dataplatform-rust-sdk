@@ -36,7 +36,7 @@ def test_search_finds_created_series_by_query(sync_client, make_ts):
     time.sleep(SEARCH_INDEX_DELAY)
 
     results = sync_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=f"Py SDK Search {token}"))
+        f"Py SDK Search {token}")
     assert isinstance(results, list)
     assert any(t.external_id == ext_id for t in results), (
         f"free-text search did not return the created series {ext_id}"
@@ -53,7 +53,7 @@ def test_the_phrase_covers_the_description_column(sync_client, make_ts):
     time.sleep(SEARCH_INDEX_DELAY)
 
     results = sync_client.timeseries.search(
-        intellistream_datahub_sdk.SearchAndFilterForm(query=f"unmistakable description {token}"))
+        f"unmistakable description {token}")
     assert any(t.external_id == ext_id for t in results), (
         f"the phrase did not match the description of {ext_id}"
     )
@@ -70,7 +70,7 @@ def test_a_query_may_contain_an_external_id(sync_client, make_ts):
 
     time.sleep(SEARCH_INDEX_DELAY)
 
-    results = sync_client.timeseries.search(intellistream_datahub_sdk.SearchAndFilterForm(query=ext_id))
+    results = sync_client.timeseries.search(ext_id)
     assert any(t.external_id == ext_id for t in results)
 
 

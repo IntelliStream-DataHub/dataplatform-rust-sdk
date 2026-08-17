@@ -2,7 +2,7 @@ use crate::datasets::{
     DatasetIdentifiable, PyDataset, PyDatasetFilter, PyDatasetUpdate,
 };
 use crate::resources::PyResource;
-use crate::{PyIdCollection, PySearchAndFilterForm};
+use crate::{PyIdCollection};
 use intellistream_datahub_sdk::datasets::{Dataset, DatasetUpdate};
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::{ApiService, Resource};
@@ -118,16 +118,16 @@ impl PyDatasetsServiceSync {
     /// `query` must be 3–140 characters; the Latin-letters-spaces-digits pattern that used to sit
     /// alongside that is gone, so an external id is a legal query. `filter` narrows the phrase's
     /// hits and never widens them.
-    #[pyo3(signature = (query, limit = None, filter = None))]
+    #[pyo3(signature = (query, filter = None, limit = None))]
     fn search(
         &self,
         py: Python<'_>,
         query: &str,
-        limit: Option<u64>,
         filter: Option<crate::datasets::PyBasicDatasetFilter>,
+        limit: Option<u64>,
     ) -> PyResult<Vec<PyDataset>> {
         let service = self.api_service.clone();
-        let form = crate::datasets::dataset_search_form(query, limit, filter);
+        let form = crate::search_form(query.to_string(), filter.map(Into::into), limit);
         py.detach(|| {
             let result = self
                 .runtime

@@ -28,10 +28,10 @@ use chrono::{DateTime, Utc};
 use tokio::runtime::Runtime;
 
 use crate::datahub::DataHubConfig;
-use crate::datasets::{Dataset, DatasetFilter, DatasetSearch, DatasetUpdate};
+use crate::datasets::{BasicDatasetFilter, Dataset, DatasetFilter, DatasetUpdate};
 use crate::events::{Event, EventDimension, EventIdCollection};
 use crate::files::{FileDownload, FileUpdate, FileUpload};
-use crate::filters::EventFilter;
+use crate::filters::{BasicEventFilter, EventFilter};
 use crate::functions::Function;
 use crate::generic::{
     DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, INode, IdAndExtId,
@@ -234,6 +234,7 @@ impl EventsService {
         fn list_sources(limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
         fn search_sources(query: &str, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
         fn filter(filter: &EventFilter) -> Result<DataWrapper<Event>, ResponseError>;
+        fn search(search: &SearchAndFilterForm<BasicEventFilter>) -> Result<DataWrapper<Event>, ResponseError>;
     }
 
     delegate_into! { events =>
@@ -258,7 +259,7 @@ impl DatasetsService {
     delegate! { datasets =>
         fn list(limit: Option<u64>) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn filter(filter: &DatasetFilter) -> Result<DataWrapper<Dataset>, ResponseError>;
-        fn search(search: &DatasetSearch) -> Result<DataWrapper<Dataset>, ResponseError>;
+        fn search(search: &SearchAndFilterForm<BasicDatasetFilter>) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn search_by_query(query: &str) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn policies() -> Result<DataWrapper<Resource>, ResponseError>;
     }

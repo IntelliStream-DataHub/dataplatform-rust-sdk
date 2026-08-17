@@ -276,6 +276,7 @@ pub struct SearchAndFilterForm<F> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filter: Option<F>,
     pub search: SearchForm,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
 }
 // `FilterForm` used to live here: thirteen fields, none of them read by any endpoint, sent under

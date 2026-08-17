@@ -4,7 +4,7 @@ mod tests;
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::fields::{Field, ListField, MapField};
 use crate::filters::{MetadataFilter, NodeFilter, TimeFilter};
-use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, SearchForm};
+use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, SearchAndFilterForm};
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::ResponseError;
 use crate::resources::Resource;
@@ -110,7 +110,7 @@ impl DatasetsService {
     /// [`search_by_query`](Self::search_by_query) is the shorthand for the common case.
     pub async fn search(
         &self,
-        search: &DatasetSearch,
+        search: &SearchAndFilterForm<BasicDatasetFilter>,
     ) -> Result<DataWrapper<Dataset>, ResponseError> {
         let path = &format!("{}/search", self.base_url);
         self.execute_post_request(path, &search).await
@@ -122,7 +122,7 @@ impl DatasetsService {
         &self,
         query: &str,
     ) -> Result<DataWrapper<Dataset>, ResponseError> {
-        self.search(&DatasetSearch::new(query)).await
+        self.search(&SearchAndFilterForm::new(query)).await
     }
 
     /// `POST /datasets/update` — partial update of one or more datasets.
@@ -505,44 +505,3 @@ impl Default for DatasetFilter {
     }
 }
 
-/// Body of `POST /datasets/search`. Same shape as the other three searches.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DatasetSearch {
-    search: SearchForm,
-    /// The same criteria `POST /datasets/filter` takes. It narrows the phrase's hits and never
-    /// widens them, so omitting it returns them as found.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    filter: Option<BasicDatasetFilter>,
-    /// Caps the result. Defaults to 100 server-side; unlike the filter endpoint the cap here is
-    /// **1000**, and above it the request is rejected with 400. Note this is the *search* cap and
-    /// has not been folded into the shared `FilterDefaults` the filter endpoints now use.
-    limit: u64,
-}
-impl DatasetSearch {
-    /// A search for `query`, which must be 3–140 characters or the server answers 400.
-    pub fn new(query: impl Into<String>) -> Self {
-        Self {
-            search: SearchForm::new(query),
-            filter: None,
-            limit: 100,
-        }
-    }
-
-    pub fn set_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self {
-        self.filter = Some(filter);
-        self
-    }
-
-    pub fn set_search(&mut self, search: SearchForm) -> &mut Self {
-        self.search = search;
-        self
-    }
-    /// Max 1000 — the server answers 400 above that.
-    pub fn set_limit(&mut self, limit: u64) -> &mut Self {
-        self.limit = limit;
-        self
-    }
-    pub fn build(&self) -> Self {
-        self.clone()
-    }
-}
