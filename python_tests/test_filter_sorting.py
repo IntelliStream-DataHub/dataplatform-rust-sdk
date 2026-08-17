@@ -218,8 +218,8 @@ def test_datasets_sort_by_name(sync_client, datasets, prefix, token):
     parent, child = datasets
 
     def page(order):
-        return ids_of(sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilter(
-            intellistream_datahub_sdk.BasicDatasetFilter(external_id=f"{prefix}_ds_*"),
+        return ids_of(sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilterForm(
+            intellistream_datahub_sdk.DatasetFilter(external_id=f"{prefix}_ds_*"),
             sort_by="name", sort_order=order)))
 
     # "Filter Child" sorts before "Filter Parent".
@@ -245,8 +245,8 @@ def test_resources_sort_by_name(sync_client, null_source_resources, prefix):
 @pytest.fixture
 def ev_sorted(sync_client, prefix, sortable_events):
     def _sorted(**paging):
-        request = intellistream_datahub_sdk.EventFilter(
-            intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}_sort_ev_*"), limit=50, **paging)
+        request = intellistream_datahub_sdk.EventFilterForm(
+            intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}_sort_ev_*"), limit=50, **paging)
         return poll_until(
             lambda: ids_of(sync_client.events.filter(request)),
             lambda found: len(found) >= 4,

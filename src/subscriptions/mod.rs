@@ -41,10 +41,10 @@ impl SubscriptionsService {
 
     pub async fn list(
         &self,
-        retriever: &SubscriptionRetriever,
+        form: &SubscriptionFilterForm,
     ) -> Result<DataWrapper<Subscription>, ResponseError> {
         let path = &format!("{}/list", self.base_url);
-        self.execute_post_request::<DataWrapper<Subscription>, _>(path, retriever)
+        self.execute_post_request::<DataWrapper<Subscription>, _>(path, form)
             .await
     }
 
@@ -130,15 +130,15 @@ pub struct DataSort {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct SubscriptionRetriever {
+pub struct SubscriptionFilterForm {
     pub filter: SubscriptionFilter,
     pub limit: u32,
     pub sort: DataSort,
 }
 
-impl Default for SubscriptionRetriever {
+impl Default for SubscriptionFilterForm {
     fn default() -> Self {
-        SubscriptionRetriever {
+        SubscriptionFilterForm {
             filter: SubscriptionFilter::default(),
             limit: 100,
             sort: DataSort::default(),

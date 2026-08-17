@@ -1,5 +1,5 @@
 use crate::create_api_service;
-use crate::datasets::{BasicDatasetFilter, Dataset, DatasetFilter, DatasetUpdate};
+use crate::datasets::{DatasetFilter, Dataset, DatasetFilterForm, DatasetUpdate};
 use crate::fields::{Field, MapField};
 use crate::generic::IdAndExtId;
 use crate::http::ResponseError;
@@ -125,8 +125,8 @@ async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError>
     // exclusion check like the one below would have failed on any backend with a second dataset.
     let narrowed = api_service
         .datasets
-        .filter(&DatasetFilter::from_filter(
-            BasicDatasetFilter::new()
+        .filter(&DatasetFilterForm::from_filter(
+            DatasetFilter::new()
                 .set_external_id(vec![ext_id.to_string()])
                 .build(),
         ))
@@ -145,8 +145,8 @@ async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError>
     // An unmatchable criterion is an empty result, not an unfiltered one.
     let none = api_service
         .datasets
-        .filter(&DatasetFilter::from_filter(
-            BasicDatasetFilter::new()
+        .filter(&DatasetFilterForm::from_filter(
+            DatasetFilter::new()
                 .set_external_id(vec!["sdk_test_dataset_that_does_not_exist".to_string()])
                 .build(),
         ))
@@ -160,7 +160,7 @@ async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError>
     // A limit above the server's @Max(10000) is rejected rather than clamped.
     let over_cap = api_service
         .datasets
-        .filter(DatasetFilter::new().set_limit(10_001))
+        .filter(DatasetFilterForm::new().set_limit(10_001))
         .await;
     assert_eq!(
         over_cap.map(|_| ()).unwrap_err().get_status().as_u16(),
@@ -249,13 +249,13 @@ fn dataset_update_serializes_only_touched_fields() {
 /// every dataset back, which is exactly what this endpoint's first SDK binding did.
 #[test]
 fn filter_body_matches_the_documented_wire_shape() {
-    use crate::datasets::{BasicDatasetFilter, DatasetFilter};
+    use crate::datasets::{DatasetFilter, DatasetFilterForm};
     use crate::filters::TimeFilter;
     use chrono::{DateTime, Utc};
 
     let min: DateTime<Utc> = "2026-01-01T00:00:00Z".parse().unwrap();
-    let filter = DatasetFilter::from_filter(
-        BasicDatasetFilter::new()
+    let filter = DatasetFilterForm::from_filter(
+        DatasetFilter::new()
             .set_name(vec!["SAP*".to_string()])
             // The retired singular `source` is a list now, and the retired `externalIdPrefix` is
             // just a trailing wildcard in the field that also takes exact ids.
@@ -294,8 +294,8 @@ fn filter_body_matches_the_documented_wire_shape() {
     assert!(f.get("id").is_none(), "unset id should be omitted");
 
     // Ids go out as strings, like every other id on the wire.
-    let by_id = DatasetFilter::from_filter(
-        BasicDatasetFilter::new()
+    let by_id = DatasetFilterForm::from_filter(
+        DatasetFilter::new()
             .set_id(vec![12, 9_007_199_254_740_993])
             .build(),
     );

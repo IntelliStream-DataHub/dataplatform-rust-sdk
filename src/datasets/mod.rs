@@ -62,20 +62,20 @@ impl DatasetsService {
     /// collection route. The server implements `/list` by calling its `/filter` handler, so this
     /// is [`filter`](Self::filter) with an empty filter and nothing more.
     pub async fn list(&self, limit: Option<u64>) -> Result<DataWrapper<Dataset>, ResponseError> {
-        let mut form = DatasetFilter::new();
+        let mut form = DatasetFilterForm::new();
         form.set_limit(limit.unwrap_or(100));
         let path = &format!("{}/list", self.base_url);
         self.execute_post_request(path, &form).await
     }
 
-    /// `POST /datasets/filter` — datasets matching [`DatasetFilter`], newest first.
+    /// `POST /datasets/filter` — datasets matching [`DatasetFilterForm`], newest first.
     ///
     /// Every criterion on the filter is honoured server-side. Results are capped by the form's
     /// `limit` (default 100, max 10000) and there is no paging, so a filter broad enough to exceed
     /// the cap is silently truncated — narrow it rather than trying to page.
     pub async fn filter(
         &self,
-        filter: &DatasetFilter,
+        filter: &DatasetFilterForm,
     ) -> Result<DataWrapper<Dataset>, ResponseError> {
         let path = &format!("{}/filter", self.base_url);
         self.execute_post_request(path, filter).await
@@ -110,7 +110,7 @@ impl DatasetsService {
     /// [`search_by_query`](Self::search_by_query) is the shorthand for the common case.
     pub async fn search(
         &self,
-        search: &SearchAndFilterForm<BasicDatasetFilter>,
+        search: &SearchAndFilterForm<DatasetFilter>,
     ) -> Result<DataWrapper<Dataset>, ResponseError> {
         let path = &format!("{}/search", self.base_url);
         self.execute_post_request(path, &search).await
@@ -403,13 +403,13 @@ impl From<&Vec<DatasetUpdate>> for DataWrapper<DatasetUpdate> {
 /// for. A data-set-specific criterion belongs here when one exists.
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct BasicDatasetFilter {
+pub struct DatasetFilter {
     /// The criteria shared with resources and timeseries, flattened into this filter's body.
     #[serde(flatten)]
     pub node: NodeFilter,
 }
 
-impl BasicDatasetFilter {
+impl DatasetFilter {
     pub fn new() -> Self {
         Self::default()
     }
@@ -453,9 +453,9 @@ impl BasicDatasetFilter {
 /// Body of `POST /datasets/filter` and `POST /datasets/list`: the criteria, how many to return,
 /// and in what order.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DatasetFilter {
+pub struct DatasetFilterForm {
     #[serde(skip_serializing_if = "Option::is_none")]
-    filter: Option<BasicDatasetFilter>,
+    filter: Option<DatasetFilter>,
     /// Caps the result. Defaults to **1000** server-side; above 10000 the request is rejected with
     /// 400, and a value <= 0 is silently treated as the default. The four filter endpoints had
     /// drifted to two different defaults before the refactor, so which page size a caller got
@@ -466,7 +466,7 @@ pub struct DatasetFilter {
     pub paging: crate::filters::PageRequest,
 }
 
-impl DatasetFilter {
+impl DatasetFilterForm {
     pub fn new() -> Self {
         Self {
             filter: None,
@@ -474,13 +474,13 @@ impl DatasetFilter {
             paging: Default::default(),
         }
     }
-    pub fn from_filter(filter: BasicDatasetFilter) -> Self {
+    pub fn from_filter(filter: DatasetFilter) -> Self {
         Self {
             filter: Some(filter),
             ..Self::new()
         }
     }
-    pub fn set_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self {
+    pub fn set_filter(&mut self, filter: DatasetFilter) -> &mut Self {
         self.filter = Some(filter);
         self
     }
@@ -499,7 +499,7 @@ impl DatasetFilter {
     }
 }
 
-impl Default for DatasetFilter {
+impl Default for DatasetFilterForm {
     fn default() -> Self {
         Self::new()
     }

@@ -24,7 +24,7 @@ client.timeseries.insert_from_lists(
 
 # Find the alarms.
 alarms = client.events.filter(
-    dh.EventFilter(basic_filter=dh.BasicEventFilter(type="ALARM"), limit=100)
+    dh.EventFilterForm(filter=dh.EventFilter(type="ALARM"), limit=100)
 )
 ```
 

@@ -93,7 +93,19 @@ Two error types, used in different layers:
 
 ### Filters (`src/filters.rs`)
 
-The four `/{entity}/filter` endpoints share one contract. `NodeFilter` (`src/filters.rs`) is the criteria every node type can be filtered by — `id`, `externalId`, `name`, `source`, `labels`, `metadata`, `createdTime`, `lastUpdatedTime` — and `ResourceFilter`, `TimeSeriesFilter` and `BasicDatasetFilter` each `#[serde(flatten)]` it, so on the wire its fields sit alongside the type-specific ones. `BasicEventFilter` deliberately does **not** extend it (events are not nodes: no `name` column, a UUID id) but matches it field for field wherever ClickHouse can back it.
+**Two types per entity, named the same way every time.** `XFilter` is the *criteria* — the fields a
+row is matched on. `XFilterForm` is the *request body*, wrapping those criteria with `limit`, `sort`
+and `cursor` (and, for events only, `advancedFilter`). So `EventFilter` goes inside
+`EventFilterForm`, `DatasetFilter` inside `DatasetFilterForm`, and likewise for resources,
+timeseries and subscriptions. The same `XFilter` is what `SearchAndFilterForm<F>` narrows a search
+by. This convention is recent: the criteria for events and datasets used to be called
+`BasicEventFilter`/`BasicDatasetFilter`, because the plain name had been spent on the request body,
+and the request bodies themselves answered to `DatasetFilter`, `EventFilter`, `ResourceRetreiver`
+and `TimeSeriesFilterForm` — four spellings of one idea, which is what made `Basic` necessary in the
+first place. The backend still calls the request bodies `XRetreiver` (its own spelling of
+*Retriever*); the wire format is unaffected either way, since none of these names is serialized.
+
+The four `/{entity}/filter` endpoints share one contract. `NodeFilter` (`src/filters.rs`) is the criteria every node type can be filtered by — `id`, `externalId`, `name`, `source`, `labels`, `metadata`, `createdTime`, `lastUpdatedTime` — and `ResourceFilter`, `TimeSeriesFilter` and `DatasetFilter` each `#[serde(flatten)]` it, so on the wire its fields sit alongside the type-specific ones. `EventFilter` deliberately does **not** extend it (events are not nodes: no `name` column, a UUID id) but matches it field for field wherever ClickHouse can back it.
 
 The rules, which every one of them obeys:
 
@@ -108,9 +120,9 @@ The rules, which every one of them obeys:
 
 Names the refactors removed — `externalIdPrefix`, `metadataKey`/`metadataValue`, `description` on the event filter, the dataset `writeProtected`/`deactivated` flags, and the plural spellings `ids`/`externalIds`/`names`/`sources`/`types`/`subTypes`/`statuses`/`units`/`unitExternalIds`/`valueTypes`/`nodeTypes`/`dataSetIds` the fields briefly carried — are gone from the SDK rather than kept as aliases. **The backend drops unknown keys silently**, so a leftover one places no restriction and returns everything the caller can read, which reads like a working query. The serde tests in `src/filters.rs`, `src/datasets/tests.rs`, `src/resources/tests.rs` and `src/timeseries/test.rs` assert their absence from the payload; the live behaviour is covered by `python_tests/test_filter_{timeseries,resources,datasets,events}.py`.
 
-Related resources are one field, not two: both `Event` and `BasicEventFilter` carry `relatedResources`, an array of the backend's `IdCollection` (`[{"id": "34"}, {"externalId": "sensor_abc"}]`, modelled by `IdAndExtId`). An entry may name a resource by id, external id, or both; the backend resolves the missing side and returns both. `dataSetId` on the filter uses the same shape. There are no aliases for the retired flat `relatedResourceIds` / `relatedResourceExternalIds` arrays.
+Related resources are one field, not two: both `Event` and `EventFilter` carry `relatedResources`, an array of the backend's `IdCollection` (`[{"id": "34"}, {"externalId": "sensor_abc"}]`, modelled by `IdAndExtId`). An entry may name a resource by id, external id, or both; the backend resolves the missing side and returns both. `dataSetId` on the filter uses the same shape. There are no aliases for the retired flat `relatedResourceIds` / `relatedResourceExternalIds` arrays.
 
-`EventFilter` + `AdvancedEventFilter` remain the richer style for events; some advanced-filter endpoints are not yet wired up server-side and are tested only via serde round-trips.
+`EventFilterForm` + `AdvancedEventFilter` remain the richer style for events; some advanced-filter endpoints are not yet wired up server-side and are tested only via serde round-trips.
 
 #### Sorting and paging
 
@@ -143,7 +155,7 @@ narrowed by `nodeType` (`["resource", "timeseries"]`, case-insensitive; omitted 
 only unknown names matches *nothing*). It behaved this way before by omission, with no discriminator
 and single-table inheritance doing the rest; the breadth is now stated and narrowable. Every node
 carries its type as a label, so a caller can tell what came back. The other three endpoints stay
-typed. `BasicDatasetFilter` is consequently just the shared criteria — its `writeProtected` and
+typed. `DatasetFilter` is consequently just the shared criteria — its `writeProtected` and
 `deactivated` flags were removed server-side as inert.
 
 #### The four `/search` endpoints share one contract

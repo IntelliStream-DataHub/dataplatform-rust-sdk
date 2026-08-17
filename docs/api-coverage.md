@@ -39,7 +39,7 @@ These are worse than a gap — the SDK exposes a method that cannot work.
 
 | SDK | Problem |
 |---|---|
-| `datasets.filter()` | POSTs `/datasets/filter`. No such route. The backend's structured-list endpoint is `POST /datasets/list`. The body the SDK already sends (`DatasetFilter` → `{filter, cursor, limit}`) matches the server's `DataSetRetreiver` exactly — only the path is wrong. |
+| `datasets.filter()` | POSTs `/datasets/filter`. No such route. The backend's structured-list endpoint is `POST /datasets/list`. The body the SDK already sends (`DatasetFilterForm` → `{filter, cursor, limit}`) matches the server's `DataSetRetreiver` exactly — only the path is wrong. |
 | `datasets.search()` | Also POSTs `/datasets/filter`, not `/datasets/search`, so search is unreachable even though the backend implements it. |
 | `datasets.list()` | `todo!()` — panics. |
 | `datasets.update()` | `todo!()` — panics, while `POST /datasets/update` exists. |
@@ -181,7 +181,7 @@ epoch to `string`/`date-time`. No wire change.
 Collapses `EventModel`'s parallel `relatedResourceIds: List<Long>` and
 `relatedResourceExternalIds: List<String>` into a single `relatedResources: List<IdCollection>`
 (`[{"id": 34, "externalId": "sensor_abc"}]`), with the API resolving whichever side is omitted and
-always returning both. `EventFilter.relatedResources` already had that shape; this makes the entity
+always returning both. `EventFilterForm.relatedResources` already had that shape; this makes the entity
 match, and tightens the filter's documented semantics to "related to **all** of these".
 
 The Rust SDK's `Event` still carries the two parallel fields (`get_related_resource_ids()` /

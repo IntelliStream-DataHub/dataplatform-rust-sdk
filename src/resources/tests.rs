@@ -664,20 +664,20 @@ fn resource_filter_empty_data_set_scope_is_not_the_same_as_none() {
 /// then has to make a decision about, and the point of the default order is that the caller did
 /// not ask for one.
 #[test]
-fn resource_retriever_omits_paging_until_it_is_asked_for() {
-    let value = serde_json::to_value(ResourceRetreiver::new(ResourceFilter::default())).unwrap();
+fn resource_filter_form_omits_paging_until_it_is_asked_for() {
+    let value = serde_json::to_value(ResourceFilterForm::new(ResourceFilter::default())).unwrap();
     let keys: Vec<&String> = value.as_object().unwrap().keys().collect();
     assert_eq!(keys, vec!["filter"], "unexpected keys in the request body: {value}");
 
     let with_limit = serde_json::to_value(
-        ResourceRetreiver::new(ResourceFilter::default()).with_limit(250),
+        ResourceFilterForm::new(ResourceFilter::default()).with_limit(250),
     )
     .unwrap();
     assert_eq!(with_limit["limit"], 250);
 
     // Sort and cursor flatten in beside `filter` and `limit` rather than nesting.
     let paged = serde_json::to_value(
-        ResourceRetreiver::new(ResourceFilter::default())
+        ResourceFilterForm::new(ResourceFilter::default())
             .with_limit(2)
             .with_paging(crate::filters::PageRequest::desc("name").after("djF8bmFtZQ")),
     )

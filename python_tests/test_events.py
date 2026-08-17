@@ -129,8 +129,8 @@ def test_filter_by_external_id_prefix(sync_client, test_events,event_dataset):
     target_string = f"{event_dataset.external_id}_test_event_5"
     # `external_id_prefix` is gone; a trailing `*` asks the same question in the field that
     # also takes exact ids.
-    basic_filter = intellistream_datahub_sdk.BasicEventFilter(external_id=f"{target_string}*")
-    filt = intellistream_datahub_sdk.EventFilter(basic_filter=basic_filter)
+    filter = intellistream_datahub_sdk.EventFilter(external_id=f"{target_string}*")
+    filt = intellistream_datahub_sdk.EventFilterForm(filter=filter)
 
     results = poll_until(lambda: sync_client.events.filter(filt), lambda r: len(r) >= 1)
     assert len(results) >= 1
@@ -142,10 +142,10 @@ def test_filter_by_type(sync_client, test_events):
     # by external_id — the /events/filter endpoint can echo the same row twice
     # under indexing lag, so an exact ``== 1`` count is race-prone.
     target = test_events[10]
-    basic_filter = intellistream_datahub_sdk.BasicEventFilter(
+    filter = intellistream_datahub_sdk.EventFilter(
         type=[target.type],
     )
-    filt = intellistream_datahub_sdk.EventFilter(basic_filter=basic_filter)
+    filt = intellistream_datahub_sdk.EventFilterForm(filter=filter)
 
     results = poll_until(
         lambda: sync_client.events.filter(filt),
@@ -155,10 +155,10 @@ def test_filter_by_type(sync_client, test_events):
     assert all(e.type == target.type for e in results)
 def test_filter_by_sub_type(sync_client, test_events):
     target = test_events[99]
-    basic_filter = intellistream_datahub_sdk.BasicEventFilter(
+    filter = intellistream_datahub_sdk.EventFilter(
         sub_type=[target.sub_type],
     )
-    filt = intellistream_datahub_sdk.EventFilter(basic_filter=basic_filter)
+    filt = intellistream_datahub_sdk.EventFilterForm(filter=filter)
 
     results = poll_until(
         lambda: sync_client.events.filter(filt),
@@ -180,8 +180,8 @@ def test_filter_by_sub_type(sync_client, test_events):
 ])
 def test_filter_by_event_time_range(sync_client, test_events,time_filter,expected_idx):
     # Events are 1 day apart. Filter for the first 3 days.
-    basic_filter = intellistream_datahub_sdk.BasicEventFilter(event_time=time_filter)
-    filt = intellistream_datahub_sdk.EventFilter(basic_filter=basic_filter)
+    filter = intellistream_datahub_sdk.EventFilter(event_time=time_filter)
+    filt = intellistream_datahub_sdk.EventFilterForm(filter=filter)
 
     # The time filter isn't dataset-scoped, so we only assert the window returns something
     # (poll past ingestion lag) rather than pinning exact membership.
@@ -194,8 +194,8 @@ def test_filter_by_metadata(sync_client, test_events,target_idx):
     target = test_events[target_idx]
     target_metadata = target.metadata
 
-    basic_filter = intellistream_datahub_sdk.BasicEventFilter(metadata=target_metadata)
-    filt = intellistream_datahub_sdk.EventFilter(basic_filter=basic_filter)
+    filter = intellistream_datahub_sdk.EventFilter(metadata=target_metadata)
+    filt = intellistream_datahub_sdk.EventFilterForm(filter=filter)
 
     results = poll_until(
         lambda: sync_client.events.filter(filt),
@@ -215,10 +215,10 @@ def test_filter_by_source(sync_client, test_events):
     # searchable description column, and the field was accepted and ignored. Use /events/search
     # for free text.
     target = test_events[7]
-    basic_filter = intellistream_datahub_sdk.BasicEventFilter(
+    filter = intellistream_datahub_sdk.EventFilter(
         source=[target.source],
     )
-    filt = intellistream_datahub_sdk.EventFilter(basic_filter=basic_filter)
+    filt = intellistream_datahub_sdk.EventFilterForm(filter=filter)
 
     results = poll_until(
         lambda: sync_client.events.filter(filt),
@@ -228,9 +228,9 @@ def test_filter_by_source(sync_client, test_events):
     assert all(e.source == target.source for e in results)
 
 def test_filter_with_limit(sync_client, test_events,event_dataset):
-    basic_filter = intellistream_datahub_sdk.BasicEventFilter(external_id=f"{event_dataset.external_id}*")
-    # Using the EventFilter limit field
-    filt = intellistream_datahub_sdk.EventFilter(basic_filter=basic_filter, limit=5)
+    filter = intellistream_datahub_sdk.EventFilter(external_id=f"{event_dataset.external_id}*")
+    # Using the EventFilterForm limit field
+    filt = intellistream_datahub_sdk.EventFilterForm(filter=filter, limit=5)
 
     results = poll_until(lambda: sync_client.events.filter(filt), lambda r: len(r) == 5)
     assert len(results) == 5
@@ -240,8 +240,8 @@ def test_filter_by_data_set_ids(sync_client, test_events, event_dataset):
     # dataSetIds must go over the wire as the backend's List<IdObject> ([{"id": ...}]); a flat id
     # array is rejected with HTTP 400. All fixture events live in event_dataset.
     target = test_events[0]
-    basic_filter = intellistream_datahub_sdk.BasicEventFilter(data_set_id=[event_dataset.id])
-    filt = intellistream_datahub_sdk.EventFilter(basic_filter=basic_filter)
+    filter = intellistream_datahub_sdk.EventFilter(data_set_id=[event_dataset.id])
+    filt = intellistream_datahub_sdk.EventFilterForm(filter=filter)
 
     results = poll_until(
         lambda: sync_client.events.filter(filt),
@@ -268,15 +268,15 @@ def test_filter_by_related_resources(sync_client, event_dataset):
         data_set_id=event_dataset.id,
         related_resources=[intellistream_datahub_sdk.IdCollection(external_id=res_ext)])])
     try:
-        by_id = intellistream_datahub_sdk.EventFilter(
-            basic_filter=intellistream_datahub_sdk.BasicEventFilter(
+        by_id = intellistream_datahub_sdk.EventFilterForm(
+            filter=intellistream_datahub_sdk.EventFilter(
                 related_resources=[intellistream_datahub_sdk.IdCollection(id=res.id)]))
         r1 = poll_until(lambda: sync_client.events.filter(by_id),
                    lambda r: ev_ext in {e.external_id for e in r})
         assert ev_ext in {e.external_id for e in r1}, "filter by related resource id did not find the event"
 
-        by_ext = intellistream_datahub_sdk.EventFilter(
-            basic_filter=intellistream_datahub_sdk.BasicEventFilter(
+        by_ext = intellistream_datahub_sdk.EventFilterForm(
+            filter=intellistream_datahub_sdk.EventFilter(
                 related_resources=[intellistream_datahub_sdk.IdCollection(external_id=res_ext)]))
         r2 = poll_until(lambda: sync_client.events.filter(by_ext),
                    lambda r: ev_ext in {e.external_id for e in r})
@@ -297,7 +297,7 @@ def test_filter_by_created_time(sync_client, test_events, event_dataset):
     now = pd.Timestamp.now(tz="UTC")
     day = pd.Timedelta(days=1)
 
-    after = intellistream_datahub_sdk.EventFilter(basic_filter=intellistream_datahub_sdk.BasicEventFilter(
+    after = intellistream_datahub_sdk.EventFilterForm(filter=intellistream_datahub_sdk.EventFilter(
         external_id=f"{event_dataset.external_id}*",
         created_time=intellistream_datahub_sdk.TimeFilter(start=now - day)))
     r = poll_until(lambda: sync_client.events.filter(after),
@@ -305,7 +305,7 @@ def test_filter_by_created_time(sync_client, test_events, event_dataset):
     assert target.external_id in {e.external_id for e in r}, "created_time (after) filter did not find the event"
 
     # Now that we know it's propagated, the complementary window must exclude it.
-    before = intellistream_datahub_sdk.EventFilter(basic_filter=intellistream_datahub_sdk.BasicEventFilter(
+    before = intellistream_datahub_sdk.EventFilterForm(filter=intellistream_datahub_sdk.EventFilter(
         external_id=f"{event_dataset.external_id}*",
         created_time=intellistream_datahub_sdk.TimeFilter(end=now - day)))
     r_before = sync_client.events.filter(before)
@@ -320,14 +320,14 @@ def test_filter_by_last_updated_time(sync_client, test_events, event_dataset):
     now = pd.Timestamp.now(tz="UTC")
     day = pd.Timedelta(days=1)
 
-    after = intellistream_datahub_sdk.EventFilter(basic_filter=intellistream_datahub_sdk.BasicEventFilter(
+    after = intellistream_datahub_sdk.EventFilterForm(filter=intellistream_datahub_sdk.EventFilter(
         external_id=f"{event_dataset.external_id}*",
         last_updated_time=intellistream_datahub_sdk.TimeFilter(start=now - day)))
     r = poll_until(lambda: sync_client.events.filter(after),
               lambda r: target.external_id in {e.external_id for e in r})
     assert target.external_id in {e.external_id for e in r}, "last_updated_time (after) filter did not find the event"
 
-    before = intellistream_datahub_sdk.EventFilter(basic_filter=intellistream_datahub_sdk.BasicEventFilter(
+    before = intellistream_datahub_sdk.EventFilterForm(filter=intellistream_datahub_sdk.EventFilter(
         external_id=f"{event_dataset.external_id}*",
         last_updated_time=intellistream_datahub_sdk.TimeFilter(end=now - day)))
     r_before = sync_client.events.filter(before)
@@ -496,11 +496,11 @@ def test_search_by_description(sync_client, dimension_events):
 
 
 def test_search_with_filter_and_limit(sync_client, dimension_events):
-    # The free-text search can be narrowed with a BasicEventFilter and capped.
+    # The free-text search can be narrowed with a EventFilter and capped.
     token = dimension_events["token"]
-    basic_filter = intellistream_datahub_sdk.BasicEventFilter(type=[dimension_events["type"]])
+    filter = intellistream_datahub_sdk.EventFilter(type=[dimension_events["type"]])
     results = poll_until(
-        lambda: sync_client.events.search(token, filter=basic_filter, limit=2),
+        lambda: sync_client.events.search(token, filter=filter, limit=2),
         lambda r: len(r) >= 1,
         **POLL_SEARCH,
     )

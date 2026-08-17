@@ -1,7 +1,7 @@
 use crate::subscriptions::listener::{PySubscriptionListenerAsync, shared_listener};
-use crate::subscriptions::sync_service::build_retriever;
+use crate::subscriptions::sync_service::build_filter_form;
 use crate::subscriptions::{
-    PyDataSort, PySubscription, PySubscriptionRetriever, SubscriptionIdentifyable,
+    PyDataSort, PySubscription, PySubscriptionFilterForm, SubscriptionIdentifyable,
     SubscriptionTimeseriesId,
 };
 use intellistream_datahub_sdk::ApiService;
@@ -41,21 +41,21 @@ impl PySubscriptionsServiceAsync {
         })
     }
 
-    #[pyo3(signature=(retriever=None, *, timeseries=None, limit=None, sort=None))]
+    #[pyo3(signature=(form=None, *, timeseries=None, limit=None, sort=None))]
     fn list<'py>(
         &self,
         py: Python<'py>,
-        retriever: Option<PySubscriptionRetriever>,
+        form: Option<PySubscriptionFilterForm>,
         timeseries: Option<Vec<SubscriptionTimeseriesId>>,
         limit: Option<u32>,
         sort: Option<PyDataSort>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let retriever = build_retriever(retriever, timeseries, limit, sort)?;
+        let form = build_filter_form(form, timeseries, limit, sort)?;
         let service = self.api_service.clone();
         future_into_py(py, async move {
             let result = service
                 .subscriptions
-                .list(&retriever)
+                .list(&form)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(result

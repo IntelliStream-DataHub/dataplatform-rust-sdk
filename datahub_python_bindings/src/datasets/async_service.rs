@@ -1,5 +1,5 @@
 use crate::datasets::{
-    DatasetIdentifiable, PyDataset, PyDatasetFilter, PyDatasetUpdate,
+    DatasetIdentifiable, PyDataset, PyDatasetFilterForm, PyDatasetUpdate,
 };
 use crate::resources::PyResource;
 use crate::{DatahubIdentity, Identifiable, PyIdCollection};
@@ -109,7 +109,7 @@ impl PyDatasetsServiceAsync {
     }
 
     /// Datasets matching every criterion on the filter, newest first.
-    fn filter<'p>(&self, py: Python<'p>, input: PyDatasetFilter) -> PyResult<Bound<'p, PyAny>> {
+    fn filter<'p>(&self, py: Python<'p>, input: PyDatasetFilterForm) -> PyResult<Bound<'p, PyAny>> {
         let service = self.api_service.clone();
         future_into_py(py, async move {
             let result = service
@@ -142,7 +142,7 @@ impl PyDatasetsServiceAsync {
         &self,
         py: Python<'p>,
         query: &str,
-        filter: Option<crate::datasets::PyBasicDatasetFilter>,
+        filter: Option<crate::datasets::PyDatasetFilter>,
         limit: Option<u64>,
     ) -> PyResult<Bound<'p, PyAny>> {
         let service = self.api_service.clone();

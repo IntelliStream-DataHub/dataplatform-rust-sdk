@@ -185,7 +185,7 @@ impl PyResourcesServiceAsync {
         sort_order: Option<String>,
         cursor: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let retriever = crate::resources::sync_service::build_resource_retriever(
+        let form = crate::resources::sync_service::build_resource_filter_form(
             id, external_id, name, source, labels, metadata, created_time,
             last_updated_time, node_type, is_root, data_set_id, limit, sort_by, sort_order,
             cursor,
@@ -194,7 +194,7 @@ impl PyResourcesServiceAsync {
         future_into_py(py, async move {
             let result = service
                 .resources
-                .filter(&retriever)
+                .filter(&form)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
             let next_cursor = result.next_cursor().map(str::to_string);

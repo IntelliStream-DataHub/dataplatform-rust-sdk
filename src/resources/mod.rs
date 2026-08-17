@@ -132,10 +132,10 @@ impl ResourceService {
     /// predictable, where search ranks by fuzzy relevance.
     pub async fn filter(
         &self,
-        retriever: &ResourceRetreiver,
+        form: &ResourceFilterForm,
     ) -> Result<DataWrapper<Resource>, ResponseError> {
         let url = &format!("{}/filter", self.base_url);
-        self.execute_post_request::<DataWrapper<Resource>, _>(url, retriever)
+        self.execute_post_request::<DataWrapper<Resource>, _>(url, form)
             .await
     }
 
@@ -440,7 +440,7 @@ impl DataWrapperDeserialization for ResourceNetwork {
 /// [`PageRequest`](crate::filters::PageRequest).
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct ResourceRetreiver {
+pub struct ResourceFilterForm {
     pub filter: ResourceFilter,
     /// Defaults to 1000 server-side and is capped at 10000 — above that the request is rejected
     /// with 400. A zero or negative value falls back to the default rather than returning nothing.
@@ -451,7 +451,7 @@ pub struct ResourceRetreiver {
     pub paging: crate::filters::PageRequest,
 }
 
-impl ResourceRetreiver {
+impl ResourceFilterForm {
     pub fn new(filter: ResourceFilter) -> Self {
         Self {
             filter,

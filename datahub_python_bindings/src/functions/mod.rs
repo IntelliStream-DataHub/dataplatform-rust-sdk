@@ -2,7 +2,7 @@ use crate::PyIdCollection;
 use crate::events::PyEvent;
 use crate::relations::PyRelatedNode;
 use crate::resources::PyResourceNetwork;
-use intellistream_datahub_sdk::filters::{BasicEventFilter, EventFilter};
+use intellistream_datahub_sdk::filters::{EventFilter, EventFilterForm};
 use chrono::{DateTime, Utc};
 use intellistream_datahub_sdk::functions::Function;
 use intellistream_datahub_sdk::generic::IdAndExtId;
@@ -352,8 +352,8 @@ impl PyFunction {
 impl PyFunction {
     /// Build the events filter selecting events that reference this node (by id when present,
     /// else external id).
-    fn related_events_filter(&self, limit: u64) -> EventFilter {
-        let mut basic = BasicEventFilter::default();
+    fn related_events_filter(&self, limit: u64) -> EventFilterForm {
+        let mut basic = EventFilter::default();
         match self.inner.id {
             Some(id) => {
                 basic.set_related_resource_ids(&[id]);
@@ -362,7 +362,7 @@ impl PyFunction {
                 basic.set_related_resource_external_ids(&[self.inner.external_id.as_str()]);
             }
         }
-        let mut filter = EventFilter::default();
+        let mut filter = EventFilterForm::default();
         filter.set_filter(basic);
         filter.set_limit(limit);
         filter

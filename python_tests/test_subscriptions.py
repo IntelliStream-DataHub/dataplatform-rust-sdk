@@ -51,12 +51,12 @@ def test_create_list_delete(sync_client, subscription_timeseries):
         filtered = sync_client.subscriptions.list(timeseries=[ts_a_ext], limit=100)
         assert any(s.external_id == sub_ext for s in filtered)
 
-        # Same call via an explicit retriever.
-        retriever = intellistream_datahub_sdk.SubscriptionRetriever(
+        # Same call via an explicit form.
+        form = intellistream_datahub_sdk.SubscriptionFilterForm(
             filter=intellistream_datahub_sdk.SubscriptionFilter(timeseries=[ts_a_ext]),
             limit=100,
         )
-        filtered_via_retriever = sync_client.subscriptions.list(retriever)
+        filtered_via_retriever = sync_client.subscriptions.list(form)
         assert any(s.external_id == sub_ext for s in filtered_via_retriever)
 
         # Delete and verify gone.
@@ -87,13 +87,13 @@ def test_create_over_missing_timeseries_raises(sync_client):
 
 
 def test_list_rejects_retriever_and_kwargs_together(sync_client):
-    retriever = intellistream_datahub_sdk.SubscriptionRetriever()
+    form = intellistream_datahub_sdk.SubscriptionFilterForm()
     with pytest.raises(ValueError):
-        sync_client.subscriptions.list(retriever, limit=10)
+        sync_client.subscriptions.list(form, limit=10)
 
 
 def test_list_default_returns_list(sync_client):
-    # Default retriever — caller hasn't passed anything. Should not raise; result type only.
+    # Default form — caller hasn't passed anything. Should not raise; result type only.
     result = sync_client.subscriptions.list()
     assert isinstance(result, list)
 

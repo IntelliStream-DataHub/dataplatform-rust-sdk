@@ -43,8 +43,8 @@ def _sweep(client) -> None:
 
     # Events — no list endpoint, but the filter API accepts an external-id prefix.
     try:
-        filt = intellistream_datahub_sdk.EventFilter(
-            basic_filter=intellistream_datahub_sdk.BasicEventFilter(external_id=f"{TEST_PREFIX}*")
+        filt = intellistream_datahub_sdk.EventFilterForm(
+            filter=intellistream_datahub_sdk.EventFilter(external_id=f"{TEST_PREFIX}*")
         )
         _safe_delete_each(client.events.delete, _matching_prefix(client.events.filter(filt)))
     except Exception:

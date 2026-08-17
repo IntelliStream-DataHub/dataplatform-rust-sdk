@@ -78,8 +78,8 @@ def test_external_id_set_value(sync_client, new_dataset):
     ))
 
     found = poll_until(
-        lambda: sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilter(
-            intellistream_datahub_sdk.BasicDatasetFilter(external_id=[new_ext])
+        lambda: sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilterForm(
+            intellistream_datahub_sdk.DatasetFilter(external_id=[new_ext])
         )),
         bool,
     )
@@ -263,8 +263,8 @@ def test_update_persists_beyond_the_echo(sync_client, new_dataset):
     ))
 
     stored = poll_until(
-        lambda: sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilter(
-            intellistream_datahub_sdk.BasicDatasetFilter(external_id=[dataset.external_id])
+        lambda: sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilterForm(
+            intellistream_datahub_sdk.DatasetFilter(external_id=[dataset.external_id])
         )),
         lambda found: any(d.description == "after" for d in found),
     )

@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use intellistream_datahub_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use crate::events::PyEvent;
-use intellistream_datahub_sdk::filters::{BasicEventFilter, EventFilter};
+use intellistream_datahub_sdk::filters::{EventFilter, EventFilterForm};
 use intellistream_datahub_sdk::relations::RelatedNode;
 use intellistream_datahub_sdk::resources::RelatedResourcesForm;
 use intellistream_datahub_sdk::{ApiService, Resource};
@@ -507,8 +507,8 @@ impl PyResource {
 impl PyResource {
     /// Build the events filter selecting events that reference this node (by id when present,
     /// else external id).
-    fn related_events_filter(&self, limit: u64) -> EventFilter {
-        let mut basic = BasicEventFilter::default();
+    fn related_events_filter(&self, limit: u64) -> EventFilterForm {
+        let mut basic = EventFilter::default();
         match self.inner.id {
             Some(id) => {
                 basic.set_related_resource_ids(&[id]);
@@ -517,7 +517,7 @@ impl PyResource {
                 basic.set_related_resource_external_ids(&[self.inner.external_id.as_str()]);
             }
         }
-        let mut filter = EventFilter::default();
+        let mut filter = EventFilterForm::default();
         filter.set_filter(basic);
         filter.set_limit(limit);
         filter

@@ -1,5 +1,5 @@
 use crate::datasets::{
-    DatasetIdentifiable, PyDataset, PyDatasetFilter, PyDatasetUpdate,
+    DatasetIdentifiable, PyDataset, PyDatasetFilterForm, PyDatasetUpdate,
 };
 use crate::resources::PyResource;
 use crate::{PyIdCollection};
@@ -90,7 +90,7 @@ impl PyDatasetsServiceSync {
     }
 
     /// Datasets matching every criterion on the filter, newest first.
-    fn filter(&self, py: Python<'_>, input: PyDatasetFilter) -> PyResult<crate::PyPage> {
+    fn filter(&self, py: Python<'_>, input: PyDatasetFilterForm) -> PyResult<crate::PyPage> {
         let service = self.api_service.clone();
         let (items, next_cursor) = py.detach(|| {
             let result = self
@@ -123,7 +123,7 @@ impl PyDatasetsServiceSync {
         &self,
         py: Python<'_>,
         query: &str,
-        filter: Option<crate::datasets::PyBasicDatasetFilter>,
+        filter: Option<crate::datasets::PyDatasetFilter>,
         limit: Option<u64>,
     ) -> PyResult<Vec<PyDataset>> {
         let service = self.api_service.clone();

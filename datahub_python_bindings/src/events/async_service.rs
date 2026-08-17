@@ -1,5 +1,5 @@
 use crate::events::{
-    EventIdentifyable, PyBasicEventFilter, PyEvent, PyEventDimension, PyEventFilter, PyEventUpdate,
+    EventIdentifyable, PyEventFilter, PyEvent, PyEventDimension, PyEventFilterForm, PyEventUpdate,
 };
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
 use crate::timeseries::{PyTimeSeries, PyTimeSeriesUpdate};
@@ -94,7 +94,7 @@ impl PyEventsServiceAsync {
         })
     }
 
-    fn filter<'py>(&self, py: Python<'py>, input: PyEventFilter) -> PyResult<Bound<'py, PyAny>> {
+    fn filter<'py>(&self, py: Python<'py>, input: PyEventFilterForm) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
 
         future_into_py(py, async move {
@@ -160,7 +160,7 @@ impl PyEventsServiceAsync {
         &self,
         py: Python<'py>,
         query: String,
-        filter: Option<PyBasicEventFilter>,
+        filter: Option<PyEventFilter>,
         limit: Option<u64>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let form = crate::search_form(query, filter.map(Into::into), limit);
