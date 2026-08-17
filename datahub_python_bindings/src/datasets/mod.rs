@@ -581,7 +581,7 @@ pub(crate) fn dataset_search_form(
     limit: Option<u64>,
     filter: Option<PyBasicDatasetFilter>,
 ) -> DatasetSearch {
-    let mut form = DatasetSearch::from_query(query);
+    let mut form = DatasetSearch::new(query);
     if let Some(limit) = limit {
         form.set_limit(limit);
     }

@@ -681,19 +681,12 @@ pub struct EventSearch {
 }
 
 impl EventSearch {
-    pub fn new() -> Self {
+    /// A search for the given free-text query, with no extra filter and the default limit.
+    pub fn new(query: impl Into<String>) -> Self {
         Self {
             filter: None,
-            search: SearchForm::new(),
+            search: SearchForm::new(query),
             limit: 100,
-        }
-    }
-
-    /// Build a search for the given free-text query, with no extra filter and the default limit.
-    pub fn from_query(query: &str) -> Self {
-        Self {
-            search: SearchForm::from_query(query),
-            ..Self::new()
         }
     }
 
@@ -714,12 +707,6 @@ impl EventSearch {
 
     pub fn build(&self) -> Self {
         self.clone()
-    }
-}
-
-impl Default for EventSearch {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

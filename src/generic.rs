@@ -275,7 +275,7 @@ impl<T> DatapointsCollection<T> {
 pub struct SearchAndFilterForm<F> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filter: Option<F>,
-    pub search: Option<SearchForm>,
+    pub search: SearchForm,
     pub limit: Option<u64>,
 }
 // `FilterForm` used to live here: thirteen fields, none of them read by any endpoint, sent under
@@ -283,22 +283,13 @@ pub struct SearchAndFilterForm<F> {
 // the search endpoints actually declare, and `SearchAndFilterForm` is generic over them now.
 
 impl<F> SearchAndFilterForm<F> {
-    pub fn new() -> Self {
+    /// A search for `query`, narrowing nothing, at the server's default limit.
+    pub fn new(query: impl Into<String>) -> Self {
         SearchAndFilterForm {
             filter: None,
-            search: None,
+            search: SearchForm::new(query),
             limit: None,
         }
-    }
-
-    /// A search carrying just the free-text query.
-    pub fn from_query(query: &str) -> Self {
-        Self::new().with_search(SearchForm::from_query(query))
-    }
-
-    pub fn with_search(mut self, search: SearchForm) -> Self {
-        self.search = Some(search);
-        self
     }
 
     pub fn with_filter(mut self, filter: F) -> Self {
@@ -312,32 +303,26 @@ impl<F> SearchAndFilterForm<F> {
     }
 }
 
-impl<F> Default for SearchAndFilterForm<F> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// The free-text half of all four `/{entity}/search` endpoints.
 ///
-/// One field, and required: 3–140 characters, letters/digits/spaces. `name` and `description` used
-/// to sit here as well, honoured only by the timeseries search and only one of the three at a time
-/// — and `name` matched by *exact equality* under an endpoint documented as full-text. Both are
-/// gone from the api: `query` already covers the description column, and the filter's `name` is a
-/// case-insensitive pattern list, which is what `name` was reached for and more than it could do.
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+/// One field, and not optional: the api declares it `@NotBlank` at 3–140 characters, so a missing
+/// or null query is a 400 rather than an unnarrowed search. Listing rows with no phrase is what the
+/// `/filter` endpoints are for.
+///
+/// `name` and `description` used to sit here as well, honoured only by the timeseries search and
+/// only one of the three at a time — and `name` matched by *exact equality* under an endpoint
+/// documented as full-text. Both are gone from the api: `query` already covers the description
+/// column, and the filter's `name` is a case-insensitive pattern list, which is what `name` was
+/// reached for and more than it could do.
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SearchForm {
-    pub query: Option<String>,
+    pub query: String,
 }
 
 impl SearchForm {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn from_query(query: &str) -> Self {
+    pub fn new(query: impl Into<String>) -> Self {
         SearchForm {
-            query: Some(query.to_string()),
+            query: query.into(),
         }
     }
 }
@@ -1062,7 +1047,7 @@ mod search_body_tests {
     #[test]
     fn the_search_half_carries_a_query_and_nothing_else() {
         let body = serde_json::to_value(
-            SearchAndFilterForm::<NodeFilter>::from_query("pump alpha").with_limit(50),
+            SearchAndFilterForm::<NodeFilter>::new("pump alpha").with_limit(50),
         )
         .unwrap();
 
@@ -1084,11 +1069,11 @@ mod search_body_tests {
     #[test]
     fn an_absent_filter_is_omitted_rather_than_sent_empty() {
         let body =
-            serde_json::to_value(SearchAndFilterForm::<NodeFilter>::from_query("pump")).unwrap();
+            serde_json::to_value(SearchAndFilterForm::<NodeFilter>::new("pump")).unwrap();
         assert!(body.get("filter").is_none(), "{body}");
 
         let narrowed = serde_json::to_value(
-            SearchAndFilterForm::from_query("pump").with_filter(NodeFilter {
+            SearchAndFilterForm::new("pump").with_filter(NodeFilter {
                 name: Some(vec!["Pump Alpha".to_string()]),
                 ..Default::default()
             }),
@@ -1097,10 +1082,14 @@ mod search_body_tests {
         assert_eq!(narrowed["filter"]["name"], serde_json::json!(["Pump Alpha"]));
     }
 
+    /// The phrase is not optional. The api declares it `@NotBlank`, so a body without one is a
+    /// 400 — a `None` here would only ever have been a request the server refuses.
     #[test]
     fn a_bare_search_form_round_trips() {
         let form: SearchForm = serde_json::from_str(r#"{"query":"pump"}"#).unwrap();
-        assert_eq!(form.query.as_deref(), Some("pump"));
+        assert_eq!(form.query, "pump");
+
+        assert!(serde_json::from_str::<SearchForm>("{}").is_err());
     }
 }
 

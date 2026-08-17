@@ -683,7 +683,7 @@ mod update_search_serde {
 
     #[test]
     fn event_search_serializes_query_filter_and_limit() {
-        let mut search = EventSearch::from_query("overpressure");
+        let mut search = EventSearch::new("overpressure");
         search
             .set_filter(BasicEventFilter::default().set_type(&["alarm"]).build())
             .set_limit(25);

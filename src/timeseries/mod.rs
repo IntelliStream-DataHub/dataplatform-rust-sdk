@@ -156,7 +156,7 @@ impl TimeSeriesService {
         &self,
         query: &str,
     ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        self.search(&SearchAndFilterForm::from_query(query)).await
+        self.search(&SearchAndFilterForm::new(query)).await
     }
 
     pub async fn insert_datapoint(

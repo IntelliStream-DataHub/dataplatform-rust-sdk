@@ -499,7 +499,7 @@ impl PyEventSearch {
         filter: Option<PyBasicEventFilter>,
         limit: Option<usize>,
     ) -> Self {
-        let mut search = EventSearch::from_query(&query);
+        let mut search = EventSearch::new(&query);
         if let Some(filter) = filter {
             search.set_filter(filter.into());
         }

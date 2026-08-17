@@ -203,7 +203,7 @@
 
 use crate::datahub::DataHubConfig;
 use crate::datasets::Dataset;
-use crate::generic::{DataWrapper, IdAndExtId, SearchAndFilterForm, SearchForm};
+use crate::generic::{DataWrapper, IdAndExtId, SearchAndFilterForm};
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::resources::{RelatedResourcesForm, Resource};
@@ -714,10 +714,7 @@ async fn multi_tenant_entity_created_in_one_org_is_invisible_from_the_other(
         "org B must not read org A's entity by external id — got {from_b:?}"
     );
 
-    let mut search = SearchAndFilterForm::new();
-    let mut form = SearchForm::new();
-    form.query = Some(marker.clone());
-    search.search = Some(form);
+    let search = SearchAndFilterForm::new(marker.clone());
 
     // Control: org A does find it by the same query, so an empty result for B means "isolated",
     // not "the query never matched anything".
@@ -945,10 +942,7 @@ async fn acl_list_and_search_omit_rows_rather_than_denying() -> Result<(), Respo
         )
         .await?;
 
-    let mut search = SearchAndFilterForm::new();
-    let mut form = SearchForm::new();
-    form.query = Some(marker.clone());
-    search.search = Some(form);
+    let search = SearchAndFilterForm::new(marker.clone());
 
     // Control: the admin does find it, so an empty result below means "narrowed", not "not there".
     let seen_by_admin = admin.service.resources.search(&search).await?;

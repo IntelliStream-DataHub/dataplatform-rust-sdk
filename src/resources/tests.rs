@@ -108,8 +108,8 @@ async fn test_search_resources() -> Result<(), ResponseError> {
     let api_service = create_api_service();
     let test_resources = create_test_resources();
     // Delete timeseries first, in case a test failed and the time series exists
-    let query = SearchAndFilterForm::<ResourceFilter>::from_query("test resource").with_limit(5);
-    let query2 = SearchAndFilterForm::<ResourceFilter>::from_query("test resource");
+    let query = SearchAndFilterForm::<ResourceFilter>::new("test resource").with_limit(5);
+    let query2 = SearchAndFilterForm::<ResourceFilter>::new("test resource");
 
     let test_data = api_service
         .resources

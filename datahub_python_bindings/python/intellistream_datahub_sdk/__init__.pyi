@@ -226,10 +226,12 @@ class IdCollection:
 class SearchAndFilterForm:
     """The free-text half of a search request, shared by all four search endpoints.
 
-    ``query`` is required by the server, and bounded at 3–140 characters. The
-    structured half is the ``filter`` argument of the ``search`` method itself, because each
-    entity's search declares its own filter type; it narrows the phrase's hits and never widens
-    them, so omitting it returns the hits as found. ``limit`` defaults to 100 and caps at 1000.
+    ``query`` is required and bounded at 3–140 characters — the server declares it ``@NotBlank``,
+    so there is no such thing as a search without a phrase; listing rows with no phrase is what the
+    ``filter`` methods are for. The structured half is the ``filter`` argument of the ``search``
+    method itself, because each entity's search declares its own filter type; it narrows the
+    phrase's hits and never widens them, so omitting it returns the hits as found. ``limit``
+    defaults to 100 and caps at 1000.
 
     ``name`` and ``description`` used to sit here, honoured only by ``timeseries.search`` and only
     one at a time. Both are gone: ``query`` already covers the description column, and a name is
@@ -238,7 +240,7 @@ class SearchAndFilterForm:
 
     def __init__(
         self,
-        query: str | None = None,
+        query: str,
         limit: int | None = None,
     ) -> None: ...
 

@@ -122,7 +122,7 @@ impl DatasetsService {
         &self,
         query: &str,
     ) -> Result<DataWrapper<Dataset>, ResponseError> {
-        self.search(&DatasetSearch::from_query(query)).await
+        self.search(&DatasetSearch::new(query)).await
     }
 
     /// `POST /datasets/update` — partial update of one or more datasets.
@@ -505,19 +505,12 @@ impl Default for DatasetFilter {
     }
 }
 
-/// Body of `POST /datasets/search`.
-///
-/// `DataSetSearch` declares a `filter` too, but `DataSetService.search` passes only
-/// `form.getSearch().getQuery()` and `form.getLimit()` to the repository, so no criteria field is
-/// exposed here. Use [`DatasetsService::filter`] for criteria.
+/// Body of `POST /datasets/search`. Same shape as the other three searches.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DatasetSearch {
     search: SearchForm,
-    /// The same criteria `POST /datasets/filter` takes.
-    ///
-    /// **The server declares this field and does not read it** — `DataSetService.search` passes
-    /// only the query and the limit to the repository. It is exposed so the gap is testable
-    /// rather than invisible; until it is closed, narrow with [`DatasetsService::filter`] instead.
+    /// The same criteria `POST /datasets/filter` takes. It narrows the phrase's hits and never
+    /// widens them, so omitting it returns them as found.
     #[serde(skip_serializing_if = "Option::is_none")]
     filter: Option<BasicDatasetFilter>,
     /// Caps the result. Defaults to 100 server-side; unlike the filter endpoint the cap here is
@@ -526,30 +519,20 @@ pub struct DatasetSearch {
     limit: u64,
 }
 impl DatasetSearch {
-    pub fn new() -> Self {
+    /// A search for `query`, which must be 3–140 characters or the server answers 400.
+    pub fn new(query: impl Into<String>) -> Self {
         Self {
-            search: SearchForm::new(),
+            search: SearchForm::new(query),
             filter: None,
             limit: 100,
         }
     }
 
-    /// Attach the structured criteria. See the field note: the server currently ignores them.
     pub fn set_filter(&mut self, filter: BasicDatasetFilter) -> &mut Self {
         self.filter = Some(filter);
         self
     }
 
-    /// A search carrying just the query — the only part of the form besides `limit` that the
-    /// server reads. Must be 3–140 characters or the server answers 400.
-    pub fn from_query(query: &str) -> Self {
-        let mut search = SearchForm::new();
-        search.query = Some(query.to_string());
-        Self {
-            search,
-            ..Self::new()
-        }
-    }
     pub fn set_search(&mut self, search: SearchForm) -> &mut Self {
         self.search = search;
         self
