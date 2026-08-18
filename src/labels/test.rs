@@ -4,7 +4,7 @@ mod tests {
     use crate::generic::{DataWrapper, IdAndExtId};
     use crate::labels::Label;
     use crate::tests::cleanup::{cleanup_labels, cleanup_resources};
-    use crate::tests::ids::unique_id;
+    use crate::tests::ids::{unique_id, TEST_LABEL};
 
     // Serde round-trips: no backend required.
 
@@ -109,33 +109,33 @@ mod tests {
         use crate::resources::Resource;
 
         let api = create_api_service();
-        // Unique per run. With fixed ids this test stranded its resource the first time an
-        // assertion failed before the teardown, and every run after that died re-creating it —
-        // a duplicate external id answers 500 with an empty body, which names nothing.
-        // Label names are canonicalised to upper case server-side; external ids are not.
-        let label_name = unique_id("probe_inuse").to_uppercase();
+        // The *resource* is unique per run — with a fixed id this test stranded it the first time
+        // an assertion failed before the teardown, and every run after that died re-creating it (a
+        // duplicate external id answers 500 with an empty body, which names nothing). The label is
+        // the shared one: this test never deletes it, so there is nothing for a unique name to
+        // protect, and a per-run label is a row that cannot be dropped until its resource is.
+        let label_name = TEST_LABEL;
         let res_ext_id = unique_id("probe_res");
 
         // create a resource carrying the label (this is what populates the M2M the delete checks)
         let mut resource = Resource::new();
         resource.external_id = res_ext_id.clone();
         resource.name = "SDK Probe Resource".to_string();
-        resource.labels = Some(vec![label_name.clone()]);
+        resource.labels = Some(vec![label_name.to_string()]);
         resource.is_root = true;
         let _ = api
             .resources
             .create(vec![resource], Vec::<RelForm>::new())
             .await?;
-        // Both armed before the assertion. Order matters on teardown: the guards drop in reverse
-        // declaration order, so the resource goes first and frees the label for its own delete.
-        let mut label_cleanup = cleanup_labels(vec![label_name.clone()]);
+        // Armed before the assertion so a panic still tears the resource down. No label guard:
+        // the label is shared and outlives every run.
         let mut resource_cleanup = cleanup_resources(vec![res_ext_id.clone()]);
 
         // The label now exists and is in use — deleting it must be rejected. A non-2xx comes back
         // as `Err`, so this reads the status off the error rather than a wrapper.
         let err = api
             .labels
-            .delete(&IdAndExtId::from_external_id(&label_name))
+            .delete(&IdAndExtId::from_external_id(label_name))
             .await
             .expect_err("deleting an in-use label should be rejected");
         assert_eq!(err.get_status().as_u16(), 400);
@@ -147,17 +147,13 @@ mod tests {
             err.get_message()
         );
 
-        // clean up: remove the resource, then the now-free label
+        // Clean up the resource only. The label stays: it is the shared one, and the next run
+        // wants it exactly as it is.
         let _ = api
             .resources
             .delete(&IdAndExtId::from_external_id(&res_ext_id))
             .await?;
         resource_cleanup.disarm();
-        let _ = api
-            .labels
-            .delete(&IdAndExtId::from_external_id(&label_name))
-            .await;
-        label_cleanup.disarm();
 
         Ok(())
     }

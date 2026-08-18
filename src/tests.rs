@@ -19,6 +19,21 @@ pub mod ids {
     /// Marks every entity this suite creates.
     pub const TEST_PREFIX: &str = "rust_sdk_";
 
+    /// The label to hang on a node when a test just needs *a* label.
+    ///
+    /// Deliberately fixed and shared. A label is not like the entities above: it is a small
+    /// dictionary row that the server creates on first use and refuses to delete while anything
+    /// still carries it. Minting a unique one per run therefore grows the label table by a row per
+    /// run, and each one is undeletable for exactly as long as the resource wearing it survives —
+    /// so one stranded resource strands a label with it. Reusing a single name has neither problem,
+    /// and nothing here needs its label to be distinguishable from another run's.
+    ///
+    /// Mint a unique name only when the test owns the label's *lifecycle* — creating, renaming or
+    /// deleting the definition itself, where a shared row would be destroyed underneath another
+    /// test. Tests that need to tell two labels apart (set-vs-delta semantics, an AND across a
+    /// label list) use their own fixed pair rather than unique ones, for the same reason.
+    pub const TEST_LABEL: &str = "TEST";
+
     /// e.g. `unique_id("ts")` -> `rust_sdk_ts_9f3c1a2b4d5e`.
     ///
     /// Twelve hex characters of a v4 uuid, from the **unhyphenated** form — `Uuid::to_string()`

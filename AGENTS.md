@@ -188,6 +188,14 @@ data set stands above everything that belongs to it — and whatever survives is
 warning rather than swallowed. **Give a new entity a `unique_id()`**: a fixed external id strands on
 the first run that dies mid-test and collides on every run after.
 
+**Labels are the exception to that** — tag with the shared `TEST_LABEL` (`"TEST"`). A label is a
+dictionary row rather than an entity: the server creates it on first use, so it needs no seeding,
+and refuses to delete it while anything still carries it. A unique label per run therefore adds a
+row per run *and* cannot be dropped until its resource is, so one stranded resource strands a label
+behind it — which is exactly how the label table filled up. Mint a unique name only when the test
+owns the definition's lifecycle (create/rename/delete), where a shared row would be pulled out from
+under another test, and use a fixed *pair* when a test has to tell two labels apart.
+
 ## Conventions
 
 - `#[serde(rename = "camelCase")]` or explicit `#[serde(rename = "...")]` on fields — the backend is camelCase, Rust is snake_case.
