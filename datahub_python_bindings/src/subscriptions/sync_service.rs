@@ -1,12 +1,12 @@
 use crate::subscriptions::listener::{PySubscriptionListener, shared_listener};
 use crate::subscriptions::{
-    PyDataSort, PySubscription, PySubscriptionRetriever, SubscriptionIdentifyable,
+    PyDataSort, PySubscription, PySubscriptionFilterForm, SubscriptionIdentifyable,
     SubscriptionTimeseriesId,
 };
 use intellistream_datahub_sdk::ApiService;
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::subscriptions::{
-    Subscription, SubscriptionFilter, SubscriptionRetriever,
+    Subscription, SubscriptionFilter, SubscriptionFilterForm,
 };
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
@@ -37,21 +37,21 @@ impl PySubscriptionsServiceSync {
         })
     }
 
-    #[pyo3(signature=(retriever=None, *, timeseries=None, limit=None, sort=None))]
+    #[pyo3(signature=(form=None, *, timeseries=None, limit=None, sort=None))]
     fn list(
         &self,
         py: Python<'_>,
-        retriever: Option<PySubscriptionRetriever>,
+        form: Option<PySubscriptionFilterForm>,
         timeseries: Option<Vec<SubscriptionTimeseriesId>>,
         limit: Option<u32>,
         sort: Option<PyDataSort>,
     ) -> PyResult<Vec<PySubscription>> {
-        let retriever = build_retriever(retriever, timeseries, limit, sort)?;
+        let form = build_filter_form(form, timeseries, limit, sort)?;
         let service = self.api_service.clone();
         py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.subscriptions.list(&retriever))
+                .block_on(service.subscriptions.list(&form))
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()
@@ -96,22 +96,22 @@ impl PySubscriptionsServiceSync {
     }
 }
 
-pub(crate) fn build_retriever(
-    retriever: Option<PySubscriptionRetriever>,
+pub(crate) fn build_filter_form(
+    form: Option<PySubscriptionFilterForm>,
     timeseries: Option<Vec<SubscriptionTimeseriesId>>,
     limit: Option<u32>,
     sort: Option<PyDataSort>,
-) -> PyResult<SubscriptionRetriever> {
+) -> PyResult<SubscriptionFilterForm> {
     let kwargs_used = timeseries.is_some() || limit.is_some() || sort.is_some();
-    if retriever.is_some() && kwargs_used {
+    if form.is_some() && kwargs_used {
         return Err(PyValueError::new_err(
-            "pass either a SubscriptionRetriever or kwargs, not both",
+            "pass either a SubscriptionFilterForm or kwargs, not both",
         ));
     }
-    if let Some(r) = retriever {
+    if let Some(r) = form {
         return Ok(r.into());
     }
-    let mut r = SubscriptionRetriever::default();
+    let mut r = SubscriptionFilterForm::default();
     if let Some(ts) = timeseries {
         r.filter = SubscriptionFilter {
             timeseries: ts.into_iter().map(IdAndExtId::from).collect(),

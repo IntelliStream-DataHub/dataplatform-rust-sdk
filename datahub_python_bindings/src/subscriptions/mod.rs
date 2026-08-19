@@ -3,7 +3,7 @@ use crate::timeseries::PyTimeSeries;
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::subscriptions::{
     DataCollectionString, DataSort, DataWrapperMessage, EventAction, EventObject, Subscription,
-    SubscriptionFilter, SubscriptionMessage, SubscriptionRetriever, WsDatapoint,
+    SubscriptionFilter, SubscriptionMessage, SubscriptionFilterForm, WsDatapoint,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -125,25 +125,25 @@ impl PyDataSort {
     }
 }
 
-#[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionRetriever")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionFilterForm")]
 #[derive(Clone)]
-pub struct PySubscriptionRetriever {
-    pub inner: SubscriptionRetriever,
+pub struct PySubscriptionFilterForm {
+    pub inner: SubscriptionFilterForm,
 }
 
-impl From<SubscriptionRetriever> for PySubscriptionRetriever {
-    fn from(s: SubscriptionRetriever) -> Self {
+impl From<SubscriptionFilterForm> for PySubscriptionFilterForm {
+    fn from(s: SubscriptionFilterForm) -> Self {
         Self { inner: s }
     }
 }
-impl From<PySubscriptionRetriever> for SubscriptionRetriever {
-    fn from(s: PySubscriptionRetriever) -> Self {
+impl From<PySubscriptionFilterForm> for SubscriptionFilterForm {
+    fn from(s: PySubscriptionFilterForm) -> Self {
         s.inner
     }
 }
 
 #[pymethods]
-impl PySubscriptionRetriever {
+impl PySubscriptionFilterForm {
     #[new]
     #[pyo3(signature=(filter=None, limit=None, sort=None))]
     fn new(
@@ -151,7 +151,7 @@ impl PySubscriptionRetriever {
         limit: Option<u32>,
         sort: Option<PyDataSort>,
     ) -> Self {
-        let mut inner = SubscriptionRetriever::default();
+        let mut inner = SubscriptionFilterForm::default();
         if let Some(f) = filter {
             inner.filter = f.into();
         }
@@ -472,7 +472,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySubscription>()?;
     m.add_class::<PySubscriptionFilter>()?;
     m.add_class::<PyDataSort>()?;
-    m.add_class::<PySubscriptionRetriever>()?;
+    m.add_class::<PySubscriptionFilterForm>()?;
     m.add_class::<PySubscriptionMessage>()?;
     m.add_class::<PyDataWrapperMessage>()?;
     m.add_class::<PyDataCollectionString>()?;

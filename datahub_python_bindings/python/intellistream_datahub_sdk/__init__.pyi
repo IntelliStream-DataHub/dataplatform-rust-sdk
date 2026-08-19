@@ -740,7 +740,7 @@ class TimeFilter:
     ) -> None: ...
 
 
-class BasicEventFilter:
+class EventFilter:
     """AND-combined criteria for ``events.filter`` (``POST /events/filter``).
 
     ``external_id``, ``source``, ``type``, ``sub_type`` and ``status`` are pattern lists — see
@@ -772,11 +772,11 @@ class BasicEventFilter:
     ) -> None: ...
 
 
-class EventFilter:
-    """The ``events.filter`` request body. Omitting ``basic_filter`` places no restriction."""
+class EventFilterForm:
+    """The ``events.filter`` request body. Omitting ``filter`` places no restriction."""
     def __init__(
         self,
-        basic_filter: BasicEventFilter | None = None,
+        filter: EventFilter | None = None,
         limit: int | None = None,
         sort_by: SortBy | None = None,
         sort_order: str | None = None,
@@ -791,7 +791,7 @@ class EventFilter:
         keyset boundary on them would skip the events that have no value.
         """
     @property
-    def filter(self) -> BasicEventFilter | None: ...
+    def filter(self) -> EventFilter | None: ...
     @property
     def limit(self) -> int: ...
     @limit.setter
@@ -862,11 +862,11 @@ class EventsServiceSync:
     def get(self, id: UUID) -> Event | None: ...
     def delete(self, input: list[EventIdentifiable]) -> None: ...
     def update(self, input: list[EventUpdate]) -> list[Event]: ...
-    def filter(self, input: EventFilter) -> Page: ...
+    def filter(self, input: EventFilterForm) -> Page: ...
     def search(
         self,
         query: str,
-        filter: BasicEventFilter | None = None,
+        filter: EventFilter | None = None,
         limit: int | None = None,
     ) -> list[Event]: ...
     def count(self) -> int: ...
@@ -892,11 +892,11 @@ class EventsServiceAsync:
     async def get(self, id: UUID) -> Event | None: ...
     async def delete(self, input: list[EventIdentifiable]) -> None: ...
     async def update(self, input: list[EventUpdate]) -> list[Event]: ...
-    async def filter(self, input: EventFilter) -> Page: ...
+    async def filter(self, input: EventFilterForm) -> Page: ...
     async def search(
         self,
         query: str,
-        filter: BasicEventFilter | None = None,
+        filter: EventFilter | None = None,
         limit: int | None = None,
     ) -> list[Event]: ...
     async def count(self) -> int: ...
@@ -975,11 +975,11 @@ class Dataset:
 
 
 # Criteria for `datasets.filter`. Every field is optional and they AND together, so an
-# argument-free BasicDatasetFilter() places no restriction. An *empty* list or dict is likewise
+# argument-free DatasetFilter() places no restriction. An *empty* list or dict is likewise
 # no restriction rather than "match nothing".
 #
 # See the class docstring below for the pattern, label and metadata rules.
-class BasicDatasetFilter:
+class DatasetFilter:
     """AND-combined criteria for ``datasets.filter``.
 
     ``external_id``, ``name`` and ``source`` are pattern lists — see ``PatternList`` — so
@@ -1007,10 +1007,10 @@ class BasicDatasetFilter:
 
 # `limit` defaults to the server's 1000 and may not exceed 10000. There is no paging, so a filter
 # broad enough to exceed the cap is truncated — narrow it instead.
-class DatasetFilter:
+class DatasetFilterForm:
     def __init__(
         self,
-        filter: BasicDatasetFilter | None = None,
+        filter: DatasetFilter | None = None,
         limit: int | None = None,
         sort_by: SortBy | None = None,
         sort_order: str | None = None,
@@ -1048,11 +1048,11 @@ class DatasetsServiceSync:
     def create(self, input: list[Dataset]) -> list[Dataset]: ...
     def by_ids(self, input: list[Identifiable]) -> list[Dataset]: ...
     def delete(self, input: list[Identifiable]) -> None: ...
-    def filter(self, input: DatasetFilter) -> Page: ...
+    def filter(self, input: DatasetFilterForm) -> Page: ...
     def search(
         self,
         query: str,
-        filter: BasicDatasetFilter | None = None,
+        filter: DatasetFilter | None = None,
         limit: int | None = None,
     ) -> list[Dataset]:
         """Free-text search for ``query``, ranked by relevance.
@@ -1071,11 +1071,11 @@ class DatasetsServiceAsync:
     async def create(self, input: list[Dataset]) -> list[Dataset]: ...
     async def by_ids(self, input: list[Identifiable]) -> list[Dataset]: ...
     async def delete(self, input: list[Identifiable]) -> None: ...
-    async def filter(self, input: DatasetFilter) -> Page: ...
+    async def filter(self, input: DatasetFilterForm) -> Page: ...
     async def search(
         self,
         query: str,
-        filter: BasicDatasetFilter | None = None,
+        filter: DatasetFilter | None = None,
         limit: int | None = None,
     ) -> list[Dataset]: ...
     async def update(self, input: list[DatasetUpdate]) -> list[Dataset]: ...
@@ -1753,7 +1753,7 @@ class DataSort:
     def nulls(self) -> str | None: ...
 
 
-class SubscriptionRetriever:
+class SubscriptionFilterForm:
     def __init__(
         self,
         filter: SubscriptionFilter | None = None,
@@ -1856,7 +1856,7 @@ class SubscriptionsServiceSync:
     def create(self, input: list[Subscription]) -> list[Subscription]: ...
     def list(
         self,
-        retriever: SubscriptionRetriever | None = None,
+        form: SubscriptionFilterForm | None = None,
         timeseries: list[SubscriptionTimeseriesId] | None = None,
         limit: int | None = None,
         sort: DataSort | None = None,
@@ -1869,7 +1869,7 @@ class SubscriptionsServiceAsync:
     async def create(self, input: list[Subscription]) -> list[Subscription]: ...
     async def list(
         self,
-        retriever: SubscriptionRetriever | None = None,
+        form: SubscriptionFilterForm | None = None,
         timeseries: list[SubscriptionTimeseriesId] | None = None,
         limit: int | None = None,
         sort: DataSort | None = None,

@@ -13,7 +13,7 @@ pub type MetadataFilter = HashMap<String, Option<String>>;
 /// The criteria every node type can be filtered by — the shared base of
 /// [`ResourceFilter`](crate::resources::ResourceFilter),
 /// [`TimeSeriesFilter`](crate::timeseries::TimeSeriesFilter) and
-/// [`BasicDatasetFilter`](crate::datasets::BasicDatasetFilter), mirroring the api's `NodeFilter`.
+/// [`DatasetFilter`](crate::datasets::DatasetFilter), mirroring the api's `NodeFilter`.
 /// Each of those flattens it, so on the wire the fields sit alongside the type-specific ones.
 ///
 /// # Matching rules
@@ -86,7 +86,7 @@ pub struct NodeFilter {
 // `IdAndExtId`). Nothing compares filters by value; equality here would be meaningless anyway.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct BasicEventFilter {
+pub struct EventFilter {
     /// Events matching any of these external ids — literal or wildcard, exactly as
     /// [`NodeFilter::external_id`]. Replaced the old single-valued `externalIdPrefix`:
     /// `"work_order_*"` says the same thing and composes with exact ids in one list.
@@ -135,7 +135,7 @@ pub struct BasicEventFilter {
     pub last_updated_time: Option<TimeFilter>,
 }
 
-impl BasicEventFilter {
+impl EventFilter {
     pub fn new() -> Self {
         Self::default()
     }
@@ -269,7 +269,7 @@ pub enum TimeFilter {
 /// returns the default order — visibly not what was asked for. Anything that is not exactly `desc`
 /// sorts ascending, so a malformed direction degrades predictably instead of silently reversing.
 ///
-/// A [cursor](EventFilter::set_cursor) must be sent with the sort that produced it; a mismatch is a
+/// A [cursor](EventFilterForm::set_cursor) must be sent with the sort that produced it; a mismatch is a
 /// **400**, not a silently wrong page.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -301,7 +301,7 @@ impl DataSort {
 ///
 /// Flattened into each of them, so `sort` and `cursor` sit beside `filter` and `limit` on the wire.
 /// Events carry the same two fields but declare them directly on
-/// [`EventFilter`](crate::filters::EventFilter), which also has `advancedFilter`.
+/// [`EventFilterForm`](crate::filters::EventFilterForm), which also has `advancedFilter`.
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PageRequest {
@@ -342,11 +342,11 @@ impl PageRequest {
     }
 }
 
-// Not PartialEq: holds `Option<BasicEventFilter>`, which is non-comparable (see `IdAndExtId`).
+// Not PartialEq: holds `Option<EventFilter>`, which is non-comparable (see `IdAndExtId`).
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct EventFilter {
-    pub filter: Option<BasicEventFilter>,
+pub struct EventFilterForm {
+    pub filter: Option<EventFilter>,
     pub limit: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     cursor: Option<String>,
@@ -356,7 +356,7 @@ pub struct EventFilter {
     advanced_filter: Option<AdvancedEventFilter>,
 }
 
-impl EventFilter {
+impl EventFilterForm {
 
     pub fn default() -> Self {
         Self {
@@ -369,17 +369,17 @@ impl EventFilter {
     }
 
     /// A request carrying these criteria and the default limit.
-    pub fn new(filter: BasicEventFilter) -> Self {
+    pub fn new(filter: EventFilter) -> Self {
         Self {
             filter: Some(filter),
             ..Self::default()
         }
     }
-    pub fn set_filter(&mut self, filter: BasicEventFilter) -> &mut Self {
+    pub fn set_filter(&mut self, filter: EventFilter) -> &mut Self {
         self.filter = Some(filter);
         self
     }
-    pub fn filter(&self) -> Option<&BasicEventFilter> {
+    pub fn filter(&self) -> Option<&EventFilter> {
         self.filter.as_ref()
     }
     /// Resume a walk from where the previous page stopped.
@@ -730,7 +730,7 @@ mod tests {
     // wire shape here.
     #[test]
     fn basic_event_filter_serializes_related_resources_as_id_collection() {
-        let mut filter = BasicEventFilter::default();
+        let mut filter = EventFilter::default();
         filter.set_related_resource_ids(&[42, 7]);
         filter.set_related_resource_external_ids(&["asset_a"]);
 
@@ -752,7 +752,7 @@ mod tests {
     fn basic_event_filter_serializes_data_set_id_as_id_collection() {
         // Backend dataSetId is a Collection<IdCollection> ([{"id": ...}]), matching relatedResources.
         // When unset the key must be omitted entirely (not null or []) so the backend keeps its default.
-        let mut filter = BasicEventFilter::default();
+        let mut filter = EventFilter::default();
         assert!(
             serde_json::to_value(&filter).unwrap().get("dataSetId").is_none(),
             "unset dataSetId must be omitted from the payload"
@@ -771,7 +771,7 @@ mod tests {
     /// "everything" or the reverse, and neither failure surfaces as an error.
     #[test]
     fn event_filter_distinguishes_empty_data_set_id_from_absent() {
-        let mut narrowed_to_nothing = BasicEventFilter::default();
+        let mut narrowed_to_nothing = EventFilter::default();
         narrowed_to_nothing.set_data_set_id(&[]);
         assert_eq!(
             serde_json::to_value(&narrowed_to_nothing).unwrap()["dataSetId"],
@@ -779,7 +779,7 @@ mod tests {
             "an explicit empty scope must reach the wire as []"
         );
 
-        let unrestricted = BasicEventFilter::default();
+        let unrestricted = EventFilter::default();
         let value = serde_json::to_value(&unrestricted).unwrap();
         assert!(
             !value.as_object().unwrap().contains_key("dataSetId"),
@@ -791,14 +791,14 @@ mod tests {
     /// explicit `null` — dropping the entry would widen the query to every event instead.
     #[test]
     fn event_filter_metadata_null_value_means_key_only() {
-        let mut filter = BasicEventFilter::default();
+        let mut filter = EventFilter::default();
         filter.require_metadata_key("health");
         assert_eq!(
             serde_json::to_value(&filter).unwrap()["metadata"],
             json!({"health": null})
         );
 
-        let mut with_value = BasicEventFilter::default();
+        let mut with_value = EventFilter::default();
         with_value.require_metadata("health", "good");
         assert_eq!(
             serde_json::to_value(&with_value).unwrap()["metadata"],
@@ -811,7 +811,7 @@ mod tests {
     /// leftover one would filter nothing and read as "no events matched".
     #[test]
     fn event_filter_sends_singular_pattern_fields_only() {
-        let mut filter = BasicEventFilter::default();
+        let mut filter = EventFilter::default();
         filter
             .set_external_id(&["work_order_1234", "work_order_*"])
             .set_source(&["SAP", "opc_*"])
@@ -841,7 +841,7 @@ mod tests {
     /// backend defaults it to an empty collection anyway.
     #[test]
     fn default_event_filter_sends_no_criteria() {
-        let value = serde_json::to_value(BasicEventFilter::default()).unwrap();
+        let value = serde_json::to_value(EventFilter::default()).unwrap();
         let keys: Vec<&String> = value.as_object().unwrap().keys().collect();
         assert_eq!(keys, vec!["relatedResources"], "unexpected default criteria: {value}");
         assert_eq!(value["relatedResources"], json!([]));
@@ -849,7 +849,7 @@ mod tests {
 
     #[test]
     fn event_filter_round_trips() {
-        let mut filter = BasicEventFilter::default();
+        let mut filter = EventFilter::default();
         filter
             .set_type(&["alarm"])
             .set_data_set_id(&[43])
@@ -857,7 +857,7 @@ mod tests {
             .set_related_resource_external_ids(&["pump_a"]);
         let json_text = serde_json::to_string(&filter.build()).unwrap();
 
-        let parsed: BasicEventFilter = serde_json::from_str(&json_text).unwrap();
+        let parsed: EventFilter = serde_json::from_str(&json_text).unwrap();
         assert_eq!(parsed.r#type.as_deref(), Some(["alarm".to_string()].as_slice()));
         assert_eq!(parsed.metadata.unwrap().get("health"), Some(&None));
         assert_eq!(parsed.data_set_id.unwrap().len(), 1);
@@ -935,7 +935,7 @@ mod tests {
         // A filter that doesn't select by related resources still emits an (empty) array, and never
         // the flat keys.
         let value: serde_json::Value =
-            serde_json::from_str(&serde_json::to_string(&BasicEventFilter::default()).unwrap())
+            serde_json::from_str(&serde_json::to_string(&EventFilter::default()).unwrap())
                 .unwrap();
         assert_eq!(value["relatedResources"], json!([]));
     }
@@ -944,7 +944,7 @@ mod tests {
     /// read — the filter was silently ignored and the query came back unfiltered.
     #[test]
     fn advanced_filter_serializes_as_camel_case() {
-        let mut filter = EventFilter::default();
+        let mut filter = EventFilterForm::default();
         filter.set_advanced_filter(AdvancedEventFilter::new());
 
         let value = serde_json::to_value(filter.build()).unwrap();
@@ -957,7 +957,7 @@ mod tests {
 
     #[test]
     fn sort_and_cursor_are_settable_and_on_the_wire() {
-        let mut filter = EventFilter::default();
+        let mut filter = EventFilterForm::default();
         filter
             .set_sort(DataSort::asc("eventTime"))
             .set_cursor("1754476522104_0195f3a2-4c1b-7f9e-9c3a-1b2d4e6f8a90")
@@ -977,20 +977,20 @@ mod tests {
     /// the body it had before these fields existed.
     #[test]
     fn unset_sort_and_cursor_are_omitted() {
-        let value = serde_json::to_value(EventFilter::default()).unwrap();
+        let value = serde_json::to_value(EventFilterForm::default()).unwrap();
         assert!(value.get("sort").is_none());
         assert!(value.get("cursor").is_none());
         assert!(value.get("advancedFilter").is_none());
     }
 
-    /// `EventFilter::new` used to take the twelve `BasicEventFilter` fields positionally and drop
+    /// `EventFilterForm::new` used to take the twelve `EventFilter` fields positionally and drop
     /// every one of them, returning an unfiltered filter that matched the whole tenant. It takes
     /// the built criteria now, so there is nothing left to drop.
     #[test]
     fn new_keeps_its_criteria() {
-        let mut basic = BasicEventFilter::default();
+        let mut basic = EventFilter::default();
         basic.set_type(&["alarm"]).set_source(&["SAP"]);
-        let filter = EventFilter::new(basic.build());
+        let filter = EventFilterForm::new(basic.build());
 
         let carried = filter.filter().expect("filter should be populated");
         assert_eq!(carried.r#type.as_deref(), Some(["alarm".to_string()].as_slice()));
@@ -1049,7 +1049,7 @@ mod paging_serde {
     /// because it also carries `advancedFilter`. The wire shape must still be identical.
     #[test]
     fn the_event_filter_sends_the_same_sort_shape() {
-        let mut filter = EventFilter::default();
+        let mut filter = EventFilterForm::default();
         filter.set_sort(DataSort::desc("eventTime")).set_cursor("djE6ZXZlbnRUaW1l");
 
         let value = serde_json::to_value(filter.build()).unwrap();

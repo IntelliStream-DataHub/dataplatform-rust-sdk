@@ -23,6 +23,15 @@ ENV_FILE = os.path.join(os.path.dirname(__file__), "..", ".env")
 # test-owned entities, including ones leaked by an earlier interrupted run.
 TEST_PREFIX = "pytest_"
 
+# The label to hang on a node when a test just needs *a* label. Fixed and shared on purpose: a
+# label is a dictionary row the server creates on first use and refuses to delete while anything
+# still carries it, so a unique one per run both grows the table by a row per run and cannot be
+# dropped until its resource is — one stranded resource strands a label with it. Give a label a
+# unique name only when the test owns the definition's lifecycle (creating, renaming or deleting
+# it), where a shared row would be pulled out from under another test. Tests that have to tell two
+# labels apart use their own fixed pair, for the same reason.
+TEST_LABEL = "TEST"
+
 
 def unique_id(kind: str) -> str:
     """A unique external id for a test entity, e.g. ``pytest_ts_9f3c1a2b4d5e``."""

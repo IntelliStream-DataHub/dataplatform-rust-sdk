@@ -6,10 +6,10 @@ use crate::PyIdCollection;
 use crate::events::{PyEvent, PyTimeFilter};
 use crate::resources::PyResourceNetwork;
 use crate::{PyFieldBool, PyFieldStr, PyListFieldStr, PyMapField};
-use intellistream_datahub_sdk::filters::{BasicEventFilter, EventFilter};
+use intellistream_datahub_sdk::filters::{EventFilter, EventFilterForm};
 use intellistream_datahub_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
 use intellistream_datahub_sdk::datasets::{
-    BasicDatasetFilter, Dataset, DatasetFilter, DatasetUpdate, DatasetUpdateFields,
+    DatasetFilter, Dataset, DatasetFilterForm, DatasetUpdate, DatasetUpdateFields,
 };
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::resources::RelatedResourcesForm;
@@ -336,8 +336,8 @@ impl PyDataset {
 impl PyDataset {
     /// Build the events filter selecting events that reference this node (by id when present,
     /// else external id).
-    fn related_events_filter(&self, limit: u64) -> EventFilter {
-        let mut basic = BasicEventFilter::default();
+    fn related_events_filter(&self, limit: u64) -> EventFilterForm {
+        let mut basic = EventFilter::default();
         match self.inner.id {
             Some(id) => {
                 basic.set_related_resource_ids(&[id]);
@@ -346,7 +346,7 @@ impl PyDataset {
                 basic.set_related_resource_external_ids(&[self.inner.external_id.as_str()]);
             }
         }
-        let mut filter = EventFilter::default();
+        let mut filter = EventFilterForm::default();
         filter.set_filter(basic);
         filter.set_limit(limit);
         filter
@@ -358,29 +358,29 @@ impl PyDataset {
 // --------------------------------------------------------------------------- //
 
 /// Criteria for `datasets.filter`. Every field is optional and they AND together, so an
-/// argument-free `BasicDatasetFilter()` places no restriction at all.
+/// argument-free `DatasetFilter()` places no restriction at all.
 ///
 /// An **empty** list or dict is also no restriction rather than "match nothing" — the backend
 /// reads a list it was handed with nothing in it as "I had no ids to filter on".
-#[pyclass(module = "intellistream_datahub_sdk", name = "BasicDatasetFilter", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "DatasetFilter", from_py_object)]
 #[derive(Clone)]
-pub struct PyBasicDatasetFilter {
-    pub inner: BasicDatasetFilter,
+pub struct PyDatasetFilter {
+    pub inner: DatasetFilter,
 }
 
-impl From<BasicDatasetFilter> for PyBasicDatasetFilter {
-    fn from(f: BasicDatasetFilter) -> Self {
+impl From<DatasetFilter> for PyDatasetFilter {
+    fn from(f: DatasetFilter) -> Self {
         Self { inner: f }
     }
 }
-impl From<PyBasicDatasetFilter> for BasicDatasetFilter {
-    fn from(f: PyBasicDatasetFilter) -> Self {
+impl From<PyDatasetFilter> for DatasetFilter {
+    fn from(f: PyDatasetFilter) -> Self {
         f.inner
     }
 }
 
 #[pymethods]
-impl PyBasicDatasetFilter {
+impl PyDatasetFilter {
     /// `external_id`, `name` and `source` are **pattern** lists: `*` and `%` are wildcards, `_`
     /// is literal, matching is case-insensitive, and an entry with no wildcard matches exactly. So
     /// `name=["SAP*", "Plant A"]` mixes a prefix search with one exact name, and
@@ -416,7 +416,7 @@ impl PyBasicDatasetFilter {
         created_time: Option<PyTimeFilter>,
         last_updated_time: Option<PyTimeFilter>,
     ) -> Self {
-        let mut filter = BasicDatasetFilter::new();
+        let mut filter = DatasetFilter::new();
         if let Some(id) = id {
             filter.set_id(id);
         }
@@ -452,25 +452,25 @@ impl PyBasicDatasetFilter {
 /// `limit` defaults to the server's 100 and may not exceed 10000 — above that the request is
 /// rejected. There is no paging, so a filter broad enough to exceed the cap is truncated;
 /// narrow it rather than trying to page.
-#[pyclass(module = "intellistream_datahub_sdk", name = "DatasetFilter", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "DatasetFilterForm", from_py_object)]
 #[derive(Clone)]
-pub struct PyDatasetFilter {
-    pub inner: DatasetFilter,
+pub struct PyDatasetFilterForm {
+    pub inner: DatasetFilterForm,
 }
 
-impl From<DatasetFilter> for PyDatasetFilter {
-    fn from(f: DatasetFilter) -> Self {
+impl From<DatasetFilterForm> for PyDatasetFilterForm {
+    fn from(f: DatasetFilterForm) -> Self {
         Self { inner: f }
     }
 }
-impl From<PyDatasetFilter> for DatasetFilter {
-    fn from(f: PyDatasetFilter) -> Self {
+impl From<PyDatasetFilterForm> for DatasetFilterForm {
+    fn from(f: PyDatasetFilterForm) -> Self {
         f.inner
     }
 }
 
 #[pymethods]
-impl PyDatasetFilter {
+impl PyDatasetFilterForm {
     /// The criteria, how many to return, and in what order.
     ///
     /// `sort_by` names one property — `id`, `externalId`, `name`, `source`, `description`,
@@ -484,13 +484,13 @@ impl PyDatasetFilter {
     #[pyo3(signature = (filter = None, limit = None, sort_by = None, sort_order = None,
                         cursor = None))]
     fn new(
-        filter: Option<PyBasicDatasetFilter>,
+        filter: Option<PyDatasetFilter>,
         limit: Option<u64>,
         sort_by: Option<crate::StringOrList>,
         sort_order: Option<String>,
         cursor: Option<String>,
     ) -> Self {
-        let mut form = DatasetFilter::new();
+        let mut form = DatasetFilterForm::new();
         if let Some(filter) = filter {
             form.set_filter(filter.into());
         }

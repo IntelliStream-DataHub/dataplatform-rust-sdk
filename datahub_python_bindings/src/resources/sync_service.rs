@@ -8,7 +8,7 @@ use intellistream_datahub_sdk::filters::NodeFilter;
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::relations::RelForm;
 use intellistream_datahub_sdk::resources::{
-    FetchNearestResourcesForm, RelatedResourcesForm, ResourceFilter, ResourceRetreiver,
+    FetchNearestResourcesForm, RelatedResourcesForm, ResourceFilter, ResourceFilterForm,
 };
 use intellistream_datahub_sdk::{ApiService, Resource};
 use pyo3::{PyResult, Python, pyclass, pymethods};
@@ -176,7 +176,7 @@ impl PyResourcesServiceSync {
         sort_order: Option<String>,
         cursor: Option<String>,
     ) -> PyResult<crate::PyPage> {
-        let retriever = build_resource_retriever(
+        let form = build_resource_filter_form(
             id, external_id, name, source, labels, metadata, created_time,
             last_updated_time, node_type, is_root, data_set_id, limit, sort_by, sort_order,
             cursor,
@@ -185,7 +185,7 @@ impl PyResourcesServiceSync {
         let (items, next_cursor) = py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.resources.filter(&retriever))
+                .block_on(service.resources.filter(&form))
                 .map_err(|e| crate::datahub_err(e))?;
             let next_cursor = result.next_cursor().map(str::to_string);
             let items: Vec<PyResource> = result
@@ -288,9 +288,9 @@ pub(crate) fn build_resource_filter(
     }
 }
 
-/// Shared by the sync and async `filter` bindings: turn Python kwargs into a `ResourceRetreiver`.
+/// Shared by the sync and async `filter` bindings: turn Python kwargs into a `ResourceFilterForm`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn build_resource_retriever(
+pub(crate) fn build_resource_filter_form(
     id: Option<Vec<u64>>,
     external_id: Option<StringOrList>,
     name: Option<StringOrList>,
@@ -306,16 +306,16 @@ pub(crate) fn build_resource_retriever(
     sort_by: Option<StringOrList>,
     sort_order: Option<String>,
     cursor: Option<String>,
-) -> ResourceRetreiver {
+) -> ResourceFilterForm {
     let filter = build_resource_filter(
         id, external_id, name, source, labels, metadata, created_time, last_updated_time,
         node_type, is_root, data_set_id,
     );
-    let mut retriever = ResourceRetreiver::new(filter);
+    let mut form = ResourceFilterForm::new(filter);
     if let Some(limit) = limit {
-        retriever = retriever.with_limit(limit);
+        form = form.with_limit(limit);
     }
-    retriever.with_paging(crate::build_page_request(sort_by, sort_order, cursor))
+    form.with_paging(crate::build_page_request(sort_by, sort_order, cursor))
 }
 
 /// Shared by the sync and async `fetch_nearest` bindings.

@@ -1,6 +1,6 @@
 use crate::datasets::Dataset;
 use crate::events::{Event, EventIdCollection};
-use crate::filters::{BasicEventFilter, EventFilter, TimeFilter};
+use crate::filters::{EventFilter, EventFilterForm, TimeFilter};
 use crate::generic::IdAndExtId;
 use crate::tests::cleanup::{cleanup_events_by_uuid, cleanup_resources};
 use crate::tests::polling::poll_until;
@@ -109,10 +109,10 @@ fn create_test_events(dataset_id: u64) -> Vec<Event> {
 async fn sweep_events_by_prefix(api_service: &ApiService, prefix: &str) {
     const PAGE: u64 = 1000;
     for _ in 0..20 {
-        let mut filter = EventFilter::default();
+        let mut filter = EventFilterForm::default();
         filter
             .set_filter(
-                BasicEventFilter::default()
+                EventFilter::default()
                     // `externalIdPrefix` is gone; a trailing `*` is the same question, asked in
                     // the field that also takes exact ids.
                     .set_external_id(&[&format!("{prefix}*")])
@@ -171,8 +171,8 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
                 .all(|e| lhs.iter().any(|r| r.external_id == e.external_id))
     } // helper function. Events aren't comparable by value, and ids are None before a send anyway.
 
-    let mut basic_filter = BasicEventFilter::default();
-    let mut eventfilter = EventFilter::default();
+    let mut criteria = EventFilter::default();
+    let mut eventfilter = EventFilterForm::default();
     let api_service = create_api_service();
     let max_time = DateTime::parse_from_rfc3339("2025-09-06T06:08:00Z")
         .unwrap()
@@ -258,14 +258,14 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     println!("empty filter:");
     let _empty_filter_res = api_service
         .events
-        .filter(&eventfilter.set_filter(basic_filter.clone()))
+        .filter(&eventfilter.set_filter(criteria.clone()))
         .await
         .unwrap();
     // an empty filter should return all events
     // assert!(empty_filter_res.get_items().len() >= test_events.len());
 
     // test external id prefix filter
-    basic_filter.set_external_id(&["pump*"]);
+    criteria.set_external_id(&["pump*"]);
     let expected_events_post_external_id_filter = &test_events
         .iter()
         .filter(|eve| eve.external_id.starts_with("pump"))
@@ -275,7 +275,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     // see a partial set. Poll until it holds everything we created, then assert on what came
     // back. Every filter below narrows *this* set, so once it is complete they all are — which
     // is why one poll here replaces the blanket sleep this test used to open with.
-    let pump_filter = eventfilter.set_filter(basic_filter.clone()).clone();
+    let pump_filter = eventfilter.set_filter(criteria.clone()).clone();
     let filter_eid_prefix_pump = poll_until(
         || async { api_service.events.filter(&pump_filter).await },
         |res| {
@@ -293,10 +293,10 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
         false
     ));
     // test sub type filter
-    basic_filter.set_sub_type(&["alarm"]);
+    criteria.set_sub_type(&["alarm"]);
     let filter_subtype_alarm = api_service
         .events
-        .filter(&eventfilter.set_filter(basic_filter.clone()))
+        .filter(&eventfilter.set_filter(criteria.clone()))
         .await
         .unwrap();
     let expected_events_post_sub_type_filter = &expected_events_post_external_id_filter
@@ -317,7 +317,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     );
     // The filter map takes `Option` values now: `None` asks for the key alone, `Some` for an
     // exact value. These entries want exact values.
-    let metadata_filter = BasicEventFilter::default()
+    let metadata_filter = EventFilter::default()
         .set_metadata(&filtermap.iter().map(|(k, v)| (k.clone(), Some(v.clone()))).collect())
         .build();
     let res_filter_metadata = api_service
@@ -342,10 +342,10 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     println!("Before max time filter:");
-    basic_filter.set_event_time(&TimeFilter::Before { max: max_time });
+    criteria.set_event_time(&TimeFilter::Before { max: max_time });
     let res_filter_before_max_time = api_service
         .events
-        .filter(&eventfilter.set_filter(basic_filter.clone()))
+        .filter(&eventfilter.set_filter(criteria.clone()))
         .await
         .unwrap();
     let expected_events_post_max_time_filter = &expected_events_post_sub_type_filter
@@ -361,7 +361,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
 
     /* This doesnt work when other events exists in the database
     println!("Before min time filter:");
-    let after_filter = BasicEventFilter::default()
+    let after_filter = EventFilter::default()
         .set_event_time(&TimeFilter::After { min: min_time })
         .build();
     let res_filter_after_min_time = api_service
@@ -382,7 +382,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
      */
 
     println!("Before time range filter:");
-    let time_range_filter = BasicEventFilter::default()
+    let time_range_filter = EventFilter::default()
         .set_event_time(&TimeFilter::Between {
             min: time_range.0,
             max: time_range.1,
@@ -414,12 +414,12 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     println!("Source filter:");
-    basic_filter.set_source(&["valheim-pump-events"]);
+    criteria.set_source(&["valheim-pump-events"]);
     let res_filter_source = api_service
         .events
         .filter(
             &eventfilter.set_filter(
-                BasicEventFilter::default()
+                EventFilter::default()
                     .set_source(&["valheim-pump-events"])
                     .build(),
             ),
@@ -461,7 +461,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     println!("Type filter:");
-    let valve_filter = BasicEventFilter::default().set_type(&["valve"]).build();
+    let valve_filter = EventFilter::default().set_type(&["valve"]).build();
     let filter_type_valve = api_service
         .events
         .filter(&eventfilter.set_filter(valve_filter))
@@ -497,7 +497,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Pure serde round-trips for the UUID-based event id and its selector. These need no backend and
 /// pin down that a UUID survives serialize→deserialize and lands on the wire as a JSON string in
-/// exactly the places the server reads it (`Event.id`, `EventIdCollection`, `BasicEventFilter.id`).
+/// exactly the places the server reads it (`Event.id`, `EventIdCollection`, `EventFilter.id`).
 mod uuid_serde {
     use crate::events::{Event, EventIdCollection};
     use crate::generic::DataWrapper;
@@ -576,7 +576,7 @@ mod update_search_serde {
     use crate::events::EventUpdate;
     use crate::generic::SearchAndFilterForm;
     use crate::fields::{Field, ListField, MapField};
-    use crate::filters::BasicEventFilter;
+    use crate::filters::EventFilter;
     use crate::generic::{DataWrapper, IdAndExtId};
     use serde_json::{json, Value};
     use uuid::Uuid;
@@ -685,7 +685,7 @@ mod update_search_serde {
     #[test]
     fn event_search_serializes_query_filter_and_limit() {
         let search = SearchAndFilterForm::new("overpressure")
-            .with_filter(BasicEventFilter::default().set_type(&["alarm"]).build())
+            .with_filter(EventFilter::default().set_type(&["alarm"]).build())
             .with_limit(25);
 
         let v = to_value(&search);

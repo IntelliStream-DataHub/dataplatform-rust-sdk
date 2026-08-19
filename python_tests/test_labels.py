@@ -9,7 +9,7 @@ import time
 import pytest
 from intellistream_datahub_sdk import DataHubException, Label, Resource
 
-from fixtures import async_client, make_resource, sync_client, unique_id
+from fixtures import TEST_LABEL, async_client, make_resource, sync_client, unique_id
 
 WRITE_SETTLE = 3.0
 
@@ -151,28 +151,27 @@ def test_duplicate_name_conflicts(sync_client):
 
 
 def test_delete_label_in_use_reports_blocker(sync_client, make_resource):
-    label_name = unique_id("lblinuse").upper()
+    # The shared label, not a fresh one: this test never deletes the definition, so a unique name
+    # would only add a row that stays undeletable for as long as its resource lives.
+    label_name = TEST_LABEL
     res_ext = unique_id("lblres")
     labels = sync_client.labels
 
-    # a resource carrying the label auto-creates it and pins it
+    # A resource carrying the label pins it — and creates it on the way in if this is the first
+    # time anything used the name, which is why the shared label never needs seeding.
     make_resource([Resource(external_id=res_ext, name="Py in-use", is_root=True,
                             labels=[label_name])])
     time.sleep(WRITE_SETTLE)
 
     lbl = _label_by_name(sync_client, label_name)
-    assert lbl is not None, "resource create should have auto-created the label"
+    assert lbl is not None, f"a resource carrying {label_name} should leave the label existing"
 
-    try:
-        with pytest.raises(DataHubException) as exc:
-            labels.delete([lbl.id])
-        assert exc.value.status_code == 400
-        assert "still being used" in exc.value.message
-    finally:
-        # free the label (drop the resource) then delete it
-        sync_client.resources.delete([res_ext])
-        time.sleep(WRITE_SETTLE)
+    with pytest.raises(DataHubException) as exc:
         labels.delete([lbl.id])
+    assert exc.value.status_code == 400
+    assert "still being used" in exc.value.message
+    # No teardown for the label: it is the shared one and outlives the run. `make_resource` drops
+    # the resource, which is the only thing this test brought into being.
 
 
 @pytest.mark.asyncio

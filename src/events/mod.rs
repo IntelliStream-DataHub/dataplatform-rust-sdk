@@ -4,7 +4,7 @@ mod tests;
 use crate::buffer::DurableSpool;
 use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubConfig};
 use crate::fields::{Field, ListField, MapField};
-use crate::filters::{BasicEventFilter, EventFilter};
+use crate::filters::{EventFilter, EventFilterForm};
 use crate::generic::{
     ApiServiceProvider, DataHubEntity, DataWrapper, DataWrapperDeserialization, IdAndExtId,
     SearchAndFilterForm,
@@ -168,7 +168,7 @@ impl EventsService {
         self.execute_post_request(path, &json.into()).await
     }
 
-    pub async fn filter(&self, filter: &EventFilter) -> Result<DataWrapper<Event>, ResponseError> {
+    pub async fn filter(&self, filter: &EventFilterForm) -> Result<DataWrapper<Event>, ResponseError> {
         let path = &format!("{}/filter", self.base_url);
         self.execute_post_request(path, &filter).await
     }
@@ -209,7 +209,7 @@ impl EventsService {
     /// related resources) use [`filter`](Self::filter) instead — it is faster and more predictable.
     pub async fn search(
         &self,
-        search: &SearchAndFilterForm<BasicEventFilter>,
+        search: &SearchAndFilterForm<EventFilter>,
     ) -> Result<DataWrapper<Event>, ResponseError> {
         let path = &format!("{}/search", self.base_url);
         self.execute_post_request::<DataWrapper<Event>, _>(path, search)
@@ -403,7 +403,7 @@ fn buffered_wrapper() -> DataWrapper<Event> {
 
 // Not PartialEq: it carries `Vec<IdAndExtId>`, which is intentionally non-comparable (see
 // `IdAndExtId`) — the same resource can be named as {id}, {externalId} or both. Same reasoning as
-// `BasicEventFilter`.
+// `EventFilter`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Event {
@@ -428,7 +428,7 @@ pub struct Event {
     /// Resources this event is attached to. Each entry names a resource by `id`, `externalId`, or
     /// both; the backend resolves the missing side and returns both. Serializes as the backend's
     /// `relatedResources: [{"id": "34"}, {"externalId": "sensor_abc"}]` — the same `IdCollection`
-    /// shape the event filter uses (see `BasicEventFilter::related_resources`).
+    /// shape the event filter uses (see `EventFilter::related_resources`).
     #[serde(default)]
     pub related_resources: Vec<IdAndExtId>,
     pub source: Option<String>,

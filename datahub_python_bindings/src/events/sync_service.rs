@@ -1,9 +1,9 @@
 use crate::events::{
-    EventIdentifyable, PyBasicEventFilter, PyEvent, PyEventDimension, PyEventFilter, PyEventUpdate,
+    EventIdentifyable, PyEventFilter, PyEvent, PyEventDimension, PyEventFilterForm, PyEventUpdate,
 };
 use crate::{PyIdCollection};
 use intellistream_datahub_sdk::events::{EventDimension, EventIdCollection, EventUpdate};
-use intellistream_datahub_sdk::filters::EventFilter;
+use intellistream_datahub_sdk::filters::EventFilterForm;
 use intellistream_datahub_sdk::generic::DataWrapper;
 use intellistream_datahub_sdk::{
     ApiService, Event, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection,
@@ -79,7 +79,7 @@ impl PyEventsServiceSync {
         })
     }
 
-    fn filter<'py>(&self, py: Python<'py>, input: PyEventFilter) -> PyResult<crate::PyPage> {
+    fn filter<'py>(&self, py: Python<'py>, input: PyEventFilterForm) -> PyResult<crate::PyPage> {
         let service = self.api_service.clone();
 
         let (items, next_cursor) = py.detach(|| {
@@ -138,7 +138,7 @@ impl PyEventsServiceSync {
         &self,
         py: Python<'_>,
         query: String,
-        filter: Option<PyBasicEventFilter>,
+        filter: Option<PyEventFilter>,
         limit: Option<u64>,
     ) -> PyResult<Vec<PyEvent>> {
         let form = crate::search_form(query, filter.map(Into::into), limit);

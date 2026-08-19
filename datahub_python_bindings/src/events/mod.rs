@@ -6,7 +6,7 @@ use crate::timeseries::datapoints::{
 };
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
 use crate::{PyFieldStr, PyFieldU64, PyListFieldIdCollection, PyMapField};
-use intellistream_datahub_sdk::filters::{BasicEventFilter, DataSort, EventFilter, TimeFilter};
+use intellistream_datahub_sdk::filters::{EventFilter, DataSort, EventFilterForm, TimeFilter};
 use intellistream_datahub_sdk::events::{
     EventDimension, EventIdCollection, EventUpdate, EventUpdateFields,
 };
@@ -65,57 +65,57 @@ impl PyEvent {
     }
 }
 
-#[pyclass(module = "intellistream_datahub_sdk", name = "EventFilter", from_py_object)]
+#[pyclass(module = "intellistream_datahub_sdk", name = "EventFilterForm", from_py_object)]
 #[derive(Clone)]
-pub struct PyEventFilter {
-    pub inner: EventFilter,
+pub struct PyEventFilterForm {
+    pub inner: EventFilterForm,
 }
-impl From<EventFilter> for PyEventFilter {
-    fn from(ts: EventFilter) -> Self {
+impl From<EventFilterForm> for PyEventFilterForm {
+    fn from(ts: EventFilterForm) -> Self {
         Self { inner: ts }
     }
 }
-impl From<PyEventFilter> for EventFilter {
-    fn from(ts: PyEventFilter) -> Self {
+impl From<PyEventFilterForm> for EventFilterForm {
+    fn from(ts: PyEventFilterForm) -> Self {
         ts.inner
     }
 }
 
 #[pymethods]
-impl PyEventFilter {
+impl PyEventFilterForm {
     /// The request body: the criteria, plus paging and ordering.
     ///
-    /// `basic_filter` may be omitted, which places no restriction and returns whatever the tenant
-    /// has — the same thing an argument-free `BasicEventFilter()` does.
+    /// `filter` may be omitted, which places no restriction and returns whatever the tenant
+    /// has — the same thing an argument-free `EventFilter()` does.
     #[new]
-    #[pyo3(signature=(basic_filter=None,limit=None,sort_by=None,sort_order=None,cursor=None))]
+    #[pyo3(signature=(filter=None,limit=None,sort_by=None,sort_order=None,cursor=None))]
     fn new(
-        basic_filter: Option<PyBasicEventFilter>,
+        filter: Option<PyEventFilter>,
         limit: Option<u64>,
         sort_by: Option<StringOrList>,
         sort_order: Option<String>,
         cursor: Option<String>,
     ) -> Self {
-        let mut filter = EventFilter::default();
-        filter.set_filter(basic_filter.map(Into::into).unwrap_or_default());
-        filter.set_limit(limit.unwrap_or(100));
+        let mut form = EventFilterForm::default();
+        form.set_filter(filter.map(Into::into).unwrap_or_default());
+        form.set_limit(limit.unwrap_or(100));
         // A bare string is a one-element list here as it is on every other filter field; only one
         // property is used either way.
         if let Some(property) = sort_by {
-            filter.set_sort(DataSort {
+            form.set_sort(DataSort {
                 property: property.into(),
                 order: sort_order,
             });
         }
         if let Some(cursor) = cursor {
-            filter.set_cursor(cursor);
+            form.set_cursor(cursor);
         }
         Self {
-            inner: filter.build(),
+            inner: form.build(),
         }
     }
     #[getter]
-    fn filter(&self) -> Option<PyBasicEventFilter> {
+    fn filter(&self) -> Option<PyEventFilter> {
         self.inner.filter().cloned().map(|f| f.into())
     }
     #[getter]
@@ -186,25 +186,25 @@ impl PyEventFilter {
 
 #[pyclass(
     module = "intellistream_datahub_sdk",
-    name = "BasicEventFilter",
+    name = "EventFilter",
     from_py_object
 )]
 #[derive(Clone)]
-pub struct PyBasicEventFilter {
-    inner: BasicEventFilter,
+pub struct PyEventFilter {
+    inner: EventFilter,
 }
-impl From<BasicEventFilter> for PyBasicEventFilter {
-    fn from(ts: BasicEventFilter) -> Self {
+impl From<EventFilter> for PyEventFilter {
+    fn from(ts: EventFilter) -> Self {
         Self { inner: ts }
     }
 }
-impl From<PyBasicEventFilter> for BasicEventFilter {
-    fn from(ts: PyBasicEventFilter) -> Self {
+impl From<PyEventFilter> for EventFilter {
+    fn from(ts: PyEventFilter) -> Self {
         ts.inner
     }
 }
 #[pymethods]
-impl PyBasicEventFilter {
+impl PyEventFilter {
     /// AND-combined criteria for `events.filter`.
     ///
     /// `external_id`, `source`, `type`, `sub_type` and `status` are **pattern** lists: `*` and `%`
@@ -252,7 +252,7 @@ impl PyBasicEventFilter {
         last_updated_time: Option<PyTimeFilter>,
     ) -> Self {
         Self {
-            inner: BasicEventFilter {
+            inner: EventFilter {
                 external_id: opt_patterns(external_id),
                 source: opt_patterns(source),
                 r#type: opt_patterns(r#type),
@@ -504,8 +504,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEventDimension>()?;
     m.add_class::<PyEvent>()?;
     m.add_class::<PyEventIdCollection>()?;
+    m.add_class::<PyEventFilterForm>()?;
     m.add_class::<PyEventFilter>()?;
-    m.add_class::<PyBasicEventFilter>()?;
     m.add_class::<PyTimeFilter>()?;
     m.add_class::<PyEventUpdate>()?;
     Ok(())

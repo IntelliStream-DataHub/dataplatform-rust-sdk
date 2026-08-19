@@ -188,7 +188,7 @@ def test_dataset_search_honours_its_filter(sync_client, datasets, token):
     assert externals(unfiltered) >= {parent.external_id, child.external_id}
 
     narrowed = sync_client.datasets.search(
-        query, filter=intellistream_datahub_sdk.BasicDatasetFilter(metadata={"tier": "gold"}))
+        query, filter=intellistream_datahub_sdk.DatasetFilter(metadata={"tier": "gold"}))
     assert externals(narrowed) == {parent.external_id}
 
 
@@ -199,5 +199,5 @@ def test_event_search_honours_its_filter(sync_client, event_corpus, prefix, toke
     assert externals(unfiltered), "the event search index never returned the corpus"
 
     narrowed = sync_client.events.search(
-        query, filter=intellistream_datahub_sdk.BasicEventFilter(status=["CLOSED"]))
+        query, filter=intellistream_datahub_sdk.EventFilter(status=["CLOSED"]))
     assert externals(narrowed) == {f"{prefix}_ev_alarmX1"}

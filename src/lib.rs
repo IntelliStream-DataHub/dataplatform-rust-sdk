@@ -58,7 +58,7 @@ use crate::datasets::*;
 pub use subscriptions::{
     DataCollectionString, DataSort, DataWrapperMessage, EventAction, EventObject, ListenError,
     Subscription, SubscriptionFilter, SubscriptionListener, SubscriptionMessage,
-    SubscriptionRetriever, WsDatapoint,
+    SubscriptionFilterForm, WsDatapoint,
 };
 use crate::functions::FunctionsService;
 //pub use filters::Filter;

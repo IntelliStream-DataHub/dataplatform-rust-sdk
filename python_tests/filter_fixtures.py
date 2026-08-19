@@ -205,8 +205,8 @@ def event_corpus(sync_client, datasets, prefix, token):
 
     # Poll rather than sleep: the projection lag is usually milliseconds and occasionally seconds.
     def visible():
-        return sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
-            intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}*"), limit=50))
+        return sync_client.events.filter(intellistream_datahub_sdk.EventFilterForm(
+            intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*"), limit=50))
 
     found = poll_until(visible, lambda events: len(events) >= len(specs))
     assert len(found) >= len(specs), (
@@ -320,8 +320,8 @@ def sortable_events(sync_client, datasets, prefix, token):
     ])
 
     def visible():
-        return sync_client.events.filter(intellistream_datahub_sdk.EventFilter(
-            intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}_sort_ev_*"), limit=50))
+        return sync_client.events.filter(intellistream_datahub_sdk.EventFilterForm(
+            intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}_sort_ev_*"), limit=50))
 
     found = poll_until(visible, lambda events: len(events) >= len(specs))
     assert len(found) >= len(specs), "the sortable event corpus never became visible"

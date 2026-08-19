@@ -1191,8 +1191,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMapField>()?;
     m.add_class::<PyFieldBool>()?;
     m.add_class::<PyFieldGeoJson>()?;
-    m.add_class::<crate::datasets::PyBasicDatasetFilter>()?;
     m.add_class::<crate::datasets::PyDatasetFilter>()?;
+    m.add_class::<crate::datasets::PyDatasetFilterForm>()?;
     m.add_class::<crate::datasets::PyDatasetUpdate>()?;
     m.add_class::<PyTimeSeriesFilterForm>()?;
     m.add_class::<crate::resources::PyResourceFilter>()?;

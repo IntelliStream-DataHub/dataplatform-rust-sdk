@@ -238,9 +238,9 @@ def test_every_filter_endpoint_rejects_an_unreadable_cursor(sync_client, prefix,
             intellistream_datahub_sdk.TimeSeriesFilterForm(limit=2, cursor="not-a-cursor")),
         "resources": lambda: sync_client.resources.filter(limit=2, cursor="not-a-cursor"),
         "datasets": lambda: sync_client.datasets.filter(
-            intellistream_datahub_sdk.DatasetFilter(limit=2, cursor="not-a-cursor")),
+            intellistream_datahub_sdk.DatasetFilterForm(limit=2, cursor="not-a-cursor")),
         "events": lambda: sync_client.events.filter(
-            intellistream_datahub_sdk.EventFilter(limit=2, cursor="not-a-cursor")),
+            intellistream_datahub_sdk.EventFilterForm(limit=2, cursor="not-a-cursor")),
     }
     for endpoint, call in calls.items():
         with pytest.raises(DataHubException) as excinfo:
@@ -370,8 +370,8 @@ def test_datasets_page(sync_client, datasets, prefix):
     parent, child = datasets
 
     def page(cursor=None):
-        return sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilter(
-            intellistream_datahub_sdk.BasicDatasetFilter(external_id=f"{prefix}_ds_*"),
+        return sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilterForm(
+            intellistream_datahub_sdk.DatasetFilter(external_id=f"{prefix}_ds_*"),
             limit=1, sort_by="name", sort_order="asc", cursor=cursor))
 
     rows, requests = walk(lambda cursor=None, **_: page(cursor))
@@ -398,8 +398,8 @@ def test_resources_page(sync_client, sortable_timeseries, prefix):
 @pytest.fixture
 def ev_page(sync_client, prefix, sortable_events):
     def _page(**paging):
-        request = intellistream_datahub_sdk.EventFilter(
-            intellistream_datahub_sdk.BasicEventFilter(external_id=f"{prefix}_sort_ev_*"), **paging)
+        request = intellistream_datahub_sdk.EventFilterForm(
+            intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}_sort_ev_*"), **paging)
         return sync_client.events.filter(request)
     return _page
 

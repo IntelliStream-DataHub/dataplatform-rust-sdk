@@ -5,7 +5,7 @@ mod tests {
     use crate::tests::cleanup::{cleanup_subscriptions, cleanup_timeseries};
     use crate::subscriptions::{
         DataSort, EventAction, EventObject, Subscription, SubscriptionFilter, SubscriptionMessage,
-        SubscriptionRetriever,
+        SubscriptionFilterForm,
     };
     use crate::timeseries::TimeSeries;
     use crate::{create_api_service, ApiService};
@@ -51,11 +51,11 @@ mod tests {
     }
 
     #[test]
-    fn test_retriever_default_serializes_cleanly() {
-        // SubscriptionRetriever::default() must serialize to a body the backend accepts:
+    fn test_filter_form_default_serializes_cleanly() {
+        // SubscriptionFilterForm::default() must serialize to a body the backend accepts:
         // - empty filter.timeseries collapses to just `{"filter":{},"limit":100,"sort":{}}`
         // - sort fields are all None so they must be omitted so the @Pattern validator on `nulls` is skipped
-        let json = serde_json::to_value(&SubscriptionRetriever::default()).unwrap();
+        let json = serde_json::to_value(&SubscriptionFilterForm::default()).unwrap();
         assert_eq!(json["limit"], 100);
         let filter_obj = json["filter"].as_object().unwrap();
         assert!(filter_obj.get("timeseries").is_none());
@@ -140,7 +140,7 @@ mod tests {
             //    shared backend state).
             let all = api_service
                 .subscriptions
-                .list(&SubscriptionRetriever::default())
+                .list(&SubscriptionFilterForm::default())
                 .await?;
             assert!(
                 all.get_items().iter().any(|s| s.external_id == sub_ext),
@@ -151,7 +151,7 @@ mod tests {
             //    Our subscription is bound to ts_a, so it must appear.
             let filtered = api_service
                 .subscriptions
-                .list(&SubscriptionRetriever {
+                .list(&SubscriptionFilterForm {
                     filter: SubscriptionFilter {
                         timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
                     },
@@ -172,7 +172,7 @@ mod tests {
             // 6. Verify the subscription is gone from the filtered list.
             let after_delete = api_service
                 .subscriptions
-                .list(&SubscriptionRetriever {
+                .list(&SubscriptionFilterForm {
                     filter: SubscriptionFilter {
                         timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
                     },
