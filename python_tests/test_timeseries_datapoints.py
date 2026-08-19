@@ -13,6 +13,7 @@ Two flavours live here:
   points, three 60s ClickHouse-merge sleeps). It is skipped unless
   ``RUN_HEAVY_DATAPOINTS_TESTS=1`` — the same opt-in pattern as the listen tests.
 """
+import datetime
 import math
 import os
 from time import sleep
@@ -21,6 +22,7 @@ import pandas as pd
 import pytest
 
 import intellistream_datahub_sdk
+from polling import poll_until
 from python_tests.fixtures import *  # noqa: F401,F403
 
 
@@ -222,3 +224,136 @@ def _validate_raw_datapoints_with_cursor(sync_client, ts):
             assert len(dps) == 97600
         else:
             assert len(dps) == 100000
+
+
+# --------------------------------------------------------------------------- #
+# Range query — that a window containing a datapoint actually returns it
+#
+# Separated from the aggregate tests above because it guards a different thing: not
+# how points are bucketed, but whether the range read finds them at all. A regression
+# here returned an empty list for a point that was demonstrably stored, over a window
+# spanning years either side of it, through both the REST SDK and the MCP tool that
+# wraps it.
+#
+# Both tests poll. That is the whole design: the failure they exist to catch looks
+# exactly like ingestion lag in a single-shot read, so a bare assertion could always be
+# waved away as "ClickHouse hadn't merged yet". Polling the *latest* read first
+# establishes that the point is stored and readable, and only then does the range read
+# get its own full timeout. If latest can see it and a range spanning it cannot, the
+# clock has been given every chance and the query is wrong.
+# --------------------------------------------------------------------------- #
+
+RANGE_AT = datetime.datetime(2026, 4, 23, 13, 0, 0, tzinfo=datetime.timezone.utc)
+RANGE_VALUE = 42.5
+
+
+def _points(collections):
+    """The datapoints of the first collection a retrieve returned, or ``[]``."""
+    if not collections:
+        return []
+    return collections[0].get_datapoints() or []
+
+
+def _retrieve_range(client, ts, start, end):
+    return _points(
+        client.timeseries.retrieve_datapoints(
+            intellistream_datahub_sdk.RetrieveFilter(ts=ts, start=start, end=end)
+        )
+    )
+
+
+def test_range_query_returns_a_datapoint_that_latest_can_see(sync_client, make_ts):
+    """A window containing a stored datapoint must return it.
+
+    The window is deliberately absurd — years either side — so nothing about boundary
+    handling, inclusivity or timezone can explain an empty result.
+    """
+    ts = make_ts()
+    sync_client.timeseries.insert_from_lists([RANGE_AT], [RANGE_VALUE], ts)
+
+    # Control: prove the point is stored and readable, and wait for it. If this fails,
+    # ingestion is the problem and the range query is not implicated at all.
+    latest = poll_until(
+        lambda: _points(sync_client.timeseries.retrieve_latest_datapoints([ts])),
+        bool,
+    )
+    assert latest, (
+        "the datapoint never became readable through retrieve_latest_datapoints — "
+        "ingestion did not land, so this test says nothing about the range query"
+    )
+    assert latest[0].value == pytest.approx(RANGE_VALUE)
+
+    # The point is in the store. Now the range read gets its own full timeout.
+    found = poll_until(
+        lambda: _retrieve_range(
+            sync_client,
+            ts,
+            datetime.datetime(2000, 1, 1, tzinfo=datetime.timezone.utc),
+            datetime.datetime(2030, 1, 1, tzinfo=datetime.timezone.utc),
+        ),
+        bool,
+    )
+    assert found, (
+        "a range query spanning 2000-2030 returned nothing for a datapoint that "
+        "retrieve_latest_datapoints returns — the point is stored, so this is the range "
+        "query failing, not eventual consistency"
+    )
+    assert found[0].value == pytest.approx(RANGE_VALUE)
+    assert found[0].timestamp == RANGE_AT
+
+
+def test_range_query_excludes_points_outside_the_window(sync_client, make_ts):
+    """A window that does not contain the point must return nothing.
+
+    The converse of the test above, and the reason that one cannot be satisfied by a
+    query that has quietly stopped narrowing and returns everything it can read.
+    """
+    ts = make_ts()
+    sync_client.timeseries.insert_from_lists([RANGE_AT], [RANGE_VALUE], ts)
+
+    inside = poll_until(
+        lambda: _retrieve_range(
+            sync_client,
+            ts,
+            RANGE_AT - datetime.timedelta(hours=1),
+            RANGE_AT + datetime.timedelta(hours=1),
+        ),
+        bool,
+    )
+    assert inside, "the datapoint never became visible to a range query that contains it"
+
+    outside = _retrieve_range(
+        sync_client,
+        ts,
+        datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2020, 1, 2, tzinfo=datetime.timezone.utc),
+    )
+    assert not outside, f"a window that excludes the datapoint returned it anyway: {outside}"
+
+
+def test_range_query_end_is_exclusive(sync_client, make_ts):
+    """``end`` is exclusive, so a window ending exactly on the point must not return it.
+
+    Pinned because an off-by-one here is invisible in ordinary use and silently shifts
+    every aggregate bucket by one sample.
+    """
+    ts = make_ts()
+    sync_client.timeseries.insert_from_lists([RANGE_AT], [RANGE_VALUE], ts)
+
+    poll_until(
+        lambda: _retrieve_range(
+            sync_client, ts, RANGE_AT, RANGE_AT + datetime.timedelta(seconds=1)
+        ),
+        bool,
+    )
+    inclusive_start = _retrieve_range(
+        sync_client, ts, RANGE_AT, RANGE_AT + datetime.timedelta(seconds=1)
+    )
+    assert inclusive_start, "start is inclusive, so a window opening on the point must return it"
+
+    exclusive_end = _retrieve_range(
+        sync_client, ts, RANGE_AT - datetime.timedelta(seconds=1), RANGE_AT
+    )
+    assert not exclusive_end, (
+        f"end is exclusive, so a window closing on the point must not return it: {exclusive_end}"
+    )

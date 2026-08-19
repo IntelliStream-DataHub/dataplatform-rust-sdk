@@ -35,6 +35,8 @@ pub mod graph_data_wrapper;
 pub mod http;
 pub mod labels;
 #[cfg(test)]
+mod mcp_integration;
+#[cfg(test)]
 mod multi_tenant_integration;
 pub mod relations;
 pub mod resources;
