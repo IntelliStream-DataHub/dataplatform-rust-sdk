@@ -172,6 +172,119 @@ typed. `DatasetFilter` is consequently just the shared criteria — its `writePr
 
 `Dataset.connected_data_sets` does not create the hierarchy — create the edge explicitly, and note the direction: the row is stored `from = parent, to = child` even though the relationship is named `BELONGS_TO`, and the closure query descends `rel_start -> rel_end`. Reversing it produces no hierarchy and no error. See `python_tests/filter_fixtures.py`.
 
+## MCP tools (`src/mcp_integration.rs`)
+
+The api publishes its entity surface as **37 MCP tools** (`timeseries_create`, `event_filter`, …)
+over Spring AI's *stateless* WebMVC transport at `POST /mcp`, behind the same JWT +
+`ROLE_DATAHUB_ACCESS` gate as REST — no MCP-specific bypass. Stateless means no `initialize`
+handshake and no session id: each request is a self-contained JSON-RPC call. Tool sources live in the
+backend's `datahub-api/src/main/java/ai/intellistream/datahub/api/mcp/tools/`.
+
+```
+cargo test mcp_                          # the whole MCP suite (~30s)
+cargo test mcp_full_tool_surface         # just the field sweep (~8s)
+```
+
+**These tests are in Rust, not `python_tests/`, on purpose.** The SDK has no MCP client, so the
+module carries a private `McpClient` — about a hundred lines of JSON-RPC over the service's own
+`http_client`, with the token from `DataHubConfig::get_api_token`. Auth with refresh and TLS against
+the OS trust store (`reqwest`'s `rustls-tls-native-roots`) are already wired here and must not be
+reimplemented per language: a Python version needed a hand-rolled token exchange plus a CA-bundle
+probe, because a venv's certifi does not carry the dev IdP's issuer while the OS store does.
+
+Two transport details are easy to get wrong and cost a confusing failure each:
+
+- **`Accept` must be `application/json, text/event-stream`, byte for byte.** The transport compares
+  it with `MediaType.equals`, so offering only `application/json` is a bare 400 with nothing pointing
+  at the header.
+- **The response must not be double-encoded.** This has regressed to the envelope being written as a
+  `String` which Spring then serializes *as JSON*, so the body is a quoted, escaped document and the
+  obvious `parse(body)["result"]` yields a string. `unwrap_envelope` **rejects** that rather than
+  parsing twice. Accommodating it would leave the suite green against a wire format no conformant MCP
+  client can read, so while it is present nearly every test here fails — which is the accurate
+  report, because no tool is reachable. `mcp_response_is_a_json_object` is what names the cause; the
+  handful that still pass are the ones that never parse an envelope (the auth rejections, the
+  malformed-body check).
+
+### Cleanup
+
+Every entity the sweep creates is covered by a `tests::cleanup` guard, armed *before* the create, so a
+panicking assertion still tears its data down. Three rules the module follows, each learned from a
+stray it actually left behind:
+
+- **Hold a guard for as long as the entity is needed.** The label guard lives in
+  `mcp_full_tool_surface`, not in `sweep_reference_data` that creates it. Dropping it when that helper
+  returned deleted the label mid-sweep, `resource_create` silently re-created it further down, and the
+  re-created one had no guard — one leaked label per run.
+- **Arm the guard with every name the entity can take.** `timeseries_update`, `event_update` and
+  `resource_update` all rename their subject, and a guard armed only with the original external id
+  looks for something that no longer exists.
+- **Only `disarm` when the delete actually landed.** `McpClient::quietly` returns whether the tool
+  accepted it, so call sites disarm conditionally. An unconditional `disarm` after a best-effort
+  delete is how the secondary dataset kept surviving: `dataset_delete` does not cascade, it failed
+  while a resource still pointed at it, and the guard that would have caught that was already off.
+
+### Every advertised field is tested, and that is enforced rather than asserted
+
+`McpClient::try_call_tool` records each `(tool, field)` pair it sends, and `mcp_full_tool_surface`
+ends by diffing that against the live `tools/list` schema — **125 fields across the 37 tools**. A
+parameter added server-side fails the audit until something drives it. That is why the sweep is one
+sequential test rather than seventy small ones: `cargo test` runs tests on parallel threads with no
+ordering hook, so a registry filled by other tests could not be read reliably at the end of any of
+them. Each `sweep_*` helper owns its entities and removes them through the MCP delete tools, which is
+also how those get exercised.
+
+Behaviours worth knowing, each pinned by an assertion:
+
+- **Unknown vocabulary is created on the fly, not rejected.** `edge_create` creates a missing
+  `relationshipType` (its description claims the type "must already exist" — that sentence is wrong),
+  and `resource_create` does the same for a missing entry in `labels`. Intended, and convenient, but
+  a typo becomes a permanent catalogue entry rather than an error.
+- **Labels are reclaimable; relationship types are not.** `cleanup_labels` deletes by name through
+  `/labels/delete` and works. Relationship types have **no delete at all** — not in the MCP surface,
+  not in `EdgesService` — so every run that creates one leaves it behind for good, and the tenant's
+  catalogue only grows. That is the one stray the suite cannot clean up after itself.
+- **Delete order in the graph is not free.** `resource_delete` and `edge_delete` refuse to strand a
+  node (see the `edges` notes above), so the sweep builds a triangle and drops `b -> c` — the one edge
+  whose endpoints both stay reachable — then deletes `b`, then `c`, then `a`. Getting this order wrong
+  surfaces as a 400 naming the stranded resource, in teardown, after the assertions passed.
+- **Reads lag writes.** Events and datapoints (ClickHouse), the graph (Neo4j) and the search indexes
+  all settle after the call returns, so poll with `tests::polling::poll_until`. A renamed event can
+  surface under its new `externalId` *before* the rest of the update propagates, so poll on the field
+  under test, not on mere existence.
+- **`event_search` omits `items` entirely on a miss** rather than returning an empty list; `items()`
+  in the module is tolerant for that reason.
+- **`event_filter` accepts a `source` that `event_create` cannot set**, so a source is filterable but
+  never settable through MCP. A genuine gap in the tool surface.
+- **Ids come back as strings from most tools but as JSON numbers from `label_create` and
+  `edge_create_type`** — hence `id_of`, which accepts either.
+- **`timeseries_create` takes `unit` (free text) or `unitExternalId` (a catalogue entry), and needs
+  one of them.** Supplying only `unitExternalId` fills `unit` in from the catalogue
+  (`pressure_bar` -> `bar`); supplying both keeps the free-text `unit` as given and does not reconcile
+  it against the referenced unit, so a caller can end up with `unit: "Celsius"` on
+  `unitExternalId: "pressure_bar"`. Take the id from `unit_list` in tests — one that is merely absent
+  from the tenant fails as "Unknown unit externalId", which is a different path from supplying neither.
+
+### Tests that are red on purpose
+
+Two encode intended behaviour the api does not yet provide, in the same spirit as
+`test_duplicate_relationship_type_conflicts`: they stay red until the server-side fix lands rather
+than being softened to match the bug.
+
+- `mcp_event_update_by_uuid_reindexes_the_external_id` — renaming an event identified by **UUID**
+  writes the new `externalId` but never reindexes it. The update returns the new value, yet the event
+  stays reachable under the *old* externalId and never under the new one, while `event_get` by UUID
+  reports the new one — two identifiers disagreeing about one row. The same update by `externalId`
+  reindexes within about half a second.
+- `mcp_response_is_a_json_object` — whenever the double-encoding regression above is present, along
+  with every other test that parses an envelope. Both directions are the same underlying fault: the
+  transport moves the JSON-RPC payload as a `String` and lets content negotiation's JSON converter
+  handle it. Reading, the converter is asked to bind an object *into* a `String` and refuses — a
+  **500 on the spec-mandated `Content-Type: application/json`**, which locks out every off-the-shelf
+  client, guarded by `mcp_accepts_application_json`. Writing, it is handed a `String` to emit *as*
+  `application/json` and escapes it. Note the api's own MockMvc test (`McpEndpointTest`) asserts only
+  on the security gate, so neither direction was covered there.
+
 ## Python bindings (`datahub_python_bindings/`)
 
 A PyO3 crate (built with maturin) that wraps this SDK as the Python package `intellistream-datahub-sdk` (import name `intellistream_datahub_sdk`). Binding modules in `datahub_python_bindings/src/` mirror the Rust subservices; the pure-Python side lives in `datahub_python_bindings/python/intellistream_datahub_sdk`.
