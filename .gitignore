@@ -11,3 +11,7 @@ CLAUDE.local.md
 /.venv
 __pycache__/
 .pytest_cache/
+
+# Local wheel builds (build-local-wheels.sh)
+/dist/
+/.xbuild/
