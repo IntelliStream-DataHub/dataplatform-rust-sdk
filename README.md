@@ -18,7 +18,7 @@ alias then applies across the whole crate, with no `use` line in any module:
 
 ```toml
 [dependencies]
-dh = { package = "intellistream-datahub-sdk", version = "0.5" }
+dh = { package = "intellistream-datahub-sdk", version = "0.2" }
 ```
 
 ```rust
@@ -39,7 +39,7 @@ use intellistream_datahub_sdk::create_api_service;
 #[tokio::main]
 async fn main() {
     let api = create_api_service(); // reads configuration from .env / the environment
-    let series = api.time_series.search_by_name("engine").await.unwrap();
+    let series = api.time_series.search_by_query("engine").await.unwrap();
     for ts in series.get_items() {
         println!("{}", ts.external_id);
     }
@@ -57,7 +57,7 @@ async context; use the async `ApiService` there.
 use intellistream_datahub_sdk::blocking;
 
 let api = blocking::create_api_service();
-let series = api.time_series.search_by_name("engine").unwrap();
+let series = api.time_series.search_by_query("engine").unwrap();
 ```
 
 ## Configuration

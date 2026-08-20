@@ -15,3 +15,4 @@ __pycache__/
 # Local wheel builds (build-local-wheels.sh)
 /dist/
 /.xbuild/
+/datahub_python_bindings/dist/
