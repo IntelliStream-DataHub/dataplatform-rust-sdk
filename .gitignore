@@ -12,7 +12,6 @@ CLAUDE.local.md
 __pycache__/
 .pytest_cache/
 
-# Local wheel builds (build-local-wheels.sh)
+# Wheel and sdist build output
 /dist/
-/.xbuild/
 /datahub_python_bindings/dist/
