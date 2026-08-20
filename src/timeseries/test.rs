@@ -13,16 +13,26 @@ mod tests {
     use crate::http::ResponseError;
     use crate::timeseries::{TimeSeries, TimeSeriesFilter, TimeSeriesFilterForm, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
     use crate::tests::cleanup::cleanup_timeseries;
+    use crate::tests::ids::{unique_id, unique_token};
     use crate::tests::polling::poll_until_for;
-    use uuid::Uuid;
 
-    /// A per-run id, so a run never addresses the series a previous one left behind.
+    /// Delete the named series; what is not there is not an error.
     ///
-    /// The external ids in this module are all derived from one number (see `delete_timeseries`),
-    /// so varying the number is all it takes. Bounded well below `u64::MAX` because
-    /// `delete_timeseries` also clears `id + 1`.
-    fn run_id() -> u64 {
-        (Uuid::new_v4().as_u128() % 1_000_000_000) as u64
+    /// Every id here comes from `unique_id`, so a test only ever names series it created. The ids
+    /// used to be derived arithmetically from one per-run number — `{id}`, `{id}_renamed` and
+    /// `{id + 1}` — and this helper deleted all three, so a run whose number landed one away from
+    /// another's deleted that run's series out from under it mid-test.
+    async fn delete_timeseries(api_service: &ApiService, external_ids: &[&str]) {
+        let id_collection = DataWrapper::from_vec(
+            external_ids
+                .iter()
+                .map(|e| IdAndExtId::from_external_id(e))
+                .collect::<Vec<_>>(),
+        );
+        match api_service.time_series.delete(&id_collection).await {
+            Ok(timeseries) => assert_eq!(timeseries.length(), 0),
+            Err(e) => println!("{:?}", e.get_message()),
+        }
     }
 
 
@@ -61,19 +71,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_filter_timeseries() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = run_id();
         let api_service = create_api_service();
 
-        // Delete timeseries first, in case a test failed and the time series exists
-        delete_timeseries(unique_id, &api_service).await;
-
         // A metadata value unique to this run isolates the assertions from other data.
-        let unique_value = format!("filter_test_{id}", id = unique_id);
-        let ext_id = format!("rust_sdk_test_{id}_ts", id = unique_id);
+        let ext_id = unique_id("ts");
+        let unique_value = format!("filter_test_{ext_id}");
         let mut ts_collection = DataWrapper::new();
         let ts = TimeSeries::builder()
             .set_external_id(ext_id.as_str())
-            .set_name(format!("Rust SDK Test {id} TimeSeries", id = unique_id).as_str())
+            .set_name(format!("Rust SDK Test {ext_id} TimeSeries").as_str())
             .set_unit("celsius")
             .set_metadata(hashmap! {
                     "rust_sdk_filter_key".to_string() => unique_value.clone()
@@ -119,21 +125,17 @@ mod tests {
             Err(e) => panic!("{:?}", e.get_message()),
         }
 
-        delete_timeseries(unique_id, &api_service).await;
+        delete_timeseries(&api_service, &[&ext_id]).await;
         ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
         Ok(())
     }
     #[tokio::test]
     async fn test_create_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = run_id();
         let api_service = create_api_service();
-        let ext_a = format!("rust_sdk_test_{}_ts", unique_id);
-        let ext_b = format!("rust_sdk_test_{}_ts", unique_id + 1);
+        let ext_a = unique_id("ts");
+        let ext_b = unique_id("ts");
 
-        // Delete timeseries first, in case a test failed and the time series exists
-        delete_timeseries(unique_id, &api_service).await;
-
-        let ts_collection = create_timeseries(unique_id);
+        let ts_collection = create_timeseries(&ext_a, &ext_b);
         let result = api_service.time_series.create(&ts_collection).await;
 
         let mut ts_cleanup = cleanup_timeseries(vec![
@@ -170,27 +172,10 @@ mod tests {
         }
 
         // Delete timeseries
-        delete_timeseries(unique_id, &api_service).await;
+        delete_timeseries(&api_service, &[&ext_a, &ext_b]).await;
         ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 
         Ok(())
-    }
-
-    async fn delete_timeseries(id: u64, api_service: &ApiService) {
-        let id_collection = DataWrapper::from_vec(vec![
-            IdAndExtId::from_external_id(&format!("rust_sdk_test_{id}_ts", id = id)),
-            IdAndExtId::from_external_id(&format!("rust_sdk_test_{id}_ts_renamed", id = id)),
-            IdAndExtId::from_external_id(&format!("rust_sdk_test_{id}_ts", id = id + 1)),
-        ]);
-        let result = api_service.time_series.delete(&id_collection).await;
-        match result {
-            Ok(timeseries) => {
-                assert_eq!(timeseries.length(), 0);
-            },
-            Err(e) => {
-                println!("{:?}", e.get_message());
-            }
-        }
     }
 
     #[tokio::test]
@@ -222,20 +207,20 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_update_and_delete_timeseries() -> Result<(), Box<dyn std::error::Error>> {
         println!("test_create_and_update_and_delete_timeseries");
-        let unique_id: u64 = run_id();
         let api_service = create_api_service();
-        let ext = format!("rust_sdk_test_{}_ts", unique_id);
+        let ext = unique_id("ts");
+        let ext_b = unique_id("ts");
         let ext_renamed = format!("{}_renamed", ext);
+        let renamed_name = format!("Rust SDK Test {ext} TimeSeries Renamed");
 
-        // Delete timeseries first, in case a test failed and the time series exists
-        delete_timeseries(unique_id, &api_service).await;
-
-        let ts_collection = create_timeseries(unique_id);
+        let ts_collection = create_timeseries(&ext, &ext_b);
         let result = api_service.time_series.create(&ts_collection).await;
 
+        // Both names the subject can be under, plus the sibling the create made.
         let mut ts_cleanup = cleanup_timeseries(vec![
             ext.clone(),
             ext_renamed.clone(),
+            ext_b.clone(),
         ]);
 
         match result {
@@ -250,7 +235,7 @@ mod tests {
         let mut ts_update_collection = TimeSeriesUpdateCollection::new();
         let mut ts_update_fields = TimeSeriesUpdateFields::new();
         ts_update_fields.external_id.set(ext_renamed.clone());
-        ts_update_fields.name.set("Rust SDK Test 1400 TimeSeries Renamed".to_string());
+        ts_update_fields.name.set(renamed_name.clone());
         ts_update_fields.description.set("This is test timeseries generated by rust sdk test code. Renamed.".to_string());
         ts_update_fields.unit.set("fahrenheit".to_string());
         ts_update_fields.unit_external_id.set("temperature_deg_f".to_string());
@@ -277,7 +262,7 @@ mod tests {
                 if let Some(item) = items.iter().find(|&&ref item| item.external_id == ext_renamed) {
                     assert_eq!(item.external_id, ext_renamed);
                     assert_eq!(item.metadata.as_ref().unwrap().len(), 3);
-                    assert_eq!(item.name, "Rust SDK Test 1400 TimeSeries Renamed");
+                    assert_eq!(item.name, renamed_name);
                     match &item.description {
                         Some(desc) => assert_eq!(desc, "This is test timeseries generated by rust sdk test code. Renamed."),
                         None => panic!("Expected description to be present"),
@@ -321,18 +306,17 @@ mod tests {
             }
         }
 
-        delete_timeseries(unique_id, &api_service).await;
+        delete_timeseries(&api_service, &[&ext, &ext_renamed, &ext_b]).await;
         ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 
         Ok(())
     }
 
-    fn create_timeseries(id: u64) -> DataWrapper<TimeSeries> {
-        // Use a unique id as rust process tests in parallel
+    fn create_timeseries(ext_a: &str, ext_b: &str) -> DataWrapper<TimeSeries> {
         let mut ts_collection = DataWrapper::new();
         let ts1 = TimeSeries::builder()
-            .set_external_id(format!("rust_sdk_test_{id}_ts", id = id).as_str())
-            .set_name(format!("Rust SDK Test {id} TimeSeries", id = id).as_str())
+            .set_external_id(ext_a)
+            .set_name(format!("Rust SDK Test {ext_a} TimeSeries").as_str())
             .set_description("This is test timeseries generated by rust sdk test code.")
             .set_unit("celsius")
             .set_metadata(hashmap! {
@@ -342,8 +326,8 @@ mod tests {
             .set_value_type("float").clone();
         ts_collection.add_item(ts1);
         let ts2 = TimeSeries::builder()
-            .set_external_id(format!("rust_sdk_test_{id}_ts", id = id + 1).as_str())
-            .set_name(format!("Rust SDK Test {id} TimeSeries", id = id + 1).as_str())
+            .set_external_id(ext_b)
+            .set_name(format!("Rust SDK Test {ext_b} TimeSeries").as_str())
             .set_unit("watt")
             .set_value_type("bigint").clone();
         ts_collection.add_item(ts2);
@@ -352,19 +336,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_timeseries() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = run_id();
         let api_service = create_api_service();
 
-        // Delete timeseries first, in case a test failed and the time series exists
-        delete_timeseries(unique_id, &api_service).await;
-
         let mut ts_collection = DataWrapper::new();
-        let new_ts_ext_id = format!("rust_sdk_test_{id}_ts", id = unique_id);
-        let new_ts_name = format!("Rust SDK Test {id} TimeSeries", id = unique_id);
+        let new_ts_ext_id = unique_id("ts");
+        // A token of its own for each searched column. The indexed document is name, externalId
+        // and description concatenated, so a token shared with the external id would let a hit on
+        // the description prove nothing about the description.
+        let name_token = unique_token("tsname");
+        let description_token = unique_token("tsdesc");
+        let new_ts_name = format!("Rust SDK Test {name_token} TimeSeries");
+        let description =
+            format!("This is test timeseries generated by rust sdk test code. {description_token}");
         let ts1 = TimeSeries::builder()
             .set_external_id(new_ts_ext_id.as_str())
             .set_name(new_ts_name.as_str())
-            .set_description("This is test timeseries generated by rust sdk test code.")
+            .set_description(description.as_str())
             .set_unit("celsius")
             .set_metadata(hashmap! {
                     "foo".to_string() => "bar".to_string(),
@@ -397,6 +384,7 @@ mod tests {
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
+                assert_eq!(timeseries.get_items()[0].external_id, new_ts_ext_id);
             },
             Err(e) => {
                 eprintln!("error filtering timeseries by name");
@@ -404,11 +392,16 @@ mod tests {
             }
         }
 
-        let query = format!("SDK Test {id}", id = unique_id);
+        // Bare words AND together, so the run's own token is what makes the phrase select one
+        // series. Without it, "SDK Test" alone matches every series this suite has ever created,
+        // and a search is capped at its `limit` (100 by default) after ranking — so the one being
+        // looked for can be outranked off the page by other tests' data rather than missing.
+        let query = format!("SDK Test {name_token}");
         let result = api_service.time_series.search_by_query(query.as_str()).await;
         match result {
             Ok(timeseries) => {
                 assert_eq!(timeseries.length(), 1);
+                assert_eq!(timeseries.get_items()[0].external_id, new_ts_ext_id);
             },
             Err(e) => {
                 eprintln!("error with timeseries search_by_query");
@@ -417,18 +410,14 @@ mod tests {
         }
 
         // The description column is part of what the phrase already matches, which is why
-        // `search.description` is gone.
-        let query = "generated by rust sdk test";
-        let result = api_service.time_series.search_by_query(query).await;
+        // `search.description` is gone. Only the token is unique to this run, so a hit proves the
+        // description was searched.
+        let query = format!("generated by rust sdk test {description_token}");
+        let result = api_service.time_series.search_by_query(query.as_str()).await;
         match result {
             Ok(timeseries) => {
-                let mut found_timeseries = vec![];
-                for item in timeseries.get_items() {
-                    if item.external_id.contains(unique_id.to_string().as_str()) {
-                        found_timeseries.push(item.clone());
-                    }
-                }
-                assert_eq!(found_timeseries.len(), 1);
+                assert_eq!(timeseries.length(), 1);
+                assert_eq!(timeseries.get_items()[0].external_id, new_ts_ext_id);
             },
             Err(e) => {
                 eprintln!("error with timeseries description search");
@@ -436,20 +425,7 @@ mod tests {
             }
         }
 
-        let id_collection = DataWrapper::from_vec(vec![IdAndExtId::from_external_id(&format!(
-            "rust_sdk_test_{id}_ts",
-            id = unique_id
-        ))]);
-        let result = api_service.time_series.delete(&id_collection).await;
-        match result {
-            Ok(timeseries) => {
-                assert_eq!(timeseries.length(), 0);
-            },
-            Err(e) => {
-                eprintln!("error with timeseries delete");
-                eprintln!("{:?}", e.get_message());
-            }
-        }
+        delete_timeseries(&api_service, &[&new_ts_ext_id]).await;
         ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 
         Ok(())
@@ -461,16 +437,19 @@ mod tests {
         // Deliberately fixed, and deliberately shared with
         // `test_raw_datapoints_query_if_data_is_already_inserted`, which reads back what this
         // test inserts. Making either unique severs that and the reader has nothing to find.
+        // Nothing else in the suite mints an id of this shape, so no other test can address them.
         let unique_id: u64 = 6540;
         let api_service = create_api_service();
 
-        // Delete timeseries first, in case a test failed and the time series exists
-        delete_timeseries(unique_id, &api_service).await;
-        delete_timeseries(unique_id + 1, &api_service).await;
+        let new_ts_ext_id = format!("rust_sdk_test_{id}_ts", id = unique_id);
+        let new_ts_ext_id2 = format!("rust_sdk_test_{id}_ts", id = unique_id + 1);
+
+        // The one place a pre-delete earns its keep: the ids are fixed, so a run that died before
+        // its teardown left these behind.
+        delete_timeseries(&api_service, &[&new_ts_ext_id, &new_ts_ext_id2]).await;
 
         let mut ts_collection = DataWrapper::new();
 
-        let new_ts_ext_id = format!("rust_sdk_test_{id}_ts", id = unique_id);
         let new_ts_name = format!("Rust SDK Test {id} TimeSeries", id = unique_id);
         let ts1 = TimeSeries::builder()
             .set_external_id(new_ts_ext_id.as_str())
@@ -483,7 +462,6 @@ mod tests {
                 })
             .set_value_type("float").clone();
 
-        let new_ts_ext_id2 = format!("rust_sdk_test_{id}_ts", id = unique_id + 1);
         let new_ts_name = format!("Rust SDK Test {id} TimeSeries", id = unique_id + 1);
         let ts2 = TimeSeries::builder()
             .set_external_id(new_ts_ext_id2.as_str())
@@ -581,8 +559,7 @@ mod tests {
         validate_deleted_datapoints(&api_service, new_ts_ext_id.clone()).await;
 
         // Delete timeseries when complete
-        delete_timeseries(unique_id, &api_service).await;
-        delete_timeseries(unique_id+1, &api_service).await;
+        delete_timeseries(&api_service, &[&new_ts_ext_id, &new_ts_ext_id2]).await;
         ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 
         Ok(())
@@ -976,16 +953,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_latest_datapoint() -> Result<(), Box<dyn std::error::Error>> {
-        let unique_id: u64 = run_id();
         let api_service = create_api_service();
-
-        // Delete timeseries first, in case a test failed and the time series exists
-        delete_timeseries(unique_id, &api_service).await;
 
         let mut ts_collection = DataWrapper::new();
 
-        let new_ts_ext_id = format!("rust_sdk_test_{id}_ts", id = unique_id);
-        let new_ts_name = format!("Rust SDK Test {id} TimeSeries", id = unique_id);
+        let new_ts_ext_id = unique_id("ts");
+        let new_ts_name = format!("Rust SDK Test {new_ts_ext_id} TimeSeries");
         let ts1 = TimeSeries::builder()
             .set_external_id(new_ts_ext_id.as_str())
             .set_name(new_ts_name.as_str())
@@ -1048,7 +1021,7 @@ mod tests {
         validate_latest_datapoint(&api_service, latest_datetime, &id_collection).await;
 
         // Delete timeseries when complete
-        delete_timeseries(unique_id, &api_service).await;
+        delete_timeseries(&api_service, &[&new_ts_ext_id]).await;
         ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
 
         Ok(())
@@ -1058,8 +1031,11 @@ mod tests {
     async fn test_insert_datapoints_missing_timeseries_returns_not_found() -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
 
+        // Freshly minted rather than a fixed name: this test's whole premise is that the series
+        // does not exist, which a shared id cannot promise.
+        let missing_ext_id = unique_id("ts_missing");
         let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
-        let mut dp_collection = DatapointsCollection::from_external_id("rust_sdk_test_nonexistent_8888_ts");
+        let mut dp_collection = DatapointsCollection::from_external_id(&missing_ext_id);
         dp_collection.datapoints = vec![
             DatapointString::from_datetime(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap(), "42.0"),
         ];
