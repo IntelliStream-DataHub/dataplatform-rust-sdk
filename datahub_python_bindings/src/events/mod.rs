@@ -65,123 +65,73 @@ impl PyEvent {
     }
 }
 
-#[pyclass(module = "intellistream_datahub_sdk", name = "EventFilterForm", from_py_object)]
-#[derive(Clone)]
-pub struct PyEventFilterForm {
-    pub inner: EventFilterForm,
-}
-impl From<EventFilterForm> for PyEventFilterForm {
-    fn from(ts: EventFilterForm) -> Self {
-        Self { inner: ts }
-    }
-}
-impl From<PyEventFilterForm> for EventFilterForm {
-    fn from(ts: PyEventFilterForm) -> Self {
-        ts.inner
-    }
-}
+/// Build the request body for `events.filter` from either form of its arguments.
+///
+/// Shared by the sync and async services so the accepted keywords cannot drift apart between them.
+#[allow(clippy::too_many_arguments)]
+pub fn event_filter_form(
+    filter: Option<PyEventFilter>,
+    external_id: Option<StringOrList>,
+    source: Option<StringOrList>,
+    r#type: Option<StringOrList>,
+    sub_type: Option<StringOrList>,
+    status: Option<StringOrList>,
+    data_set_id: Option<Vec<DataSetRef>>,
+    event_time: Option<PyTimeFilter>,
+    metadata: Option<HashMap<String, Option<String>>>,
+    related_resources: Option<Vec<PyIdCollection>>,
+    created_time: Option<PyTimeFilter>,
+    last_updated_time: Option<PyTimeFilter>,
+    limit: Option<u64>,
+    sort_by: Option<StringOrList>,
+    sort_order: Option<String>,
+    cursor: Option<String>,
+) -> PyResult<EventFilterForm> {
+    let any_keyword = external_id.is_some()
+        || source.is_some()
+        || r#type.is_some()
+        || sub_type.is_some()
+        || status.is_some()
+        || data_set_id.is_some()
+        || event_time.is_some()
+        || metadata.is_some()
+        || related_resources.is_some()
+        || created_time.is_some()
+        || last_updated_time.is_some();
+    let from_keywords = PyEventFilter::new(
+        external_id,
+        source,
+        r#type,
+        sub_type,
+        status,
+        data_set_id,
+        event_time,
+        metadata,
+        related_resources,
+        created_time,
+        last_updated_time,
+    )
+    .inner;
 
-#[pymethods]
-impl PyEventFilterForm {
-    /// The request body: the criteria, plus paging and ordering.
-    ///
-    /// `filter` may be omitted, which places no restriction and returns whatever the tenant
-    /// has — the same thing an argument-free `EventFilter()` does.
-    #[new]
-    #[pyo3(signature=(filter=None,limit=None,sort_by=None,sort_order=None,cursor=None))]
-    fn new(
-        filter: Option<PyEventFilter>,
-        limit: Option<u64>,
-        sort_by: Option<StringOrList>,
-        sort_order: Option<String>,
-        cursor: Option<String>,
-    ) -> Self {
-        let mut form = EventFilterForm::default();
-        form.set_filter(filter.map(Into::into).unwrap_or_default());
-        form.set_limit(limit.unwrap_or(100));
-        // A bare string is a one-element list here as it is on every other filter field; only one
-        // property is used either way.
-        if let Some(property) = sort_by {
-            form.set_sort(DataSort {
-                property: property.into(),
-                order: sort_order,
-            });
-        }
-        if let Some(cursor) = cursor {
-            form.set_cursor(cursor);
-        }
-        Self {
-            inner: form.build(),
-        }
+    let mut form = EventFilterForm::default();
+    form.set_filter(crate::resolve_filter(
+        filter.map(Into::into),
+        from_keywords,
+        any_keyword,
+    )?);
+    form.set_limit(limit.unwrap_or(100));
+    // A bare string is a one-element list here as it is on every other filter field; only one
+    // property is used either way.
+    if let Some(property) = sort_by {
+        form.set_sort(DataSort {
+            property: property.into(),
+            order: sort_order,
+        });
     }
-    #[getter]
-    fn filter(&self) -> Option<PyEventFilter> {
-        self.inner.filter().cloned().map(|f| f.into())
+    if let Some(cursor) = cursor {
+        form.set_cursor(cursor);
     }
-    #[getter]
-    pub fn limit(&self) -> u64 {
-        self.inner.limit
-    }
-    #[setter]
-    pub fn set_limit(&mut self, limit: u64) {
-        self.inner.limit = limit;
-    }
-    #[getter]
-    pub fn cursor(&self) -> Option<&str> {
-        self.inner.cursor()
-    }
-
-    /// Resume a walk from where the previous page stopped: the `next_cursor` of the previous
-    /// response, verbatim.
-    ///
-    /// Opaque — do not build or parse one. Send it with the same `sort_by`/`sort_order` that
-    /// produced it, or the request is refused with a 400.
-    #[setter]
-    pub fn set_cursor(&mut self, cursor: Option<String>) {
-        match cursor {
-            Some(cursor) => {
-                self.inner.set_cursor(cursor);
-            }
-            None => {
-                self.inner.clear_cursor();
-            }
-        }
-    }
-
-    /// The properties this page is ordered by, if any.
-    #[getter]
-    pub fn sort_by(&self) -> Option<Vec<String>> {
-        self.inner.sort().map(|s| s.property.clone())
-    }
-
-    #[setter]
-    pub fn set_sort_by(&mut self, property: Option<StringOrList>) {
-        let order = self.inner.sort().and_then(|s| s.order.clone());
-        match property {
-            Some(property) => {
-                self.inner.set_sort(DataSort { property: property.into(), order });
-            }
-            None => {
-                self.inner.clear_sort();
-            }
-        }
-    }
-
-    /// `"asc"` or `"desc"`. Anything that is not exactly `desc` sorts ascending server-side.
-    #[getter]
-    pub fn sort_order(&self) -> Option<String> {
-        self.inner.sort().and_then(|s| s.order.clone())
-    }
-
-    #[setter]
-    pub fn set_sort_order(&mut self, order: Option<String>) {
-        let property = self
-            .inner
-            .sort()
-            .map(|s| s.property.clone())
-            .unwrap_or_default();
-        self.inner.set_sort(DataSort { property, order });
-    }
+    Ok(form.build())
 }
 
 #[pyclass(
@@ -191,7 +141,7 @@ impl PyEventFilterForm {
 )]
 #[derive(Clone)]
 pub struct PyEventFilter {
-    inner: EventFilter,
+    pub inner: EventFilter,
 }
 impl From<EventFilter> for PyEventFilter {
     fn from(ts: EventFilter) -> Self {
@@ -238,7 +188,7 @@ impl PyEventFilter {
         last_updated_time=None,
     ))]
     #[allow(clippy::too_many_arguments)]
-    fn new(
+    pub fn new(
         external_id: Option<StringOrList>,
         source: Option<StringOrList>,
         r#type: Option<StringOrList>,
@@ -504,7 +454,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEventDimension>()?;
     m.add_class::<PyEvent>()?;
     m.add_class::<PyEventIdCollection>()?;
-    m.add_class::<PyEventFilterForm>()?;
     m.add_class::<PyEventFilter>()?;
     m.add_class::<PyTimeFilter>()?;
     m.add_class::<PyEventUpdate>()?;

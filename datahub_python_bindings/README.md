@@ -23,10 +23,17 @@ client.timeseries.insert_from_lists(
 )
 
 # Find the alarms.
-alarms = client.events.filter(
-    dh.EventFilterForm(filter=dh.EventFilter(type="ALARM"), limit=100)
-)
+alarms = client.events.filter(type="ALARM", limit=100)
+
+# The same criteria, kept as an object, so one definition can be filtered and searched with.
+ALARMS = dh.EventFilter(type="ALARM")
+recent = client.events.filter(filter=ALARMS, limit=100, sort_by="eventTime", sort_order="desc")
+matches = client.events.search("bearing", filter=ALARMS)
 ```
+
+Every `filter()` takes either the criteria as keywords or a prepared `filter=` object — passing
+both is a `TypeError`. `limit`, `sort_by`, `sort_order` and `cursor` are always arguments of the
+call rather than fields of the filter, so a stored filter carries no paging state into its next use.
 
 Both a synchronous and an asynchronous client are available — `DataHubClient` and
 `AsyncDataHubClient`. The async one exposes the same services with awaitable methods.

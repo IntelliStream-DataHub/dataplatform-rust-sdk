@@ -1,5 +1,5 @@
 use crate::events::{
-    EventIdentifyable, PyEventFilter, PyEvent, PyEventDimension, PyEventFilterForm, PyEventUpdate,
+    EventIdentifyable, PyEventFilter, PyEvent, PyEventDimension, PyEventUpdate,
 };
 use crate::{PyIdCollection};
 use intellistream_datahub_sdk::events::{EventDimension, EventIdCollection, EventUpdate};
@@ -79,13 +79,42 @@ impl PyEventsServiceSync {
         })
     }
 
-    fn filter<'py>(&self, py: Python<'py>, input: PyEventFilterForm) -> PyResult<crate::PyPage> {
+    #[pyo3(signature = (filter=None, external_id=None, source=None, r#type=None, sub_type=None,
+                        status=None, data_set_id=None, event_time=None, metadata=None,
+                        related_resources=None, created_time=None, last_updated_time=None,
+                        limit=None, sort_by=None, sort_order=None, cursor=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn filter<'py>(
+        &self,
+        py: Python<'py>,
+        filter: Option<PyEventFilter>,
+        external_id: Option<crate::StringOrList>,
+        source: Option<crate::StringOrList>,
+        r#type: Option<crate::StringOrList>,
+        sub_type: Option<crate::StringOrList>,
+        status: Option<crate::StringOrList>,
+        data_set_id: Option<Vec<crate::DataSetRef>>,
+        event_time: Option<crate::events::PyTimeFilter>,
+        metadata: Option<std::collections::HashMap<String, Option<String>>>,
+        related_resources: Option<Vec<crate::PyIdCollection>>,
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        limit: Option<u64>,
+        sort_by: Option<crate::StringOrList>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
+    ) -> PyResult<crate::PyPage> {
+        let form = crate::events::event_filter_form(
+            filter, external_id, source, r#type, sub_type, status, data_set_id, event_time,
+            metadata, related_resources, created_time, last_updated_time, limit, sort_by,
+            sort_order, cursor,
+        )?;
         let service = self.api_service.clone();
 
         let (items, next_cursor) = py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.events.filter(&input.into()))
+                .block_on(service.events.filter(&form))
                 .map_err(|e| crate::datahub_err(e))?;
 
             let next_cursor = result.next_cursor().map(str::to_string);

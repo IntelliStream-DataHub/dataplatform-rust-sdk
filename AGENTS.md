@@ -105,6 +105,15 @@ and `TimeSeriesFilterForm` — four spellings of one idea, which is what made `B
 first place. The backend still calls the request bodies `XRetreiver` (its own spelling of
 *Retriever*); the wire format is unaffected either way, since none of these names is serialized.
 
+**That is the Rust surface. Python does not mirror it, deliberately.** There is no `XFilterForm`
+in the bindings: `filter()` takes either the criteria as keywords — `client.timeseries.filter(
+name=["Pump*"], limit=100)` — or a prepared `filter=` object, and passing both is a `TypeError`.
+`limit`, `sort_by`, `sort_order` and `cursor` are always arguments of the call, never fields of the
+filter, so one `XFilter` can be reused across `filter()` and `search()` without carrying paging
+state between them. Before 0.3.0 the Python side had three shapes at once — an envelope for events
+and datasets, a flat `TimeSeriesFilterForm` that was really the criteria, and bare keywords on
+resources — and `timeseries.search` silently discarded the paging fields of the form it was handed.
+
 The four `/{entity}/filter` endpoints share one contract. `NodeFilter` (`src/filters.rs`) is the criteria every node type can be filtered by — `id`, `externalId`, `name`, `source`, `labels`, `metadata`, `createdTime`, `lastUpdatedTime` — and `ResourceFilter`, `TimeSeriesFilter` and `DatasetFilter` each `#[serde(flatten)]` it, so on the wire its fields sit alongside the type-specific ones. `EventFilter` deliberately does **not** extend it (events are not nodes: no `name` column, a UUID id) but matches it field for field wherever ClickHouse can back it.
 
 The rules, which every one of them obeys:

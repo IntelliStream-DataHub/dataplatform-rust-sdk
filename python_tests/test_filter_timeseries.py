@@ -47,7 +47,7 @@ def flt(sync_client, prefix):
     """
     def _filter(**criteria):
         criteria.setdefault("external_id", f"{prefix}*")
-        return externals(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(**criteria)))
+        return externals(sync_client.timeseries.filter(**criteria))
     return _filter
 
 
@@ -131,10 +131,8 @@ def test_a_bare_string_means_a_one_element_list(sync_client, timeseries_corpus, 
     Filter fields went plural because one value was rarely enough, but most calls still pass one;
     making the single form a `TypeError` would tax the common case to serve the rare one.
     """
-    scalar = sync_client.timeseries.filter(
-        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", name=f"Pump Alpha {token}"))
-    listed = sync_client.timeseries.filter(
-        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=[f"{prefix}*"], name=[f"Pump Alpha {token}"]))
+    scalar = sync_client.timeseries.filter(external_id=f"{prefix}*", name=f"Pump Alpha {token}")
+    listed = sync_client.timeseries.filter(external_id=[f"{prefix}*"], name=[f"Pump Alpha {token}"])
     assert externals(scalar) == externals(listed) == {timeseries_corpus["pump_1"].external_id}
 
 
@@ -244,17 +242,17 @@ def test_an_unknown_value_type_matches_nothing(flt, timeseries_corpus):
 
 def test_an_absent_filter_places_no_restriction(sync_client, timeseries_corpus):
     """An argument-free form must return the tenant's timeseries, not none of them."""
-    everything = sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm())
+    everything = sync_client.timeseries.filter()
     assert externals(everything) >= {ts.external_id for ts in timeseries_corpus.values()}
 
 
 def test_none_valued_criteria_are_omitted_entirely(sync_client, timeseries_corpus, prefix):
     """Passing ``None`` is the same as not passing the argument — it must not reach the wire as a
     ``null`` the server then reads as a restriction."""
-    assert externals(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
+    assert externals(sync_client.timeseries.filter(
         external_id=f"{prefix}*", name=None, unit=None, value_type=None, metadata=None,
         id=None, labels=None, source=None, data_set_id=None,
-    ))) == {ts.external_id for ts in timeseries_corpus.values()}
+    )) == {ts.external_id for ts in timeseries_corpus.values()}
 
 
 @pytest.mark.parametrize("empty", [[], ["", "   "]])
@@ -265,8 +263,8 @@ def test_an_empty_or_blank_list_places_no_restriction(sync_client, timeseries_co
 
     ``data_set_id`` is the documented exception and is covered separately.
     """
-    scoped = externals(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
-        external_id=f"{prefix}*", name=empty, unit=empty, labels=empty, value_type=empty)))
+    scoped = externals(sync_client.timeseries.filter(
+        external_id=f"{prefix}*", name=empty, unit=empty, labels=empty, value_type=empty))
     assert scoped == {ts.external_id for ts in timeseries_corpus.values()}
 
 
@@ -309,8 +307,8 @@ def test_an_explicit_empty_data_set_scope_matches_nothing(sync_client, timeserie
     dropping the predicate instead would widen the query to everything the caller can read — the
     opposite of what they asked for.
     """
-    assert externals(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
-        external_id=f"{prefix}*", data_set_id=[]))) == set()
+    assert externals(sync_client.timeseries.filter(
+        external_id=f"{prefix}*", data_set_id=[])) == set()
 
 
 def test_an_omitted_data_set_scope_places_no_restriction(flt, timeseries_corpus):
@@ -383,23 +381,21 @@ def test_separate_criteria_and_together(flt, timeseries_corpus, token):
 
 
 def test_limit_caps_the_page(sync_client, timeseries_corpus, prefix):
-    capped = sync_client.timeseries.filter(
-        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=2))
+    capped = sync_client.timeseries.filter(external_id=f"{prefix}*", limit=2)
     assert len(capped) == 2
 
 
 def test_limit_zero_falls_back_to_the_default(sync_client, timeseries_corpus, prefix):
     """SQL reads ``LIMIT 0`` as "return nothing", which is indistinguishable from "nothing matched"
     — so the server treats a non-positive limit as unset instead."""
-    assert externals(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
-        external_id=f"{prefix}*", limit=0))) == {ts.external_id for ts in timeseries_corpus.values()}
+    assert externals(sync_client.timeseries.filter(
+        external_id=f"{prefix}*", limit=0)) == {ts.external_id for ts in timeseries_corpus.values()}
 
 
 def test_a_limit_above_the_ceiling_is_refused(sync_client, prefix):
     """10000 is the cap, and exceeding it is a 400 rather than a silently clamped page."""
     with pytest.raises(DataHubException) as excinfo:
-        sync_client.timeseries.filter(
-            intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=10_001))
+        sync_client.timeseries.filter(external_id=f"{prefix}*", limit=10_001)
     assert excinfo.value.status_code == 400
 
 
@@ -409,14 +405,11 @@ def test_a_negative_limit_is_rejected_client_side(sync_client, prefix):
     difference between "the server tolerates it" and "you cannot send it" stays visible.
     """
     with pytest.raises(OverflowError):
-        sync_client.timeseries.filter(
-            intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", limit=-5))
+        sync_client.timeseries.filter(external_id=f"{prefix}*", limit=-5)
 
 
 @pytest.mark.asyncio
 async def test_async_filter_matches_the_sync_one(async_client, sync_client, timeseries_corpus, prefix):
-    from_async = await async_client.timeseries.filter(
-        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", unit=["bar"]))
-    from_sync = sync_client.timeseries.filter(
-        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}*", unit=["bar"]))
+    from_async = await async_client.timeseries.filter(external_id=f"{prefix}*", unit=["bar"])
+    from_sync = sync_client.timeseries.filter(external_id=f"{prefix}*", unit=["bar"])
     assert externals(from_async) == externals(from_sync)

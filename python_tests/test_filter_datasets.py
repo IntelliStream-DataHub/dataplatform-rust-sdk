@@ -37,8 +37,8 @@ def flt(sync_client, prefix):
     """Filter within this run's corpus unless the test overrides ``external_id``."""
     def _filter(limit=None, **criteria):
         criteria.setdefault("external_id", f"{prefix}*")
-        form = intellistream_datahub_sdk.DatasetFilterForm(intellistream_datahub_sdk.DatasetFilter(**criteria), limit=limit)
-        return externals(sync_client.datasets.filter(form))
+        form = dict(filter=intellistream_datahub_sdk.DatasetFilter(**criteria), limit=limit)
+        return externals(sync_client.datasets.filter(**form))
     return _filter
 
 
@@ -160,7 +160,7 @@ def test_the_retired_flags_are_not_accepted(sync_client):
 def test_an_argument_free_filter_returns_everything(sync_client, datasets, both):
     """The same thing ``/datasets/list`` does — the server implements ``list`` by calling the
     filter handler with an empty filter."""
-    from_filter = externals(sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilterForm()))
+    from_filter = externals(sync_client.datasets.filter())
     assert from_filter >= both
     assert externals(sync_client.datasets.list(limit=10_000)) >= both
 
@@ -188,9 +188,9 @@ def test_an_unmatchable_criterion_gives_an_empty_result_not_an_unfiltered_one(fl
 # --------------------------------------------------------------------------- #
 
 def test_limit_caps_the_page(sync_client, datasets, prefix):
-    form = intellistream_datahub_sdk.DatasetFilterForm(
-        intellistream_datahub_sdk.DatasetFilter(external_id=f"{prefix}*"), limit=1)
-    assert len(sync_client.datasets.filter(form)) == 1
+    form = dict(
+        filter=intellistream_datahub_sdk.DatasetFilter(external_id=f"{prefix}*"), limit=1)
+    assert len(sync_client.datasets.filter(**form)) == 1
 
 
 def test_limit_zero_falls_back_to_the_default(flt, both):
@@ -198,10 +198,10 @@ def test_limit_zero_falls_back_to_the_default(flt, both):
 
 
 def test_a_limit_above_the_ceiling_is_refused(sync_client, prefix):
-    form = intellistream_datahub_sdk.DatasetFilterForm(
-        intellistream_datahub_sdk.DatasetFilter(external_id=f"{prefix}*"), limit=10_001)
+    form = dict(
+        filter=intellistream_datahub_sdk.DatasetFilter(external_id=f"{prefix}*"), limit=10_001)
     with pytest.raises(DataHubException) as excinfo:
-        sync_client.datasets.filter(form)
+        sync_client.datasets.filter(**form)
     assert excinfo.value.status_code == 400
 
 
@@ -217,6 +217,6 @@ def test_the_retired_criteria_are_not_accepted(sync_client):
 
 @pytest.mark.asyncio
 async def test_async_filter_matches_the_sync_one(async_client, sync_client, datasets, prefix):
-    form = intellistream_datahub_sdk.DatasetFilterForm(intellistream_datahub_sdk.DatasetFilter(external_id=f"{prefix}*"))
-    assert externals(await async_client.datasets.filter(form)) == externals(
-        sync_client.datasets.filter(form))
+    form = dict(filter=intellistream_datahub_sdk.DatasetFilter(external_id=f"{prefix}*"))
+    assert externals(await async_client.datasets.filter(**form)) == externals(
+        sync_client.datasets.filter(**form))

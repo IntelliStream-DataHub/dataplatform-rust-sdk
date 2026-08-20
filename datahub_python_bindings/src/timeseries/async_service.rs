@@ -6,7 +6,6 @@ use crate::timeseries::{
 };
 use crate::{
     DatahubIdentity, Identifiable, PyIdCollection, PyRetrieveFilter,
-    PyTimeSeriesFilterForm,
 };
 use crate::datetime::py_datetime_to_utc;
 use intellistream_datahub_sdk::generic::{
@@ -147,10 +146,10 @@ impl PyTimeSeriesServiceAsync {
         &self,
         py: Python<'p>,
         query: String,
-        filter: Option<PyTimeSeriesFilterForm>,
+        filter: Option<crate::PyTimeSeriesFilter>,
         limit: Option<u64>,
     ) -> PyResult<Bound<'p, PyAny>> {
-        let form = crate::search_form(query, filter.map(|f| f.inner.filter), limit);
+        let form = crate::search_form(query, filter.map(|f| f.inner), limit);
         let service = self.api_service.clone();
 
         future_into_py(py, async move {
@@ -169,17 +168,43 @@ impl PyTimeSeriesServiceAsync {
         })
     }
 
+    #[pyo3(signature = (filter=None, id=None, external_id=None, name=None, source=None,
+                        labels=None, metadata=None, created_time=None, last_updated_time=None,
+                        data_set_id=None, unit=None, unit_external_id=None, value_type=None,
+                        limit=None, sort_by=None, sort_order=None, cursor=None))]
+    #[allow(clippy::too_many_arguments)]
     fn filter<'p>(
         &self,
         py: Python<'p>,
-        input: PyTimeSeriesFilterForm,
+        filter: Option<crate::PyTimeSeriesFilter>,
+        id: Option<Vec<u64>>,
+        external_id: Option<crate::StringOrList>,
+        name: Option<crate::StringOrList>,
+        source: Option<crate::StringOrList>,
+        labels: Option<crate::StringOrList>,
+        metadata: Option<std::collections::HashMap<String, Option<String>>>,
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        data_set_id: Option<Vec<crate::DataSetRef>>,
+        unit: Option<crate::StringOrList>,
+        unit_external_id: Option<crate::StringOrList>,
+        value_type: Option<crate::StringOrList>,
+        limit: Option<u64>,
+        sort_by: Option<crate::StringOrList>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
     ) -> PyResult<Bound<'p, PyAny>> {
+        let form = crate::timeseries_filter_form(
+            filter, id, external_id, name, source, labels, metadata, created_time,
+            last_updated_time, data_set_id, unit, unit_external_id, value_type, limit, sort_by,
+            sort_order, cursor,
+        )?;
         let service = self.api_service.clone();
 
         future_into_py(py, async move {
             let result = service
                 .time_series
-                .filter(&input.into())
+                .filter(&form)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
 

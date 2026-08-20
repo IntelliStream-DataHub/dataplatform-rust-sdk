@@ -121,26 +121,22 @@ def test_sync_list_and_filter(sync_client, make_dataset):
     assert any(d.external_id == ext_id for d in sync_client.datasets.list())
 
     narrowed = sync_client.datasets.filter(
-        intellistream_datahub_sdk.DatasetFilterForm(
             intellistream_datahub_sdk.DatasetFilter(external_id=[ext_id])
         )
-    )
     assert [d.external_id for d in narrowed] == [ext_id]
 
     # An unmatchable criterion is an empty result, not an unfiltered one.
     assert (
         sync_client.datasets.filter(
-            intellistream_datahub_sdk.DatasetFilterForm(
                 intellistream_datahub_sdk.DatasetFilter(external_id=["ds_does_not_exist_xyz"])
             )
-        )
         == []
     )
 
     # An argument-free filter places no restriction, same as list().
     assert any(
         d.external_id == ext_id
-        for d in sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilterForm())
+        for d in sync_client.datasets.filter()
     )
 
 
@@ -149,17 +145,13 @@ def test_sync_filter_by_metadata_and_prefix(sync_client, make_dataset):
     make_dataset(external_id=ext_id, name=ext_id, metadata={"owner": ext_id})
 
     by_metadata = sync_client.datasets.filter(
-        intellistream_datahub_sdk.DatasetFilterForm(
             intellistream_datahub_sdk.DatasetFilter(metadata={"owner": ext_id})
         )
-    )
     assert [d.external_id for d in by_metadata] == [ext_id]
 
     by_prefix = sync_client.datasets.filter(
-        intellistream_datahub_sdk.DatasetFilterForm(
             intellistream_datahub_sdk.DatasetFilter(external_id=f"{ext_id}*")
         )
-    )
     assert [d.external_id for d in by_prefix] == [ext_id]
 
 
@@ -236,10 +228,8 @@ async def test_async_filter_search_update_policies(async_client, make_dataset):
     )
 
     narrowed = await async_client.datasets.filter(
-        intellistream_datahub_sdk.DatasetFilterForm(
             intellistream_datahub_sdk.DatasetFilter(external_id=[ext_id])
         )
-    )
     assert [d.external_id for d in narrowed] == [ext_id]
 
     hits = await async_client.datasets.search(token)

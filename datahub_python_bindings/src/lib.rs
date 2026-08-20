@@ -564,14 +564,13 @@ impl PyIdCollection {
 /// The whole paging loop is therefore:
 ///
 /// ```python
-/// page = client.timeseries.filter(TimeSeriesFilterForm(limit=100, sort_by="name"))
+/// page = client.timeseries.filter(limit=100, sort_by="name")
 /// while page:
 ///     for ts in page:
 ///         ...
 ///     if page.next_cursor is None:
 ///         break
-///     page = client.timeseries.filter(TimeSeriesFilterForm(
-///         limit=100, sort_by="name", cursor=page.next_cursor))
+///     page = client.timeseries.filter(limit=100, sort_by="name", cursor=page.next_cursor)
 /// ```
 ///
 /// `next_cursor` is `None` on the last page. A *full* page may still be the last one — the server
@@ -741,24 +740,28 @@ pub(crate) fn search_form<F>(
     }
 }
 
-#[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeriesFilterForm")]
-#[derive(Clone)]
-pub struct PyTimeSeriesFilterForm {
-    pub inner: TimeSeriesFilterForm,
+#[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeriesFilter", from_py_object)]
+#[derive(Clone, Default)]
+pub struct PyTimeSeriesFilter {
+    pub inner: TimeSeriesFilter,
 }
-impl From<TimeSeriesFilterForm> for PyTimeSeriesFilterForm {
-    fn from(form: TimeSeriesFilterForm) -> Self {
-        Self { inner: form }
+impl From<TimeSeriesFilter> for PyTimeSeriesFilter {
+    fn from(filter: TimeSeriesFilter) -> Self {
+        Self { inner: filter }
     }
 }
-impl From<PyTimeSeriesFilterForm> for TimeSeriesFilterForm {
-    fn from(value: PyTimeSeriesFilterForm) -> Self {
+impl From<PyTimeSeriesFilter> for TimeSeriesFilter {
+    fn from(value: PyTimeSeriesFilter) -> Self {
         value.inner
     }
 }
 #[pymethods]
-impl PyTimeSeriesFilterForm {
+impl PyTimeSeriesFilter {
     /// AND-combined criteria for `timeseries.filter` and the `filter` of `timeseries.search`.
+    ///
+    /// Criteria only: `limit`, `sort_by`, `sort_order` and `cursor` are arguments of the call, not
+    /// fields here, so one filter can be reused across `filter()` and `search()` and paged
+    /// differently each time without carrying a stale cursor into the next use.
     ///
     /// `external_id`, `name`, `source`, `unit` and `unit_external_id` are **pattern** lists:
     /// `*` and `%` are wildcards, `_` is literal, matching is case-insensitive, and an entry with
@@ -766,8 +769,7 @@ impl PyTimeSeriesFilterForm {
     /// them also accepts a bare string.
     ///
     /// `labels` must **all** be present. `metadata` entries must all be present too, and a `None`
-    /// value matches the key alone — `{"health": None}` finds anything tagged `health`, which is
-    /// what the retired `metadata_key`-without-`metadata_value` used to mean.
+    /// value matches the key alone — `{"health": None}` finds anything tagged `health`.
     ///
     /// `value_type` is matched exactly (case-insensitively) against the closed catalogue
     /// `BIGINT`, `FLOAT`, `FLOAT32`, `NUMERIC`, `DECIMAL32`, `TEXT`, `MIXED`.
@@ -776,15 +778,6 @@ impl PyTimeSeriesFilterForm {
     /// dataset hierarchy server-side, so a master dataset matches its children's timeseries too.
     /// **`None` and `[]` differ here**: `None` places no restriction, `[]` narrows to no datasets
     /// and matches nothing. Every other list is "no restriction" when empty.
-    ///
-    /// `sort_by` names one property — `id`, `externalId`, `name`, `source`, `description`,
-    /// `createdTime`, `lastUpdatedTime` or `dataSetId` — with `sort_order` of `"asc"` or `"desc"`;
-    /// `id` is always appended so the order is total. An unrecognised property falls back to the
-    /// default (newest created first) rather than failing. Nulls sort last ascending, first
-    /// descending.
-    ///
-    /// `cursor` continues a previous page: pass the `next_cursor` of that response verbatim, with
-    /// the **same** sort it came from — a mismatch is a 400, not a quietly short page.
     #[new]
     #[pyo3(signature = (
         id=None,
@@ -799,10 +792,6 @@ impl PyTimeSeriesFilterForm {
         unit=None,
         unit_external_id=None,
         value_type=None,
-        limit=None,
-        sort_by=None,
-        sort_order=None,
-        cursor=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -818,33 +807,101 @@ impl PyTimeSeriesFilterForm {
         unit: Option<StringOrList>,
         unit_external_id: Option<StringOrList>,
         value_type: Option<StringOrList>,
-        limit: Option<u64>,
-        sort_by: Option<StringOrList>,
-        sort_order: Option<String>,
-        cursor: Option<String>,
     ) -> Self {
         Self {
-            inner: TimeSeriesFilterForm {
-                filter: TimeSeriesFilter {
-                    node: NodeFilter {
-                        id,
-                        external_id: opt_patterns(external_id),
-                        name: opt_patterns(name),
-                        source: opt_patterns(source),
-                        labels: opt_patterns(labels),
-                        metadata,
-                        created_time: created_time.map(Into::into),
-                        last_updated_time: last_updated_time.map(Into::into),
-                    },
-                    data_set_id: opt_data_set_refs(data_set_id),
-                    unit: opt_patterns(unit),
-                    unit_external_id: opt_patterns(unit_external_id),
-                    value_type: opt_patterns(value_type),
+            inner: TimeSeriesFilter {
+                node: NodeFilter {
+                    id,
+                    external_id: opt_patterns(external_id),
+                    name: opt_patterns(name),
+                    source: opt_patterns(source),
+                    labels: opt_patterns(labels),
+                    metadata,
+                    created_time: created_time.map(Into::into),
+                    last_updated_time: last_updated_time.map(Into::into),
                 },
-                limit,
-                paging: build_page_request(sort_by, sort_order, cursor),
+                data_set_id: opt_data_set_refs(data_set_id),
+                unit: opt_patterns(unit),
+                unit_external_id: opt_patterns(unit_external_id),
+                value_type: opt_patterns(value_type),
             },
         }
+    }
+}
+
+/// Build the request body for `timeseries.filter` from either form of its arguments.
+///
+/// Shared by the sync and async services so the accepted keywords cannot drift apart between them.
+#[allow(clippy::too_many_arguments)]
+pub fn timeseries_filter_form(
+    filter: Option<PyTimeSeriesFilter>,
+    id: Option<Vec<u64>>,
+    external_id: Option<StringOrList>,
+    name: Option<StringOrList>,
+    source: Option<StringOrList>,
+    labels: Option<StringOrList>,
+    metadata: Option<HashMap<String, Option<String>>>,
+    created_time: Option<crate::events::PyTimeFilter>,
+    last_updated_time: Option<crate::events::PyTimeFilter>,
+    data_set_id: Option<Vec<DataSetRef>>,
+    unit: Option<StringOrList>,
+    unit_external_id: Option<StringOrList>,
+    value_type: Option<StringOrList>,
+    limit: Option<u64>,
+    sort_by: Option<StringOrList>,
+    sort_order: Option<String>,
+    cursor: Option<String>,
+) -> PyResult<TimeSeriesFilterForm> {
+    let any_keyword = id.is_some()
+        || external_id.is_some()
+        || name.is_some()
+        || source.is_some()
+        || labels.is_some()
+        || metadata.is_some()
+        || created_time.is_some()
+        || last_updated_time.is_some()
+        || data_set_id.is_some()
+        || unit.is_some()
+        || unit_external_id.is_some()
+        || value_type.is_some();
+    let from_keywords = PyTimeSeriesFilter::new(
+        id,
+        external_id,
+        name,
+        source,
+        labels,
+        metadata,
+        created_time,
+        last_updated_time,
+        data_set_id,
+        unit,
+        unit_external_id,
+        value_type,
+    )
+    .inner;
+    Ok(TimeSeriesFilterForm {
+        filter: resolve_filter(filter.map(|f| f.inner), from_keywords, any_keyword)?,
+        limit,
+        paging: build_page_request(sort_by, sort_order, cursor),
+    })
+}
+
+/// Resolve `filter=` against the flat criteria keywords, for the `filter()` of every service.
+///
+/// Passing both is a `TypeError` rather than a merge: a caller who hands over a prepared filter
+/// *and* a keyword has two intents in one call, and either answer — keyword wins, or union —
+/// silently discards one of them.
+pub fn resolve_filter<F: Default>(
+    filter: Option<F>,
+    from_keywords: F,
+    any_keyword_given: bool,
+) -> PyResult<F> {
+    match (filter, any_keyword_given) {
+        (Some(_), true) => Err(pyo3::exceptions::PyTypeError::new_err(
+            "pass either filter= or the individual criteria keywords, not both",
+        )),
+        (Some(f), false) => Ok(f),
+        (None, _) => Ok(from_keywords),
     }
 }
 
@@ -1192,9 +1249,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFieldBool>()?;
     m.add_class::<PyFieldGeoJson>()?;
     m.add_class::<crate::datasets::PyDatasetFilter>()?;
-    m.add_class::<crate::datasets::PyDatasetFilterForm>()?;
     m.add_class::<crate::datasets::PyDatasetUpdate>()?;
-    m.add_class::<PyTimeSeriesFilterForm>()?;
+    m.add_class::<PyTimeSeriesFilter>()?;
     m.add_class::<crate::resources::PyResourceFilter>()?;
     m.add_class::<PyPage>()?;
     timeseries::register(m)?;

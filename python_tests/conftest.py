@@ -114,11 +114,11 @@ def _sweep(client) -> None:
     try:
         events, cursor = [], None
         while True:
-            page = client.events.filter(intellistream_datahub_sdk.EventFilterForm(
+            page = client.events.filter(
                 filter=intellistream_datahub_sdk.EventFilter(external_id=f"{TEST_PREFIX}*"),
                 limit=1000,
                 cursor=cursor,
-            ))
+            )
             events.extend(page)
             cursor = getattr(page, "next_cursor", None)
             if not cursor:
