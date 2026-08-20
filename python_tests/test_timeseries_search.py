@@ -84,14 +84,12 @@ def test_a_name_is_matched_through_the_filter(sync_client, make_ts):
 
     time.sleep(SEARCH_INDEX_DELAY)
 
-    exact = sync_client.timeseries.filter(
-        intellistream_datahub_sdk.TimeSeriesFilterForm(name=unique_name))
+    exact = sync_client.timeseries.filter(name=unique_name)
     assert any(t.external_id == ext_id for t in exact), (
         f"filtering by name did not return {ext_id}"
     )
 
-    as_pattern = sync_client.timeseries.filter(
-        intellistream_datahub_sdk.TimeSeriesFilterForm(name=f"Py SDK Search {token[:6]}*"))
+    as_pattern = sync_client.timeseries.filter(name=f"Py SDK Search {token[:6]}*")
     assert any(t.external_id == ext_id for t in as_pattern), (
         "the name filter is a pattern list, so a trailing wildcard must match"
     )

@@ -42,14 +42,14 @@ class Page(Sequence[Any]):
 
     The whole loop is::
 
-        page = client.timeseries.filter(TimeSeriesFilterForm(limit=100, sort_by="name"))
+        page = client.timeseries.filter(limit=100, sort_by="name")
         while True:
             for ts in page:
                 ...
             if page.next_cursor is None:
                 break
-            page = client.timeseries.filter(TimeSeriesFilterForm(
-                limit=100, sort_by="name", cursor=page.next_cursor))
+            page = client.timeseries.filter(
+                limit=100, sort_by="name", cursor=page.next_cursor)
 
     ``next_cursor`` is ``None`` on the last page. A *full* page may still be the last one — the
     server does not count the rows twice — so a walk ends with one request that comes back empty.
@@ -223,9 +223,13 @@ class IdCollection:
     def external_id(self) -> str | None: ...
 
 
-class TimeSeriesFilterForm:
+class TimeSeriesFilter:
     """AND-combined criteria for ``timeseries.filter`` (``POST /timeseries/filter``) and the
     ``filter`` of ``timeseries.search``.
+
+    Criteria only: ``limit``, ``sort_by``, ``sort_order`` and ``cursor`` are arguments of the
+    call, not fields here, so one filter can be reused across ``filter()`` and ``search()`` and
+    paged differently each time.
 
     ``external_id``, ``name``, ``source``, ``unit`` and ``unit_external_id`` are pattern
     lists — see ``PatternList``. Each is singular because each also takes a bare string, though a
@@ -239,16 +243,6 @@ class TimeSeriesFilterForm:
     no restriction, ``[]`` narrows to no datasets and matches nothing. Every other list places no
     restriction when empty.
 
-    ``limit`` defaults to the server's 1000 and is capped at 10000; a value <= 0 falls back to the
-    default rather than returning nothing.
-
-    ``sort_by`` names one property — ``id``, ``externalId``, ``name``, ``source``, ``description``,
-    ``createdTime``, ``lastUpdatedTime`` or ``dataSetId`` — with ``sort_order`` of ``"asc"`` or
-    ``"desc"``; ``id`` is always appended so the order is total. An unrecognised property falls
-    back to the default, newest created first. Nulls sort last ascending, first descending.
-
-    ``cursor`` continues a previous page: pass that response's ``next_cursor`` verbatim, with the
-    **same** sort it came from.
     """
     def __init__(
         self,
@@ -264,10 +258,6 @@ class TimeSeriesFilterForm:
         unit: PatternList | None = None,
         unit_external_id: PatternList | None = None,
         value_type: PatternList | None = None,
-        limit: int | None = None,
-        sort_by: SortBy | None = None,
-        sort_order: str | None = None,
-        cursor: str | None = None,
     ) -> None: ...
 
 
@@ -607,7 +597,7 @@ class TimeSeriesServiceSync:
     def search(
         self,
         query: str,
-        filter: TimeSeriesFilterForm | None = None,
+        filter: TimeSeriesFilter | None = None,
         limit: int | None = None,
     ) -> list[TimeSeries]:
         """Free-text search for ``query``, ranked by relevance.
@@ -617,7 +607,32 @@ class TimeSeriesServiceSync:
         survives, defaulting to 100 and capping at 1000; the ``filter`` endpoints use 1000/10000,
         which is easy to conflate.
         """
-    def filter(self, input: TimeSeriesFilterForm) -> Page: ...
+    def filter(
+        self,
+        *,
+        filter: TimeSeriesFilter | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
+        unit: PatternList | None = None,
+        unit_external_id: PatternList | None = None,
+        value_type: PatternList | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
+        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
+        reused across calls.
+        """
+
     def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
     def insert_from_lists(
         self,
@@ -641,10 +656,35 @@ class TimeSeriesServiceAsync:
     async def search(
         self,
         query: str,
-        filter: TimeSeriesFilterForm | None = None,
+        filter: TimeSeriesFilter | None = None,
         limit: int | None = None,
     ) -> list[TimeSeries]: ...
-    async def filter(self, input: TimeSeriesFilterForm) -> Page: ...
+    async def filter(
+        self,
+        *,
+        filter: TimeSeriesFilter | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
+        unit: PatternList | None = None,
+        unit_external_id: PatternList | None = None,
+        value_type: PatternList | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
+        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
+        reused across calls.
+        """
+
     async def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
     async def insert_from_lists(
         self,
@@ -772,34 +812,6 @@ class EventFilter:
     ) -> None: ...
 
 
-class EventFilterForm:
-    """The ``events.filter`` request body. Omitting ``filter`` places no restriction."""
-    def __init__(
-        self,
-        filter: EventFilter | None = None,
-        limit: int | None = None,
-        sort_by: SortBy | None = None,
-        sort_order: str | None = None,
-        cursor: str | None = None,
-    ) -> None:
-        """``sort_by`` names one property — ``eventTime``, ``createdTime``, ``lastUpdatedTime``,
-        ``externalId``, ``type``, ``subType``, ``status``, ``source`` or ``dataSetId``. The default
-        is ``eventTime`` **ascending**, unlike the node filters' newest-created-first: it is the
-        order the cursor pages in, so paging does not change the order.
-
-        ``subType`` and ``status`` may be sorted by but **not paged** — they are nullable, and a
-        keyset boundary on them would skip the events that have no value.
-        """
-    @property
-    def filter(self) -> EventFilter | None: ...
-    @property
-    def limit(self) -> int: ...
-    @limit.setter
-    def limit(self, value: int) -> None: ...
-    @property
-    def cursor(self) -> str | None: ...
-
-
 class EventIdCollection:
     def __init__(
         self,
@@ -862,7 +874,31 @@ class EventsServiceSync:
     def get(self, id: UUID) -> Event | None: ...
     def delete(self, input: list[EventIdentifiable]) -> None: ...
     def update(self, input: list[EventUpdate]) -> list[Event]: ...
-    def filter(self, input: EventFilterForm) -> Page: ...
+    def filter(
+        self,
+        *,
+        filter: EventFilter | None = None,
+        external_id: PatternList | None = None,
+        source: PatternList | None = None,
+        type: PatternList | None = None,
+        sub_type: PatternList | None = None,
+        status: PatternList | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
+        event_time: TimeFilter | None = None,
+        metadata: MetadataFilter | None = None,
+        related_resources: Sequence[IdCollection] | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
+        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
+        reused across calls.
+        """
+
     def search(
         self,
         query: str,
@@ -892,7 +928,31 @@ class EventsServiceAsync:
     async def get(self, id: UUID) -> Event | None: ...
     async def delete(self, input: list[EventIdentifiable]) -> None: ...
     async def update(self, input: list[EventUpdate]) -> list[Event]: ...
-    async def filter(self, input: EventFilterForm) -> Page: ...
+    async def filter(
+        self,
+        *,
+        filter: EventFilter | None = None,
+        external_id: PatternList | None = None,
+        source: PatternList | None = None,
+        type: PatternList | None = None,
+        sub_type: PatternList | None = None,
+        status: PatternList | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
+        event_time: TimeFilter | None = None,
+        metadata: MetadataFilter | None = None,
+        related_resources: Sequence[IdCollection] | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
+        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
+        reused across calls.
+        """
+
     async def search(
         self,
         query: str,
@@ -1007,18 +1067,6 @@ class DatasetFilter:
 
 # `limit` defaults to the server's 1000 and may not exceed 10000. There is no paging, so a filter
 # broad enough to exceed the cap is truncated — narrow it instead.
-class DatasetFilterForm:
-    def __init__(
-        self,
-        filter: DatasetFilter | None = None,
-        limit: int | None = None,
-        sort_by: SortBy | None = None,
-        sort_order: str | None = None,
-        cursor: str | None = None,
-    ) -> None:
-        """See ``TimeSeriesFilterForm`` for the ``sort_by`` / ``sort_order`` / ``cursor`` rules."""
-
-
 # A partial update for one dataset. `dataset` names the target; only the fields you pass are sent,
 # anything omitted is left untouched. There is deliberately no `policies` or `connected_data_sets`
 # — the update endpoint does not accept them, whatever a Dataset can carry on create.
@@ -1048,7 +1096,28 @@ class DatasetsServiceSync:
     def create(self, input: list[Dataset]) -> list[Dataset]: ...
     def by_ids(self, input: list[Identifiable]) -> list[Dataset]: ...
     def delete(self, input: list[Identifiable]) -> None: ...
-    def filter(self, input: DatasetFilterForm) -> Page: ...
+    def filter(
+        self,
+        *,
+        filter: DatasetFilter | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
+        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
+        reused across calls.
+        """
+
     def search(
         self,
         query: str,
@@ -1071,7 +1140,28 @@ class DatasetsServiceAsync:
     async def create(self, input: list[Dataset]) -> list[Dataset]: ...
     async def by_ids(self, input: list[Identifiable]) -> list[Dataset]: ...
     async def delete(self, input: list[Identifiable]) -> None: ...
-    async def filter(self, input: DatasetFilterForm) -> Page: ...
+    async def filter(
+        self,
+        *,
+        filter: DatasetFilter | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
+        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
+        reused across calls.
+        """
+
     async def search(
         self,
         query: str,
@@ -1337,6 +1427,7 @@ class ResourcesServiceSync:
     def get_by_id(self, id: int) -> Resource | None: ...
     def filter(
         self,
+        filter: ResourceFilter | None = None,
         id: Sequence[int] | None = None,
         external_id: PatternList | None = None,
         name: PatternList | None = None,
@@ -1362,7 +1453,7 @@ class ResourcesServiceSync:
         ``external_id``, ``name`` and ``source`` are pattern lists; ``labels`` must all be
         present; a ``None`` ``metadata`` value matches the key alone. ``data_set_id`` expands
         down the dataset hierarchy, and ``None`` (no restriction) differs from ``[]``
-        (narrow to no datasets, matching nothing). See ``TimeSeriesFilterForm`` for the sort and
+        (narrow to no datasets, matching nothing). See ``TimeSeriesFilter`` for the sort and
         cursor rules.
         """
 
@@ -1383,6 +1474,7 @@ class ResourcesServiceAsync:
     async def get_by_id(self, id: int) -> Resource | None: ...
     async def filter(
         self,
+        filter: ResourceFilter | None = None,
         id: Sequence[int] | None = None,
         external_id: PatternList | None = None,
         name: PatternList | None = None,

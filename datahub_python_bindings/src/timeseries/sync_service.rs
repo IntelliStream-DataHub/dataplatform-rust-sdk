@@ -4,7 +4,7 @@ use crate::timeseries::datapoints::{
     PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
 };
 use crate::{DatahubIdentity, Identifiable};
-use crate::{PyIdCollection, PyRetrieveFilter, PyTimeSeriesFilterForm};
+use crate::{PyIdCollection, PyRetrieveFilter};
 use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
 use intellistream_datahub_sdk::{ApiService, TimeSeriesUpdateCollection};
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -132,10 +132,10 @@ impl PyTimeSeriesServiceSync {
         &self,
         py: Python<'p>,
         query: String,
-        filter: Option<PyTimeSeriesFilterForm>,
+        filter: Option<crate::PyTimeSeriesFilter>,
         limit: Option<u64>,
     ) -> PyResult<Vec<PyTimeSeries>> {
-        let form = crate::search_form(query, filter.map(|f| f.inner.filter), limit);
+        let form = crate::search_form(query, filter.map(|f| f.inner), limit);
         let service = self.api_service.clone();
 
         py.detach(|| {
@@ -152,17 +152,43 @@ impl PyTimeSeriesServiceSync {
         })
     }
 
+    #[pyo3(signature = (filter=None, id=None, external_id=None, name=None, source=None,
+                        labels=None, metadata=None, created_time=None, last_updated_time=None,
+                        data_set_id=None, unit=None, unit_external_id=None, value_type=None,
+                        limit=None, sort_by=None, sort_order=None, cursor=None))]
+    #[allow(clippy::too_many_arguments)]
     fn filter<'p>(
         &self,
         py: Python<'p>,
-        input: PyTimeSeriesFilterForm,
+        filter: Option<crate::PyTimeSeriesFilter>,
+        id: Option<Vec<u64>>,
+        external_id: Option<crate::StringOrList>,
+        name: Option<crate::StringOrList>,
+        source: Option<crate::StringOrList>,
+        labels: Option<crate::StringOrList>,
+        metadata: Option<std::collections::HashMap<String, Option<String>>>,
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        data_set_id: Option<Vec<crate::DataSetRef>>,
+        unit: Option<crate::StringOrList>,
+        unit_external_id: Option<crate::StringOrList>,
+        value_type: Option<crate::StringOrList>,
+        limit: Option<u64>,
+        sort_by: Option<crate::StringOrList>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
     ) -> PyResult<crate::PyPage> {
+        let form = crate::timeseries_filter_form(
+            filter, id, external_id, name, source, labels, metadata, created_time,
+            last_updated_time, data_set_id, unit, unit_external_id, value_type, limit, sort_by,
+            sort_order, cursor,
+        )?;
         let service = self.api_service.clone();
 
         let (items, next_cursor) = py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.time_series.filter(&input.into()))
+                .block_on(service.time_series.filter(&form))
                 .map_err(|e| crate::datahub_err(e))?;
             let next_cursor = result.next_cursor().map(str::to_string);
             let items: Vec<PyTimeSeries> = result

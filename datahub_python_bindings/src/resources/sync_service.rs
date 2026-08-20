@@ -152,14 +152,15 @@ impl PyResourcesServiceSync {
     /// `data_set_id` takes numeric ids, external ids, or `IdCollection`s — it used to take ids
     /// only — and expands down the dataset hierarchy. **`None` and `[]` differ**: `None` places no
     /// restriction, `[]` narrows to no datasets and matches nothing.
-    #[pyo3(signature = (id=None, external_id=None, name=None, source=None, labels=None,
-                        metadata=None, created_time=None, last_updated_time=None, node_type=None,
-                        is_root=None, data_set_id=None, limit=None, sort_by=None, sort_order=None,
-                        cursor=None))]
+    #[pyo3(signature = (filter=None, id=None, external_id=None, name=None, source=None,
+                        labels=None, metadata=None, created_time=None, last_updated_time=None,
+                        node_type=None, is_root=None, data_set_id=None, limit=None, sort_by=None,
+                        sort_order=None, cursor=None))]
     #[allow(clippy::too_many_arguments)]
     fn filter<'py>(
         &self,
         py: Python<'py>,
+        filter: Option<PyResourceFilter>,
         id: Option<Vec<u64>>,
         external_id: Option<StringOrList>,
         name: Option<StringOrList>,
@@ -177,10 +178,10 @@ impl PyResourcesServiceSync {
         cursor: Option<String>,
     ) -> PyResult<crate::PyPage> {
         let form = build_resource_filter_form(
-            id, external_id, name, source, labels, metadata, created_time,
+            filter, id, external_id, name, source, labels, metadata, created_time,
             last_updated_time, node_type, is_root, data_set_id, limit, sort_by, sort_order,
             cursor,
-        );
+        )?;
         let service = self.api_service.clone();
         let (items, next_cursor) = py.detach(|| {
             let result = self
@@ -291,6 +292,7 @@ pub(crate) fn build_resource_filter(
 /// Shared by the sync and async `filter` bindings: turn Python kwargs into a `ResourceFilterForm`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_resource_filter_form(
+    filter: Option<crate::resources::PyResourceFilter>,
     id: Option<Vec<u64>>,
     external_id: Option<StringOrList>,
     name: Option<StringOrList>,
@@ -306,16 +308,28 @@ pub(crate) fn build_resource_filter_form(
     sort_by: Option<StringOrList>,
     sort_order: Option<String>,
     cursor: Option<String>,
-) -> ResourceFilterForm {
-    let filter = build_resource_filter(
+) -> PyResult<ResourceFilterForm> {
+    let any_keyword = id.is_some()
+        || external_id.is_some()
+        || name.is_some()
+        || source.is_some()
+        || labels.is_some()
+        || metadata.is_some()
+        || created_time.is_some()
+        || last_updated_time.is_some()
+        || node_type.is_some()
+        || is_root.is_some()
+        || data_set_id.is_some();
+    let from_keywords = build_resource_filter(
         id, external_id, name, source, labels, metadata, created_time, last_updated_time,
         node_type, is_root, data_set_id,
     );
+    let filter = crate::resolve_filter(filter.map(|f| f.inner), from_keywords, any_keyword)?;
     let mut form = ResourceFilterForm::new(filter);
     if let Some(limit) = limit {
         form = form.with_limit(limit);
     }
-    form.with_paging(crate::build_page_request(sort_by, sort_order, cursor))
+    Ok(form.with_paging(crate::build_page_request(sort_by, sort_order, cursor)))
 }
 
 /// Shared by the sync and async `fetch_nearest` bindings.

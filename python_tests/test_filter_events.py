@@ -50,11 +50,11 @@ def flt(sync_client, prefix):
     """
     def _filter(limit=None, expect_rows=True, **criteria):
         criteria.setdefault("external_id", f"{prefix}*")
-        request = intellistream_datahub_sdk.EventFilterForm(
-            intellistream_datahub_sdk.EventFilter(**criteria), limit=limit or 100)
+        request = dict(
+            filter=intellistream_datahub_sdk.EventFilter(**criteria), limit=limit or 100)
 
         def fetch():
-            return externals(sync_client.events.filter(request))
+            return externals(sync_client.events.filter(**request))
 
         if not expect_rows:
             return fetch()
@@ -231,8 +231,8 @@ def test_empty_and_absent_data_set_scopes_are_opposites(sync_client, event_corpu
     """``None`` is "no data set restriction", ``[]`` is "narrow to no data sets". Opposite answers,
     so the SDK has to keep them apart all the way onto the wire."""
     def run(data_set_ids):
-        return externals(sync_client.events.filter(intellistream_datahub_sdk.EventFilterForm(
-            intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*", data_set_id=data_set_ids))))
+        return externals(sync_client.events.filter(
+            intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*", data_set_id=data_set_ids)))
 
     assert run([]) == set()
     assert poll_until(lambda: run(None), bool, timeout=10.0) == both
@@ -286,9 +286,9 @@ def test_related_resources_must_all_be_attached(sync_client, datasets, token):
     ])
     try:
         def run(related):
-            return externals(sync_client.events.filter(intellistream_datahub_sdk.EventFilterForm(
+            return externals(sync_client.events.filter(
                 intellistream_datahub_sdk.EventFilter(external_id=f"{own_prefix}_ev_*",
-                                             related_resources=related))))
+                                             related_resources=related)))
 
         by_a = [intellistream_datahub_sdk.IdCollection(external_id=res_a)]
         assert poll_until(lambda: run(by_a), lambda r: len(r) >= 2, timeout=15.0) == {ev_both, ev_one}
@@ -346,8 +346,7 @@ def test_created_time_is_ingest_time_not_event_time(flt, event_corpus, both):
 def test_an_absent_filter_places_no_restriction(sync_client, event_corpus, both):
     """An argument-free filter returns the tenant's events, not none of them."""
     everything = poll_until(
-        lambda: externals(sync_client.events.filter(
-            intellistream_datahub_sdk.EventFilterForm(limit=1000))),
+        lambda: externals(sync_client.events.filter(limit=1000)),
         lambda found: found >= both,
         timeout=15.0,
     )
@@ -357,9 +356,9 @@ def test_an_absent_filter_places_no_restriction(sync_client, event_corpus, both)
 @pytest.mark.parametrize("empty", [[], ["", "  "]])
 def test_empty_and_blank_lists_place_no_restriction(sync_client, event_corpus, prefix, both, empty):
     scoped = poll_until(
-        lambda: externals(sync_client.events.filter(intellistream_datahub_sdk.EventFilterForm(
+        lambda: externals(sync_client.events.filter(
             intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*", type=empty,
-                                         sub_type=empty, status=empty, source=empty)))),
+                                         sub_type=empty, status=empty, source=empty))),
         bool,
         timeout=10.0,
     )
@@ -377,10 +376,10 @@ def test_garbled_criteria_match_nothing_without_erroring(flt, event_corpus):
 
 
 def test_a_bare_string_means_a_one_element_list(sync_client, event_corpus, prefix, alarm, token):
-    scalar = sync_client.events.filter(intellistream_datahub_sdk.EventFilterForm(
-        intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*", type=f"alarm_{token}")))
-    listed = sync_client.events.filter(intellistream_datahub_sdk.EventFilterForm(
-        intellistream_datahub_sdk.EventFilter(external_id=[f"{prefix}*"], type=[f"alarm_{token}"])))
+    scalar = sync_client.events.filter(
+        intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*", type=f"alarm_{token}"))
+    listed = sync_client.events.filter(
+        intellistream_datahub_sdk.EventFilter(external_id=[f"{prefix}*"], type=[f"alarm_{token}"]))
     assert externals(scalar) == externals(listed) == {alarm}
 
 
@@ -390,8 +389,8 @@ def test_a_bare_string_means_a_one_element_list(sync_client, event_corpus, prefi
 
 def test_limit_caps_the_page(sync_client, event_corpus, prefix):
     capped = poll_until(
-        lambda: sync_client.events.filter(intellistream_datahub_sdk.EventFilterForm(
-            intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*"), limit=1)),
+        lambda: sync_client.events.filter(
+            intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*"), limit=1),
         bool,
         timeout=10.0,
     )
@@ -400,8 +399,8 @@ def test_limit_caps_the_page(sync_client, event_corpus, prefix):
 
 def test_a_limit_above_the_ceiling_is_refused(sync_client, prefix):
     with pytest.raises(DataHubException) as excinfo:
-        sync_client.events.filter(intellistream_datahub_sdk.EventFilterForm(
-            intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*"), limit=10_001))
+        sync_client.events.filter(
+            intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*"), limit=10_001)
     assert excinfo.value.status_code == 400
 
 
@@ -409,8 +408,8 @@ def _ordered_page(sync_client, prefix, both, **sort):
     return [
         event.external_id
         for event in poll_until(
-            lambda: sync_client.events.filter(intellistream_datahub_sdk.EventFilterForm(
-                intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*"), limit=100, **sort)),
+            lambda: sync_client.events.filter(
+                intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*"), limit=100, **sort),
             lambda found: externals(found) >= both,
             timeout=10.0,
         )
@@ -464,8 +463,8 @@ def test_the_default_order_is_event_time_then_id_ascending(sync_client, datasets
     try:
         expected = [externals_by_offset[i] for i in range(6)]
         page = poll_until(
-            lambda: sync_client.events.filter(intellistream_datahub_sdk.EventFilterForm(
-                intellistream_datahub_sdk.EventFilter(external_id=f"{own_prefix}*"), limit=100)),
+            lambda: sync_client.events.filter(
+                intellistream_datahub_sdk.EventFilter(external_id=f"{own_prefix}*"), limit=100),
             lambda found: externals(found) == set(expected),
             timeout=20.0,
         )
@@ -492,6 +491,6 @@ def test_the_retired_criteria_are_not_accepted(sync_client):
 
 @pytest.mark.asyncio
 async def test_async_filter_matches_the_sync_one(async_client, sync_client, event_corpus, prefix):
-    request = intellistream_datahub_sdk.EventFilterForm(intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*"))
-    assert externals(await async_client.events.filter(request)) == externals(
-        sync_client.events.filter(request))
+    request = dict(filter=intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}*"))
+    assert externals(await async_client.events.filter(**request)) == externals(
+        sync_client.events.filter(**request))

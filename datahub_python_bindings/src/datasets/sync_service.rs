@@ -1,5 +1,5 @@
 use crate::datasets::{
-    DatasetIdentifiable, PyDataset, PyDatasetFilterForm, PyDatasetUpdate,
+    DatasetIdentifiable, PyDataset, PyDatasetUpdate,
 };
 use crate::resources::PyResource;
 use crate::{PyIdCollection};
@@ -90,12 +90,36 @@ impl PyDatasetsServiceSync {
     }
 
     /// Datasets matching every criterion on the filter, newest first.
-    fn filter(&self, py: Python<'_>, input: PyDatasetFilterForm) -> PyResult<crate::PyPage> {
+    #[pyo3(signature = (filter=None, id=None, external_id=None, name=None, source=None,
+                        labels=None, metadata=None, created_time=None, last_updated_time=None,
+                        limit=None, sort_by=None, sort_order=None, cursor=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn filter(
+        &self,
+        py: Python<'_>,
+        filter: Option<crate::datasets::PyDatasetFilter>,
+        id: Option<Vec<u64>>,
+        external_id: Option<crate::StringOrList>,
+        name: Option<crate::StringOrList>,
+        source: Option<crate::StringOrList>,
+        labels: Option<crate::StringOrList>,
+        metadata: Option<std::collections::HashMap<String, Option<String>>>,
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        limit: Option<u64>,
+        sort_by: Option<crate::StringOrList>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
+    ) -> PyResult<crate::PyPage> {
+        let form = crate::datasets::dataset_filter_form(
+            filter, id, external_id, name, source, labels, metadata, created_time,
+            last_updated_time, limit, sort_by, sort_order, cursor,
+        )?;
         let service = self.api_service.clone();
         let (items, next_cursor) = py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.datasets.filter(&input.into()))
+                .block_on(service.datasets.filter(&form))
                 .map_err(crate::datahub_err)?;
             let next_cursor = result.next_cursor().map(str::to_string);
             let items: Vec<PyDataset> = result

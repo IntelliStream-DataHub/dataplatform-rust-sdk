@@ -406,7 +406,7 @@ impl PyDatasetFilter {
         last_updated_time = None,
     ))]
     #[allow(clippy::too_many_arguments)]
-    fn new(
+    pub fn new(
         id: Option<Vec<u64>>,
         external_id: Option<StringOrList>,
         name: Option<StringOrList>,
@@ -447,61 +447,59 @@ impl PyDatasetFilter {
     }
 }
 
-/// Body of `datasets.filter`: criteria plus a cap.
+/// Build the request body for `datasets.filter` from either form of its arguments.
+///
+/// Shared by the sync and async services so the accepted keywords cannot drift apart between them.
 ///
 /// `limit` defaults to the server's 100 and may not exceed 10000 — above that the request is
-/// rejected. There is no paging, so a filter broad enough to exceed the cap is truncated;
-/// narrow it rather than trying to page.
-#[pyclass(module = "intellistream_datahub_sdk", name = "DatasetFilterForm", from_py_object)]
-#[derive(Clone)]
-pub struct PyDatasetFilterForm {
-    pub inner: DatasetFilterForm,
-}
+/// rejected.
+#[allow(clippy::too_many_arguments)]
+pub fn dataset_filter_form(
+    filter: Option<PyDatasetFilter>,
+    id: Option<Vec<u64>>,
+    external_id: Option<StringOrList>,
+    name: Option<StringOrList>,
+    source: Option<StringOrList>,
+    labels: Option<StringOrList>,
+    metadata: Option<HashMap<String, Option<String>>>,
+    created_time: Option<PyTimeFilter>,
+    last_updated_time: Option<PyTimeFilter>,
+    limit: Option<u64>,
+    sort_by: Option<crate::StringOrList>,
+    sort_order: Option<String>,
+    cursor: Option<String>,
+) -> PyResult<DatasetFilterForm> {
+    let any_keyword = id.is_some()
+        || external_id.is_some()
+        || name.is_some()
+        || source.is_some()
+        || labels.is_some()
+        || metadata.is_some()
+        || created_time.is_some()
+        || last_updated_time.is_some();
+    let from_keywords = PyDatasetFilter::new(
+        id,
+        external_id,
+        name,
+        source,
+        labels,
+        metadata,
+        created_time,
+        last_updated_time,
+    )
+    .inner;
 
-impl From<DatasetFilterForm> for PyDatasetFilterForm {
-    fn from(f: DatasetFilterForm) -> Self {
-        Self { inner: f }
+    let mut form = DatasetFilterForm::new();
+    form.set_filter(crate::resolve_filter(
+        filter.map(Into::into),
+        from_keywords,
+        any_keyword,
+    )?);
+    if let Some(limit) = limit {
+        form.set_limit(limit);
     }
-}
-impl From<PyDatasetFilterForm> for DatasetFilterForm {
-    fn from(f: PyDatasetFilterForm) -> Self {
-        f.inner
-    }
-}
-
-#[pymethods]
-impl PyDatasetFilterForm {
-    /// The criteria, how many to return, and in what order.
-    ///
-    /// `sort_by` names one property — `id`, `externalId`, `name`, `source`, `description`,
-    /// `createdTime`, `lastUpdatedTime` or `dataSetId` — with `sort_order` of `"asc"` or `"desc"`;
-    /// `id` is always appended so the order is total. An unrecognised property falls back to the
-    /// default (newest created first). Nulls sort last ascending, first descending.
-    ///
-    /// `cursor` continues a previous page: pass that response's `next_cursor` verbatim, with the
-    /// **same** sort it came from — a mismatch is a 400, not a quietly short page.
-    #[new]
-    #[pyo3(signature = (filter = None, limit = None, sort_by = None, sort_order = None,
-                        cursor = None))]
-    fn new(
-        filter: Option<PyDatasetFilter>,
-        limit: Option<u64>,
-        sort_by: Option<crate::StringOrList>,
-        sort_order: Option<String>,
-        cursor: Option<String>,
-    ) -> Self {
-        let mut form = DatasetFilterForm::new();
-        if let Some(filter) = filter {
-            form.set_filter(filter.into());
-        }
-        if let Some(limit) = limit {
-            form.set_limit(limit);
-        }
-        form.set_paging(crate::build_page_request(sort_by, sort_order, cursor));
-        Self {
-            inner: form.build(),
-        }
-    }
+    form.set_paging(crate::build_page_request(sort_by, sort_order, cursor));
+    Ok(form.build())
 }
 
 /// A partial update for one dataset, mirroring the server's update form.

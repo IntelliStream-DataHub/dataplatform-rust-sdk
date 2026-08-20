@@ -60,8 +60,7 @@ def forge_cursor(property_name, direction, row_id, value):
 def ts_page(sync_client, prefix):
     """One page of the sortable timeseries corpus."""
     def _page(**paging):
-        return sync_client.timeseries.filter(
-            intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*", **paging))
+        return sync_client.timeseries.filter(external_id=f"{prefix}_sort_ts_*", **paging)
     return _page
 
 
@@ -108,8 +107,7 @@ def test_a_page_behaves_like_a_list(ts_page, by_index):
 
 
 def test_an_empty_page_is_falsey(sync_client, prefix):
-    page = sync_client.timeseries.filter(
-        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id="no_such_external_id_at_all"))
+    page = sync_client.timeseries.filter(external_id="no_such_external_id_at_all")
     assert len(page) == 0
     assert bool(page) is False
     assert page == []
@@ -164,8 +162,7 @@ def test_paging_follows_the_sort_direction(ts_page, by_index):
 def test_paging_the_default_order(ts_page, sync_client, prefix):
     """No explicit sort, so the walk runs in the default newest-created-first order."""
     rows, _requests = walk(ts_page, limit=2)
-    expected = ids_of(sync_client.timeseries.filter(
-        intellistream_datahub_sdk.TimeSeriesFilterForm(external_id=f"{prefix}_sort_ts_*", limit=100)))
+    expected = ids_of(sync_client.timeseries.filter(external_id=f"{prefix}_sort_ts_*", limit=100))
     assert rows == expected
 
 
@@ -180,8 +177,8 @@ def test_paging_across_a_run_of_tied_values(ts_page, sync_client, prefix):
     assert len(rows) == 6
     assert len(set(rows)) == 6, f"a tied boundary repeated or dropped rows: {rows}"
 
-    unpaged = ids_of(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
-        external_id=f"{prefix}_sort_ts_*", sort_by="dataSetId", sort_order="asc", limit=100)))
+    unpaged = ids_of(sync_client.timeseries.filter(
+        external_id=f"{prefix}_sort_ts_*", sort_by="dataSetId", sort_order="asc", limit=100))
     assert rows == unpaged
 
 
@@ -234,13 +231,10 @@ def test_every_filter_endpoint_rejects_an_unreadable_cursor(sync_client, prefix,
     reported for a bad request. One shape now, from one ``@ControllerAdvice``.
     """
     calls = {
-        "timeseries": lambda: sync_client.timeseries.filter(
-            intellistream_datahub_sdk.TimeSeriesFilterForm(limit=2, cursor="not-a-cursor")),
+        "timeseries": lambda: sync_client.timeseries.filter(limit=2, cursor="not-a-cursor"),
         "resources": lambda: sync_client.resources.filter(limit=2, cursor="not-a-cursor"),
-        "datasets": lambda: sync_client.datasets.filter(
-            intellistream_datahub_sdk.DatasetFilterForm(limit=2, cursor="not-a-cursor")),
-        "events": lambda: sync_client.events.filter(
-            intellistream_datahub_sdk.EventFilterForm(limit=2, cursor="not-a-cursor")),
+        "datasets": lambda: sync_client.datasets.filter(limit=2, cursor="not-a-cursor"),
+        "events": lambda: sync_client.events.filter(limit=2, cursor="not-a-cursor"),
     }
     for endpoint, call in calls.items():
         with pytest.raises(DataHubException) as excinfo:
@@ -286,8 +280,8 @@ def test_a_malformed_boundary_is_a_400_and_not_a_500(sync_client, prefix, sortab
     for property_name in ["id", "dataSetId", "createdTime", "lastUpdatedTime"]:
         cursor = forge_cursor(property_name, "asc", "5", "not-a-number")
         with pytest.raises(DataHubException) as excinfo:
-            sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
-                external_id=f"{prefix}_sort_ts_*", limit=2, sort_by=property_name, cursor=cursor))
+            sync_client.timeseries.filter(
+                external_id=f"{prefix}_sort_ts_*", limit=2, sort_by=property_name, cursor=cursor)
         assert excinfo.value.status_code == 400, \
             f"{property_name}: {excinfo.value.status_code} {excinfo.value.message[:100]}"
 
@@ -302,17 +296,17 @@ def test_an_injection_payload_in_the_cursor_boundary_is_data(sync_client, prefix
     distinguishes data from syntax; "it returned no rows" would not.
     """
     def page_after(boundary):
-        return ids_of(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
+        return ids_of(sync_client.timeseries.filter(
             external_id=f"{prefix}_sort_ts_*", limit=10, sort_by="name", sort_order="asc",
-            cursor=forge_cursor("name", "asc", "1", boundary))))
+            cursor=forge_cursor("name", "asc", "1", boundary)))
 
     ordinary = page_after("!")
     for payload in ["' OR 1=1 --", "'; DROP TABLE node;--", "' UNION SELECT 1 --", "{x:String}"]:
         assert page_after(payload) == ordinary, f"payload={payload!r}"
 
     # And the table is still there afterwards.
-    assert ids_of(sync_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
-        external_id=f"{prefix}_sort_ts_*", sort_by="name", sort_order="asc"))) == by_index
+    assert ids_of(sync_client.timeseries.filter(
+        external_id=f"{prefix}_sort_ts_*", sort_by="name", sort_order="asc")) == by_index
 
 
 # --------------------------------------------------------------------------- #
@@ -370,9 +364,9 @@ def test_datasets_page(sync_client, datasets, prefix):
     parent, child = datasets
 
     def page(cursor=None):
-        return sync_client.datasets.filter(intellistream_datahub_sdk.DatasetFilterForm(
+        return sync_client.datasets.filter(
             intellistream_datahub_sdk.DatasetFilter(external_id=f"{prefix}_ds_*"),
-            limit=1, sort_by="name", sort_order="asc", cursor=cursor))
+            limit=1, sort_by="name", sort_order="asc", cursor=cursor)
 
     rows, requests = walk(lambda cursor=None, **_: page(cursor))
     assert rows == [child.external_id, parent.external_id]
@@ -398,9 +392,9 @@ def test_resources_page(sync_client, sortable_timeseries, prefix):
 @pytest.fixture
 def ev_page(sync_client, prefix, sortable_events):
     def _page(**paging):
-        request = intellistream_datahub_sdk.EventFilterForm(
-            intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}_sort_ev_*"), **paging)
-        return sync_client.events.filter(request)
+        request = dict(
+            filter=intellistream_datahub_sdk.EventFilter(external_id=f"{prefix}_sort_ev_*"), **paging)
+        return sync_client.events.filter(**request)
     return _page
 
 
@@ -480,12 +474,12 @@ def test_an_exhausted_event_walk_omits_the_cursor_rather_than_nulling_it(ev_page
 @pytest.mark.asyncio
 async def test_async_paging_matches_the_sync_client(async_client, sync_client, prefix,
                                                     sortable_timeseries, by_index):
-    first = await async_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
-        external_id=f"{prefix}_sort_ts_*", limit=2, sort_by="name", sort_order="asc"))
+    first = await async_client.timeseries.filter(
+        external_id=f"{prefix}_sort_ts_*", limit=2, sort_by="name", sort_order="asc")
     assert ids_of(first) == by_index[:2]
     assert first.next_cursor is not None
 
-    second = await async_client.timeseries.filter(intellistream_datahub_sdk.TimeSeriesFilterForm(
+    second = await async_client.timeseries.filter(
         external_id=f"{prefix}_sort_ts_*", limit=2, sort_by="name", sort_order="asc",
-        cursor=first.next_cursor))
+        cursor=first.next_cursor)
     assert ids_of(second) == by_index[2:4]

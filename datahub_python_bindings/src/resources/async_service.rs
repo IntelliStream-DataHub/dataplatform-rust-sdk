@@ -161,14 +161,15 @@ impl PyResourcesServiceAsync {
 
     /// `POST /resources/filter` — structured lookup; every criterion is combined with AND.
     /// See the sync twin for the pattern, label and data-set-scope rules.
-    #[pyo3(signature = (id=None, external_id=None, name=None, source=None, labels=None,
-                        metadata=None, created_time=None, last_updated_time=None, node_type=None,
-                        is_root=None, data_set_id=None, limit=None, sort_by=None, sort_order=None,
-                        cursor=None))]
+    #[pyo3(signature = (filter=None, id=None, external_id=None, name=None, source=None,
+                        labels=None, metadata=None, created_time=None, last_updated_time=None,
+                        node_type=None, is_root=None, data_set_id=None, limit=None, sort_by=None,
+                        sort_order=None, cursor=None))]
     #[allow(clippy::too_many_arguments)]
     fn filter<'py>(
         &self,
         py: Python<'py>,
+        filter: Option<PyResourceFilter>,
         id: Option<Vec<u64>>,
         external_id: Option<StringOrList>,
         name: Option<StringOrList>,
@@ -186,10 +187,10 @@ impl PyResourcesServiceAsync {
         cursor: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let form = crate::resources::sync_service::build_resource_filter_form(
-            id, external_id, name, source, labels, metadata, created_time,
+            filter, id, external_id, name, source, labels, metadata, created_time,
             last_updated_time, node_type, is_root, data_set_id, limit, sort_by, sort_order,
             cursor,
-        );
+        )?;
         let service = self.api_service.clone();
         future_into_py(py, async move {
             let result = service

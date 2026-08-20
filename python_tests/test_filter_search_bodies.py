@@ -61,7 +61,7 @@ def test_timeseries_search_filter_narrows_on_an_inherited_node_field(sync_client
 
     narrowed = sync_client.timeseries.search(
         query,
-        filter=intellistream_datahub_sdk.TimeSeriesFilterForm(name=[f"Pump Alpha {token}"]),
+        filter=intellistream_datahub_sdk.TimeSeriesFilter(name=[f"Pump Alpha {token}"]),
     )
     assert externals(narrowed) == {timeseries_corpus["pump_1"].external_id}
 
@@ -70,13 +70,13 @@ def test_timeseries_search_filter_narrows_on_a_timeseries_only_field(sync_client
     query = f"Pump {token}"
     by_unit = sync_client.timeseries.search(
         query,
-        filter=intellistream_datahub_sdk.TimeSeriesFilterForm(unit=["celsius"]),
+        filter=intellistream_datahub_sdk.TimeSeriesFilter(unit=["celsius"]),
     )
     assert externals(by_unit) == {timeseries_corpus["pump_x1"].external_id}
 
     by_value_type = sync_client.timeseries.search(
         query,
-        filter=intellistream_datahub_sdk.TimeSeriesFilterForm(value_type=["TEXT"]),
+        filter=intellistream_datahub_sdk.TimeSeriesFilter(value_type=["TEXT"]),
     )
     assert externals(by_value_type) == set(), "both Pump series are FLOAT"
 
@@ -85,13 +85,13 @@ def test_timeseries_search_filter_narrows_by_metadata_and_labels(sync_client, ti
     query = f"Pump {token}"
     by_metadata = sync_client.timeseries.search(
         query,
-        filter=intellistream_datahub_sdk.TimeSeriesFilterForm(metadata={f"tsk_{token}": "beta"}),
+        filter=intellistream_datahub_sdk.TimeSeriesFilter(metadata={f"tsk_{token}": "beta"}),
     )
     assert externals(by_metadata) == {timeseries_corpus["pump_x1"].external_id}
 
     by_label = sync_client.timeseries.search(
         query,
-        filter=intellistream_datahub_sdk.TimeSeriesFilterForm(labels=["NO_SUCH_LABEL_XYZ"]),
+        filter=intellistream_datahub_sdk.TimeSeriesFilter(labels=["NO_SUCH_LABEL_XYZ"]),
     )
     assert externals(by_label) == set()
 
@@ -107,14 +107,14 @@ def test_timeseries_search_filter_narrows_by_data_set(sync_client, timeseries_co
 
     in_child = sync_client.timeseries.search(
         query,
-        filter=intellistream_datahub_sdk.TimeSeriesFilterForm(data_set_id=[child.id]),
+        filter=intellistream_datahub_sdk.TimeSeriesFilter(data_set_id=[child.id]),
     )
     assert timeseries_corpus["valve"].external_id not in externals(in_child)
 
     # Naming the parent covers the child, so the whole corpus is back in scope.
     under_parent = sync_client.timeseries.search(
         query,
-        filter=intellistream_datahub_sdk.TimeSeriesFilterForm(data_set_id=[parent.id]),
+        filter=intellistream_datahub_sdk.TimeSeriesFilter(data_set_id=[parent.id]),
     )
     assert externals(under_parent) >= {
         timeseries_corpus["pump_1"].external_id, timeseries_corpus["valve"].external_id
@@ -141,7 +141,7 @@ def test_timeseries_search_ranking_survives_the_filter(sync_client, timeseries_c
     )]
     filtered = [ts.external_id for ts in sync_client.timeseries.search(
         query,
-        filter=intellistream_datahub_sdk.TimeSeriesFilterForm(value_type=["FLOAT"]),
+        filter=intellistream_datahub_sdk.TimeSeriesFilter(value_type=["FLOAT"]),
     )]
 
     kept = [external_id for external_id in unfiltered if external_id in set(filtered)]
@@ -154,7 +154,7 @@ async def test_timeseries_search_filter_works_on_the_async_client(
 ):
     narrowed = await async_client.timeseries.search(
         f"Pump {token}",
-        filter=intellistream_datahub_sdk.TimeSeriesFilterForm(name=[f"Pump Alpha {token}"]),
+        filter=intellistream_datahub_sdk.TimeSeriesFilter(name=[f"Pump Alpha {token}"]),
     )
     assert externals(narrowed) == {timeseries_corpus["pump_1"].external_id}
 

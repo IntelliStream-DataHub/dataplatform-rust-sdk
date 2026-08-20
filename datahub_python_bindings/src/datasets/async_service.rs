@@ -1,5 +1,5 @@
 use crate::datasets::{
-    DatasetIdentifiable, PyDataset, PyDatasetFilterForm, PyDatasetUpdate,
+    DatasetIdentifiable, PyDataset, PyDatasetUpdate,
 };
 use crate::resources::PyResource;
 use crate::{DatahubIdentity, Identifiable, PyIdCollection};
@@ -109,12 +109,36 @@ impl PyDatasetsServiceAsync {
     }
 
     /// Datasets matching every criterion on the filter, newest first.
-    fn filter<'p>(&self, py: Python<'p>, input: PyDatasetFilterForm) -> PyResult<Bound<'p, PyAny>> {
+    #[pyo3(signature = (filter=None, id=None, external_id=None, name=None, source=None,
+                        labels=None, metadata=None, created_time=None, last_updated_time=None,
+                        limit=None, sort_by=None, sort_order=None, cursor=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn filter<'p>(
+        &self,
+        py: Python<'p>,
+        filter: Option<crate::datasets::PyDatasetFilter>,
+        id: Option<Vec<u64>>,
+        external_id: Option<crate::StringOrList>,
+        name: Option<crate::StringOrList>,
+        source: Option<crate::StringOrList>,
+        labels: Option<crate::StringOrList>,
+        metadata: Option<std::collections::HashMap<String, Option<String>>>,
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        limit: Option<u64>,
+        sort_by: Option<crate::StringOrList>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
+    ) -> PyResult<Bound<'p, PyAny>> {
+        let form = crate::datasets::dataset_filter_form(
+            filter, id, external_id, name, source, labels, metadata, created_time,
+            last_updated_time, limit, sort_by, sort_order, cursor,
+        )?;
         let service = self.api_service.clone();
         future_into_py(py, async move {
             let result = service
                 .datasets
-                .filter(&input.into())
+                .filter(&form)
                 .await
                 .map_err(crate::datahub_err)?;
             let next_cursor = result.next_cursor().map(str::to_string);
