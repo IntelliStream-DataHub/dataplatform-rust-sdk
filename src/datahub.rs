@@ -490,6 +490,21 @@ impl DataHubConfig {
         }
     }
 
+    /// Drop the cached token so the next [`Self::get_api_token`] mints a fresh one.
+    ///
+    /// Called when the server rejects a token with 401. Expiry is not the only way a token stops
+    /// being usable: an identity provider that is still finishing its own setup can issue one the
+    /// API refuses — a malformed `organization` claim, say — and that token is unusable for its
+    /// whole lifetime. Without this the client caches it, `is_expired()` keeps returning false,
+    /// and every subsequent call re-sends the same rejected token, so a caller that starts a few
+    /// seconds too early stays broken until the token expires rather than recovering on its next
+    /// attempt.
+    pub async fn invalidate_token(&self) {
+        let mut auth_state = self.auth_state.write().await;
+        auth_state.token = None;
+        auth_state.expire_time = None;
+    }
+
     pub async fn get_api_token(&self) -> Result<String, DataHubError> {
         {
             // lock scope. read and if expired refresh token
