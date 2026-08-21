@@ -700,6 +700,20 @@ pub trait ApiServiceProvider {
         self.api_service().upgrade().unwrap()
     }
 
+    /// Post-process a failed request: drop a rejected token, then explain the failure.
+    ///
+    /// A 401 means the token just sent is not usable, and expiry is not the only way that
+    /// happens — an identity provider still finishing its setup can issue one the API refuses
+    /// for its whole lifetime. Clearing it here means the next call mints a fresh one, so a
+    /// client that started a few seconds too early recovers on its next attempt instead of
+    /// re-sending the same rejected credential until it expires.
+    async fn on_request_error(&self, error: ResponseError, token: &str) -> ResponseError {
+        if error.get_status() == http::StatusCode::UNAUTHORIZED {
+            self.get_api_service().config.invalidate_token().await;
+        }
+        explain_auth_failure(error, token)
+    }
+
     async fn get_token(&self) -> Result<String, ResponseError> {
         self.get_api_service()
             .config
@@ -744,9 +758,10 @@ pub trait ApiServiceProvider {
                     ResponseError::from_err(err)
                 })?
         };
-        process_response::<T>(response, path)
-            .await
-            .map_err(|e| explain_auth_failure(e, &token))
+                match process_response::<T>(response, path).await {
+            Ok(value) => Ok(value),
+            Err(e) => Err(self.on_request_error(e, &token).await),
+        }
     }
 
     async fn execute_post_request<
@@ -780,9 +795,10 @@ pub trait ApiServiceProvider {
                 }
             })
         } else {
-            process_response::<T>(response, path)
-                .await
-                .map_err(|e| explain_auth_failure(e, &token))
+                        match process_response::<T>(response, path).await {
+                Ok(value) => Ok(value),
+                Err(e) => Err(self.on_request_error(e, &token).await),
+            }
         }
     }
 
@@ -812,9 +828,10 @@ pub trait ApiServiceProvider {
             eprintln!("HTTP file upload request failed: {}", err);
             ResponseError::from_err(err)
         })?;
-        process_response::<T>(response, path)
-            .await
-            .map_err(|e| explain_auth_failure(e, &token))
+                match process_response::<T>(response, path).await {
+            Ok(value) => Ok(value),
+            Err(e) => Err(self.on_request_error(e, &token).await),
+        }
     }
 
     /// `GET` an endpoint that answers with bytes rather than JSON (currently only
@@ -845,6 +862,13 @@ pub trait ApiServiceProvider {
         let status = response.status();
         if status.is_success() {
             return Ok(response);
+        }
+        // A 401 means the token we just sent is not usable. Drop it so the next call mints a
+        // fresh one instead of re-sending the same rejected credential until it expires — the
+        // difference between a client that recovers on its next attempt and one that stays
+        // broken for the token's lifetime. See DataHubConfig::invalidate_token.
+        if status == http::StatusCode::UNAUTHORIZED {
+            self.get_api_service().config.invalidate_token().await;
         }
         eprintln!("Request failed with status: {status}");
         Err(explain_auth_failure(
