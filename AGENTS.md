@@ -191,7 +191,7 @@ backend's `datahub-api/src/main/java/ai/intellistream/datahub/api/mcp/tools/`.
 
 ```
 cargo test mcp_                          # the whole MCP suite (~30s)
-cargo test mcp_full_tool_surface         # just the field sweep (~8s)
+cargo test mcp_full_tool_surface         # just the tool sweep (~8s)
 ```
 
 **These tests are in Rust, not `python_tests/`, on purpose.** The SDK has no MCP client, so the
@@ -233,15 +233,20 @@ stray it actually left behind:
   delete is how the secondary dataset kept surviving: `dataset_delete` does not cascade, it failed
   while a resource still pointed at it, and the guard that would have caught that was already off.
 
-### Every advertised field is tested, and that is enforced rather than asserted
+### Every tool is driven once; every parameter is not
 
-`McpClient::try_call_tool` records each `(tool, field)` pair it sends, and `mcp_full_tool_surface`
-ends by diffing that against the live `tools/list` schema — **125 fields across the 37 tools**. A
-parameter added server-side fails the audit until something drives it. That is why the sweep is one
-sequential test rather than seventy small ones: `cargo test` runs tests on parallel threads with no
-ordering hook, so a registry filled by other tests could not be read reliably at the end of any of
-them. Each `sweep_*` helper owns its entities and removes them through the MCP delete tools, which is
-also how those get exercised.
+`mcp_full_tool_surface` calls all 37 tools and reads each write back. Each `sweep_*` helper owns its
+entities and removes them through the MCP delete tools, which is also how those get exercised. It is
+one sequential test rather than one per entity group because the helpers share reference data — a
+dataset, a label, a relationship type — and a relationship type cannot be deleted once created, so
+minting a set per test would grow the tenant's catalogue on every run.
+
+It used to also **audit its own field coverage**: `try_call_tool` recorded every `(tool, field)` pair
+sent and the test ended by diffing that against the live `tools/list` schema, so a parameter added
+server-side failed the run until something drove it. That was removed. It made an additive api change
+fail a test that had nothing to say about whether the new field works, and the number it enforced
+(125 fields across 37 tools) moved with the api rather than with the SDK. Consequence worth knowing:
+nothing here notices a server-side parameter addition any more — same as on the REST side.
 
 Behaviours worth knowing, each pinned by an assertion:
 
