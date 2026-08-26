@@ -26,6 +26,7 @@ from intellistream_datahub_sdk import (
 )
 
 from fixtures import TEST_LABEL, async_client, sync_client, unique_id  # noqa: F401  (fixtures)
+from polling import poll_until
 
 
 @pytest.fixture
@@ -46,7 +47,11 @@ def corpus(sync_client):
         geolocation={"type": "Point", "coordinates": [10.75, 59.91]},
     )
     func = Function(external_id=f"{stem}_fn", name=f"Poly Fn {stem}")
-    plain = Resource(external_id=f"{stem}_plain", name=f"Poly Plain {stem}")
+    # Every node needs at least one label; a plain resource is the one that carries no *type*
+    # label, not one that carries none at all.
+    plain = Resource(
+        external_id=f"{stem}_plain", name=f"Poly Plain {stem}", labels=[TEST_LABEL]
+    )
 
     created = sync_client.resources.create([ds, asset, func, plain])
     try:
@@ -190,14 +195,22 @@ def test_a_node_reached_through_the_graph_is_typed_but_sparse(sync_client, corpu
             )
         ])
         asset = sync_client.resources.filter(external_id=f"{stem}_asset")[0]
-        network = asset.neighbors(depth=1)
-        graph_ts = next(
-            (n for n in network.nodes if n.external_id == ts_ext), None
-        )
-        if graph_ts is None:
-            pytest.skip("graph projection had not caught up with the edge")
+
+        # The graph projection lags the write, so poll rather than skip: skipping would let this
+        # assertion quietly never run, which is the whole point of the test.
+        def reached():
+            return next(
+                (n for n in asset.neighbors(depth=1).nodes if n.external_id == ts_ext), None
+            )
+
+        graph_ts = poll_until(reached, lambda n: n is not None)
+        assert graph_ts is not None, "the timeseries never appeared in the graph projection"
         assert isinstance(graph_ts, TimeSeries)
         assert graph_ts.unit is None, "the graph does not carry the unit column"
+        # Not absent but empty, and `MERGETREE`/`float32` are the API's DTO defaults rather than
+        # this series' real values. Nothing here is missing, so a caller cannot tell a default
+        # from data on this path.
+        assert graph_ts.security_categories == []
     finally:
         try:
             sync_client.timeseries.delete([ts_ext])

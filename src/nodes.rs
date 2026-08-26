@@ -20,9 +20,10 @@
 //!   `related_resources`, which is always empty — the api does not join the edges in.
 //! - **Graph reads** ([`ResourceService::fetch_related`](crate::resources::ResourceService::fetch_related),
 //!   `fetch_nearest`) are **typed but sparse**: Neo4j stores only a subset of the columns, so a
-//!   [`TimeSeries`] from there has no `unit` and no `security_categories`, `metadata` is silently
-//!   empty rather than absent, and its `value_type`/`table_engine` are the api's DTO *defaults*
-//!   rather than data. `related_resources` *is* populated there.
+//!   [`TimeSeries`] from there has no `unit`; its `security_categories`, `value_type` and
+//!   `table_engine` are the api's DTO *defaults* rather than data (an empty list, `float32`,
+//!   `MERGETREE`), and `metadata` is silently empty rather than absent. `related_resources`
+//!   *is* populated there.
 //! - **Policies** never carry `value`, `template_id` or `data_set_id` on any read — the api's
 //!   transformer does not set them.
 

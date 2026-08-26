@@ -22,6 +22,8 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use pythonize::{depythonize, pythonize};
 
 use crate::datasets::PyDataset;
+use crate::events::PyEvent;
+use intellistream_datahub_sdk::filters::{EventFilter, EventFilterForm};
 use crate::functions::PyFunction;
 use crate::relations::PyRelatedNode;
 use crate::resources::{PyResource, PyResourceNetwork};
@@ -127,10 +129,83 @@ impl From<NodeInput> for Node {
     }
 }
 
-/// Generate the graph-navigation methods every node class carries. `neighbors` walks outward
-/// from this node and returns the connected sub-graph.
+/// Generate the object-level navigation every node class carries: `neighbors` walks outward
+/// from this node through the graph, and `related_events` goes the other way, finding the events
+/// that reference it.
+///
+/// The four older node classes each spell these out by hand. The two defined here share one
+/// macro instead, because writing them out a fifth and sixth time is how `Asset` came to have
+/// `neighbors` but not `related_events` — a node that had both as a `Resource` silently lost one
+/// by being typed.
 macro_rules! node_navigation {
     ($ty:ty) => {
+        impl $ty {
+            /// The events filter selecting events that reference this node, by id when the
+            /// server has assigned one and by external id otherwise.
+            fn related_events_filter(&self, limit: u64) -> EventFilterForm {
+                let mut basic = EventFilter::default();
+                match self.inner.id {
+                    Some(id) => {
+                        basic.set_related_resource_ids(&[id]);
+                    }
+                    None => {
+                        basic.set_related_resource_external_ids(&[self.inner.external_id.as_str()]);
+                    }
+                }
+                let mut filter = EventFilterForm::default();
+                filter.set_filter(basic);
+                filter.set_limit(limit);
+                filter
+            }
+        }
+
+        #[pymethods]
+        impl $ty {
+            /// Fetch the events whose `related_resources` include this node (matched by graph-node
+            /// id when present, else external id). `limit` caps the results. Blocking; see
+            /// `related_events_async`.
+            #[pyo3(signature = (limit=100))]
+            fn related_events(&self, py: Python<'_>, limit: u64) -> PyResult<Vec<PyEvent>> {
+                let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+                let filter = self.related_events_filter(limit);
+                py.detach(|| {
+                    let result = crate::nav_runtime()
+                        .block_on(service.events.filter(&filter))
+                        .map_err(crate::datahub_err)?;
+                    Ok(result
+                        .get_items()
+                        .iter()
+                        .cloned()
+                        .map(|e| PyEvent::with_client(e, service.clone()))
+                        .collect())
+                })
+            }
+
+            /// Awaitable variant of `related_events`.
+            #[pyo3(signature = (limit=100))]
+            fn related_events_async<'py>(
+                &self,
+                py: Python<'py>,
+                limit: u64,
+            ) -> PyResult<Bound<'py, PyAny>> {
+                let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
+                let filter = self.related_events_filter(limit);
+                future_into_py(py, async move {
+                    let result = service
+                        .events
+                        .filter(&filter)
+                        .await
+                        .map_err(crate::datahub_err)?;
+                    Ok(result
+                        .get_items()
+                        .iter()
+                        .cloned()
+                        .map(|e| PyEvent::with_client(e, service.clone()))
+                        .collect::<Vec<_>>())
+                })
+            }
+        }
+
         #[pymethods]
         impl $ty {
             /// Walk the graph from this node and return the connected sub-graph (its `nodes`, the

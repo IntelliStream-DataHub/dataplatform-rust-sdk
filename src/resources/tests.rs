@@ -394,7 +394,10 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
         t.unit, None,
         "unit is not projected into the graph; read the series flatly for it"
     );
-    assert_eq!(t.security_categories, None);
+    // Not absent but *empty*: `Timeseries` has no NON_NULL include, so the api emits its DTO
+    // default. An empty list here means "the graph does not carry this column", not "none are
+    // configured" — the distinction only a flat read can settle.
+    assert_eq!(t.security_categories, Some(vec![]));
     assert_eq!(t.data_set_id, Some(ds_id));
     assert!(t
         .labels
