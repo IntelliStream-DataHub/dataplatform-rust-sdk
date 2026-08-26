@@ -84,7 +84,7 @@ pub mod sync_service;
 ///             the connected node (a Timeseries, Dataset, Asset or Policy)
 ///
 ///
-#[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeries")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeries", from_py_object)]
 #[derive(Clone)]
 pub struct PyTimeSeries {
     pub inner: TimeSeries,

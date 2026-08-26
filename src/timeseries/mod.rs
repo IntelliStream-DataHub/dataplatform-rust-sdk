@@ -568,7 +568,7 @@ impl TimeSeriesFilterForm {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct TimeSeries {
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
@@ -601,6 +601,18 @@ pub struct TimeSeries {
     /// turned into an edge server-side.
     #[serde(rename = "relatedResources", default)]
     pub related_resources: Vec<RelatedNode>,
+    /// The labels carried by this node, always including the intrinsic `TIMESERIES` type-label
+    /// the api forces back on every read. It is what makes a timeseries recognisable in a
+    /// heterogeneous `/resources` result — see [`crate::nodes::Node`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    /// ClickHouse table engine backing this series (`MERGETREE` by default). Server-assigned;
+    /// sent back on every timeseries read.
+    ///
+    /// Beware on a node reached through the graph (`fetch_related`/`fetch_nearest`): Neo4j does
+    /// not store this column, so the api fills it from its DTO default rather than from data.
+    #[serde(rename = "tableEngine", default, skip_serializing_if = "Option::is_none")]
+    pub table_engine: Option<String>,
 }
 
 impl TimeSeries {
@@ -620,6 +632,8 @@ impl TimeSeries {
             created_time: None,
             last_updated_time: None,
             related_resources: vec![],
+            labels: None,
+            table_engine: None,
         }
     }
     pub fn from_dict(dict: HashMap<String, String>) -> Self {
@@ -642,6 +656,8 @@ impl TimeSeries {
             created_time: None,
             last_updated_time: None,
             related_resources: vec![],
+            labels: None,
+            table_engine: None,
         }
     }
 

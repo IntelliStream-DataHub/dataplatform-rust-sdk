@@ -221,7 +221,7 @@ impl PyINode {
     /// Fetch the resources this file references (its `related_resources` ids), resolved to
     /// `Resource` objects via the resources service. (The `related_resources` *property* returns
     /// the raw ids; this resolves them.) Blocking; see [`related_resource_nodes_async`].
-    fn related_resource_nodes(&self, py: Python<'_>) -> PyResult<Vec<PyResource>> {
+    fn related_resource_nodes(&self, py: Python<'_>) -> PyResult<Vec<crate::nodes::PyNode>> {
         let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
         let ids = self.related_id_collections();
         if ids.is_empty() {
@@ -235,7 +235,7 @@ impl PyINode {
                 .nodes()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|r| PyResource::with_client(r, service.clone()))
+                .map(|r| crate::nodes::PyNode::with_client(r, service.clone()))
                 .collect())
         })
     }
@@ -246,7 +246,7 @@ impl PyINode {
         let ids = self.related_id_collections();
         future_into_py(py, async move {
             if ids.is_empty() {
-                return Ok(Vec::<PyResource>::new());
+                return Ok(Vec::<crate::nodes::PyNode>::new());
             }
             let result = service
                 .resources
@@ -257,7 +257,7 @@ impl PyINode {
                 .nodes()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|r| PyResource::with_client(r, service.clone()))
+                .map(|r| crate::nodes::PyNode::with_client(r, service.clone()))
                 .collect())
         })
     }

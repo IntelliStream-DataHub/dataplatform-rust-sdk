@@ -42,7 +42,7 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 - `time_series` (`src/timeseries/`) — `TimeSeries` + datapoint ingestion/retrieval
 - `units` (`src/unit/`)
 - `events` (`src/events/`) — event CRUD, filter/search, plus the vocabulary endpoints (`list_types`/`search_types` and the same pair for sub-types, statuses and sources, over `EventDimension`). Those answer "what values does this tenant actually use" for the four categorical fields and back filter dropdowns; they read small server-side dimension tables rather than scanning events, so they are cheap but *eventually consistent* with the events. Note the route asymmetry the SDK hides: `/events/list/{plural}` but `/events/search/{singular}`. `EventUpdate` has **no `event_time`**: an event's time is immutable after creation — the events table is partitioned by it, so ClickHouse refuses the mutation outright, and the api used to validate the field, echo the new value back with a 200 and then fail to apply it. It has been dropped from the update form, so sending it is now a 400. Record a corrected time as a new event.
-- `resources` (`src/resources/`) — hierarchical asset-like entities; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`, `RelatedNode`)
+- `resources` (`src/resources/`) — the generic node service. Its reads span **every** node type and answer with [`Node`](#the-polymorphic-node-type) rather than one flat shape; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`, `RelatedNode`)
 - `edges` (`src/relations/service.rs`) — the `/edges` endpoints: `get`/`by_ids`/`create`/`delete` plus the relationship-type catalogue (`types`/`create_types`). Edges normally come into being through `resources.create(nodes, relations)`; this service is for linking resources that already exist and for reading or deleting an edge on its own. `get` answers an unknown id with 404 and a `problem+json` body; `by_ids`, like every batch lookup, answers 200 with the found subset and silently omits what is missing. (`get` used to be 200-and-nothing despite documenting a 404 — api #275 made single-resource by-id GETs consistently 404 and deliberately left batch lookups alone.) Two further behaviours are worth knowing, and are documented at each call site:
 
   - `create_types` fails silently on a duplicate name — the unique-hash collision surfaces at commit, after the handler returned, so the caller gets a 200 with an empty *body*, and in a batch the valid new types are rolled back with it. This one does contradict the OpenAPI: `test_duplicate_relationship_type_conflicts` encodes the intended 409 and is red until the server-side fix lands.
@@ -52,6 +52,52 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 - `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`)
 - `functions` (`src/functions/`)
 - `labels` (`src/labels/`) — label CRUD (`list`/`get`/`create`/`update`/`delete`). Note the entity type is `labels::Label`, deliberately *not* re-exported at the crate root because `resources::*` already brings a different graph-DTO `Label` there.
+
+### The polymorphic node type (`src/nodes.rs`)
+
+`/resources` spans six node types, and its reads answer with each row in the shape of its own
+kind. `Node` is that: an enum over `Asset`, `TimeSeries`, `Function`, `Resource`, `Dataset` and
+`Policy`. `filter`/`search`/`get_by_id` return `DataWrapper<Node>`, `by_ids`/`create` and
+`EdgesService::by_ids` return `GraphDataWrapper<Node>`, and `ResourceNetwork::nodes` is `Vec<Node>`.
+
+**The discriminator is a label, not a field.** There is no `nodeType` key on the wire. A node's
+type is the intrinsic type-label the api forces into `labels` on every read — `ASSET`,
+`TIMESERIES`, `FUNCTION`, `DATASET`, `POLICY` — and a plain resource carries **none of them**, so
+absence is the `RESOURCE` signal. Serde has no mode for a tag inside an array field, so `Node`
+hand-writes `Deserialize`: buffer into `serde_json::Value`, canonicalize each label the way the
+api's `TextValidator.toSnakeUpperCased` does, dispatch. More than one type-label is an **error**,
+mirroring the api's `NodeModelDeserializer`; zero is a `Resource`. Serializing goes the other way,
+emitting the variant's own shape and appending its type-label if the caller has not — it never
+strips a conflicting one, because a body labelled both `ASSET` and `POLICY` earns the api's 400
+naming both, and quietly picking one for the caller would be worse.
+
+`Node` is `#[non_exhaustive]`, so a seventh node type is additive.
+
+Behaviours worth knowing, each pinned by a test in `src/nodes.rs`:
+
+- **Flat reads never populate `related_resources`.** `get_by_id`, `by_ids`, `filter` and `search`
+  all answer `[]`; only the graph reads and the create echo fill it.
+- **Graph reads are typed but sparse.** Neo4j stores a column subset, so a `TimeSeries` from
+  `fetch_related` has no `unit` and no `security_categories`, its `metadata` is empty rather than
+  absent, and its `value_type`/`table_engine` are the api's DTO **defaults rather than data**. An
+  asset's geometry is reconstructed as a Point, so a stored Polygon comes back wrong.
+- **`update` still echoes flat `Resource`s**, whatever the node's real type — the one read/write
+  asymmetry left, owned by the api's `NODE_UPDATE_REFACTOR.md`. `ResourceService::update` is
+  therefore the one method here that does *not* return `Node`.
+- **Policies never carry `value`, `template_id` or `data_set_id`** on a read, and their `metadata`
+  can be outright `null`.
+- **`Resource::geolocation` is write-only** server-side: accepted on create, never echoed. Assets
+  carry it.
+- **Every type is creatable through `/resources/create`, timeseries included** — each element of
+  `nodes` is dispatched by its own labels. `DATASET` and `POLICY` need the all-datasets manage
+  grant (403 without), and their `data_set_id` is silently dropped. A duplicate `external_id`
+  surfaces as a constraint violation rather than the clean 409 `/timeseries/create` gives.
+
+In Python each variant maps to its own pyclass, so `isinstance(node, TimeSeries)` works and an
+object from `resources.filter()` behaves exactly like one from `timeseries.by_ids()`. The dispatch
+is a hand-written `IntoPyObject` on a non-pyclass `PyNode` wrapper (`datahub_python_bindings/src/nodes.rs`)
+— the first such impl in the bindings — which is what lets `Vec<PyNode>` and `Page` stay generic.
+Every node class also exposes `node_type` for data-driven dispatch.
 
 ### Blocking client (`src/blocking.rs`)
 
@@ -162,8 +208,8 @@ list-like, so existing code is unaffected, but carrying `.next_cursor`.
 It spans **every** node type — assets, timeseries, functions, resources, data sets, policies —
 narrowed by `nodeType` (`["resource", "timeseries"]`, case-insensitive; omitted = all; a list of
 only unknown names matches *nothing*). It behaved this way before by omission, with no discriminator
-and single-table inheritance doing the rest; the breadth is now stated and narrowable. Every node
-carries its type as a label, so a caller can tell what came back. The other three endpoints stay
+and single-table inheritance doing the rest; the breadth is now stated and narrowable. What comes
+back is typed per row — see [`Node`](#the-polymorphic-node-type). The other three endpoints stay
 typed. `DatasetFilter` is consequently just the shared criteria — its `writeProtected` and
 `deactivated` flags were removed server-side as inert.
 

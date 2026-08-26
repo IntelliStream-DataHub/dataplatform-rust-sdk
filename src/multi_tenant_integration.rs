@@ -207,6 +207,7 @@ use crate::generic::{DataWrapper, IdAndExtId, SearchAndFilterForm};
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::resources::{RelatedResourcesForm, Resource};
+use crate::nodes::Node;
 use crate::tests::cleanup::{cleanup_datasets_as, cleanup_resources_as, cleanup_timeseries_as};
 use crate::{ApiService, TimeSeries};
 use chrono::Utc;
@@ -363,7 +364,7 @@ where
 /// narrowed by the tenant's database (or by the dataset ACL) answers 200 with an empty node list,
 /// while a single-item read of something in another tenant is a 404. Both mean the caller cannot
 /// see it, which is what these tests are about.
-fn is_absent(result: &Result<GraphDataWrapper<Resource>, ResponseError>) -> bool {
+fn is_absent(result: &Result<GraphDataWrapper<Node>, ResponseError>) -> bool {
     match result {
         Ok(wrapper) => wrapper.nodes().map_or(true, |n| n.is_empty()),
         Err(e) => e.get_status().as_u16() == 404,
@@ -644,12 +645,12 @@ async fn multi_tenant_same_external_id_in_two_orgs_are_independent() -> Result<(
         .by_ids(&by_external_id(&external_id))
         .await?;
     assert_eq!(
-        read_a.nodes().and_then(|n| n.first().and_then(|r| r.description.clone())),
+        read_a.nodes().and_then(|n| n.first().and_then(|r| r.description().map(str::to_string))),
         Some("belongs to org A".to_string()),
         "org A must read back its own entity"
     );
     assert_eq!(
-        read_b.nodes().and_then(|n| n.first().and_then(|r| r.description.clone())),
+        read_b.nodes().and_then(|n| n.first().and_then(|r| r.description().map(str::to_string))),
         Some("belongs to org B".to_string()),
         "org B must read back its own entity, not org A's"
     );
@@ -723,7 +724,7 @@ async fn multi_tenant_entity_created_in_one_org_is_invisible_from_the_other(
         seen_by_a
             .get_items()
             .iter()
-            .any(|r| r.external_id == external_id),
+            .any(|r| r.external_id() == external_id),
         "org A should find its own entity by marker '{marker}'"
     );
 
@@ -732,7 +733,7 @@ async fn multi_tenant_entity_created_in_one_org_is_invisible_from_the_other(
         !hits
             .get_items()
             .iter()
-            .any(|r| r.external_id == external_id),
+            .any(|r| r.external_id() == external_id),
         "org B's search must not surface org A's entity"
     );
 
@@ -950,7 +951,7 @@ async fn acl_list_and_search_omit_rows_rather_than_denying() -> Result<(), Respo
         seen_by_admin
             .get_items()
             .iter()
-            .any(|r| r.external_id == seeded),
+            .any(|r| r.external_id() == seeded),
         "the seeding admin should find its own resource"
     );
 
@@ -959,7 +960,7 @@ async fn acl_list_and_search_omit_rows_rather_than_denying() -> Result<(), Respo
         !seen_by_outsider
             .get_items()
             .iter()
-            .any(|r| r.external_id == seeded),
+            .any(|r| r.external_id() == seeded),
         "an ungranted caller's search must omit the row"
     );
 

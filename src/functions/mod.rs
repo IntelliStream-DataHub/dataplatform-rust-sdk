@@ -109,7 +109,7 @@ impl FunctionsService {
 
 /// API representation of a function. Mirrors `ai.intellistream.datahub.function.Function`, which
 /// extends the shared node base and adds nothing of its own — so this is exactly the node fields.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Function {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -123,6 +123,18 @@ pub struct Function {
     pub labels: Vec<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The name of the system this function's primary information comes from — the `source`
+    /// column shared by every node type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_helper::opt_string_id"
+    )]
+    pub data_set_id: Option<u64>,
     /// The nodes this function is connected to, with relationship type and direction.
     /// Populated server-side by `FunctionService.list()`.
     #[serde(default, skip_serializing)]
@@ -141,6 +153,9 @@ impl Function {
             name: None,
             labels: vec![],
             metadata: HashMap::new(),
+            description: None,
+            source: None,
+            data_set_id: None,
             related_resources: vec![],
             created_time: None,
             last_updated_time: None,

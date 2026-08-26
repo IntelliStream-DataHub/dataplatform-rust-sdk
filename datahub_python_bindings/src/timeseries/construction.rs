@@ -84,6 +84,8 @@ impl PyTimeSeries {
             related_resources: related_resources
                 .map(|r| r.into_iter().map(RelatedNode::from).collect())
                 .unwrap_or_default(),
+            labels: None,
+            table_engine: None,
         };
         Ok(PyTimeSeries {
             inner,

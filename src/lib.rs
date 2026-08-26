@@ -38,6 +38,7 @@ pub mod labels;
 mod mcp_integration;
 #[cfg(test)]
 mod multi_tenant_integration;
+pub mod nodes;
 pub mod relations;
 pub mod resources;
 pub mod serde_helper;
@@ -49,6 +50,7 @@ pub mod unit;
 pub mod functions;
 
 pub use resources::*;
+pub use nodes::{Asset, Node, NodeType, Policy};
 /// GeoJSON geometry type used by [`Resource::geolocation`]; re-exported so callers
 /// don't need a direct dependency on the `geojson` crate.
 pub use geojson::Geometry;
@@ -56,6 +58,7 @@ pub use events::*;
 pub use timeseries::*;
 pub use relations::{EdgeProxy, RelForm, RelatedNode, RelationDirection};
 use crate::datasets::*;
+pub use crate::datasets::Dataset;
 
 pub use subscriptions::{
     DataCollectionString, DataSort, DataWrapperMessage, EventAction, EventObject, ListenError,

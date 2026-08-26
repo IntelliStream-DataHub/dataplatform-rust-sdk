@@ -10,6 +10,7 @@ use maplit::hashmap;
 use uuid::Uuid;
 use crate::tests::ids::unique_id;
 use crate::tests::polling::poll_until;
+use crate::nodes::NodeType;
 
 fn create_test_resources() -> Vec<Resource> {
     // helper function to create test resources will
@@ -83,7 +84,7 @@ async fn test_create_and_delete_resources() -> Result<(), ResponseError> {
         .nodes()
         .unwrap()
         .iter()
-        .map(|r| to_snake_lower_cased_allow_start_with_digits(&r.external_id))
+        .map(|r| to_snake_lower_cased_allow_start_with_digits(r.external_id()))
         .collect::<Vec<String>>();
     let input_ids = test_resources
         .iter()
@@ -134,9 +135,9 @@ async fn test_search_resources() -> Result<(), ResponseError> {
     assert!(search_result.get_items().iter().all(|r| {
         let haystack = format!(
             "{} {} {}",
-            r.name,
-            r.external_id,
-            r.description.as_deref().unwrap_or("")
+            r.name().unwrap_or(""),
+            r.external_id(),
+            r.description().unwrap_or("")
         )
         .to_lowercase();
         haystack.contains("test")
@@ -145,7 +146,7 @@ async fn test_search_resources() -> Result<(), ResponseError> {
         .nodes()
         .unwrap()
         .iter()
-        .map(|r| IdAndExtId::from_external_id(&r.external_id))
+        .map(|r| IdAndExtId::from_external_id(r.external_id()))
         .collect::<Vec<IdAndExtId>>();
     api_service.resources.delete(&resulting_ids).await?;
     resource_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
@@ -304,7 +305,7 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     let mut func_cleanup = cleanup_functions(vec![func_ext.clone()]);
     api.resources
         .create(
-            vec![],
+            Vec::<Node>::new(),
             vec![RelForm::by_external_ids(&asset_ext, &func_ext, "uses")],
         )
         .await?;
@@ -314,22 +315,32 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     let net = poll_until(
         || async { api.resources.fetch_related(&form).await.unwrap_or_default() },
         |net: &ResourceNetwork| {
-            let have = |ext: &str| net.nodes().iter().any(|n| n.external_id == ext);
+            let have = |ext: &str| net.nodes().iter().any(|n| n.external_id() == ext);
             have(&asset_ext) && have(&ts_ext) && have(&func_ext)
         },
     )
     .await;
 
-    let find = |ext: &str| -> Resource {
+    let find = |ext: &str| -> Node {
         net.nodes()
             .iter()
-            .find(|n| n.external_id == ext)
+            .find(|n| n.external_id() == ext)
             .unwrap_or_else(|| panic!("node {ext} not found in network after propagation"))
             .clone()
     };
 
-    // --- asset / resource node ---
-    let a = find(&asset_ext);
+    // Each node comes back as its own type, discriminated by its intrinsic type-label.
+    assert_eq!(
+        (
+            find(&asset_ext).kind(),
+            find(&ts_ext).kind(),
+            find(&func_ext).kind()
+        ),
+        (NodeType::Asset, NodeType::TimeSeries, NodeType::Function)
+    );
+
+    // --- asset node ---
+    let a = find(&asset_ext).into_asset().expect("asset variant");
     assert_eq!(a.name, "Neo Fields Asset");
     assert_eq!(a.description.as_deref(), Some("asset description"));
     assert!(a.is_root, "asset isRoot should persist as true");
@@ -365,14 +376,25 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     );
 
     // --- timeseries node ---
-    let t = find(&ts_ext);
+    // `is_root` is gone from the typed shape: only assets and plain resources have that column,
+    // and the flat `Resource` used to carry it onto every type whether it meant anything or not.
+    assert_eq!(find(&ts_ext).is_root(), None);
+    let t = find(&ts_ext)
+        .into_time_series()
+        .expect("timeseries variant");
     assert_eq!(t.name, "Neo Fields TS");
     assert_eq!(t.description.as_deref(), Some("ts description"));
-    assert!(!t.is_root, "a timeseries is never a root node");
     assert_eq!(
         t.source, None,
         "source is a resource-only field; null for timeseries"
     );
+    // The graph path is typed but sparse — Neo4j does not store these columns, so they are
+    // absent here even though the same node carries them on a flat read.
+    assert_eq!(
+        t.unit, None,
+        "unit is not projected into the graph; read the series flatly for it"
+    );
+    assert_eq!(t.security_categories, None);
     assert_eq!(t.data_set_id, Some(ds_id));
     assert!(t
         .labels
@@ -394,14 +416,9 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
     );
 
     // --- function node ---
-    let f = find(&func_ext);
-    assert_eq!(f.name, "Neo Fields Fn");
-    assert!(!f.is_root);
-    assert!(f
-        .labels
-        .as_deref()
-        .unwrap_or_default()
-        .contains(&"FUNCTION".to_string()));
+    let f = find(&func_ext).into_function().expect("function variant");
+    assert_eq!(f.name.as_deref(), Some("Neo Fields Fn"));
+    assert!(f.labels.contains(&"FUNCTION".to_string()));
     assert!(f.created_time.is_some());
     let f_from_asset = f
         .related_resources
@@ -459,8 +476,8 @@ fn fetch_related_deserializes_shared_subsystem() {
     let cooling_id = network
         .nodes()
         .iter()
-        .find(|n| n.external_id == "cooling_system")
-        .and_then(|n| n.id)
+        .find(|n| n.external_id() == "cooling_system")
+        .and_then(|n| n.id())
         .unwrap();
     assert_eq!(cooling_id, 1);
 
@@ -529,6 +546,10 @@ fn geolocation_serializes_as_geojson_object() {
 /// (which loads from Postgres, where the geometry is stored verbatim and written
 /// synchronously on create), and assert the geometry survives the round-trip. Uses
 /// exactly-representable coordinates so the equality is not subject to float formatting.
+///
+/// Doubles as coverage for the write-side idiom the polymorphic create preserves: a bare
+/// [`Resource`] carrying the `ASSET` label creates an asset, and it reads back as
+/// [`Node::Asset`] — the one variant that echoes a geometry.
 #[tokio::test]
 async fn test_resource_geolocation_round_trips() -> Result<(), ResponseError> {
     let api = create_api_service();
@@ -555,12 +576,14 @@ async fn test_resource_geolocation_round_trips() -> Result<(), ResponseError> {
                 .map(|dw| dw.nodes().unwrap_or_default())
                 .unwrap_or_default()
                 .into_iter()
-                .find(|r| r.external_id == ext)
+                .find(|r| r.external_id() == ext)
         },
-        |found: &Option<Resource>| found.is_some(),
+        |found: &Option<Node>| found.is_some(),
     )
     .await
-    .expect("resource should be readable via by_ids after create");
+    .expect("resource should be readable via by_ids after create")
+    .into_asset()
+    .expect("an ASSET-labelled node reads back as the asset variant");
 
     let geom = fetched
         .geolocation

@@ -1,6 +1,7 @@
+use intellistream_datahub_sdk::nodes::Node;
 use crate::relations::{PyGraphResult, PyRelForm};
 use crate::resources::{PyResourceFilter, ResourceIdentifiable};
-use crate::resources::{PyResource, PyResourceNetwork, PyResourceUpdate};
+use crate::resources::{PyResourceNetwork, PyResourceUpdate};
 use intellistream_datahub_sdk::resources::ResourceUpdate;
 use crate::resources::async_service::PyResourcesServiceAsync;
 use crate::{DataSetRef, StringOrList, opt_data_set_refs, opt_patterns};
@@ -10,7 +11,7 @@ use intellistream_datahub_sdk::relations::RelForm;
 use intellistream_datahub_sdk::resources::{
     FetchNearestResourcesForm, RelatedResourcesForm, ResourceFilter, ResourceFilterForm,
 };
-use intellistream_datahub_sdk::{ApiService, Resource};
+use intellistream_datahub_sdk::ApiService;
 use pyo3::{PyResult, Python, pyclass, pymethods};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,10 +28,10 @@ impl PyResourcesServiceSync {
     fn create<'py>(
         &self,
         py: Python<'py>,
-        nodes: Vec<PyResource>,
+        nodes: Vec<crate::nodes::NodeInput>,
         relations: Option<Vec<PyRelForm>>,
     ) -> PyResult<PyGraphResult> {
-        let resources: Vec<Resource> = nodes.into_iter().map(Resource::from).collect();
+        let nodes: Vec<Node> = nodes.into_iter().map(Node::from).collect();
         let rel_forms: Vec<RelForm> = relations
             .unwrap_or_default()
             .into_iter()
@@ -39,7 +40,7 @@ impl PyResourcesServiceSync {
         let service = self.api_service.clone();
         let result = py.detach(|| {
             self.runtime
-                .block_on(service.resources.create(resources, rel_forms))
+                .block_on(service.resources.create(nodes, rel_forms))
         });
 
         let result = result.map_err(|e| crate::datahub_err(e))?;
@@ -50,7 +51,7 @@ impl PyResourcesServiceSync {
         &self,
         py: Python<'py>,
         input: Vec<ResourceIdentifiable>,
-    ) -> PyResult<Vec<PyResource>> {
+    ) -> PyResult<Vec<crate::nodes::PyNode>> {
         let service = self.api_service.clone();
         let input_ids = input
             .into_iter()
@@ -61,12 +62,12 @@ impl PyResourcesServiceSync {
 
         let result = result.map_err(|e| crate::datahub_err(e))?;
 
-        let py_res: Vec<PyResource> = result
+        let py_res: Vec<crate::nodes::PyNode> = result
             .nodes()
             .as_ref()
             .unwrap()
             .iter()
-            .map(|ts| PyResource::with_client(ts.clone(), service.clone()))
+            .map(|ts| crate::nodes::PyNode::with_client(ts.clone(), service.clone()))
             .collect();
         Ok(py_res)
     }
@@ -92,7 +93,7 @@ impl PyResourcesServiceSync {
         query: String,
         filter: Option<PyResourceFilter>,
         limit: Option<u64>,
-    ) -> PyResult<Vec<PyResource>> {
+    ) -> PyResult<Vec<crate::nodes::PyNode>> {
         let form = crate::search_form(query, filter.map(|f| f.inner), limit);
         let service = self.api_service.clone();
 
@@ -102,18 +103,23 @@ impl PyResourcesServiceSync {
                 .block_on(service.resources.search(&form))
                 .map_err(|e| crate::datahub_err(e))?;
 
-            let py_res: Vec<PyResource> = result
+            let py_res: Vec<crate::nodes::PyNode> = result
                 .get_items()
                 .iter()
-                .map(|r| PyResource::with_client(r.clone(), service.clone()))
+                .map(|r| crate::nodes::PyNode::with_client(r.clone(), service.clone()))
                 .collect();
             Ok(py_res)
         })
     }
 
-    /// Update resources in place. Each [`ResourceUpdate`] targets one resource and carries only
-    /// the fields to change. Returns the updated graph, whose node labels reflect what the server
-    /// stored (the intrinsic type-label is always kept).
+    /// Update nodes in place. Each [`ResourceUpdate`] targets one node and carries only the
+    /// fields to change; every field it can set is shared by all node types, so one update form
+    /// covers them all.
+    ///
+    /// **The echo is flat.** Unlike every read on this service, the api answers here with each
+    /// node shaped as a plain `Resource` whatever its real type, so `.nodes` holds `Resource`
+    /// objects even for a timeseries. Re-read the node if you need its typed form. The `labels`
+    /// do reflect what the server stored, intrinsic type-label included.
     fn update<'py>(
         &self,
         py: Python<'py>,
@@ -123,20 +129,20 @@ impl PyResourcesServiceSync {
         let service = self.api_service.clone();
         let result = py.detach(|| self.runtime.block_on(service.resources.update(&updates)));
         let result = result.map_err(|e| crate::datahub_err(e))?;
-        Ok(PyGraphResult::from_wrapper(result, service.clone()))
+        Ok(PyGraphResult::from_resource_wrapper(result, service.clone()))
     }
 
 
     /// `GET /resources/{id}` — one resource by numeric id. Raises when it does not exist,
     /// unlike `by_ids`, which silently omits what it cannot find.
-    fn get_by_id<'py>(&self, py: Python<'py>, id: u64) -> PyResult<Option<PyResource>> {
+    fn get_by_id<'py>(&self, py: Python<'py>, id: u64) -> PyResult<Option<crate::nodes::PyNode>> {
         let service = self.api_service.clone();
         let result = py.detach(|| self.runtime.block_on(service.resources.get_by_id(id)));
         let result = result.map_err(|e| crate::datahub_err(e))?;
         Ok(result
             .get_items()
             .first()
-            .map(|r| PyResource::with_client(r.clone(), service.clone())))
+            .map(|r| crate::nodes::PyNode::with_client(r.clone(), service.clone())))
     }
 
     /// `POST /resources/filter` — structured lookup; every criterion is combined with AND.
@@ -189,10 +195,10 @@ impl PyResourcesServiceSync {
                 .block_on(service.resources.filter(&form))
                 .map_err(|e| crate::datahub_err(e))?;
             let next_cursor = result.next_cursor().map(str::to_string);
-            let items: Vec<PyResource> = result
+            let items: Vec<crate::nodes::PyNode> = result
                 .get_items()
                 .iter()
-                .map(|r| PyResource::with_client(r.clone(), service.clone()))
+                .map(|r| crate::nodes::PyNode::with_client(r.clone(), service.clone()))
                 .collect();
             Ok::<_, pyo3::PyErr>((items, next_cursor))
         })?;

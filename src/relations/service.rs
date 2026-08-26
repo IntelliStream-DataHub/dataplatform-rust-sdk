@@ -9,7 +9,7 @@ use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtId};
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::relations::{EdgeProxy, RelForm, RelTypeForm, RelationshipType};
-use crate::resources::Resource;
+use crate::nodes::Node;
 use crate::ApiService;
 use std::sync::Weak;
 
@@ -43,13 +43,14 @@ impl EdgesService {
 
     /// `POST /edges/byids` — several relationships plus the resources they connect.
     ///
-    /// The response is a graph, not a list: `nodes()` holds the resources at both ends and
+    /// The response is a graph, not a list: `nodes()` holds the nodes at both ends and
     /// `relations()` the edges themselves, so no follow-up call is needed to resolve endpoints.
+    /// An edge can join any two node types, so the endpoints come back as [`Node`]s.
     ///
     /// Unlike [`get`](Self::get), this does **not** 404 on unmatched ids: a batch lookup answers
     /// 200 with empty `nodes` and `relations`, the same as every other `/byids` endpoint. "Absent
     /// from the result" is the only coherent answer when some of a batch exist and some do not.
-    pub async fn by_ids<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
+    pub async fn by_ids<I>(&self, input: &I) -> Result<GraphDataWrapper<Node>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
     {
