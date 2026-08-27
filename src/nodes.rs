@@ -20,10 +20,10 @@
 //!   `related_resources`, which is always empty — the api does not join the edges in.
 //! - **Graph reads** ([`ResourceService::fetch_related`](crate::resources::ResourceService::fetch_related),
 //!   `fetch_nearest`) are **typed but sparse**: Neo4j stores only a subset of the columns, so a
-//!   [`TimeSeries`] from there has no `unit`; its `security_categories`, `value_type` and
-//!   `table_engine` are the api's DTO *defaults* rather than data (an empty list, `float32`,
-//!   `MERGETREE`), and `metadata` is silently empty rather than absent. `related_resources`
-//!   *is* populated there.
+//!   [`TimeSeries`] from there carries **none** of its type-specific fields — no `unit`,
+//!   `unit_external_id`, `value_type`, `table_engine` or `security_categories`. They are absent
+//!   from the payload, not defaulted, which is why every one of them is `Option`. `metadata` is
+//!   silently empty rather than absent, and `related_resources` *is* populated there.
 //! - **Policies** never carry `value`, `template_id` or `data_set_id` on any read — the api's
 //!   transformer does not set them.
 
@@ -813,7 +813,7 @@ mod tests {
             .expect("timeseries");
         assert_eq!(ts.unit.as_deref(), Some("deg C"));
         assert_eq!(ts.unit_external_id.as_deref(), Some("deg_c"));
-        assert_eq!(ts.value_type, "float");
+        assert_eq!(ts.value_type.as_deref(), Some("float"));
         assert_eq!(ts.table_engine.as_deref(), Some("MERGETREE"));
         // Raw numbers on the wire, unlike every id in the family.
         assert_eq!(ts.security_categories, Some(vec![1, 2]));
@@ -842,6 +842,25 @@ mod tests {
         assert_eq!(p.value, Some(json!("TRUE")));
         assert_eq!(p.template_id, Some(3));
         assert_eq!(p.data_set_id, None);
+    }
+
+    #[test]
+    fn a_graph_sourced_timeseries_has_none_of_its_type_specific_fields() {
+        // What `/resources/fetch-related` actually sends for a TIMESERIES: the shared node
+        // fields and nothing else. Neo4j does not store the rest, and the api omits them rather
+        // than emitting defaults — so every one of these must be optional, `valueType` included.
+        // A required `valueType` made any graph traversal over a timeseries a hard error.
+        let node: Node = serde_json::from_value(json!({
+            "id": "793", "externalId": "well_qgl", "name": "Well QGL",
+            "createdTime": "2024-06-17T12:34:56Z", "lastUpdatedTime": "2024-06-17T12:34:56Z",
+            "dataSetId": "731", "labels": ["TIMESERIES"], "metadata": {}, "relatedResources": []
+        }))
+        .unwrap();
+        let ts = node.into_time_series().expect("timeseries");
+        assert_eq!(ts.value_type, None, "not told, rather than a wrong default");
+        assert_eq!(ts.unit, None);
+        assert_eq!(ts.table_engine, None);
+        assert_eq!(ts.security_categories, None);
     }
 
     #[test]

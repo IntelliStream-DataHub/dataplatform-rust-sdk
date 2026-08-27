@@ -394,10 +394,12 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
         t.unit, None,
         "unit is not projected into the graph; read the series flatly for it"
     );
-    // Not absent but *empty*: `Timeseries` has no NON_NULL include, so the api emits its DTO
-    // default. An empty list here means "the graph does not carry this column", not "none are
-    // configured" — the distinction only a flat read can settle.
-    assert_eq!(t.security_categories, Some(vec![]));
+    // The graph payload is the shared node fields and nothing else, so every type-specific
+    // field is *absent* rather than defaulted. `value_type` is the one that mattered: as a
+    // required field it made this very traversal a hard deserialization error.
+    assert_eq!(t.security_categories, None);
+    assert_eq!(t.value_type, None);
+    assert_eq!(t.table_engine, None);
     assert_eq!(t.data_set_id, Some(ds_id));
     assert!(t
         .labels

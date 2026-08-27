@@ -585,8 +585,18 @@ pub struct TimeSeries {
     #[serde(rename = "dataSetId")]
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub data_set_id: Option<u64>,
-    #[serde(rename = "valueType")]
-    pub value_type: String,
+    /// The series' value type (`float`, `bigint`, `text`, …).
+    ///
+    /// `None` means the endpoint did not say, not that the series has no type. A flat read always
+    /// carries it; a node reached through the graph (`fetch_related`/`fetch_nearest`) does not,
+    /// because Neo4j stores only a subset of the columns — re-read the series by id when the
+    /// value type matters.
+    #[serde(
+        rename = "valueType",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub value_type: Option<String>,
     /// The name of the system this series' primary information comes from. Shared by every node
     /// type — it is the `source` column of the one `node` table — and answered on every
     /// timeseries response.
@@ -627,7 +637,7 @@ impl TimeSeries {
             unit_external_id: None,
             security_categories: None,
             data_set_id: None,
-            value_type: "float".to_string(),
+            value_type: Some("float".to_string()),
             source: None,
             created_time: None,
             last_updated_time: None,
@@ -651,7 +661,7 @@ impl TimeSeries {
                 .get("securityCategories")
                 .map(|v| serde_json::from_str(v).unwrap()),
             data_set_id: dict.get("dataSetId").map(|v| v.parse::<u64>().unwrap()),
-            value_type: dict.get("valueType").unwrap().to_string(),
+            value_type: dict.get("valueType").map(|v| v.to_string()),
             source: dict.get("source").map(|v| v.to_string()),
             created_time: None,
             last_updated_time: None,
@@ -706,7 +716,7 @@ impl TimeSeries {
     }
 
     pub fn set_value_type(&mut self, value_type: &str) -> &mut TimeSeries {
-        self.value_type = value_type.to_string();
+        self.value_type = Some(value_type.to_string());
         self
     }
 

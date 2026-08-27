@@ -78,11 +78,12 @@ Behaviours worth knowing, each pinned by a test in `src/nodes.rs`:
 - **Flat reads never populate `related_resources`.** `get_by_id`, `by_ids`, `filter` and `search`
   all answer `[]`; only the graph reads and the create echo fill it.
 - **Graph reads are typed but sparse.** Neo4j stores a column subset, so a `TimeSeries` from
-  `fetch_related` has no `unit`, its `metadata` is empty rather than absent, and its
-  `security_categories`/`value_type`/`table_engine` are the api's DTO **defaults rather than
-  data** — an empty list, `float32`, `MERGETREE`. Nothing is *absent*, so a caller cannot tell a
-  default from a real value here; re-read the node flatly. An asset's geometry is reconstructed as
-  a Point, so a stored Polygon comes back wrong.
+  `fetch_related` carries **none** of its type-specific fields — the payload is the shared node
+  keys and nothing else, so `unit`, `value_type`, `table_engine` and `security_categories` are all
+  `None`. That is why `TimeSeries::value_type` is `Option<String>`: it is always present on a flat
+  read and never on a graph one, and a required field made any traversal over a timeseries a hard
+  deserialization error. `metadata` is empty rather than absent. An asset's geometry is
+  reconstructed as a Point, so a stored Polygon comes back wrong.
 - **`update` still echoes flat `Resource`s**, whatever the node's real type — the one read/write
   asymmetry left, owned by the api's `NODE_UPDATE_REFACTOR.md`. `ResourceService::update` is
   therefore the one method here that does *not* return `Node`.

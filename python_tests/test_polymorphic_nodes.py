@@ -206,11 +206,13 @@ def test_a_node_reached_through_the_graph_is_typed_but_sparse(sync_client, corpu
         graph_ts = poll_until(reached, lambda n: n is not None)
         assert graph_ts is not None, "the timeseries never appeared in the graph projection"
         assert isinstance(graph_ts, TimeSeries)
+        # The graph carries the shared node fields and nothing else, so every type-specific
+        # field is absent rather than defaulted. `value_type` is the one that bit: as a required
+        # field it made any traversal over a timeseries a hard deserialization error.
         assert graph_ts.unit is None, "the graph does not carry the unit column"
-        # Not absent but empty, and `MERGETREE`/`float32` are the API's DTO defaults rather than
-        # this series' real values. Nothing here is missing, so a caller cannot tell a default
-        # from data on this path.
-        assert graph_ts.security_categories == []
+        assert graph_ts.value_type is None
+        assert graph_ts.table_engine is None
+        assert graph_ts.security_categories is None
     finally:
         try:
             sync_client.timeseries.delete([ts_ext])

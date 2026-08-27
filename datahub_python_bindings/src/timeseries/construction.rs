@@ -77,7 +77,7 @@ impl PyTimeSeries {
             unit_external_id,
             security_categories,
             data_set_id,
-            value_type: value_type.to_string(),
+            value_type: Some(value_type.to_string()),
             source,
             created_time: None,
             last_updated_time: None,

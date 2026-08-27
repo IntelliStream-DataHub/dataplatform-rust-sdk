@@ -78,12 +78,14 @@ impl PyTimeSeries {
         self.inner.data_set_id = value;
     }
     #[getter]
-    pub fn value_type(&self) -> &str {
-        &self.inner.value_type.as_str()
+    /// `None` on a series reached through `neighbors()` — the graph does not carry the column.
+    /// Re-read the series by id when the value type matters.
+    pub fn value_type(&self) -> Option<&str> {
+        self.inner.value_type.as_deref()
     }
     #[setter]
     pub fn set_value_type(&mut self, value: ValueType) {
-        self.inner.value_type = value.to_string();
+        self.inner.value_type = Some(value.to_string());
     }
     #[getter]
     pub fn source(&self) -> Option<&str> {
