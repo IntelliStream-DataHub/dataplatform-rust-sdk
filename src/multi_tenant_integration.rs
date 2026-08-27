@@ -207,7 +207,7 @@ use crate::generic::{DataWrapper, IdAndExtId, SearchAndFilterForm};
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::resources::{RelatedResourcesForm, Resource};
-use crate::nodes::Node;
+use crate::nodes::{Node, NodeType, Policy};
 use crate::tests::cleanup::{cleanup_datasets_as, cleanup_resources_as, cleanup_timeseries_as};
 use crate::{ApiService, TimeSeries};
 use chrono::Utc;
@@ -1110,6 +1110,164 @@ async fn acl_orphan_entities_need_a_blanket_grant() -> Result<(), ResponseError>
         .service
         .resources
         .delete(&by_external_id(&orphan))
+        .await?;
+    guard.disarm();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Who may create a data set, and by which route
+// ---------------------------------------------------------------------------------------------
+//
+// Two endpoints reach the same rule from different directions, and they are checked separately
+// server-side. `/datasets/create` has always demanded the blanket grant. `/resources/create`
+// only started demanding it once a node's type became something a caller picks with a label:
+// before that, a per-dataset writer could mint a `DATASET`-labelled node and keep mutating it
+// under a grant that was never meant to cover data-set management. Both routes are covered here,
+// and the allow side as well as the deny side — a rule that only ever denies is indistinguishable
+// from one that denies everything.
+
+/// The blanket grant **is** sufficient, not merely necessary.
+///
+/// [`acl_dataset_management_requires_a_blanket_write_grant`] proves a per-dataset grant is not
+/// enough. On its own that is satisfied by a backend that refuses everyone, and the suite would
+/// stay green through a change that made data sets uncreatable — the failures would land in
+/// unrelated fixtures and read as fixture breakage.
+#[tokio::test]
+#[ignore]
+async fn acl_a_blanket_write_grant_can_create_a_dataset() -> Result<(), ResponseError> {
+    const TEST: &str = "acl_a_blanket_write_grant_can_create_a_dataset";
+    let Some(admin) = principal(TEST, "MT_ORG_A", Some(SCOPE_ALL_ORGS)) else {
+        return Ok(());
+    };
+
+    let dataset = Dataset::new(unique_id("acl_allow_ds"));
+    let ext_id = dataset.external_id.clone();
+    let mut guard = cleanup_datasets_as(admin.config.clone(), vec![ext_id.clone()]);
+
+    admin.service.datasets.create(&dataset).await?;
+    assert!(
+        admin.datasets_by_external_id(&ext_id).await?.is_some(),
+        "the data set should exist after a create by a principal holding /datasets/*/write",
+    );
+
+    admin.service.datasets.delete(&by_external_id(&ext_id)).await?;
+    guard.disarm();
+    Ok(())
+}
+
+/// Read-only and no-grant principals are refused too, not just the per-dataset writer.
+///
+/// The existing denial test uses `MT_WRITEONLY`, which is the interesting near-miss — it holds a
+/// *write* grant, just a scoped one. These two are the plain cases, and they are what would catch
+/// a check that keyed on "holds any write grant" rather than on the blanket one.
+#[tokio::test]
+#[ignore]
+async fn acl_a_lesser_grant_cannot_create_a_dataset() -> Result<(), ResponseError> {
+    const TEST: &str = "acl_a_lesser_grant_cannot_create_a_dataset";
+    let (Some(reader), Some(nogrant)) = (
+        principal(TEST, "MT_READONLY", Some(SCOPE_ALL_ORGS)),
+        principal(TEST, "MT_NOGRANT", Some(SCOPE_ALL_ORGS)),
+    ) else {
+        return Ok(());
+    };
+
+    for who in [&reader, &nogrant] {
+        let dataset = Dataset::new(unique_id("acl_deny_ds"));
+        let guard = cleanup_datasets_as(who.config.clone(), vec![dataset.external_id.clone()]);
+        let error = assert_status(
+            who.service.datasets.create(&dataset).await,
+            403,
+            &format!("{} creating a data set", who.label),
+        );
+        assert!(
+            error.get_message().contains("manage")
+                || error.get_message().contains("all-datasets"),
+            "{}: the denial should say a blanket grant is required — got: {}",
+            who.label,
+            error.get_message()
+        );
+        drop(guard);
+    }
+    Ok(())
+}
+
+/// The same rule, reached through `/resources/create` by type-label rather than `/datasets`.
+///
+/// This is the route the typed node surface makes natural — `resources.create(vec![Dataset::new
+/// (..)])` — and it is gated by its own check server-side, so proving `/datasets/create` is
+/// guarded says nothing about it. A `POLICY` node is covered in the same pass because it shares
+/// the gate, and the lowercase label is deliberate: the type-label is canonicalised before it is
+/// matched, so a check that compared the raw string would let `dataset` through.
+#[tokio::test]
+#[ignore]
+async fn acl_a_dataset_or_policy_node_via_resources_needs_the_blanket_grant(
+) -> Result<(), ResponseError> {
+    const TEST: &str = "acl_a_dataset_or_policy_node_via_resources_needs_the_blanket_grant";
+    let (Some(writer), Some(admin)) = (
+        principal(TEST, "MT_WRITEONLY", Some(SCOPE_ALL_ORGS)),
+        principal(TEST, "MT_ORG_A", Some(SCOPE_ALL_ORGS)),
+    ) else {
+        return Ok(());
+    };
+
+    // (node, description) — the third is the same data set type named in lower case.
+    let cases: Vec<(Node, &str)> = vec![
+        (Dataset::new(unique_id("acl_res_ds")).into(), "a DATASET node"),
+        (
+            {
+                // A policy needs its `type`: bean validation runs *before* the ACL gate, so an
+                // otherwise-invalid body earns a 400 and never reaches the permission check.
+                // Without this the test would "pass" against a backend with no gate at all.
+                let mut p = Policy::new(&unique_id("acl_res_policy"), "acl probe policy");
+                p.policy_type = Some("IS_WRITE_PROTECTED".to_string());
+                p.value = Some(serde_json::Value::String("TRUE".to_string()));
+                p.into()
+            },
+            "a POLICY node",
+        ),
+        (
+            {
+                let mut r = Resource::new();
+                r.external_id = unique_id("acl_res_lower");
+                r.name = "acl probe lowercase".to_string();
+                r.labels = Some(vec!["dataset".to_string()]);
+                r.into()
+            },
+            "a node labelled `dataset` in lower case",
+        ),
+    ];
+
+    for (node, what) in cases {
+        let guard =
+            cleanup_resources_as(writer.config.clone(), vec![node.external_id().to_string()]);
+        assert_status(
+            writer.service.resources.create(vec![node], vec![]).await,
+            403,
+            &format!("a per-data-set write grant creating {what} through /resources"),
+        );
+        drop(guard);
+    }
+
+    // ...and the blanket grant gets through the same door.
+    let allowed = Dataset::new(unique_id("acl_res_ds_ok"));
+    let ext_id = allowed.external_id.clone();
+    let mut guard = cleanup_resources_as(admin.config.clone(), vec![ext_id.clone()]);
+    let created = admin
+        .service
+        .resources
+        .create(vec![Node::from(allowed)], vec![])
+        .await?;
+    assert_eq!(
+        created.nodes().unwrap_or_default().first().map(Node::kind),
+        Some(NodeType::Dataset),
+        "the create echo should come back typed as a data set",
+    );
+
+    admin
+        .service
+        .resources
+        .delete(&by_external_id(&ext_id))
         .await?;
     guard.disarm();
     Ok(())

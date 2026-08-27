@@ -260,6 +260,10 @@ pub struct Policy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// The policy kind, e.g. `IS_WRITE_PROTECTED`. Named `type` on the wire.
+    ///
+    /// Optional here because reads never carry it, but **required on a create**: the api declares
+    /// it `@NotNull`, and bean validation runs before the permission check, so a policy without
+    /// one is a 400 naming `nodes[N].type` rather than whatever the caller was testing for.
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub policy_type: Option<String>,
     /// The policy's value. The api declares it `Object`, so it is any JSON scalar.
