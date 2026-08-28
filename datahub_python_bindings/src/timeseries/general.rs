@@ -62,14 +62,6 @@ impl PyTimeSeries {
         self.inner.unit_external_id = value;
     }
     #[getter]
-    pub fn security_categories(&self) -> Option<&Vec<u64>> {
-        self.inner.security_categories.as_ref()
-    }
-    #[setter]
-    pub fn set_security_categories(&mut self, value: Option<Vec<u64>>) {
-        self.inner.security_categories = value;
-    }
-    #[getter]
     pub fn data_set_id(&self) -> Option<u64> {
         self.inner.data_set_id
     }

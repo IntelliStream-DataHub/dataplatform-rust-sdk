@@ -35,7 +35,6 @@ impl PyTimeSeries {
     description = None,
     unit = None,
     unit_external_id = None,
-    security_categories = None,
     data_set_id = None,
     related_resources = None,
     source = None
@@ -49,7 +48,6 @@ impl PyTimeSeries {
         description: Option<String>,
         unit: Option<String>,
         unit_external_id: Option<String>,
-        security_categories: Option<Vec<u64>>,
         data_set_id: Option<u64>,
         related_resources: Option<Vec<PyRelatedNode>>,
         source: Option<String>,
@@ -75,7 +73,6 @@ impl PyTimeSeries {
             unit,
             description,
             unit_external_id,
-            security_categories,
             data_set_id,
             value_type: value_type.to_string(),
             source,

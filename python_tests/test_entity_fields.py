@@ -41,7 +41,6 @@ class TestTimeSeries:
         assert ts.unit_external_id is None
         assert ts.description is None
         assert ts.metadata is None
-        assert ts.security_categories is None
         assert ts.data_set_id is None
         assert ts.source is None
 
@@ -54,7 +53,6 @@ class TestTimeSeries:
             unit_external_id="u-ext",
             description="a description",
             metadata={"k": "v"},
-            security_categories=[1, 2],
             data_set_id=99,
             source="sap_pi",
         )
@@ -65,7 +63,6 @@ class TestTimeSeries:
         assert ts.unit_external_id == "u-ext"
         assert ts.description == "a description"
         assert ts.metadata == {"k": "v"}
-        assert ts.security_categories == [1, 2]
         assert ts.data_set_id == 99
         assert ts.source == "sap_pi"
 
@@ -96,7 +93,6 @@ class TestTimeSeries:
         ts.unit_external_id = "u-ext"
         ts.description = "a description"
         ts.metadata = {"k": "v"}
-        ts.security_categories = [1, 2, 3]
         ts.data_set_id = 42
         ts.source = "sap_pi"
 
@@ -106,7 +102,6 @@ class TestTimeSeries:
         assert ts.unit_external_id == "u-ext"
         assert ts.description == "a description"
         assert ts.metadata == {"k": "v"}
-        assert ts.security_categories == [1, 2, 3]
         assert ts.data_set_id == 42
         assert ts.source == "sap_pi"
 
@@ -126,12 +121,10 @@ class TestTimeSeries:
         ts.data_set_id = None
         ts.description = None
         ts.unit_external_id = None
-        ts.security_categories = None
         ts.source = None
         assert ts.unit is None
         assert ts.metadata is None
         assert ts.data_set_id is None
-        assert ts.security_categories is None
         assert ts.source is None
 
     def test_invalid_value_type_raises(self):
