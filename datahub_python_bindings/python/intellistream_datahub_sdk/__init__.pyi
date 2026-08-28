@@ -299,13 +299,6 @@ class FieldGeoJson:
 
 # An update is either a replace (`set`) or a delta (`add`/`remove`), never both. The two
 # constructors make the illegal mix unrepresentable; there is no bare initializer.
-class ListFieldU64:
-    @classmethod
-    def set(cls, values: list[int]) -> ListFieldU64: ...
-    @classmethod
-    def delta(cls, add: list[int] | None = None, remove: list[int] | None = None) -> ListFieldU64: ...
-
-
 class ListFieldStr:
     @classmethod
     def set(cls, values: list[str]) -> ListFieldStr: ...
@@ -344,7 +337,6 @@ class TimeSeries:
         unit_external_id: str | None = None,
         description: str | None = None,
         metadata: dict[str, str] | None = None,
-        security_categories: list[int] | None = None,
         data_set_id: int | None = None,
         id: int | None = None,
         related_resources: list[RelatedNode] | None = None,
@@ -384,10 +376,6 @@ class TimeSeries:
     def metadata(self) -> dict[str, str] | None: ...
     @metadata.setter
     def metadata(self, value: dict[str, str] | None) -> None: ...
-    @property
-    def security_categories(self) -> list[int] | None: ...
-    @security_categories.setter
-    def security_categories(self, value: list[int] | None) -> None: ...
     @property
     def data_set_id(self) -> int | None: ...
     @data_set_id.setter
@@ -452,7 +440,6 @@ class TimeSeriesUpdate:
         unit: FieldStr | None = None,
         description: FieldStr | None = None,
         unit_external_id: FieldStr | None = None,
-        security_categories: ListFieldU64 | None = None,
         data_set_id: FieldU64 | None = None,
         source: FieldStr | None = None,
     ) -> None: ...
@@ -472,8 +459,6 @@ class TimeSeriesUpdate:
     def description(self) -> FieldStr: ...
     @property
     def unit_external_id(self) -> FieldStr: ...
-    @property
-    def security_categories(self) -> ListFieldU64: ...
     @property
     def data_set_id(self) -> FieldU64: ...
     @property

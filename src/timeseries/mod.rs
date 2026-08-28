@@ -2,7 +2,7 @@ mod test;
 
 use crate::buffer::DurableSpool;
 use crate::datahub::DataHubConfig;
-use crate::fields::{Field, ListField, MapField};
+use crate::fields::{Field, MapField};
 use crate::generic::{
     ApiServiceProvider, DataWrapper, Datapoint, DatapointString, DatapointsCollection,
     DeleteFilter, IdAndExtId, RetrieveFilter, SearchAndFilterForm,
@@ -580,8 +580,6 @@ pub struct TimeSeries {
     pub description: Option<String>,
     #[serde(rename = "unitExternalId")]
     pub unit_external_id: Option<String>,
-    #[serde(rename = "securityCategories")]
-    pub security_categories: Option<Vec<u64>>,
     #[serde(rename = "dataSetId")]
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub data_set_id: Option<u64>,
@@ -613,7 +611,6 @@ impl TimeSeries {
             unit: None,
             description: None,
             unit_external_id: None,
-            security_categories: None,
             data_set_id: None,
             value_type: "float".to_string(),
             source: None,
@@ -633,9 +630,6 @@ impl TimeSeries {
             unit: dict.get("units").map(|v| v.to_string()),
             description: dict.get("description").map(|v| v.to_string()),
             unit_external_id: dict.get("unitExternalId").map(|v| v.to_string()),
-            security_categories: dict
-                .get("securityCategories")
-                .map(|v| serde_json::from_str(v).unwrap()),
             data_set_id: dict.get("dataSetId").map(|v| v.parse::<u64>().unwrap()),
             value_type: dict.get("valueType").unwrap().to_string(),
             source: dict.get("source").map(|v| v.to_string()),
@@ -676,11 +670,6 @@ impl TimeSeries {
 
     pub fn set_unit_external_id(&mut self, unit_external_id: &str) -> &mut TimeSeries {
         self.unit_external_id = Some(unit_external_id.to_string());
-        self
-    }
-
-    pub fn set_security_categories(&mut self, security_categories: Vec<u64>) -> &mut TimeSeries {
-        self.security_categories = Some(security_categories);
         self
     }
 
@@ -725,8 +714,6 @@ pub struct TimeSeriesUpdateFields {
     pub description: Field<String>,
     #[serde(rename = "unitExternalId")]
     pub unit_external_id: Field<String>,
-    #[serde(rename = "securityCategories")]
-    pub security_categories: ListField<u64>,
     #[serde(rename = "dataSetId")]
     pub data_set_id: Field<u64>,
     pub source: Field<String>,
@@ -741,7 +728,6 @@ impl TimeSeriesUpdateFields {
             unit: Field::default(),
             description: Field::default(),
             unit_external_id: Field::default(),
-            security_categories: ListField::default(),
             data_set_id: Field::default(),
             source: Field::default(),
         }

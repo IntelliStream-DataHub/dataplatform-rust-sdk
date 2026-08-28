@@ -12,7 +12,7 @@ way to build one, so the illegal mix is unrepresentable rather than rejected at 
 import time
 
 import pytest
-from intellistream_datahub_sdk import ListFieldStr, ListFieldU64, MapField, Resource, ResourceUpdate
+from intellistream_datahub_sdk import ListFieldIdCollection, ListFieldStr, MapField, Resource, ResourceUpdate
 
 from fixtures import async_client, make_resource, sync_client, unique_id
 
@@ -47,7 +47,7 @@ def test_resource_update_requires_a_target():
 def test_field_update_is_set_or_delta_only():
     # `set` and `delta` are the only constructors; there is no bare initializer, so a replace can
     # never be built carrying an add/remove delta — the illegal mix is simply not expressible.
-    for wrapper in (ListFieldStr, ListFieldU64, MapField):
+    for wrapper in (ListFieldStr, ListFieldIdCollection, MapField):
         with pytest.raises(TypeError):
             wrapper()  # no __init__
 

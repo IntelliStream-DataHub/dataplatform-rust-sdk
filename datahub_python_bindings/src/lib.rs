@@ -954,33 +954,6 @@ impl DatahubIdentity for Identifiable {
     }
 }
 
-#[pyclass(module = "intellistream_datahub_sdk", name = "ListFieldU64")]
-#[derive(Clone, Debug)]
-pub struct PyListFieldU64(ListField<u64>);
-impl From<ListField<u64>> for PyListFieldU64 {
-    fn from(ts: ListField<u64>) -> Self {
-        Self(ts)
-    }
-}
-impl From<PyListFieldU64> for ListField<u64> {
-    fn from(ts: PyListFieldU64) -> Self {
-        ts.0
-    }
-}
-#[pymethods]
-impl PyListFieldU64 {
-    /// Replace the whole list.
-    #[classmethod]
-    pub fn set(_cls: Py<PyType>, values: Vec<u64>) -> Self {
-        Self(ListField::set(values))
-    }
-    /// Add and/or remove entries, keeping the rest. Pass `add`, `remove`, or both.
-    #[classmethod]
-    #[pyo3(signature=(add=None, remove=None))]
-    pub fn delta(_cls: Py<PyType>, add: Option<Vec<u64>>, remove: Option<Vec<u64>>) -> Self {
-        Self(ListField::delta(add, remove))
-    }
-}
 #[pyclass(module = "intellistream_datahub_sdk", name = "ListFieldStr")]
 #[derive(Clone, Debug)]
 pub struct PyListFieldStr(ListField<String>);
@@ -1241,7 +1214,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyLabelsServiceSync>()?;
     m.add_class::<PyLabelsServiceAsync>()?;
     m.add_class::<PyFieldU64>()?;
-    m.add_class::<PyListFieldU64>()?;
     m.add_class::<PyFieldStr>()?;
     m.add_class::<PyListFieldStr>()?;
     m.add_class::<PyListFieldIdCollection>()?;

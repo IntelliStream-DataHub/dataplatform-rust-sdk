@@ -7,7 +7,7 @@ use crate::timeseries::datapoints::{
 };
 use crate::timeseries::sync_service::PyTimeSeriesServiceSync;
 use crate::{
-    DatahubIdentity, Identifiable, PyFieldStr, PyFieldU64, PyIdCollection, PyListFieldU64,
+    DatahubIdentity, Identifiable, PyFieldStr, PyFieldU64, PyIdCollection,
     PyMapField,
 };
 use chrono::{DateTime, Utc};
@@ -68,9 +68,6 @@ pub mod sync_service;
 /// unit_external_id: str, default None
 ///     External id for the units of the timeseries this is used to connecto to datahub units system.
 ///     The units system will allow you to convert between units and easily convert between units-systems for unified storage.
-///
-/// security_categories: list[int], default None
-///     Currenty not supported used.
 ///
 /// data_set_id: int
 ///     the id of the datasets this timeseries belongs to
@@ -256,7 +253,6 @@ impl PyTimeSeriesUpdate {
         unit=None,
         description=None,
         unit_external_id=None,
-        security_categories=None,
         data_set_id=None,
         source=None,
     ))]
@@ -269,7 +265,6 @@ impl PyTimeSeriesUpdate {
         unit: Option<PyFieldStr>,
         description: Option<PyFieldStr>,
         unit_external_id: Option<PyFieldStr>,
-        security_categories: Option<PyListFieldU64>,
         data_set_id: Option<PyFieldU64>,
         source: Option<PyFieldStr>,
     ) -> PyResult<Self> {
@@ -281,7 +276,6 @@ impl PyTimeSeriesUpdate {
             unit: unit.map(|s| s.0).unwrap_or_default(),
             description: description.map(|s| s.0).unwrap_or_default(),
             unit_external_id: unit_external_id.map(|s| s.0).unwrap_or_default(),
-            security_categories: security_categories.map(|s| s.0).unwrap_or_default(),
             data_set_id: data_set_id.map(|s| s.0).unwrap_or_default(),
             source: source.map(|s| s.0).unwrap_or_default(),
         };
@@ -324,10 +318,6 @@ impl PyTimeSeriesUpdate {
     #[getter]
     fn unit_external_id(&self) -> PyFieldStr {
         self.inner.update.unit_external_id.clone().into()
-    }
-    #[getter]
-    fn security_categories(&self) -> PyListFieldU64 {
-        self.inner.update.security_categories.clone().into()
     }
     #[getter]
     fn data_set_id(&self) -> PyFieldU64 {

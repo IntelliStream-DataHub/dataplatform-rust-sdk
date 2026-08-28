@@ -353,8 +353,8 @@ impl From<EventIdentifyable> for EventIdCollection {
 
 /// One event's update for `events.update`. Target the event by an `Event`, its UUID `id`, or its
 /// `external_id`; every field is optional and uses the same wrappers as the other services
-/// (`FieldStr`/`FieldU64` for scalars, `ListFieldU64`/`ListFieldStr` for the related-resource
-/// lists, `MapField` for metadata). Mirrors `ResourceUpdate`.
+/// (`FieldStr`/`FieldU64` for scalars, `ListFieldIdCollection` for the related-resource list,
+/// `MapField` for metadata). Mirrors `ResourceUpdate`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EventUpdate")]
 #[derive(Clone)]
 pub struct PyEventUpdate {

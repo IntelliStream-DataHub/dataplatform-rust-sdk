@@ -6,7 +6,6 @@ modality the field-wrapper types allow:
 
   * FieldStr / FieldU64 scalar fields  -> set-value  and  set_null
   * MapField  (metadata)               -> add (merge), set (replace), remove (by key)
-  * ListFieldU64 (security_categories) -> add, set (replace), remove (by value)
   * value_type re-typing
   * targeting an update by created-object / external-id string / numeric id
   * multi-field updates, batch updates, and no-op updates
@@ -302,73 +301,6 @@ def test_update_metadata_cleared_by_an_empty_set(sync_client, make_ts):
 
     update = intellistream_datahub_sdk.TimeSeriesUpdate(ts, metadata=intellistream_datahub_sdk.MapField.set({}))
     assert not (sync_client.timeseries.update([update])[0].metadata or {})
-
-
-# --------------------------------------------------------------------------- #
-# UPDATE — ListFieldU64 (security_categories): add / set / remove
-#
-# These exercise the three ListFieldU64 serialisation paths (set/add/remove).
-# They are xfail because the backend silently drops arbitrary security-category
-# ids — verified by creating a series with security_categories=[1, 2] and getting
-# back securityCategories=[]. Real categories aren't creatable through this SDK,
-# so persistence can't be asserted; strict=False surfaces an xpass if the backend
-# starts honouring them.
-# --------------------------------------------------------------------------- #
-
-_SEC_CAT_XFAIL = pytest.mark.xfail(
-    reason="backend does not persist arbitrary security-category ids "
-    "(needs pre-existing categories not creatable via this SDK)",
-    strict=False,
-)
-
-
-@_SEC_CAT_XFAIL
-def test_update_security_categories_set(sync_client, make_ts):
-    ts = make_ts(security_categories=[1, 2])
-
-    update = intellistream_datahub_sdk.TimeSeriesUpdate(
-        ts, security_categories=intellistream_datahub_sdk.ListFieldU64.set([3, 4])
-    )
-    updated = sync_client.timeseries.update([update])[0]
-    assert sorted(updated.security_categories or []) == [3, 4]
-
-
-@_SEC_CAT_XFAIL
-def test_update_security_categories_add(sync_client, make_ts):
-    ts = make_ts(security_categories=[1, 2])
-
-    update = intellistream_datahub_sdk.TimeSeriesUpdate(
-        ts, security_categories=intellistream_datahub_sdk.ListFieldU64.delta(add=[3])
-    )
-    updated = sync_client.timeseries.update([update])[0]
-    assert set(updated.security_categories or []) >= {1, 2, 3}
-
-
-@_SEC_CAT_XFAIL
-def test_update_security_categories_remove(sync_client, make_ts):
-    ts = make_ts(security_categories=[1, 2, 3])
-
-    update = intellistream_datahub_sdk.TimeSeriesUpdate(
-        ts, security_categories=intellistream_datahub_sdk.ListFieldU64.delta(remove=[2])
-    )
-    updated = sync_client.timeseries.update([update])[0]
-    cats = set(updated.security_categories or [])
-    assert 2 not in cats
-    assert {1, 3} <= cats
-
-
-def test_update_security_categories_cleared_by_an_empty_set(sync_client, make_ts):
-    """``ListFieldU64`` has no ``setNull`` either; an empty ``set`` empties the list.
-
-    Not xfail: the backend drops arbitrary category ids on the way in, so the list is already
-    empty — clearing it is the one security-category assertion that holds either way.
-    """
-    ts = make_ts(security_categories=[1, 2])
-
-    update = intellistream_datahub_sdk.TimeSeriesUpdate(
-        ts, security_categories=intellistream_datahub_sdk.ListFieldU64.set([])
-    )
-    assert not (sync_client.timeseries.update([update])[0].security_categories or [])
 
 
 # --------------------------------------------------------------------------- #
