@@ -21,7 +21,7 @@
 //! - **Graph reads** ([`ResourceService::fetch_related`](crate::resources::ResourceService::fetch_related),
 //!   `fetch_nearest`) are **typed but sparse**: Neo4j stores only a subset of the columns, so a
 //!   [`TimeSeries`] from there carries **none** of its type-specific fields — no `unit`,
-//!   `unit_external_id`, `value_type`, `table_engine` or `security_categories`. They are absent
+//!   `unit_external_id`, `value_type` or `table_engine`. They are absent
 //!   from the payload, not defaulted, which is why every one of them is `Option`. `metadata` is
 //!   silently empty rather than absent, and `related_resources` *is* populated there.
 //! - **Policies** never carry `value`, `template_id` or `data_set_id` on any read — the api's
@@ -679,8 +679,7 @@ mod tests {
 
     /// The full response shape for a node of each type, transcribed from the api's wire-contract
     /// tests (`AssetWireContractTest`, `ResourceWireContractTest`, `TimeseriesWireContractTest`,
-    /// `DataSetModelWireContractTest`, `PolicyWireContractTest`). Ids arrive as JSON *strings*;
-    /// `securityCategories` as raw numbers.
+    /// `DataSetModelWireContractTest`, `PolicyWireContractTest`). Ids arrive as JSON *strings*.
     fn asset_json() -> serde_json::Value {
         json!({
             "id": "34", "externalId": "pump_a", "name": "Pump A", "isRoot": true,
@@ -695,7 +694,7 @@ mod tests {
         json!({
             "id": "7", "externalId": "Engine.Temp", "name": "Engine temp",
             "metadata": {}, "unit": "deg C", "unitExternalId": "deg_c",
-            "relatedResources": [], "description": null, "securityCategories": [1, 2],
+            "relatedResources": [], "description": null,
             "dataSetId": "21", "source": null, "labels": ["TIMESERIES"],
             "tableEngine": "MERGETREE", "valueType": "float",
             "createdTime": "2024-06-17T12:34:56Z", "lastUpdatedTime": "2024-06-17T12:34:56Z"
@@ -819,8 +818,6 @@ mod tests {
         assert_eq!(ts.unit_external_id.as_deref(), Some("deg_c"));
         assert_eq!(ts.value_type.as_deref(), Some("float"));
         assert_eq!(ts.table_engine.as_deref(), Some("MERGETREE"));
-        // Raw numbers on the wire, unlike every id in the family.
-        assert_eq!(ts.security_categories, Some(vec![1, 2]));
         assert_eq!(ts.data_set_id, Some(21));
         assert_eq!(ts.labels.as_deref(), Some(&["TIMESERIES".to_string()][..]));
     }
@@ -864,7 +861,6 @@ mod tests {
         assert_eq!(ts.value_type, None, "not told, rather than a wrong default");
         assert_eq!(ts.unit, None);
         assert_eq!(ts.table_engine, None);
-        assert_eq!(ts.security_categories, None);
     }
 
     #[test]
@@ -913,7 +909,6 @@ mod tests {
         let foreign = [
             "unit",
             "unitExternalId",
-            "securityCategories",
             "tableEngine",
             "valueType",
             "policies",
@@ -929,7 +924,7 @@ mod tests {
             ("ASSET", &["geoLocation", "isRoot"][..]),
             (
                 "TIMESERIES",
-                &["unit", "unitExternalId", "securityCategories", "tableEngine", "valueType"][..],
+                &["unit", "unitExternalId", "tableEngine", "valueType"][..],
             ),
             ("FUNCTION", &[][..]),
             ("DATASET", &["policies", "connectedDataSets"][..]),

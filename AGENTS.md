@@ -79,7 +79,7 @@ Behaviours worth knowing, each pinned by a test in `src/nodes.rs`:
   all answer `[]`; only the graph reads and the create echo fill it.
 - **Graph reads are typed but sparse.** Neo4j stores a column subset, so a `TimeSeries` from
   `fetch_related` carries **none** of its type-specific fields — the payload is the shared node
-  keys and nothing else, so `unit`, `value_type`, `table_engine` and `security_categories` are all
+  keys and nothing else, so `unit`, `value_type` and `table_engine` are all
   `None`. That is why `TimeSeries::value_type` is `Option<String>`: it is always present on a flat
   read and never on a graph one, and a required field made any traversal over a timeseries a hard
   deserialization error. `metadata` is empty rather than absent. An asset's geometry is
