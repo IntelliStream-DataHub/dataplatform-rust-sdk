@@ -145,7 +145,7 @@ def test_a_timeseries_read_through_resources_carries_its_timeseries_fields(
         assert isinstance(node, TimeSeries)
         assert node.unit == "bar"
         assert node.value_type == "float"
-        assert node.table_engine  # server-assigned, present on a flat read
+        # No table_engine: the api marks it @JsonIgnore, so no read returns it.
     finally:
         try:
             sync_client.timeseries.delete([ext])
@@ -172,14 +172,15 @@ def test_an_asset_echoes_its_geometry_where_a_plain_resource_does_not(sync_clien
 
 
 # --------------------------------------------------------------------------- #
-# the sparseness boundary
+# what the graph projection carries
 # --------------------------------------------------------------------------- #
 
-def test_a_node_reached_through_the_graph_is_typed_but_sparse(sync_client, corpus):
-    """The graph stores a column subset, so the same timeseries is thinner here.
+def test_a_node_reached_through_the_graph_carries_its_type_specific_fields(sync_client, corpus):
+    """The projection is written from the entity, so a graph-sourced timeseries is not thinner.
 
-    Typed either way — that part is the fix. But a caller who reads `unit` off a graph-sourced
-    node gets nothing, and must re-read the node by id.
+    Typed either way — that part was the fix. It used to be typed *and* stripped, so a caller
+    who read `unit` off a graph-sourced node got nothing and had to re-read it by id; the
+    projection carries it now, `metadata` included.
     """
     stem = corpus["stem"]
     ts_ext = f"{stem}_ts_graph"
@@ -206,13 +207,10 @@ def test_a_node_reached_through_the_graph_is_typed_but_sparse(sync_client, corpu
         graph_ts = poll_until(reached, lambda n: n is not None)
         assert graph_ts is not None, "the timeseries never appeared in the graph projection"
         assert isinstance(graph_ts, TimeSeries)
-        # The graph carries the shared node fields and nothing else, so every type-specific
-        # field is absent rather than defaulted. `value_type` is the one that bit: as a required
-        # field it made any traversal over a timeseries a hard deserialization error.
-        assert graph_ts.unit is None, "the graph does not carry the unit column"
-        assert graph_ts.value_type is None
+        assert graph_ts.unit == "bar", "the graph carries the unit column"
+        assert graph_ts.value_type == "float"
+        # table_engine is the one field no read returns: the api marks it @JsonIgnore.
         assert graph_ts.table_engine is None
-        assert graph_ts.security_categories is None
     finally:
         try:
             sync_client.timeseries.delete([ts_ext])

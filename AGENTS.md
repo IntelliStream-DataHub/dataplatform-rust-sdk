@@ -39,7 +39,7 @@ The DataHub REST API this SDK targets is a separate Spring Boot project; the HTT
 
 This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point is `create_api_service()` in `src/lib.rs`, which returns an `Arc<ApiService>` built with `Arc::new_cyclic` so each subservice holds a `Weak<ApiService>` back-reference. Subservices are fields on `ApiService`:
 
-- `time_series` (`src/timeseries/`) — `TimeSeries` + datapoint ingestion/retrieval. Neither `TimeSeries` nor `TimeSeriesUpdate` has **`securityCategories`**: it was stored, writable and returned, but nothing ever read it — no part in access control (dataset grants are Keycloak organization groups), no query filtering on it, and the backend silently dropped any id that did not already exist, so the field never round-tripped. It has been removed server-side along with its join table, and the api reads request bodies strictly, so sending it is now a 400. Files keep their own `securityCategories` (`INode` in `src/generic.rs`) — separate entity, separate question. `ListFieldU64` went with it: it was the only field of that type, so the Python wrapper class is gone too (`ListFieldStr` and `ListFieldIdCollection` remain).
+- `time_series` (`src/timeseries/`) — `TimeSeries` + datapoint ingestion/retrieval. Neither `TimeSeries` nor `TimeSeriesUpdate` has **`securityCategories`**: it was stored, writable and returned, but nothing ever read it — no part in access control (dataset grants are Keycloak organization groups), no query filtering on it, and the backend silently dropped any id that did not already exist, so the field never round-tripped. It has been removed server-side along with its join table, and the api reads request bodies strictly, so sending it is now a 400. Files keep their own `securityCategories` (`INode` in `src/generic.rs`) — separate entity, separate question. `ListFieldU64` went with it: it was the only field of that type, so the Python wrapper class is gone too (`ListFieldStr` and `ListFieldIdCollection` remain). **`tableEngine` is stale in the same way but still present**: the api marks it `@JsonIgnore`, so no response carries it, flat or graph — it is still accepted on create, so the SDK keeps the field as write-only rather than removing it, and it always reads back `None`.
 - `units` (`src/unit/`)
 - `events` (`src/events/`) — event CRUD, filter/search, plus the vocabulary endpoints (`list_types`/`search_types` and the same pair for sub-types, statuses and sources, over `EventDimension`). Those answer "what values does this tenant actually use" for the four categorical fields and back filter dropdowns; they read small server-side dimension tables rather than scanning events, so they are cheap but *eventually consistent* with the events. Note the route asymmetry the SDK hides: `/events/list/{plural}` but `/events/search/{singular}`. `EventUpdate` has **no `event_time`**: an event's time is immutable after creation — the events table is partitioned by it, so ClickHouse refuses the mutation outright, and the api used to validate the field, echo the new value back with a 200 and then fail to apply it. It has been dropped from the update form, so sending it is now a 400. Record a corrected time as a new event.
 - `resources` (`src/resources/`) — the generic node service. Its reads span **every** node type and answer with [`Node`](#the-polymorphic-node-type) rather than one flat shape; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`, `RelatedNode`)
@@ -77,13 +77,18 @@ Behaviours worth knowing, each pinned by a test in `src/nodes.rs`:
 
 - **Flat reads never populate `related_resources`.** `get_by_id`, `by_ids`, `filter` and `search`
   all answer `[]`; only the graph reads and the create echo fill it.
-- **Graph reads are typed but sparse.** Neo4j stores a column subset, so a `TimeSeries` from
-  `fetch_related` carries **none** of its type-specific fields — the payload is the shared node
-  keys and nothing else, so `unit`, `value_type` and `table_engine` are all
-  `None`. That is why `TimeSeries::value_type` is `Option<String>`: it is always present on a flat
-  read and never on a graph one, and a required field made any traversal over a timeseries a hard
-  deserialization error. `metadata` is empty rather than absent. An asset's geometry is
-  reconstructed as a Point, so a stored Polygon comes back wrong.
+- **Graph reads are typed and 1-1 with a flat read.** The projection is written from the entity
+  and carries everything a flat read does, `metadata` included. It was sparse until recently, and
+  the SDK's docs and tests drifted twice while it filled in — `value_type`, then
+  `unit`/`unit_external_id`, then `metadata` — so assert this by diffing, not by naming fields.
+  `graph_projection_is_one_to_one_and_typed` (`src/resources/tests.rs`) does exactly that against
+  the flat read and is where a new gap will show up first;
+  `graph_traversal_carries_edge_direction_and_typed_shape` covers the edge semantics it excludes
+  (relationship type, per-end direction, a shared `edge_id`). Type-specific fields stay `Option`
+  regardless: a node last written before a given field was projected reports it absent, and absent
+  must not read as a default. Two things are still not 1-1 — `related_resources` runs the other way
+  (populated here, `[]` on a flat read), and an asset's geometry is reconstructed as a Point, so a
+  Point round-trips exactly but a stored Polygon comes back wrong.
 - **`update` still echoes flat `Resource`s**, whatever the node's real type — the one read/write
   asymmetry left, owned by the api's `NODE_UPDATE_REFACTOR.md`. `ResourceService::update` is
   therefore the one method here that does *not* return `Node`.

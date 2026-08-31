@@ -237,18 +237,20 @@ async fn test_create_with_empty_relations() -> Result<(), ResponseError> {
 /// stores round-trip for each node type.
 ///
 /// Every graph node is projected to a `Resource` by `ResourceTransformer.fromNode`, so
-/// the persisted, readable set is the Resource-common one: `id`, `external_id`, `name`,
-/// `description`, `data_set_id`, `source`, `is_root`, `created_time`/`last_updated_time`,
-/// `labels`, and the unified `related_resources` (direction + `edge_id`). Type-specific
-/// fields (timeseries `value_type`/`unit`, etc.) are not in the graph node, and
-/// **`metadata` is not read back** — it is written to Neo4j as flattened `metadata_*`
-/// properties but `fromNode` never reassembles it (this test pins that behaviour).
+/// what a traversal says about the *edges*: that `related_resources` carries the relationship
+/// type, the direction from each end's own point of view, and one shared `edge_id` — plus the
+/// parts of a node's typed shape that are about the type rather than the projection.
+///
+/// Which fields the projection carries is no longer asserted here. That question is owned by
+/// [`graph_projection_is_one_to_one_and_typed`], which compares every key against the flat
+/// read instead of naming a few by hand — this test kept drifting as the projection grew
+/// (`value_type`, then `unit`/`unit_external_id`), asserting absence that had become presence.
 ///
 /// The write path is async (API -> Pulsar -> stateful consumer -> Neo4j), so the read is
 /// polled until the nodes propagate. Nodes are matched by `external_id` so unrelated or
 /// auto-provisioned nodes in the component don't affect the assertions.
 #[tokio::test]
-async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn std::error::Error>> {
+async fn graph_traversal_carries_edge_direction_and_typed_shape() -> Result<(), Box<dyn std::error::Error>> {
     use crate::datasets::Dataset;
     use crate::relations::{RelatedNode, RelationDirection};
     use crate::TimeSeries;
@@ -357,11 +359,6 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
         "createdTime should round-trip from Neo4j"
     );
     // metadata is NOT reassembled by fromNode — pin that projection gap.
-    assert!(
-        a.metadata.as_ref().map(|m| m.is_empty()).unwrap_or(true),
-        "metadata is not surfaced via the Neo4j graph path (written as metadata_* only): {:?}",
-        a.metadata
-    );
     // asset --MEASURES--> ts, so ts is an OUTBOUND relation carrying the edge id.
     let a_to_ts = a
         .related_resources
@@ -388,17 +385,6 @@ async fn neo4j_persists_expected_fields_per_node_type() -> Result<(), Box<dyn st
         t.source, None,
         "source is a resource-only field; null for timeseries"
     );
-    // The graph path is typed but sparse — Neo4j does not store these columns, so they are
-    // absent here even though the same node carries them on a flat read.
-    assert_eq!(
-        t.unit, None,
-        "unit is not projected into the graph; read the series flatly for it"
-    );
-    // The graph payload is the shared node fields and nothing else, so every type-specific
-    // field is *absent* rather than defaulted. `value_type` is the one that mattered: as a
-    // required field it made this very traversal a hard deserialization error.
-    assert_eq!(t.value_type, None);
-    assert_eq!(t.table_engine, None);
     assert_eq!(t.data_set_id, Some(ds_id));
     assert!(t
         .labels
@@ -711,4 +697,265 @@ fn resource_filter_form_omits_paging_until_it_is_asked_for() {
     .unwrap();
     assert_eq!(paged["sort"], serde_json::json!({"property": ["name"], "order": "desc"}));
     assert_eq!(paged["cursor"], "djF8bmFtZQ");
+}
+
+/// Every node type's graph projection, field for field against its flat read.
+///
+/// The invariant this pins is that a traversal is **1-1 and typed**: a node reached through
+/// `/resources/fetch-related` is the same variant as the flat read, carrying the same values.
+/// It is deliberately exhaustive rather than a list of hand-picked fields — both sides are
+/// serialized and every key is compared — so a column added server-side is covered here the
+/// day it lands, instead of the day someone remembers to assert on it.
+///
+/// Two exclusions, both genuine rather than concessions:
+/// - `relatedResources` is inverted by design (the graph fills it, flat reads answer `[]`).
+/// - `labels` is a set; the graph returns it in its own order, so it is compared as one.
+///
+/// This was written red and is now green. It found two real gaps when it went in, both since
+/// closed server-side: a timeseries lost `unit`/`unitExternalId` (`d70b57ad`, which also made
+/// `tableEngine` `@JsonIgnore` so no read returns it at all), and every node type lost its
+/// `metadata`, flattened onto the graph as `metadata_<key>` properties that nothing put back
+/// (`d37cb57b`). Both were read-side; the writer had been exhaustive throughout.
+///
+/// Two things it does *not* treat as gaps. `geoLocation` round-trips exactly for a Point — a
+/// stored Polygon still comes back as one, because the writer keeps only `pointOrNull` for
+/// distance queries. And a node last written before a given field was projected reports that
+/// field absent, which is why the typed shapes keep their `Option`s even now that the
+/// projection is complete.
+#[tokio::test]
+async fn graph_projection_is_one_to_one_and_typed() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::datasets::Dataset;
+    use crate::nodes::Policy;
+    use crate::TimeSeries;
+
+    let api = create_api_service();
+    let uid = Uuid::new_v4().simple().to_string();
+    let asset_ext = unique_id("gp_asset");
+    let ts_ext = unique_id("gp_ts");
+    let func_ext = unique_id("gp_fn");
+    let plain_ext = unique_id("gp_plain");
+    let dsnode_ext = unique_id("gp_dsnode");
+    let policy_ext = unique_id("gp_policy");
+
+    let dataset = Dataset::new(format!("GP DS {}", uid));
+    let ds_created = api.datasets.create(&dataset).await?;
+    let ds_id = ds_created
+        .get_items()
+        .first()
+        .and_then(|d| d.id)
+        .expect("dataset create should return an id");
+    let mut dataset_cleanup =
+        cleanup_datasets(vec![ds_created.get_items()[0].external_id().to_string()]);
+
+    // One node of every creatable type, each with every field its shape allows populated —
+    // an unset field cannot show a projection gap.
+    let mut asset = Resource::new();
+    asset.external_id = asset_ext.clone();
+    asset.name = "GP Asset".to_string();
+    asset.description = Some("asset description".to_string());
+    asset.source = Some("gp_source".to_string());
+    asset.is_root = true;
+    asset.data_set_id = Some(ds_id);
+    asset.metadata = Some(hashmap! {"vendor".to_string() => "acme".to_string()});
+    asset.labels = Some(vec!["ASSET".to_string()]);
+
+    let mut plain = Resource::new();
+    plain.external_id = plain_ext.clone();
+    plain.name = "GP Plain".to_string();
+    plain.description = Some("plain description".to_string());
+    plain.source = Some("gp_source".to_string());
+    plain.data_set_id = Some(ds_id);
+    plain.metadata = Some(hashmap! {"pk".to_string() => "pv".to_string()});
+    plain.labels = Some(vec!["TEST".to_string()]);
+
+    let mut dsnode = Dataset::new(format!("GP DS Node {}", uid));
+    dsnode.external_id = dsnode_ext.clone();
+    dsnode.description = Some("dsnode description".to_string());
+    dsnode.metadata = hashmap! {"dk".to_string() => "dv".to_string()};
+
+    let mut policy = Policy::new(&policy_ext, "GP Policy");
+    policy.description = Some("policy description".to_string());
+    policy.policy_type = Some("IS_WRITE_PROTECTED".to_string());
+    policy.source = Some("gp_source".to_string());
+    policy.metadata = Some(hashmap! {"yk".to_string() => "yv".to_string()});
+
+    api.resources
+        .create(
+            vec![
+                Node::Asset({
+                    let mut a = crate::nodes::Asset::new(&asset_ext, "GP Asset");
+                    a.description = asset.description.clone();
+                    a.source = asset.source.clone();
+                    a.is_root = true;
+                    a.data_set_id = Some(ds_id);
+                    a.metadata = asset.metadata.clone();
+                    a.labels = Some(vec!["ASSET".to_string()]);
+                    a.geolocation = None;
+                    a
+                }),
+                Node::Resource(plain.clone()),
+                Node::Dataset(dsnode.clone()),
+                Node::Policy(policy.clone()),
+            ],
+            vec![],
+        )
+        .await?;
+    let mut resource_cleanup = cleanup_resources(vec![
+        asset_ext.clone(),
+        plain_ext.clone(),
+        dsnode_ext.clone(),
+        policy_ext.clone(),
+    ]);
+
+    let mut ts = TimeSeries::new(&ts_ext, "GP TS");
+    ts.set_unit("deg C")
+        .set_unit_external_id("celsius")
+        .set_description("ts description")
+        .set_data_set_id(ds_id)
+        .set_metadata(hashmap! {"tk".to_string() => "tv".to_string()});
+    api.time_series.create_one(&ts).await?;
+    let mut ts_cleanup = cleanup_timeseries(vec![ts_ext.clone()]);
+
+    let mut func =
+        crate::functions::Function::new(func_ext.clone()).with_name("GP Fn".to_string());
+    func.description = Some("fn description".to_string());
+    func.source = Some("gp_source".to_string());
+    func.data_set_id = Some(ds_id);
+    func.metadata = hashmap! {"fk".to_string() => "fv".to_string()};
+    api.functions.create(&func).await?;
+    let mut func_cleanup = cleanup_functions(vec![func_ext.clone()]);
+
+    let kinds = [
+        (&asset_ext, NodeType::Asset),
+        (&ts_ext, NodeType::TimeSeries),
+        (&func_ext, NodeType::Function),
+        (&plain_ext, NodeType::Resource),
+        (&dsnode_ext, NodeType::Dataset),
+        (&policy_ext, NodeType::Policy),
+    ];
+
+    // Traversing from each node in turn rather than from one hub: an edge to a data set must be
+    // BELONGS_TO and one to a policy is refused outright, so a single hub cannot reach all six.
+    // A node with no edges still comes back as the sole member of its own component.
+    let mut graph: std::collections::HashMap<String, Node> = std::collections::HashMap::new();
+    for (ext, _) in kinds.iter() {
+        let form = RelatedResourcesForm::from_external_id(ext).with_depth(-1);
+        let net = poll_until(
+            || async { api.resources.fetch_related(&form).await.unwrap_or_default() },
+            |net: &ResourceNetwork| net.nodes().iter().any(|n| n.external_id() == ext.as_str()),
+        )
+        .await;
+        let node = net
+            .nodes()
+            .iter()
+            .find(|n| n.external_id() == ext.as_str())
+            .expect("polled until present")
+            .clone();
+        graph.insert((*ext).clone(), node);
+    }
+
+    let flat_wrapper = api
+        .resources
+        .by_ids(
+            &kinds
+                .iter()
+                .map(|(e, _)| IdAndExtId::from_external_id(e))
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+    let flat: std::collections::HashMap<String, Node> = flat_wrapper
+        .nodes
+        .unwrap_or_default()
+        .into_iter()
+        .map(|n| (n.external_id().to_string(), n))
+        .collect();
+
+    // `related_resources` is inverted by design; `labels` is a set the graph may reorder.
+    const INVERTED: &[&str] = &["relatedResources"];
+    let mut problems: Vec<String> = Vec::new();
+
+    for (ext, want_kind) in kinds.iter() {
+        let f = flat
+            .get(*ext)
+            .unwrap_or_else(|| panic!("{ext} missing from the flat read"));
+        let g = graph.get(*ext).expect("collected above");
+
+        if g.kind() != *want_kind {
+            problems.push(format!(
+                "{ext}: graph typed it {:?}, flat read is {:?}",
+                g.kind(),
+                want_kind
+            ));
+            continue;
+        }
+        if f.kind() != *want_kind {
+            problems.push(format!("{ext}: flat read typed it {:?}", f.kind()));
+        }
+
+        let fv = serde_json::to_value(f)?;
+        let gv = serde_json::to_value(g)?;
+        let (fo, go) = (
+            fv.as_object().expect("node is an object"),
+            gv.as_object().expect("node is an object"),
+        );
+
+        for (key, want) in fo.iter() {
+            if INVERTED.contains(&key.as_str()) {
+                continue;
+            }
+            if key == "labels" {
+                let set = |v: Option<&serde_json::Value>| -> std::collections::BTreeSet<String> {
+                    v.and_then(|v| v.as_array())
+                        .map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect())
+                        .unwrap_or_default()
+                };
+                if set(Some(want)) != set(go.get(key)) {
+                    problems.push(format!(
+                        "{ext}: labels differ — flat {:?}, graph {:?}",
+                        set(Some(want)),
+                        set(go.get(key))
+                    ));
+                }
+                continue;
+            }
+            match go.get(key) {
+                None => problems.push(format!(
+                    "{ext}: graph is missing `{key}` (flat has {want})"
+                )),
+                Some(got) if got != want => problems.push(format!(
+                    "{ext}: `{key}` differs — flat {want}, graph {got}"
+                )),
+                Some(_) => {}
+            }
+        }
+    }
+
+    api.resources
+        .delete(&vec![
+            IdAndExtId::from_external_id(&asset_ext),
+            IdAndExtId::from_external_id(&plain_ext),
+            IdAndExtId::from_external_id(&dsnode_ext),
+            IdAndExtId::from_external_id(&policy_ext),
+            IdAndExtId::from_external_id(&ts_ext),
+            IdAndExtId::from_external_id(&func_ext),
+        ])
+        .await
+        .ok();
+    api.datasets
+        .delete(&vec![IdAndExtId::from_external_id(
+            ds_created.get_items()[0].external_id(),
+        )])
+        .await
+        .ok();
+    resource_cleanup.disarm();
+    ts_cleanup.disarm();
+    func_cleanup.disarm();
+    dataset_cleanup.disarm();
+
+    assert!(
+        problems.is_empty(),
+        "the graph projection is not 1-1 with the flat read:\n  {}",
+        problems.join("\n  ")
+    );
+    Ok(())
 }
