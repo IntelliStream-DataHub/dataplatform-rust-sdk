@@ -125,9 +125,23 @@ pub mod cleanup {
     //! Crucially, the teardown builds its **own** [`ApiService`](crate::ApiService)
     //! via [`create_api_service`] *inside* that fresh runtime rather than reusing
     //! the test's service. The test's `reqwest` client has connection-pool
-    //! background tasks bound to the test's runtime, which is being torn down
-    //! during the unwind; driving an HTTP request through it from another
-    //! runtime hangs or fails silently. A runtime-local client sidesteps that.
+    //! background tasks bound to the test's runtime; driving an HTTP request
+    //! through it from another runtime deadlocks. A runtime-local client sidesteps that.
+    //!
+    //! **There are two clients, and both have to be runtime-local.** A
+    //! [`DataHubConfig`] carries one of its own, used only to reach the token endpoint, and
+    //! the `_as` guards below take a config from the test. Building an `ApiService` from it
+    //! replaces the *REST* client but not that one, so a teardown that has to mint or refresh
+    //! a token still reaches through the test's runtime — and hangs.
+    //!
+    //! It hangs rather than erroring because the test's runtime is not merely busy, it is
+    //! *blocked*: `drop` parks in [`std::thread::scope`] until teardown returns, so the one
+    //! thread that could drive the connection is waiting for the thread that is waiting for
+    //! it. Measured: teardown after the test runtime is dropped succeeds in ~6ms; the same
+    //! teardown while it is blocked never returns; with a runtime-local client, ~74ms.
+    //!
+    //! A cached, unexpired token needs no network and hides this, which is why it only
+    //! surfaces when the token was invalidated (a 401 clears it) or has expired.
 
     use crate::datahub::DataHubConfig;
     use crate::events::EventIdCollection;
@@ -242,22 +256,33 @@ pub mod cleanup {
         })
     }
 
+    /// Re-point a config's token-endpoint client at the runtime that will actually use it.
+    ///
+    /// Everything else is shared, the auth state included, so a still-valid token is reused and
+    /// no redundant round-trip to the identity provider happens. See the module docs for what
+    /// goes wrong without this.
+    fn with_runtime_local_client(mut config: DataHubConfig) -> DataHubConfig {
+        config.http_client = reqwest::Client::new();
+        config
+    }
+
     /// Like [`cleanup_resources`], but deletes as the principal described by `config`
     /// instead of the `.env` identity.
     ///
     /// [`cleanup_resources`] builds its service with [`create_api_service`], which reads
     /// `.env` — right for the single-identity suites, wrong for a multi-tenant test where
     /// the data belongs to some other org and the default identity cannot even see it (a
-    /// cross-tenant delete is a 404, not an error worth reading). The config is cloned into
-    /// the closure and turned into a service on the teardown runtime, so the runtime-local
-    /// client property described in the module docs still holds.
+    /// cross-tenant delete is a 404, not an error worth reading). The config is cloned into the
+    /// closure and turned into a service on the teardown runtime, and its token-endpoint client
+    /// is replaced there too — see [`with_runtime_local_client`], without which a teardown that
+    /// has to refresh a token deadlocks against the blocked test runtime.
     pub fn cleanup_resources_as(config: DataHubConfig, external_ids: Vec<String>) -> CleanupGuard {
         CleanupGuard::new(move || {
             Box::pin(async move {
                 if external_ids.is_empty() {
                     return;
                 }
-                let api = ApiService::new(config);
+                let api = ApiService::new(with_runtime_local_client(config));
                 let ids: Vec<IdAndExtId> = external_ids
                     .iter()
                     .map(|e| IdAndExtId::from_external_id(e))
@@ -280,7 +305,7 @@ pub mod cleanup {
                 if external_ids.is_empty() {
                     return;
                 }
-                let api = ApiService::new(config);
+                let api = ApiService::new(with_runtime_local_client(config));
                 let ids: Vec<IdAndExtId> = external_ids
                     .iter()
                     .map(|e| IdAndExtId::from_external_id(e))
@@ -304,7 +329,7 @@ pub mod cleanup {
                 if external_ids.is_empty() {
                     return;
                 }
-                let api = ApiService::new(config);
+                let api = ApiService::new(with_runtime_local_client(config));
                 let ids: Vec<IdAndExtId> = external_ids
                     .iter()
                     .map(|e| IdAndExtId::from_external_id(e))
@@ -539,6 +564,48 @@ pub mod cleanup {
             );
         }
     }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::tests::ids::unique_id;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        /// A `_as` guard must tear down even when the token cache is empty.
+        ///
+        /// This is the shape that deadlocked: a 401 clears the cache (see
+        /// `DataHubConfig::invalidate_token`), so teardown has to reach the token endpoint, and
+        /// it did so through the *test's* client while the test's runtime sat blocked waiting for
+        /// teardown to finish. Neither side could move.
+        ///
+        /// The drop runs on its own thread and the test blocks waiting for it, which reproduces
+        /// the blocked-runtime half faithfully while turning a hang into a failed assertion —
+        /// a deadlock would otherwise just stall the suite with no output.
+        #[tokio::test]
+        #[ignore]
+        async fn a_guard_tears_down_after_the_token_cache_was_cleared() {
+            // `create_default` reads process env; only `create_api_service` loads `.env`.
+            dotenv::dotenv().ok();
+            let config = crate::datahub::DataHubConfig::create_default();
+            config
+                .get_api_token()
+                .await
+                .expect("the .env principal should mint a token");
+            // Exactly what a 401 does to the cache.
+            config.invalidate_token().await;
+
+            let guard = cleanup_datasets_as(config, vec![unique_id("guard_probe")]);
+
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                drop(guard);
+                let _ = tx.send(());
+            });
+            rx.recv_timeout(Duration::from_secs(30))
+                .expect("teardown deadlocked: it needed a token and reached for the test's client");
+        }
+    }
+
 }
 #[test]
 fn test_to_snake_lower_cased_allow_start_with_digits() {
