@@ -341,6 +341,25 @@ def test_dataset_management_requires_a_blanket_write_grant(env):
     assert "manage" in excinfo.value.message or "all-datasets" in excinfo.value.message
 
 
+def test_a_dataset_node_via_resources_needs_the_blanket_write_grant(env):
+    """The same rule, reached by type-label through ``resources.create``.
+
+    Worth a Python test of its own where the ``/datasets`` one is barely worth keeping: this is a
+    *different* server-side check, and it arrives through a different binding path — the typed
+    node union that ``resources.create`` accepts. What is asserted here is that a 403 from that
+    path still surfaces as a typed ``DataHubException`` carrying ``status_code``, rather than
+    whatever a conversion failure in the union would raise.
+    """
+    writer = client_for(env, "MT_WRITEONLY")
+
+    external_id = unique_id("mt_acl_res_ds")
+    with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
+        writer.resources.create([
+            intellistream_datahub_sdk.Dataset(external_id=external_id, name=external_id)
+        ])
+    assert excinfo.value.status_code == 403
+
+
 def test_search_omits_denied_rows_rather_than_raising(env, acl_dataset_id):
     """A denied search is 200-with-nothing, not 403.
 
