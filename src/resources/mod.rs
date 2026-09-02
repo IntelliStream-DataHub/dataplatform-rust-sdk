@@ -9,6 +9,7 @@ use crate::generic::{
     SearchAndFilterForm,
 };
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
+use crate::nodes::Node;
 use crate::http::{process_response, ResponseError};
 use crate::relations::{EdgeProxy, RelForm, RelatedNode};
 use crate::ApiService;
@@ -36,29 +37,52 @@ impl ResourceService {
         }
     }
 
-    /// Create resources, optionally with relations between them. Mirrors Java's
-    /// `POST /resources/create` body shape `GraphDataWrapper<Resource, RelForm>`;
-    /// the response is the graph in its post-create form, with each relation
-    /// returned as an `EdgeProxy` carrying the server-assigned id. Pass an
-    /// empty `Vec` for `relations` to create nodes only.
-    pub async fn create(
+    /// Create nodes of any type, optionally with relations between them
+    /// (`POST /resources/create`). The response is the graph in its post-create form: each node
+    /// typed, with `related_resources` populated from the relations created in the same call, and
+    /// each relation returned as an `EdgeProxy` carrying the server-assigned id. Pass an empty
+    /// `Vec` for `relations` to create nodes only.
+    ///
+    /// Each node is dispatched server-side by its own type-label, so
+    /// `create(vec![Dataset::new(..)], vec![])` builds a data set and
+    /// `create(vec![Asset::new(..)], vec![])` an asset. A bare [`Resource`] with the label set by
+    /// hand works the same way. Every node type is creatable here, timeseries included — datapoint
+    /// ingestion stays on `/timeseries`.
+    ///
+    /// Two server-side behaviours worth knowing:
+    ///
+    /// - **`DATASET` and `POLICY` nodes need the all-datasets manage grant**, and are a 403
+    ///   without it.
+    /// - **`data_set_id` is silently dropped on those two types.** A data set or policy that
+    ///   belonged to a data set would orphan its own ACL grant, so the api refuses to set it
+    ///   rather than erroring.
+    ///
+    /// Note also that a duplicate `external_id` surfaces here as a constraint violation rather
+    /// than the clean 409 `/timeseries/create` answers with — a known asymmetry in the api.
+    pub async fn create<N: Into<Node>>(
         &self,
-        nodes: Vec<Resource>,
+        nodes: Vec<N>,
         relations: Vec<RelForm>,
-    ) -> Result<GraphDataWrapper<Resource>, ResponseError> {
-        let payload: GraphDataWrapper<Resource, RelForm> =
+    ) -> Result<GraphDataWrapper<Node>, ResponseError> {
+        let nodes: Vec<Node> = nodes.into_iter().map(Into::into).collect();
+        let payload: GraphDataWrapper<Node, RelForm> =
             GraphDataWrapper::with_relations(nodes, relations);
         let url = &format!("{}/create", self.base_url);
-        self.execute_post_request::<GraphDataWrapper<Resource>, _>(&url, &payload)
+        self.execute_post_request::<GraphDataWrapper<Node>, _>(&url, &payload)
             .await
     }
-    pub async fn by_ids<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
+    /// Look nodes up by id or external id (`POST /resources/byids`). Like every batch lookup,
+    /// this answers 200 with the found subset and silently omits what is missing.
+    ///
+    /// Each node comes back as its own type. `related_resources` is empty on this path — the api
+    /// does not join the edges in for a flat read.
+    pub async fn by_ids<I>(&self, input: &I) -> Result<GraphDataWrapper<Node>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
     {
         let payload = input.into();
         let url = &format!("{}/byids", self.base_url);
-        self.execute_post_request::<GraphDataWrapper<Resource>, _>(&url, &payload)
+        self.execute_post_request::<GraphDataWrapper<Node>, _>(&url, &payload)
             .await
     }
 
@@ -75,9 +99,9 @@ impl ResourceService {
     pub async fn search(
         &self,
         payload: &SearchAndFilterForm<ResourceFilter>,
-    ) -> Result<DataWrapper<Resource>, ResponseError> {
+    ) -> Result<DataWrapper<Node>, ResponseError> {
         let url = &format!("{}/search", self.base_url);
-        self.execute_post_request::<DataWrapper<Resource>, _>(&url, &payload)
+        self.execute_post_request::<DataWrapper<Node>, _>(&url, &payload)
             .await
     }
 
@@ -97,10 +121,17 @@ impl ResourceService {
         self.execute_post_request::<ResourceNetwork, _>(&url, &form)
             .await
     }
-    /// Update resources in place (`POST /resources/update`). Each [`ResourceUpdate`] targets one
-    /// resource by id or external id and carries only the fields to change (PATCH semantics). The
-    /// server returns the resources after the update, so the returned `labels` reflect what the
-    /// backend actually stored — including the intrinsic type-label it always forces back.
+    /// Update nodes in place (`POST /resources/update`). Each [`ResourceUpdate`] targets one node
+    /// by id or external id and carries only the fields to change (PATCH semantics). Every field
+    /// it can set is a shared node field, so one update form covers all six node types — except
+    /// `geolocation`, which only an asset stores.
+    ///
+    /// **The echo is flat.** Unlike every read on this service, the api answers here with each
+    /// node serialized as a plain [`Resource`], whatever its type — so a timeseries updated
+    /// through this endpoint comes back without its `unit`, though the same node reads back as a
+    /// [`Node::TimeSeries`] from [`get_by_id`](Self::get_by_id). Re-read the node if you need its
+    /// typed form. The returned `labels` do reflect what the backend stored, including the
+    /// intrinsic type-label it always forces back.
     pub async fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
     where
         for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
@@ -119,9 +150,9 @@ impl ResourceService {
     ///
     /// Unlike [`by_ids`](Self::by_ids), which omits what it cannot find, this is a 404 when the
     /// resource does not exist.
-    pub async fn get_by_id(&self, id: u64) -> Result<DataWrapper<Resource>, ResponseError> {
+    pub async fn get_by_id(&self, id: u64) -> Result<DataWrapper<Node>, ResponseError> {
         let url = &format!("{}/{}", self.base_url, id);
-        self.execute_get_request::<DataWrapper<Resource>, ()>(url, None)
+        self.execute_get_request::<DataWrapper<Node>, ()>(url, None)
             .await
     }
 
@@ -133,9 +164,9 @@ impl ResourceService {
     pub async fn filter(
         &self,
         form: &ResourceFilterForm,
-    ) -> Result<DataWrapper<Resource>, ResponseError> {
+    ) -> Result<DataWrapper<Node>, ResponseError> {
         let url = &format!("{}/filter", self.base_url);
-        self.execute_post_request::<DataWrapper<Resource>, _>(url, form)
+        self.execute_post_request::<DataWrapper<Node>, _>(url, form)
             .await
     }
 
@@ -182,6 +213,10 @@ pub struct Resource {
     /// `{"type":"Point","coordinates":[10.75,59.91]}`. Build one with
     /// [`geojson::Geometry::new_point`] and friends (re-exported as
     /// [`crate::Geometry`]).
+    ///
+    /// **Write-only on a plain resource.** The api accepts it on create/update but never echoes
+    /// it back on a `Resource`, so this is always `None` on a read. A node created with the
+    /// `ASSET` type-label comes back as [`crate::nodes::Asset`], which does carry it.
     #[serde(rename = "geoLocation", skip_serializing_if = "Option::is_none")]
     pub geolocation: Option<geojson::Geometry>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -405,7 +440,7 @@ pub struct Label {
 #[serde(rename_all = "camelCase")]
 pub struct ResourceNetwork {
     #[serde(default)]
-    pub nodes: Vec<Resource>,
+    pub nodes: Vec<Node>,
     #[serde(default)]
     pub edges: Vec<EdgeProxy>,
     #[serde(default)]
@@ -413,7 +448,7 @@ pub struct ResourceNetwork {
 }
 
 impl ResourceNetwork {
-    pub fn nodes(&self) -> &Vec<Resource> {
+    pub fn nodes(&self) -> &Vec<Node> {
         &self.nodes
     }
     pub fn edges(&self) -> &Vec<EdgeProxy> {

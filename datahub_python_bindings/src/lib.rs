@@ -3,6 +3,7 @@ mod datetime;
 mod events;
 mod files;
 mod labels;
+mod nodes;
 mod relations;
 mod resources;
 mod subscriptions;
@@ -1232,5 +1233,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     subscriptions::register(m)?;
     functions::register(m)?;
     relations::register(m)?;
+    nodes::register(m)?;
     Ok(())
 }

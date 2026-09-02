@@ -18,7 +18,7 @@ use std::sync::Arc;
 pub mod async_service;
 pub mod sync_service;
 
-#[pyclass(module = "intellistream_datahub_sdk", name = "Function")]
+#[pyclass(module = "intellistream_datahub_sdk", name = "Function", from_py_object)]
 #[derive(Clone)]
 pub struct PyFunction {
     pub inner: Function,
@@ -99,6 +99,40 @@ impl PyFunction {
     #[getter]
     fn labels(&self) -> Vec<String> {
         self.inner.labels.clone()
+    }
+
+    /// Always `"function"`. Present on every node class so data-driven code can dispatch without
+    /// an `isinstance` ladder.
+    #[getter]
+    fn node_type(&self) -> &'static str {
+        crate::nodes::node_type_name(intellistream_datahub_sdk::nodes::NodeType::Function)
+    }
+
+    #[getter]
+    fn description(&self) -> Option<&str> {
+        self.inner.description.as_deref()
+    }
+    #[setter]
+    fn set_description(&mut self, value: Option<String>) {
+        self.inner.description = value;
+    }
+
+    #[getter]
+    fn source(&self) -> Option<&str> {
+        self.inner.source.as_deref()
+    }
+    #[setter]
+    fn set_source(&mut self, value: Option<String>) {
+        self.inner.source = value;
+    }
+
+    #[getter]
+    fn data_set_id(&self) -> Option<u64> {
+        self.inner.data_set_id
+    }
+    #[setter]
+    fn set_data_set_id(&mut self, value: Option<u64>) {
+        self.inner.data_set_id = value;
     }
 
     #[getter]

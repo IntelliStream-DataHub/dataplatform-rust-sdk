@@ -12,6 +12,12 @@ from typing import Any, Iterable, Iterator, Mapping, Optional, Sequence, Union
 from uuid import UUID
 
 
+# One node of any type, as the /resources endpoints return them. Which class you get is decided
+# by the node's own intrinsic type-label, so `isinstance(n, TimeSeries)` works and every object
+# is the same class its own endpoint would hand back. `n.node_type` gives the name as a string
+# when dispatching from data rather than by branching.
+Node = Union["Asset", "TimeSeries", "Function", "Resource", "Dataset", "Policy"]
+
 # Convenience alias: every entity-like input accepts either the entity itself,
 # an IdCollection wrapper, a numeric id, or an external_id string.
 Identifiable = Union["TimeSeries", "Resource", "Unit", "Event", "IdCollection", int, str]
@@ -342,6 +348,20 @@ class TimeSeries:
         related_resources: list[RelatedNode] | None = None,
         source: str | None = None,
     ) -> None: ...
+    @property
+    def node_type(self) -> str:
+        """This node's type as a string ("asset", "timeseries", "function", "resource",
+        "dataset", "policy"). Present on every node class, for dispatching from data rather
+        than with an isinstance ladder."""
+    @property
+    def labels(self) -> list[str] | None:
+        """Always includes the intrinsic "TIMESERIES" type-label."""
+    @labels.setter
+    def labels(self, value: list[str] | None) -> None: ...
+    @property
+    def table_engine(self) -> str | None:
+        """The ClickHouse table engine. On a series reached through `neighbors()` this is the
+        API's default rather than data — re-read the series by id for the real value."""
     @property
     def id(self) -> int | None: ...
     @property
@@ -753,8 +773,8 @@ class Event:
     @property
     def last_updated_time(self) -> datetime.datetime | None: ...
     # --- navigation (only on events returned by the API; raises otherwise) ---
-    def related_resource_nodes(self) -> list[Resource]: ...
-    async def related_resource_nodes_async(self) -> list[Resource]: ...
+    def related_resource_nodes(self) -> list[Node]: ...
+    async def related_resource_nodes_async(self) -> list[Node]: ...
 
 
 class TimeFilter:
@@ -975,6 +995,22 @@ class Dataset:
         connected_data_sets: list[int] | None = None,
     ) -> None: ...
     @property
+    def node_type(self) -> str:
+        """This node's type as a string ("asset", "timeseries", "function", "resource",
+        "dataset", "policy"). Present on every node class, for dispatching from data rather
+        than with an isinstance ladder."""
+    @property
+    def labels(self) -> list[str] | None:
+        """Always includes the intrinsic "DATASET" type-label."""
+    @labels.setter
+    def labels(self, value: list[str] | None) -> None: ...
+    @property
+    def source(self) -> str | None: ...
+    @source.setter
+    def source(self, value: str | None) -> None: ...
+    @property
+    def related_resources(self) -> list[RelatedNode]: ...
+    @property
     def external_id(self) -> str: ...
     @external_id.setter
     def external_id(self, value: str) -> None: ...
@@ -1175,6 +1211,11 @@ class Resource:
         geolocation: dict[str, Any] | None = None,
     ) -> None: ...
     @property
+    def node_type(self) -> str:
+        """This node's type as a string ("asset", "timeseries", "function", "resource",
+        "dataset", "policy"). Present on every node class, for dispatching from data rather
+        than with an isinstance ladder."""
+    @property
     def name(self) -> str: ...
     @name.setter
     def name(self, value: str) -> None: ...
@@ -1239,12 +1280,198 @@ class Resource:
     async def related_events_async(self, limit: int = 100) -> list[Event]: ...
 
 
+class Asset:
+    """A resource that carries a geographic location.
+
+    Assets and plain resources share a field set; the API tells them apart by the intrinsic
+    "ASSET" type-label, and only an asset ever has its `geolocation` echoed back on a read.
+    """
+
+    def __init__(
+        self,
+        name: str | None = None,
+        external_id: str | None = None,
+        id: int | None = None,
+        metadata: dict[str, str] | None = None,
+        description: str | None = None,
+        is_root: bool = False,
+        data_set_id: int | None = None,
+        source: str | None = None,
+        labels: list[str] | None = None,
+        related_resources: list[RelatedNode] | None = None,
+        geolocation: dict[str, Any] | None = None,
+    ) -> None: ...
+    @property
+    def node_type(self) -> str:
+        """Always "asset"."""
+    @property
+    def name(self) -> str: ...
+    @name.setter
+    def name(self, value: str) -> None: ...
+    @property
+    def external_id(self) -> str: ...
+    @external_id.setter
+    def external_id(self, value: str) -> None: ...
+    @property
+    def id(self) -> int | None: ...
+    @id.setter
+    def id(self, value: int | None) -> None: ...
+    @property
+    def metadata(self) -> dict[str, str] | None: ...
+    @metadata.setter
+    def metadata(self, value: dict[str, str] | None) -> None: ...
+    @property
+    def description(self) -> str | None: ...
+    @description.setter
+    def description(self, value: str | None) -> None: ...
+    @property
+    def is_root(self) -> bool: ...
+    @is_root.setter
+    def is_root(self, value: bool) -> None: ...
+    @property
+    def data_set_id(self) -> int | None: ...
+    @data_set_id.setter
+    def data_set_id(self, value: int | None) -> None: ...
+    @property
+    def source(self) -> str | None: ...
+    @source.setter
+    def source(self, value: str | None) -> None: ...
+    @property
+    def labels(self) -> list[str] | None: ...
+    @labels.setter
+    def labels(self, value: list[str] | None) -> None: ...
+    @property
+    def related_resources(self) -> list[RelatedNode]: ...
+    @related_resources.setter
+    def related_resources(self, value: list[RelatedNode] | None) -> None: ...
+    @property
+    def geolocation(self) -> dict[str, Any] | None:
+        """GeoJSON geometry. On an asset reached through `neighbors()` this is rebuilt from the
+        graph's native point and is lossy for anything that is not a Point — read the asset by
+        id when the geometry matters."""
+    @geolocation.setter
+    def geolocation(self, value: dict[str, Any] | None) -> None: ...
+    @property
+    def created_time(self) -> datetime.datetime | None: ...
+    @property
+    def last_updated_time(self) -> datetime.datetime | None: ...
+    # --- navigation (only on assets returned by the API; raises otherwise) ---
+    def neighbors(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    async def neighbors_async(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    def related_events(self, limit: int = 100) -> list[Event]: ...
+    async def related_events_async(self, limit: int = 100) -> list[Event]: ...
+
+
+class Policy:
+    """An access policy, as a node.
+
+    Sparse on every read: the API never sends a policy's `value`, `template_id` or
+    `data_set_id` back, so those are always None on an object that came from the server.
+    """
+
+    def __init__(
+        self,
+        name: str | None = None,
+        external_id: str | None = None,
+        id: int | None = None,
+        type: str | None = None,
+        value: Any | None = None,
+        deactivated: bool | None = None,
+        template_id: int | None = None,
+        metadata: dict[str, str] | None = None,
+        description: str | None = None,
+        data_set_id: int | None = None,
+        source: str | None = None,
+        labels: list[str] | None = None,
+    ) -> None: ...
+    @property
+    def node_type(self) -> str:
+        """Always "policy"."""
+    @property
+    def name(self) -> str: ...
+    @name.setter
+    def name(self, value: str) -> None: ...
+    @property
+    def external_id(self) -> str: ...
+    @external_id.setter
+    def external_id(self, value: str) -> None: ...
+    @property
+    def id(self) -> int | None: ...
+    @id.setter
+    def id(self, value: int | None) -> None: ...
+    @property
+    def type(self) -> str | None:
+        """The policy kind, e.g. "IS_WRITE_PROTECTED"."""
+    @type.setter
+    def type(self, value: str | None) -> None: ...
+    @property
+    def value(self) -> Any | None:
+        """Never populated on a read — the API does not send it back."""
+    @property
+    def deactivated(self) -> bool | None: ...
+    @deactivated.setter
+    def deactivated(self, value: bool | None) -> None: ...
+    @property
+    def template_id(self) -> int | None:
+        """Never populated on a read."""
+    @property
+    def metadata(self) -> dict[str, str] | None: ...
+    @metadata.setter
+    def metadata(self, value: dict[str, str] | None) -> None: ...
+    @property
+    def description(self) -> str | None: ...
+    @description.setter
+    def description(self, value: str | None) -> None: ...
+    @property
+    def data_set_id(self) -> int | None:
+        """Never populated on a read."""
+    @property
+    def source(self) -> str | None: ...
+    @source.setter
+    def source(self, value: str | None) -> None: ...
+    @property
+    def labels(self) -> list[str] | None: ...
+    @labels.setter
+    def labels(self, value: list[str] | None) -> None: ...
+    @property
+    def related_resources(self) -> list[RelatedNode]: ...
+    @property
+    def created_time(self) -> datetime.datetime | None: ...
+    @property
+    def last_updated_time(self) -> datetime.datetime | None: ...
+    # --- navigation (only on policies returned by the API; raises otherwise) ---
+    def neighbors(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    async def neighbors_async(
+        self,
+        depth: int = -1,
+        relationship_types: list[str] | None = None,
+        limit: int = 5000,
+    ) -> ResourceNetwork: ...
+    def related_events(self, limit: int = 100) -> list[Event]: ...
+    async def related_events_async(self, limit: int = 100) -> list[Event]: ...
+
+
 class ResourceNetwork:
     """Connected sub-graph returned by `Resource.neighbors` (and the timeseries/dataset/
     function equivalents): the reachable `nodes`, the `edges` between them, and their
     `labels`."""
     @property
-    def nodes(self) -> list[Resource]: ...
+    def nodes(self) -> list[Node]: ...
     @property
     def edges(self) -> list[EdgeProxy]: ...
     @property
@@ -1333,12 +1560,14 @@ class RelForm:
 class GraphResult:
     """Nodes and relations returned from a graph operation."""
     @property
-    def nodes(self) -> list[Resource]: ...
+    def nodes(self) -> list[Node]: ...
     @property
     def relations(self) -> list[EdgeProxy]: ...
 
 
-ResourceIdentifiable = Union[Resource, str, int]
+# Any node object, an external id, or a numeric id. Takes every node class, not just Resource,
+# because /resources spans them all — a Dataset from filter() can be handed straight to delete().
+ResourceIdentifiable = Union["Node", str, int]
 
 
 class ResourceUpdate:
@@ -1391,16 +1620,16 @@ class ResourceFilter:
 
 class ResourcesServiceSync:
     def create(
-        self, nodes: list[Resource], relations: list[RelForm] | None = None
+        self, nodes: list[Node], relations: list[RelForm] | None = None
     ) -> GraphResult: ...
-    def by_ids(self, input: list[ResourceIdentifiable]) -> list[Resource]: ...
+    def by_ids(self, input: list[ResourceIdentifiable]) -> list[Node]: ...
     def delete(self, input: list[ResourceIdentifiable]) -> None: ...
     def search(
         self,
         query: str,
         filter: ResourceFilter | None = None,
         limit: int | None = None,
-    ) -> list[Resource]:
+    ) -> list[Node]:
         """Free-text search for ``query``, ranked by relevance.
 
         ``filter`` takes the same criteria as ``filter()`` and only ever removes hits from the
@@ -1409,7 +1638,7 @@ class ResourcesServiceSync:
         which is easy to conflate.
         """
     def update(self, input: list[ResourceUpdate]) -> GraphResult: ...
-    def get_by_id(self, id: int) -> Resource | None: ...
+    def get_by_id(self, id: int) -> Node | None: ...
     def filter(
         self,
         filter: ResourceFilter | None = None,
@@ -1445,18 +1674,18 @@ class ResourcesServiceSync:
 
 class ResourcesServiceAsync:
     async def create(
-        self, nodes: list[Resource], relations: list[RelForm] | None = None
+        self, nodes: list[Node], relations: list[RelForm] | None = None
     ) -> GraphResult: ...
-    async def by_ids(self, input: list[ResourceIdentifiable]) -> list[Resource]: ...
+    async def by_ids(self, input: list[ResourceIdentifiable]) -> list[Node]: ...
     async def delete(self, input: list[ResourceIdentifiable]) -> None: ...
     async def search(
         self,
         query: str,
         filter: ResourceFilter | None = None,
         limit: int | None = None,
-    ) -> list[Resource]: ...
+    ) -> list[Node]: ...
     async def update(self, input: list[ResourceUpdate]) -> GraphResult: ...
-    async def get_by_id(self, id: int) -> Resource | None: ...
+    async def get_by_id(self, id: int) -> Node | None: ...
     async def filter(
         self,
         filter: ResourceFilter | None = None,
@@ -1677,8 +1906,8 @@ class INode:
     def security_categories(self) -> list[int] | None: ...
     # --- navigation (only on inodes returned by the API; raises otherwise) ---
     # `related_resources` (above) returns the raw ids; these resolve them to Resource objects.
-    def related_resource_nodes(self) -> list[Resource]: ...
-    async def related_resource_nodes_async(self) -> list[Resource]: ...
+    def related_resource_nodes(self) -> list[Node]: ...
+    async def related_resource_nodes_async(self) -> list[Node]: ...
 
 
 class FileUpload:
@@ -1970,9 +2199,26 @@ class Function:
     @property
     def name(self) -> str | None: ...
     @property
+    def node_type(self) -> str:
+        """This node's type as a string ("asset", "timeseries", "function", "resource",
+        "dataset", "policy"). Present on every node class, for dispatching from data rather
+        than with an isinstance ladder."""
+    @property
     def labels(self) -> list[str]: ...
     @property
     def metadata(self) -> dict[str, str]: ...
+    @property
+    def description(self) -> str | None: ...
+    @description.setter
+    def description(self, value: str | None) -> None: ...
+    @property
+    def source(self) -> str | None: ...
+    @source.setter
+    def source(self, value: str | None) -> None: ...
+    @property
+    def data_set_id(self) -> int | None: ...
+    @data_set_id.setter
+    def data_set_id(self, value: int | None) -> None: ...
     @property
     def created_time(self) -> datetime.datetime | None: ...
     @property

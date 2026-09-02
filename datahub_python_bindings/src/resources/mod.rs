@@ -22,6 +22,26 @@ fn geometry_from_py(obj: Bound<'_, PyAny>) -> PyResult<Geometry> {
     depythonize(&obj).map_err(|e| PyValueError::new_err(format!("invalid geolocation: {e}")))
 }
 
+/// Resolve the `name`/`external_id` pair every node constructor accepts: either may be omitted
+/// and is derived from the other, but not both. Shared by `Resource`, `Asset` and `Policy` so
+/// the three cannot drift.
+pub(crate) fn name_and_external_id(
+    name: Option<String>,
+    external_id: Option<String>,
+) -> PyResult<(String, String)> {
+    match (name, external_id) {
+        (Some(name), Some(external_id)) => Ok((name, external_id)),
+        (None, Some(external_id)) => Ok((external_id.clone(), external_id)),
+        (Some(name), None) => {
+            let ext = to_snake_lower_cased_allow_start_with_digits(&name);
+            Ok((name, ext))
+        }
+        (None, None) => Err(PyValueError::new_err(
+            "name or external_id must be provided",
+        )),
+    }
+}
+
 pub mod async_service;
 pub mod sync_service;
 
@@ -103,23 +123,37 @@ impl PyResourceUpdate {
     }
 }
 
-/// Things accepted as a resource identifier when fetching by_ids or deleting.
-/// Mirrors the `FunctionIdentifyable` pattern so callers can pass a `Resource`,
+/// Things accepted as a node identifier when fetching by_ids or deleting.
+/// Mirrors the `FunctionIdentifyable` pattern so callers can pass any node object,
 /// an external id string, or a numeric id directly.
+///
+/// It takes every node class, not just `Resource`, because `/resources` spans them all — a
+/// `Dataset` that came back from `filter()` can be handed straight to `delete()`.
 #[derive(Clone, FromPyObject)]
 pub enum ResourceIdentifiable {
     Resource(PyResource),
+    Asset(crate::nodes::PyAsset),
+    TimeSeries(crate::timeseries::PyTimeSeries),
+    Function(crate::functions::PyFunction),
+    Dataset(crate::datasets::PyDataset),
+    Policy(crate::nodes::PyPolicy),
     ExternalId(String),
     Id(u64),
 }
 
 impl From<ResourceIdentifiable> for IdAndExtId {
     fn from(value: ResourceIdentifiable) -> Self {
+        let pair = |id: Option<u64>, ext: &str| Self {
+            id,
+            external_id: Some(ext.to_string()),
+        };
         match value {
-            ResourceIdentifiable::Resource(r) => Self {
-                id: r.inner.id,
-                external_id: Some(r.inner.external_id.clone()),
-            },
+            ResourceIdentifiable::Resource(r) => pair(r.inner.id, &r.inner.external_id),
+            ResourceIdentifiable::Asset(r) => pair(r.inner.id, &r.inner.external_id),
+            ResourceIdentifiable::TimeSeries(r) => pair(r.inner.id, &r.inner.external_id),
+            ResourceIdentifiable::Function(r) => pair(r.inner.id, &r.inner.external_id),
+            ResourceIdentifiable::Dataset(r) => pair(r.inner.id, &r.inner.external_id),
+            ResourceIdentifiable::Policy(r) => pair(r.inner.id, &r.inner.external_id),
             ResourceIdentifiable::ExternalId(ext) => Self {
                 id: None,
                 external_id: Some(ext),
@@ -213,19 +247,7 @@ impl PyResource {
         geolocation: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let geolocation = geolocation.map(geometry_from_py).transpose()?;
-        let (final_name, final_ext_id) = match (name, external_id) {
-            (Some(name), Some(external_id)) => (name, external_id),
-            (None, Some(external_id)) => (external_id.clone(), external_id),
-            (Some(name), None) => (
-                name.clone(),
-                to_snake_lower_cased_allow_start_with_digits(&name),
-            ),
-            (None, None) => {
-                return Err(PyValueError::new_err(
-                    "name or external_id must be provided",
-                ));
-            }
-        };
+        let (final_name, final_ext_id) = name_and_external_id(name, external_id)?;
         Ok(Self {
             inner: Resource {
                 name: final_name,
@@ -246,6 +268,12 @@ impl PyResource {
             },
             client: None,
         })
+    }
+    /// Always `"resource"`. Present on every node class so data-driven code can dispatch without
+    /// an `isinstance` ladder.
+    #[getter]
+    pub fn node_type(&self) -> &'static str {
+        crate::nodes::node_type_name(intellistream_datahub_sdk::nodes::NodeType::Resource)
     }
     #[getter]
     pub fn name(&self) -> &str {
@@ -369,7 +397,7 @@ use crate::labels::PyLabel;
 #[pyclass(module = "intellistream_datahub_sdk", name = "ResourceNetwork")]
 #[derive(Clone)]
 pub struct PyResourceNetwork {
-    pub nodes: Vec<PyResource>,
+    pub nodes: Vec<crate::nodes::PyNode>,
     pub edges: Vec<PyEdgeProxy>,
     pub labels: Vec<PyLabel>,
 }
@@ -382,11 +410,7 @@ impl PyResourceNetwork {
         client: Arc<ApiService>,
     ) -> Self {
         Self {
-            nodes: network
-                .nodes
-                .into_iter()
-                .map(|r| PyResource::with_client(r, client.clone()))
-                .collect(),
+            nodes: crate::nodes::PyNode::many(network.nodes, client.clone()),
             edges: network.edges.into_iter().map(PyEdgeProxy::from).collect(),
             labels: network.labels.into_iter().map(PyLabel::from).collect(),
         }
@@ -395,8 +419,10 @@ impl PyResourceNetwork {
 
 #[pymethods]
 impl PyResourceNetwork {
+    /// The nodes in the traversed sub-graph, each as its own class (`Asset`, `TimeSeries`,
+    /// `Dataset`, …). Typed but sparse — the graph carries only a subset of each node's columns.
     #[getter]
-    fn nodes(&self) -> Vec<PyResource> {
+    fn nodes(&self) -> Vec<crate::nodes::PyNode> {
         self.nodes.clone()
     }
     #[getter]

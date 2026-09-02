@@ -74,13 +74,15 @@ impl PyTimeSeries {
             description,
             unit_external_id,
             data_set_id,
-            value_type: value_type.to_string(),
+            value_type: Some(value_type.to_string()),
             source,
             created_time: None,
             last_updated_time: None,
             related_resources: related_resources
                 .map(|r| r.into_iter().map(RelatedNode::from).collect())
                 .unwrap_or_default(),
+            labels: None,
+            table_engine: None,
         };
         Ok(PyTimeSeries {
             inner,

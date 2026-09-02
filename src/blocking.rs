@@ -40,6 +40,7 @@ use crate::generic::{
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::labels::Label;
+use crate::nodes::Node;
 use crate::relations::{EdgeProxy, RelForm, RelTypeForm, RelationshipType};
 use crate::resources::{
     RelatedResourcesForm, Resource, ResourceFilter, ResourceNetwork, ResourceUpdate,
@@ -187,14 +188,21 @@ pub struct ResourceService {
 
 impl ResourceService {
     delegate! { resources =>
-        fn create(nodes: Vec<Resource>, relations: Vec<RelForm>) -> Result<GraphDataWrapper<Resource>, ResponseError>;
-        fn search(payload: &SearchAndFilterForm<ResourceFilter>) -> Result<DataWrapper<Resource>, ResponseError>;
+        fn search(payload: &SearchAndFilterForm<ResourceFilter>) -> Result<DataWrapper<Node>, ResponseError>;
         fn fetch_related(form: &RelatedResourcesForm) -> Result<ResourceNetwork, ResponseError>;
     }
 
-    // These two return GraphDataWrapper, not DataWrapper; delegated by hand.
+    // Generic or GraphDataWrapper-returning; delegated by hand.
 
-    pub fn by_ids<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
+    pub fn create<N: Into<Node>>(
+        &self,
+        nodes: Vec<N>,
+        relations: Vec<RelForm>,
+    ) -> Result<GraphDataWrapper<Node>, ResponseError> {
+        self.rt.block_on(self.api.resources.create(nodes, relations))
+    }
+
+    pub fn by_ids<I>(&self, input: &I) -> Result<GraphDataWrapper<Node>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
     {
@@ -208,6 +216,7 @@ impl ResourceService {
         self.rt.block_on(self.api.resources.delete(input))
     }
 
+    /// Mirrors the async `update`: the echo is a flat [`Resource`] whatever the node's type.
     pub fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
     where
         for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
@@ -372,7 +381,7 @@ impl EdgesService {
     }
 
     delegate_into! { edges =>
-        fn by_ids(input: Into<DataWrapper<IdAndExtId>>) -> Result<GraphDataWrapper<Resource>, ResponseError>;
+        fn by_ids(input: Into<DataWrapper<IdAndExtId>>) -> Result<GraphDataWrapper<Node>, ResponseError>;
         fn create(data: Into<DataWrapper<RelForm>>) -> Result<DataWrapper<EdgeProxy>, ResponseError>;
         fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<EdgeProxy>, ResponseError>;
         fn create_types(data: Into<DataWrapper<RelTypeForm>>) -> Result<DataWrapper<RelationshipType>, ResponseError>;

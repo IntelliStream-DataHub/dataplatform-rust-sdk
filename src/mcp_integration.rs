@@ -1713,7 +1713,7 @@ async fn sweep_resources_and_edges(
                 .map(|wrapper| wrapper.nodes.clone().unwrap_or_default())
                 .unwrap_or_default()
         },
-        |found: &Vec<crate::resources::Resource>| !found.is_empty(),
+        |found: &Vec<crate::nodes::Node>| !found.is_empty(),
     )
     .await;
     assert!(

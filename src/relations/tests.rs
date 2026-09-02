@@ -384,8 +384,8 @@ mod live {
         let id_of = |ext: &str| {
             nodes
                 .iter()
-                .find(|n| n.external_id == ext)
-                .and_then(|n| n.id)
+                .find(|n| n.external_id() == ext)
+                .and_then(|n| n.id())
         };
         let edge_between = |from: &str, to: &str| {
             let (f, t) = (id_of(from), id_of(to));
@@ -412,8 +412,8 @@ mod live {
         assert_eq!(graph.relations().map(|r| r.len()), Some(1));
         let resolved = graph.nodes().unwrap_or_default();
         assert_eq!(resolved.len(), 2, "byids should resolve both endpoints");
-        assert!(resolved.iter().any(|n| n.external_id == a));
-        assert!(resolved.iter().any(|n| n.external_id == c));
+        assert!(resolved.iter().any(|n| n.external_id() == a));
+        assert!(resolved.iter().any(|n| n.external_id() == c));
 
         await_graph(&api, a, "all three links visible", |n| n.edges().len() >= 3).await;
 

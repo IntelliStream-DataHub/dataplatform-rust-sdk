@@ -9,7 +9,7 @@ use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::http::ResponseError;
 use crate::resources::Resource;
 use crate::ApiService;
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, Utc};
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -177,10 +177,38 @@ pub struct Dataset {
     pub name: String,
     pub description: Option<String>,
     pub policies: Option<Vec<String>>,
+    #[serde(default)]
     pub metadata: HashMap<String, String>,
+    /// Input-only in practice: the api declares it but never populates it on a read, so this is
+    /// empty on everything that comes back from the server.
+    ///
+    /// The wire carries these ids as JSON *strings* (`["5"]`), not numbers.
+    #[serde(default, with = "crate::serde_helper::string_id_vec")]
     pub connected_data_sets: Vec<u64>,
-    pub created_time: Option<DateTime<FixedOffset>>,
-    pub last_updated_time: Option<DateTime<FixedOffset>>,
+    /// The labels carried by this node, always including the intrinsic `DATASET` type-label the
+    /// api forces back on every read. It is what identifies a data set in a heterogeneous
+    /// `/resources` result — see [`crate::nodes::Node`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    /// The name of the system this data set's primary information comes from — the `source`
+    /// column shared by every node type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Declared by the shared node base, but the api refuses to set it on a data set (a data set
+    /// belonging to a data set would orphan its own ACL grant), so this is always `None` on a
+    /// read and silently dropped on a create.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_helper::opt_string_id"
+    )]
+    pub data_set_id: Option<u64>,
+    /// The nodes this data set is connected to. Populated only on graph reads and the
+    /// `/resources/create` echo; the flat reads answer with an empty list.
+    #[serde(default, skip_serializing)]
+    pub related_resources: Vec<crate::relations::RelatedNode>,
+    pub created_time: Option<DateTime<Utc>>,
+    pub last_updated_time: Option<DateTime<Utc>>,
 }
 impl DataHubEntity for Dataset {
     fn ext_id(&self) -> &String {
@@ -200,6 +228,10 @@ impl Dataset {
             name,
             policies: None,
             connected_data_sets: vec![],
+            labels: None,
+            source: None,
+            data_set_id: None,
+            related_resources: vec![],
 
             created_time: None,
             last_updated_time: None,
@@ -249,10 +281,10 @@ impl Dataset {
         self.description = Some(description);
         self
     }
-    pub fn created_time(&self) -> Option<&DateTime<FixedOffset>> {
+    pub fn created_time(&self) -> Option<&DateTime<Utc>> {
         self.created_time.as_ref()
     }
-    pub fn last_updated_time(&self) -> Option<&DateTime<FixedOffset>> {
+    pub fn last_updated_time(&self) -> Option<&DateTime<Utc>> {
         self.last_updated_time.as_ref()
     }
     pub fn build(&self) -> Self {

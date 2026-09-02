@@ -107,6 +107,41 @@ pub mod opt_string_id_vec {
     }
 }
 
+/// `Vec<u64>` of ids as JSON strings (accepts strings or numbers on input).
+///
+/// The non-optional form of [`opt_string_id_vec`], for fields the backend always sends as an
+/// array — `DataSetModel.connectedDataSets` is declared `List<Long>` and serialized with
+/// `ToStringSerializer`, so the wire carries `["5"]` where the Rust type says `u64`.
+pub mod string_id_vec {
+    use super::*;
+
+    pub fn serialize<S: Serializer>(value: &Vec<u64>, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = s.serialize_seq(Some(value.len()))?;
+        for id in value {
+            seq.serialize_element(&id.to_string())?;
+        }
+        seq.end()
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u64>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StringOrNumber {
+            Str(String),
+            Num(u64),
+        }
+        Option::<Vec<StringOrNumber>>::deserialize(d)?
+            .unwrap_or_default()
+            .into_iter()
+            .map(|i| match i {
+                StringOrNumber::Str(s) => s.parse().map_err(serde::de::Error::custom),
+                StringOrNumber::Num(n) => Ok(n),
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde::{Deserialize, Serialize};

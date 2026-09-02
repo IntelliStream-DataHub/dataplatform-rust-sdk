@@ -70,12 +70,14 @@ impl PyTimeSeries {
         self.inner.data_set_id = value;
     }
     #[getter]
-    pub fn value_type(&self) -> &str {
-        &self.inner.value_type.as_str()
+    /// `None` on a series reached through `neighbors()` — the graph does not carry the column.
+    /// Re-read the series by id when the value type matters.
+    pub fn value_type(&self) -> Option<&str> {
+        self.inner.value_type.as_deref()
     }
     #[setter]
     pub fn set_value_type(&mut self, value: ValueType) {
-        self.inner.value_type = value.to_string();
+        self.inner.value_type = Some(value.to_string());
     }
     #[getter]
     pub fn source(&self) -> Option<&str> {
@@ -84,6 +86,30 @@ impl PyTimeSeries {
     #[setter]
     pub fn set_source(&mut self, value: Option<String>) {
         self.inner.source = value;
+    }
+    /// The labels on this node, always including the intrinsic `TIMESERIES` type-label. It is
+    /// what identifies a timeseries in a heterogeneous `resources.filter()` result.
+    #[getter]
+    pub fn labels(&self) -> Option<&Vec<String>> {
+        self.inner.labels.as_ref()
+    }
+    #[setter]
+    pub fn set_labels(&mut self, value: Option<Vec<String>>) {
+        self.inner.labels = value;
+    }
+    /// The ClickHouse table engine backing this series. Server-assigned.
+    ///
+    /// On a series reached through `neighbors()` this is the api's DTO default rather than data —
+    /// the graph does not store the column. Re-read the series by id for the real value.
+    #[getter]
+    pub fn table_engine(&self) -> Option<&str> {
+        self.inner.table_engine.as_deref()
+    }
+    /// Always `"timeseries"`. Present on every node class so data-driven code can dispatch
+    /// without an `isinstance` ladder.
+    #[getter]
+    pub fn node_type(&self) -> &'static str {
+        crate::nodes::node_type_name(intellistream_datahub_sdk::nodes::NodeType::TimeSeries)
     }
     #[getter]
     pub fn created_time(&self) -> Option<DateTime<Utc>> {

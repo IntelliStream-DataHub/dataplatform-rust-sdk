@@ -168,7 +168,7 @@ impl PyEvent {
 impl PyEvent {
     /// Fetch the resources this event references (its `related_resources`), resolved via the
     /// resources service. Blocking; see [`related_resource_nodes_async`] for the awaitable variant.
-    fn related_resource_nodes(&self, py: Python<'_>) -> PyResult<Vec<PyResource>> {
+    fn related_resource_nodes(&self, py: Python<'_>) -> PyResult<Vec<crate::nodes::PyNode>> {
         let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
         let ids = self.related_id_collections();
         if ids.is_empty() {
@@ -182,7 +182,7 @@ impl PyEvent {
                 .nodes()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|r| PyResource::with_client(r, service.clone()))
+                .map(|r| crate::nodes::PyNode::with_client(r, service.clone()))
                 .collect())
         })
     }
@@ -193,7 +193,7 @@ impl PyEvent {
         let ids = self.related_id_collections();
         future_into_py(py, async move {
             if ids.is_empty() {
-                return Ok(Vec::<PyResource>::new());
+                return Ok(Vec::<crate::nodes::PyNode>::new());
             }
             let result = service
                 .resources
@@ -204,7 +204,7 @@ impl PyEvent {
                 .nodes()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|r| PyResource::with_client(r, service.clone()))
+                .map(|r| crate::nodes::PyNode::with_client(r, service.clone()))
                 .collect())
         })
     }

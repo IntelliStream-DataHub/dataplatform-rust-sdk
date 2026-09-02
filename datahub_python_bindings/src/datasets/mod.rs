@@ -109,6 +109,10 @@ impl PyDataset {
                 policies,
                 metadata: metadata.unwrap_or_default(),
                 connected_data_sets: connected_data_sets.unwrap_or_default(),
+                labels: None,
+                source: None,
+                data_set_id: None,
+                related_resources: vec![],
                 created_time: None,
                 last_updated_time: None,
             },
@@ -170,6 +174,39 @@ impl PyDataset {
     #[setter]
     pub fn set_connected_data_sets(&mut self, value: Vec<u64>) {
         self.inner.connected_data_sets = value;
+    }
+    /// The labels on this node, always including the intrinsic `DATASET` type-label. It is what
+    /// identifies a data set in a heterogeneous `resources.filter()` result.
+    #[getter]
+    pub fn labels(&self) -> Option<&Vec<String>> {
+        self.inner.labels.as_ref()
+    }
+    #[setter]
+    pub fn set_labels(&mut self, value: Option<Vec<String>>) {
+        self.inner.labels = value;
+    }
+    #[getter]
+    pub fn source(&self) -> Option<&str> {
+        self.inner.source.as_deref()
+    }
+    #[setter]
+    pub fn set_source(&mut self, value: Option<String>) {
+        self.inner.source = value;
+    }
+    #[getter]
+    pub fn related_resources(&self) -> Vec<crate::relations::PyRelatedNode> {
+        self.inner
+            .related_resources
+            .iter()
+            .cloned()
+            .map(crate::relations::PyRelatedNode::from)
+            .collect()
+    }
+    /// Always `"dataset"`. Present on every node class so data-driven code can dispatch without
+    /// an `isinstance` ladder.
+    #[getter]
+    pub fn node_type(&self) -> &'static str {
+        crate::nodes::node_type_name(intellistream_datahub_sdk::nodes::NodeType::Dataset)
     }
 }
 

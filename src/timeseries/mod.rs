@@ -568,7 +568,7 @@ impl TimeSeriesFilterForm {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct TimeSeries {
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
@@ -583,8 +583,18 @@ pub struct TimeSeries {
     #[serde(rename = "dataSetId")]
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub data_set_id: Option<u64>,
-    #[serde(rename = "valueType")]
-    pub value_type: String,
+    /// The series' value type (`float`, `bigint`, `text`, …).
+    ///
+    /// `None` means the endpoint did not say, not that the series has no type. A flat read always
+    /// carries it; a node reached through the graph (`fetch_related`/`fetch_nearest`) does not,
+    /// because Neo4j stores only a subset of the columns — re-read the series by id when the
+    /// value type matters.
+    #[serde(
+        rename = "valueType",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub value_type: Option<String>,
     /// The name of the system this series' primary information comes from. Shared by every node
     /// type — it is the `source` column of the one `node` table — and answered on every
     /// timeseries response.
@@ -599,6 +609,18 @@ pub struct TimeSeries {
     /// turned into an edge server-side.
     #[serde(rename = "relatedResources", default)]
     pub related_resources: Vec<RelatedNode>,
+    /// The labels carried by this node, always including the intrinsic `TIMESERIES` type-label
+    /// the api forces back on every read. It is what makes a timeseries recognisable in a
+    /// heterogeneous `/resources` result — see [`crate::nodes::Node`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    /// ClickHouse table engine backing this series (`MERGETREE` by default). Server-assigned;
+    /// sent back on every timeseries read.
+    ///
+    /// Beware on a node reached through the graph (`fetch_related`/`fetch_nearest`): Neo4j does
+    /// not store this column, so the api fills it from its DTO default rather than from data.
+    #[serde(rename = "tableEngine", default, skip_serializing_if = "Option::is_none")]
+    pub table_engine: Option<String>,
 }
 
 impl TimeSeries {
@@ -612,11 +634,13 @@ impl TimeSeries {
             description: None,
             unit_external_id: None,
             data_set_id: None,
-            value_type: "float".to_string(),
+            value_type: Some("float".to_string()),
             source: None,
             created_time: None,
             last_updated_time: None,
             related_resources: vec![],
+            labels: None,
+            table_engine: None,
         }
     }
     pub fn from_dict(dict: HashMap<String, String>) -> Self {
@@ -631,11 +655,13 @@ impl TimeSeries {
             description: dict.get("description").map(|v| v.to_string()),
             unit_external_id: dict.get("unitExternalId").map(|v| v.to_string()),
             data_set_id: dict.get("dataSetId").map(|v| v.parse::<u64>().unwrap()),
-            value_type: dict.get("valueType").unwrap().to_string(),
+            value_type: dict.get("valueType").map(|v| v.to_string()),
             source: dict.get("source").map(|v| v.to_string()),
             created_time: None,
             last_updated_time: None,
             related_resources: vec![],
+            labels: None,
+            table_engine: None,
         }
     }
 
@@ -679,7 +705,7 @@ impl TimeSeries {
     }
 
     pub fn set_value_type(&mut self, value_type: &str) -> &mut TimeSeries {
-        self.value_type = value_type.to_string();
+        self.value_type = Some(value_type.to_string());
         self
     }
 

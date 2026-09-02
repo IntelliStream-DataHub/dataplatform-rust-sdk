@@ -41,11 +41,14 @@ import pytest
 
 from fixtures import ENV_FILE, TEST_PREFIX, _safe_delete_each
 
-# `/resources/filter` labels every node with its type; these are the ones with a typed
+# `/resources/filter` returns every node as its own type; these are the ones with a typed
 # delete endpoint of their own. Anything else is deleted as a plain resource.
-_TIMESERIES = "TIMESERIES"
-_DATASET = "DATASET"
-_FUNCTION = "FUNCTION"
+#
+# Dispatch is on `node_type` rather than on the labels the type is derived from: it is present
+# on every node class and says the same thing without the caller re-deriving it.
+_TIMESERIES = "timeseries"
+_DATASET = "dataset"
+_FUNCTION = "function"
 
 
 def _is_test(value) -> bool:
@@ -79,8 +82,8 @@ def _delete_nodes(client, nodes) -> None:
     while remaining:
         by_type = {_TIMESERIES: [], _DATASET: [], _FUNCTION: [], "other": []}
         for node in remaining:
-            labels = {str(label).upper() for label in (node.labels or [])}
-            key = next((k for k in (_TIMESERIES, _DATASET, _FUNCTION) if k in labels), "other")
+            node_type = getattr(node, "node_type", "resource")
+            key = node_type if node_type in by_type else "other"
             by_type[key].append(node.external_id)
 
         # Data sets last: everything else may belong to one.

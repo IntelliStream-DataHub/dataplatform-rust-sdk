@@ -1,12 +1,12 @@
 pub(crate) mod async_service;
 pub(crate) mod sync_service;
 
-use crate::resources::PyResource;
 use intellistream_datahub_sdk::graph_data_wrapper::GraphDataWrapper;
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::relations::{
     EdgeProxy, RelForm, RelTypeForm, RelatedNode, RelationDirection, RelationshipType,
 };
+use intellistream_datahub_sdk::nodes::Node;
 use intellistream_datahub_sdk::{ApiService, Resource};
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, pyclass, pymethods};
@@ -348,37 +348,58 @@ impl PyRelForm {
     }
 }
 
-/// Python view of `GraphDataWrapper<Resource>`: the nodes and relations returned
-/// from a graph operation. `.nodes` is `list[Resource]`, `.relations` is `list[EdgeProxy]`.
+/// Python view of a graph response: the nodes and relations returned from a graph operation.
+/// `.nodes` is a list of node objects (`Asset`, `TimeSeries`, `Dataset`, …), `.relations` is
+/// `list[EdgeProxy]`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "GraphResult")]
 #[derive(Clone)]
 pub struct PyGraphResult {
-    pub nodes: Vec<PyResource>,
+    pub nodes: Vec<crate::nodes::PyNode>,
     pub relations: Vec<PyEdgeProxy>,
 }
 
 impl PyGraphResult {
-    /// Build the Python view of a create/graph response, stamping `client` onto every node so
-    /// callers can chain navigation off the returned resources.
-    pub fn from_wrapper(wrapper: GraphDataWrapper<Resource>, client: Arc<ApiService>) -> Self {
+    /// Build the Python view of a typed graph response (create, `by_ids`), stamping `client` onto
+    /// every node so callers can chain navigation off the results.
+    pub fn from_wrapper(wrapper: GraphDataWrapper<Node>, client: Arc<ApiService>) -> Self {
+        let nodes = crate::nodes::PyNode::many(wrapper.nodes().unwrap_or_default(), client.clone());
+        Self {
+            nodes,
+            relations: Self::relations_of(&wrapper.relations()),
+        }
+    }
+
+    /// Build the view of a response the api echoes as flat resources whatever the node's real
+    /// type — today that is `/resources/update` alone. The nodes really are resource-shaped here,
+    /// so they are presented as such rather than being guessed back into their types out of data
+    /// the echo does not carry.
+    pub fn from_resource_wrapper(
+        wrapper: GraphDataWrapper<Resource>,
+        client: Arc<ApiService>,
+    ) -> Self {
         let nodes = wrapper
             .nodes()
             .unwrap_or_default()
             .into_iter()
-            .map(|r| PyResource::with_client(r, client.clone()))
+            .map(|r| crate::nodes::PyNode::with_client(Node::Resource(r), client.clone()))
             .collect();
-        let relations = wrapper
-            .relations()
+        Self {
+            nodes,
+            relations: Self::relations_of(&wrapper.relations()),
+        }
+    }
+
+    fn relations_of(relations: &Option<&Vec<EdgeProxy>>) -> Vec<PyEdgeProxy> {
+        relations
             .map(|v| v.iter().cloned().map(PyEdgeProxy::from).collect())
-            .unwrap_or_default();
-        Self { nodes, relations }
+            .unwrap_or_default()
     }
 }
 
 #[pymethods]
 impl PyGraphResult {
     #[getter]
-    fn nodes(&self) -> Vec<PyResource> {
+    fn nodes(&self) -> Vec<crate::nodes::PyNode> {
         self.nodes.clone()
     }
 
