@@ -81,7 +81,7 @@ impl<T: GraphNode + DeserializeOwned, R: DeserializeOwned> DataWrapperDeserializ
                 wrapper
             })
         } else {
-            eprintln!(
+            debug_eprintln!(
                 "HTTP request failed with status code {}: {}",
                 status_code, body
             );
@@ -91,7 +91,7 @@ impl<T: GraphNode + DeserializeOwned, R: DeserializeOwned> DataWrapperDeserializ
             }) {
                 Ok(result) => Ok(result),
                 Err(_) => {
-                    eprintln!("Error parsing HTTP response body: {}", body);
+                    debug_eprintln!("Error parsing HTTP response body: {}", body);
                     Ok(GraphDataWrapper {
                         nodes: None,
                         relations: None,

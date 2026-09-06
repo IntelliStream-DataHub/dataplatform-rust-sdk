@@ -16,6 +16,26 @@ pub use crate::labels::LabelsService;
 pub use crate::relations::EdgesService;
 pub use crate::subscriptions::SubscriptionsService;
 
+/// `println!` that honours [`http::set_debug_output`]. The SDK's request/response tracing —
+/// response bodies, batch progress, failed-request notices — goes through these two macros so a
+/// host that embeds the SDK as a library (the C bindings, say) can silence it in one call.
+macro_rules! debug_println {
+    ($($arg:tt)*) => {
+        if $crate::http::debug_output_enabled() {
+            println!($($arg)*);
+        }
+    };
+}
+
+/// `eprintln!` counterpart of [`debug_println!`].
+macro_rules! debug_eprintln {
+    ($($arg:tt)*) => {
+        if $crate::http::debug_output_enabled() {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 /// Explaining an unexplained 401 from the token the SDK already holds.
 pub(crate) mod auth_diagnostics;
 #[cfg(feature = "blocking")]

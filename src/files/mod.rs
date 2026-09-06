@@ -152,7 +152,7 @@ impl FileService {
         let mime_type = header_value(&response, reqwest::header::CONTENT_TYPE);
         let status = response.status();
         let bytes = response.bytes().await.map_err(|err| {
-            eprintln!("Failed to read download body: {}", err);
+            debug_eprintln!("Failed to read download body: {}", err);
             ResponseError {
                 status,
                 message: err.to_string(),
@@ -187,7 +187,7 @@ impl FileService {
         let mut file = File::create(destination.as_ref()).await.map_err(io_error)?;
         let mut written: u64 = 0;
         while let Some(chunk) = response.chunk().await.map_err(|err| {
-            eprintln!("Download stream failed: {}", err);
+            debug_eprintln!("Download stream failed: {}", err);
             ResponseError {
                 status,
                 message: err.to_string(),
@@ -398,11 +398,11 @@ impl FileUpload {
         let kind: Option<String> = match infer::get_from_path(file_path) {
             Ok(Some(file_type)) => Some(file_type.mime_type().to_string()),
             Ok(None) => {
-                println!("Could not determine file type for: {}", file_path);
+                debug_println!("Could not determine file type for: {}", file_path);
                 Some("application/octet-stream".to_string())
             }
             Err(e) => {
-                eprintln!("Error detecting file type for {}: {}", file_path, e);
+                debug_eprintln!("Error detecting file type for {}: {}", file_path, e);
                 None
             }
         };

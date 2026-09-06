@@ -248,7 +248,11 @@ impl DataHubConfig {
         }
     }
 
-    pub(crate)  fn from_map(map: HashMap<String, String>) -> Result<Self, DataHubError> {
+    /// Build a config from a map of the same keys the environment uses (`BASE_URL`, `TOKEN`,
+    /// `CLIENT_ID`, …, `BUFFER_DIR`), without reading or touching the process environment. This is
+    /// what [`from_env`](Self::from_env) does with `std::env::vars()`; the map form is for hosts
+    /// that assemble configuration themselves, such as the C bindings.
+    pub fn from_map(map: HashMap<String, String>) -> Result<Self, DataHubError> {
         let baseurl = map.get("BASE_URL")
             .ok_or_else(|| DataHubError::ConfigError(
                 "BASE_URL is not set. Define it in your .env file or export it in the environment (e.g. BASE_URL=http://localhost:8081).".to_string()
@@ -500,6 +504,12 @@ impl DataHubConfig {
     /// seconds too early stays broken until the token expires rather than recovering on its next
     /// attempt.
     pub async fn invalidate_token(&self) {
+        // A user-supplied `TOKEN` cannot be re-minted: dropping it would only replace the
+        // server's 401 with a misleading "OAuth2 Client not configured" on every later call.
+        // Keep it, so the caller keeps seeing the real answer until they supply a new one.
+        if self.oauth2_client.is_none() && !self.has_assertion_exchange() {
+            return;
+        }
         let mut auth_state = self.auth_state.write().await;
         auth_state.token = None;
         auth_state.expire_time = None;
@@ -689,6 +699,46 @@ pub fn to_snake_lower_cased_allow_start_with_digits(s: &str) -> String {
         replaced.trim_end_matches('_').to_string()
     } else {
         replaced.trim_matches('_').to_string()
+    }
+}
+
+#[cfg(test)]
+mod invalidate_tests {
+    use super::*;
+
+    /// A static `TOKEN` has nothing to fall back to, so a 401 must not discard it: every later
+    /// call would otherwise fail with "OAuth2 Client not configured" instead of the server's answer.
+    #[test]
+    fn a_static_token_survives_invalidation() {
+        let config = DataHubConfig::from_vars(
+            "http://127.0.0.1:9".to_string(),
+            Some("static-token".to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
+        crate::block_on(async {
+            config.invalidate_token().await;
+            assert_eq!(config.get_api_token().await.unwrap(), "static-token");
+        });
+    }
+
+    /// With client credentials configured the cached token is dropped, so the next call mints one.
+    #[test]
+    fn a_minted_token_is_dropped_on_invalidation() {
+        let config = DataHubConfig::from_vars(
+            "http://127.0.0.1:9".to_string(),
+            Some("cached-token".to_string()),
+            Some("http://127.0.0.1:9/token".to_string()),
+            Some("id".to_string()),
+            Some("secret".to_string()),
+            None,
+        );
+        crate::block_on(async {
+            config.invalidate_token().await;
+            assert!(config.auth_state.read().await.token.is_none());
+        });
     }
 }
 
