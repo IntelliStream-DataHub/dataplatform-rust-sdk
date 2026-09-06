@@ -128,6 +128,20 @@ the **compiled** module — always use the wrapper script, which rebuilds the bi
 ./run_python_tests.sh -k timeseries  # extra args are forwarded to pytest
 ```
 
+## C bindings
+
+`datahub_c_bindings/` builds this SDK as a C library — `libintellistream_datahub` (shared and
+static) with a cbindgen-generated header, `include/intellistream_datahub.h` — for C, C++, and
+anything with C interop (.NET P/Invoke, Go cgo, LabVIEW, MATLAB). It is ingest-first: typed
+datapoint ingest with the same durable buffering as the Rust crate, time series lookup, event
+creation, the subscription listener, and a JSON convention for every other endpoint. See
+[`datahub_c_bindings/README.md`](datahub_c_bindings/README.md) for usage and
+[`docs/c-sdk-design.md`](docs/c-sdk-design.md) for the reasoning.
+
+```bash
+./run_c_tests.sh   # build the library, run its tests, compile and run the C smoke test
+```
+
 ## Building and testing
 
 ```bash
