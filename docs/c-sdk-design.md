@@ -1,8 +1,9 @@
 # A C SDK, built as an FFI crate over this one
 
-Design note. Nothing in it is implemented; it records what a C SDK for DataHub should be, where
-it should live, and what has to be true before anyone starts on it, so that the scope is agreed
-once rather than rediscovered mid-build.
+Design note, written before the crate existed. It records what a C SDK for DataHub should be,
+where it should live, and what had to be true before starting. **The crate now exists at
+`datahub_c_bindings/`** — see its README for usage; where the implementation departs from this
+note is listed under [Status](#status) at the end.
 
 Baseline: this repository at `origin/main` @ `79173af` (crate `intellistream-datahub-sdk` 0.3.0).
 
@@ -373,3 +374,29 @@ library statically linked into a customer's firmware has to be; the C crate inhe
   this ships.
 - **Windows toolchain.** MSVC-built `.dll` + `.lib` only, or a MinGW build too. Default to
   MSVC only until someone asks.
+
+## Status
+
+Implemented in `datahub_c_bindings/`, together with the two core changes above —
+`http::set_debug_output` (on by default for the crate, off in the C library) and
+`DataHubConfig::from_map` (so the C layer never reads `.env` from the host's cwd) — and
+`flush_buffer` on both spooling services. Where the crate departs from the plan:
+
+- **Every export is written out by hand.** cbindgen does not expand `macro_rules!`; a
+  macro-generated function ends up in the library but not in the header.
+- **Two more statuses:** `DATAHUB_NOT_FOUND` (an empty answer to a single lookup) and
+  `DATAHUB_SUBSCRIPTION` (the listener's per-subscription error, which leaves the stream open).
+- **`datahub_request_json`**, an authenticated raw `GET`/`POST` to any endpoint, means nothing
+  is "a JSON function pair away": the typed and `_json` functions cover ingest, lookup, events
+  and the listener, and every other endpoint is reachable today.
+- **`datahub_client_buffered_count`** reports spooled records, which is what the core counts,
+  rather than bytes.
+- **`datahub_config_get`** and a generic `datahub_config_set(key, value)` exist beside the typed
+  setters, so every configuration key has a C spelling.
+- **A static `TOKEN` now survives a 401** in the core. It cannot be re-minted, and dropping it
+  turned every later call into "OAuth2 Client not configured".
+- **Retention is measured on the data's own timestamp.** A backfill older than the window is
+  reported buffered but does not survive in the spool; the insert functions say so.
+- **Not done yet:** the Cargo workspace (the crate is standalone, like the Python one),
+  cross-compiled release tarballs (the release workflow builds natively on Linux, macOS and
+  Windows and keeps the result as workflow artifacts), and a `pkg-config` file.
