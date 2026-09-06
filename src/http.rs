@@ -3,7 +3,24 @@ use oauth2::http::StatusCode;
 use reqwest::{Error, Response};
 use serde::de::DeserializeOwned;
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
+
+/// Whether the SDK prints request/response tracing (response bodies, batch progress, failed-request
+/// notices) to stdout/stderr. On by default, as it always has been: it is the quickest way to see
+/// what the api actually answered. Off is for hosts that embed the SDK as a library — a library
+/// must not write to streams it does not own — which is why the C bindings default it off.
+static DEBUG_OUTPUT: AtomicBool = AtomicBool::new(true);
+
+/// Turn the SDK's console tracing on or off for the whole process. See [`DEBUG_OUTPUT`].
+pub fn set_debug_output(enabled: bool) {
+    DEBUG_OUTPUT.store(enabled, Ordering::Relaxed);
+}
+
+/// Whether [`set_debug_output`] has left console tracing on (the default).
+pub fn debug_output_enabled() -> bool {
+    DEBUG_OUTPUT.load(Ordering::Relaxed)
+}
 
 #[derive(Debug, Error, Clone)]
 pub struct ResponseError {
@@ -93,7 +110,7 @@ where
     if (200..300).contains(&status.as_u16()) {
         // Read the response body and attempt to deserialize
         let body = response.text().await.map_err(|err| {
-            eprintln!("Failed to read response body: {err}",);
+            debug_eprintln!("Failed to read response body: {err}",);
             ResponseError {
                 status,
                 message: err.to_string(),
@@ -102,11 +119,11 @@ where
 
         let max_chars = 2000;
         let truncated_body = &body[..body.len().min(max_chars)];
-        println!("Response body for path: {}\n{}", path, &truncated_body); // Debug output
+        debug_println!("Response body for path: {}\n{}", path, &truncated_body); // Debug output
 
         // Conditionally apply custom or default logic
         let result: T = T::deserialize_and_set_status(&body, status.as_u16()).map_err(|err| {
-            eprintln!("Failed to deserialize JSON: {err}",);
+            debug_eprintln!("Failed to deserialize JSON: {err}",);
             ResponseError {
                 status,
                 message: err.to_string(),
@@ -116,7 +133,7 @@ where
         Ok(result)
     } else {
         let status = response.status();
-        eprintln!("Request failed with status: {status}",);
+        debug_eprintln!("Request failed with status: {status}",);
         Err(ResponseError {
             status,
             message: response

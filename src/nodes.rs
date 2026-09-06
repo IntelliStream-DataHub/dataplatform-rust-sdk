@@ -819,8 +819,6 @@ mod tests {
         assert_eq!(ts.unit_external_id.as_deref(), Some("deg_c"));
         assert_eq!(ts.value_type.as_deref(), Some("float"));
         assert_eq!(ts.table_engine.as_deref(), Some("MERGETREE"));
-        // Raw numbers on the wire, unlike every id in the family.
-        assert_eq!(ts.security_categories, Some(vec![1, 2]));
         assert_eq!(ts.data_set_id, Some(21));
         assert_eq!(ts.labels.as_deref(), Some(&["TIMESERIES".to_string()][..]));
     }
@@ -864,7 +862,6 @@ mod tests {
         assert_eq!(ts.value_type, None, "not told, rather than a wrong default");
         assert_eq!(ts.unit, None);
         assert_eq!(ts.table_engine, None);
-        assert_eq!(ts.security_categories, None);
     }
 
     #[test]

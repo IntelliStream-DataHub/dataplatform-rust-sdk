@@ -1,0 +1,27 @@
+[package]
+name = "datahub_c_bindings"
+version = "0.3.0"
+edition = "2021"
+rust-version = "1.85"
+description = "C ABI for the IntelliStream DataHub SDK: libintellistream_datahub plus a cbindgen-generated header."
+license = "Apache-2.0"
+repository = "https://github.com/IntelliStream-DataHub/dataplatform-rust-sdk"
+publish = false
+
+[lib]
+name = "intellistream_datahub"
+# cdylib + staticlib are what C links against; rlib is what the crate's own Rust tests link against.
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+intellistream-datahub-sdk = { path = ".." }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+serde = "1"
+serde_json = "1"
+chrono = "0.4"
+
+[build-dependencies]
+cbindgen = "0.29"
+
+[dev-dependencies]
+tempfile = "3"

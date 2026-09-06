@@ -743,7 +743,7 @@ pub trait ApiServiceProvider {
                 .send()
                 .await
                 .map_err(|err| {
-                    eprintln!("HTTP request failed: {}", err);
+                    debug_eprintln!("HTTP request failed: {}", err);
                     ResponseError::from_err(err)
                 })?
         } else {
@@ -754,7 +754,7 @@ pub trait ApiServiceProvider {
                 .send()
                 .await
                 .map_err(|err| {
-                    eprintln!("HTTP request failed: {}", err);
+                    debug_eprintln!("HTTP request failed: {}", err);
                     ResponseError::from_err(err)
                 })?
         };
@@ -782,13 +782,13 @@ pub trait ApiServiceProvider {
             .send()
             .await
             .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
+                debug_eprintln!("HTTP request failed: {}", err);
                 ResponseError::from_err(err)
             })?;
         if response.status() == 204 {
             // Return deserialized `T` with an empty body and the HTTP status code
             T::deserialize_and_set_status("", response.status().as_u16()).map_err(|err| {
-                eprintln!("Failed to create object from empty response: {}", err);
+                debug_eprintln!("Failed to create object from empty response: {}", err);
                 ResponseError {
                     status: response.status(),
                     message: err.to_string(),
@@ -825,7 +825,7 @@ pub trait ApiServiceProvider {
         }
 
         let response = request.send().await.map_err(|err| {
-            eprintln!("HTTP file upload request failed: {}", err);
+            debug_eprintln!("HTTP file upload request failed: {}", err);
             ResponseError::from_err(err)
         })?;
                 match process_response::<T>(response, path).await {
@@ -855,7 +855,7 @@ pub trait ApiServiceProvider {
             .send()
             .await
             .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
+                debug_eprintln!("HTTP request failed: {}", err);
                 ResponseError::from_err(err)
             })?;
 
@@ -870,7 +870,7 @@ pub trait ApiServiceProvider {
         if status == http::StatusCode::UNAUTHORIZED {
             self.get_api_service().config.invalidate_token().await;
         }
-        eprintln!("Request failed with status: {status}");
+        debug_eprintln!("Request failed with status: {status}");
         Err(explain_auth_failure(
             ResponseError {
                 status,
@@ -988,7 +988,7 @@ where
             })
         } else {
             // For non-2xx responses (errors)
-            eprintln!(
+            debug_eprintln!(
                 "HTTP request failed with status code {}: {}",
                 status_code, body
             );
@@ -1002,7 +1002,7 @@ where
             }) {
                 Ok(result) => Ok(result),
                 Err(_) => {
-                    eprintln!("Error parsing HTTP response body: {}", body);
+                    debug_eprintln!("Error parsing HTTP response body: {}", body);
                     let mut wrapper: DataWrapper<T> = DataWrapper::new();
                     wrapper.error_body = Some(body.to_string());
                     wrapper.set_http_status_code(status_code);

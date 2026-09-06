@@ -83,6 +83,20 @@ impl EventsService {
         self.spool.lock().unwrap().as_ref().map_or(0, |s| s.size())
     }
 
+    /// Send whatever the durable event spool holds, oldest segment first, without creating
+    /// anything new. Returns `true` when the spool is empty afterwards and `false` when the server
+    /// is still unreachable (the backlog stays on disk). Always `true` when buffering is off.
+    pub async fn flush_buffer(&self) -> bool {
+        let svc = self.get_api_service();
+        if !svc.config.buffering_enabled() {
+            return true;
+        }
+        self.ensure_spool(&svc.config);
+        drop(svc); // don't hold the ApiService Arc across awaits
+        let path = format!("{}/create", self.base_url);
+        self.drain_spool(&path, Utc::now().timestamp_millis()).await
+    }
+
     fn ensure_spool(&self, config: &DataHubConfig) {
         let mut guard = self.spool.lock().unwrap();
         if guard.is_none() {

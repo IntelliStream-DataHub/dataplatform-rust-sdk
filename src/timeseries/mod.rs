@@ -226,6 +226,22 @@ impl TimeSeriesService {
         self.spool.lock().unwrap().as_ref().map_or(0, |s| s.size())
     }
 
+    /// Send whatever the durable datapoint spool holds, oldest segment first, without inserting
+    /// anything new — for a controlled shutdown, or a host that wants to retry on its own clock
+    /// rather than on the next insert. Returns `true` when the spool is empty afterwards and
+    /// `false` when the server is still unreachable (the backlog stays on disk). Always `true`
+    /// when buffering is off.
+    pub async fn flush_buffer(&self) -> bool {
+        let svc = self.get_api_service();
+        if !svc.config.buffering_enabled() {
+            return true;
+        }
+        self.ensure_spool(&svc.config);
+        drop(svc); // don't hold the ApiService Arc across awaits
+        let path = format!("{}/data", self.base_url);
+        self.drain_spool(&path, Utc::now().timestamp_millis()).await
+    }
+
     fn ensure_spool(&self, config: &DataHubConfig) {
         let mut guard = self.spool.lock().unwrap();
         if guard.is_none() {
@@ -328,7 +344,7 @@ impl TimeSeriesService {
 
         if total_datapoints > MAX_DATAPOINTS_PER_REQUEST {
             while total_datapoints > MAX_DATAPOINTS_PER_REQUEST {
-                println!("Total datapoints left: {}", total_datapoints);
+                debug_println!("Total datapoints left: {}", total_datapoints);
                 // Divide the request into multiple batch requests
                 let mut new_json: DataWrapper<DatapointsCollection<DatapointString>> =
                     DataWrapper::new();
@@ -345,7 +361,7 @@ impl TimeSeriesService {
 
                     let batch_size: usize =
                         MAX_DATAPOINTS_PER_REQUEST / active_timeseries_with_datapoints.len();
-                    println!("Current Batch size: {}", batch_size);
+                    debug_println!("Current Batch size: {}", batch_size);
                     if orig_dp_collection.datapoints.len() > batch_size {
                         let chunk: Vec<DatapointString> =
                             orig_dp_collection.datapoints.drain(..batch_size).collect();
@@ -356,7 +372,7 @@ impl TimeSeriesService {
                             .iter()
                             .position(|&x| x == orig_dp_collection.hash())
                         {
-                            println!("Remove datacollection: {}", orig_dp_collection.to_string());
+                            debug_println!("Remove datacollection: {}", orig_dp_collection.to_string());
                             active_timeseries_with_datapoints.remove(pos);
                         }
                     } else {
@@ -366,14 +382,14 @@ impl TimeSeriesService {
                     }
                     new_json.add_item(new_dp_collection.clone());
                     total_datapoints = total_datapoints - new_dp_collection.datapoints.len();
-                    println!("Total datapoints left: {}", total_datapoints);
+                    debug_println!("Total datapoints left: {}", total_datapoints);
                 }
 
                 let mut new_total_datapoints: usize = 0;
                 for dp_collection in new_json.get_items().iter() {
                     new_total_datapoints += dp_collection.datapoints.len();
                 }
-                println!(
+                debug_println!(
                     "Sending insert datapoints request with {} datapoints.",
                     new_total_datapoints
                 );
@@ -390,10 +406,10 @@ impl TimeSeriesService {
                     Ok(ref r) => {
                         // The backend acknowledges a successful insert with 204 No Content.
                         assert_eq!(r.get_http_status_code().unwrap(), 204);
-                        println!("Successfully inserted datapoints.");
+                        debug_println!("Successfully inserted datapoints.");
                     }
                     Err(e) => {
-                        eprintln!("{}", e.message);
+                        debug_eprintln!("{}", e.message);
                         panic!("Error inserting datapoints: {:?}", e.get_message());
                     }
                 });
@@ -405,7 +421,7 @@ impl TimeSeriesService {
         for dp_collection in json.get_items().iter() {
             total_datapoints += dp_collection.datapoints.len();
         }
-        println!("Final request: Total datapoints left: {}", total_datapoints);
+        debug_println!("Final request: Total datapoints left: {}", total_datapoints);
         self.execute_post_request::<DataWrapper<String>, _>(path, json)
             .await
     }

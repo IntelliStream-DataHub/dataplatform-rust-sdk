@@ -10,6 +10,7 @@ on:
       - Cargo.toml
       - datahub_python_bindings/Cargo.toml
       - datahub_python_bindings/pyproject.toml
+      - datahub_c_bindings/Cargo.toml
       - .github/workflows/release.yml
       - .github/workflows/build-wheels.yml
 
@@ -27,9 +28,10 @@ jobs:
           crate=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
           binding=$(grep -m1 '^version' datahub_python_bindings/Cargo.toml | cut -d'"' -f2)
           py=$(grep -m1 '^version' datahub_python_bindings/pyproject.toml | cut -d'"' -f2)
-          echo "crate=$crate binding=$binding pyproject=$py ref=${GITHUB_REF_NAME:-}"
-          if [ "$crate" != "$binding" ] || [ "$crate" != "$py" ]; then
-            echo "::error::manifest versions disagree: $crate / $binding / $py"
+          c=$(grep -m1 '^version' datahub_c_bindings/Cargo.toml | cut -d'"' -f2)
+          echo "crate=$crate binding=$binding pyproject=$py c=$c ref=${GITHUB_REF_NAME:-}"
+          if [ "$crate" != "$binding" ] || [ "$crate" != "$py" ] || [ "$crate" != "$c" ]; then
+            echo "::error::manifest versions disagree: $crate / $binding / $py / $c"
             exit 1
           fi
           # Only a tag push carries a version to check against; a rehearsal has none.
@@ -60,6 +62,37 @@ jobs:
     name: Wheels
     needs: versions
     uses: ./.github/workflows/build-wheels.yml
+
+  c-sdk:
+    # The C library is not published to a registry: each OS build is kept as a workflow
+    # artifact (header + shared + static library) for attaching to the release by hand. It does
+    # not gate the crate or wheel publication.
+    name: C bindings (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: versions
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: datahub_c_bindings
+      - run: cargo build --release
+        working-directory: datahub_c_bindings
+      - uses: actions/upload-artifact@v6
+        with:
+          name: c-sdk-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            datahub_c_bindings/include/intellistream_datahub.h
+            datahub_c_bindings/target/release/libintellistream_datahub.so
+            datahub_c_bindings/target/release/libintellistream_datahub.dylib
+            datahub_c_bindings/target/release/libintellistream_datahub.a
+            datahub_c_bindings/target/release/intellistream_datahub.dll
+            datahub_c_bindings/target/release/intellistream_datahub.dll.lib
+            datahub_c_bindings/target/release/intellistream_datahub.lib
 
   pypi:
     name: Publish to PyPI
