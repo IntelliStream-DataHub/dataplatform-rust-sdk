@@ -168,6 +168,29 @@ impl EventsService {
         self.execute_post_request(path, &json.into()).await
     }
 
+    /// `GET /events?limit=N` — a criteria-free page of the tenant's events.
+    ///
+    /// **This is the *oldest* `limit` events, not the newest**, whatever the endpoint's own
+    /// description says. It runs `POST /events/filter` with an empty body, and that body's default
+    /// sort is `eventTime` *ascending* — the order the keyset cursor pages in. The three node
+    /// listings beside it (`GET /resources`, `GET /timeseries`, `GET /datasets`) really are
+    /// newest-first, because their default sort is `createdTime` descending; events are the one
+    /// member of the family that reads the other way round.
+    ///
+    /// So this answers "where does my history start", not "what just happened". For the latter,
+    /// and for any real question — a type, a status, a time window, a related resource — use
+    /// [`filter`](Self::filter) with `sort` set to `eventTime` descending.
+    ///
+    /// Events are the highest-volume thing in the platform, so `limit` is a sample size rather
+    /// than a cap you can raise your way out of. `None` sends no `limit` and leaves the server's
+    /// default of 1000 in place; the maximum is 10000, above which the server answers 400 rather
+    /// than clamping. No `nextCursor` comes back — paging lives on the filter body.
+    pub async fn list(&self, limit: Option<u64>) -> Result<DataWrapper<Event>, ResponseError> {
+        let query = limit.map(|limit| [("limit", limit)]);
+        self.execute_get_request::<DataWrapper<Event>, _>(&self.base_url, query.as_ref())
+            .await
+    }
+
     pub async fn filter(&self, filter: &EventFilterForm) -> Result<DataWrapper<Event>, ResponseError> {
         let path = &format!("{}/filter", self.base_url);
         self.execute_post_request(path, &filter).await

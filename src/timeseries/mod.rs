@@ -47,16 +47,21 @@ impl TimeSeriesService {
         }
     }
 
-    pub async fn list(&self) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        self.execute_get_request(&self.base_url, None::<&str>).await
-    }
-
-    pub async fn list_with_limit(
-        &self,
-        limit: Option<u64>,
-    ) -> Result<DataWrapper<TimeSeries>, ResponseError> {
-        let query = [("limit", limit.unwrap_or(100))];
-        self.execute_get_request::<DataWrapper<TimeSeries>, _>(&self.base_url, Some(&query))
+    /// `GET /timeseries?limit=N` — the first `limit` series in the tenant, newest created first.
+    ///
+    /// `None` sends no `limit` and leaves the server's default of 1000 in place; the maximum is
+    /// 10000, above which the server answers 400 rather than clamping. There is no paging — no
+    /// `nextCursor` comes back — so narrow with [`filter`](Self::filter) rather than raising the
+    /// number.
+    ///
+    /// This replaces the `list()`/`list_with_limit()` pair, which were one endpoint under two
+    /// names and disagreed about the default: `list()` let the server pick while
+    /// `list_with_limit(None)` sent 100, so which page size you got depended on which one you
+    /// reached for. The api had the same split on its own side — `GET /timeseries/` defaulted to
+    /// 100 where `GET /timeseries` defaulted to 1000 — and settled on 1000 for both.
+    pub async fn list(&self, limit: Option<u64>) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+        let query = limit.map(|limit| [("limit", limit)]);
+        self.execute_get_request::<DataWrapper<TimeSeries>, _>(&self.base_url, query.as_ref())
             .await
     }
 

@@ -103,9 +103,10 @@ async fn test_dataset_list_search_update_policies() -> Result<(), ResponseError>
         "the dataset just created should appear in list()"
     );
 
-    // `list` is `filter` with an empty filter, so it takes the same limit and rejects the same
-    // over-cap value. Worth asserting because `list(None)` stops at 100 with no signal that it
-    // did — the parameter is the only way a caller gets past that.
+    // `GET /datasets?limit=` shares the retriever's own limit handling, so it defaults and
+    // rejects exactly as `/filter` does. Worth asserting because `list(None)` stops at 1000 with
+    // no signal that it did — no `nextCursor` comes back — and the parameter is the only way a
+    // caller gets past that.
     let capped = api_service.datasets.list(Some(1)).await?;
     assert_eq!(capped.get_http_status_code(), Some(200));
     assert_eq!(

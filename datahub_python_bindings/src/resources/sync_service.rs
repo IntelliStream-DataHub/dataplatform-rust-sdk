@@ -24,6 +24,29 @@ pub struct PyResourcesServiceSync {
 
 #[pymethods]
 impl PyResourcesServiceSync {
+    /// The first `limit` nodes in the tenant, newest created first — the cheap "what have I got"
+    /// read, with no criteria and no paging.
+    ///
+    /// Spans every node type and answers each row as its own class, exactly as `filter` does, so
+    /// `isinstance(node, TimeSeries)` works on what comes back. `limit` defaults to the server's
+    /// 1000 and may not exceed 10000; a `Page` is not returned because there is no cursor to
+    /// continue with — narrow with `filter` instead of raising the number.
+    #[pyo3(signature = (limit = None))]
+    fn list(&self, py: Python<'_>, limit: Option<u64>) -> PyResult<Vec<crate::nodes::PyNode>> {
+        let service = self.api_service.clone();
+        py.detach(|| {
+            let result = self
+                .runtime
+                .block_on(service.resources.list(limit))
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(result
+                .get_items()
+                .iter()
+                .map(|r| crate::nodes::PyNode::with_client(r.clone(), service.clone()))
+                .collect())
+        })
+    }
+
     #[pyo3(signature = (nodes, relations = None))]
     fn create<'py>(
         &self,

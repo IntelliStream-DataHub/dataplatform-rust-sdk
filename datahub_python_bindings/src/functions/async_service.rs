@@ -35,12 +35,15 @@ impl PyFunctionsServiceAsync {
         })
     }
 
-    fn list<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+    /// The first `limit` functions you may read, newest first. `limit` defaults to the server's
+    /// 1000 and may not exceed 10000; there is no paging, so a bigger catalogue is truncated.
+    #[pyo3(signature = (limit = None))]
+    fn list<'py>(&self, py: Python<'py>, limit: Option<u64>) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         future_into_py(py, async move {
             let result = service
                 .functions
-                .list()
+                .list(limit)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(result

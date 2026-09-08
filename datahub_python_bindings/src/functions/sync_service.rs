@@ -30,13 +30,15 @@ impl PyFunctionsServiceSync {
         })
     }
 
-    /// List every function visible to the calling tenant.
-    fn list(&self, py: Python<'_>) -> PyResult<Vec<PyFunction>> {
+    /// The first `limit` functions you may read, newest first. `limit` defaults to the server's
+    /// 1000 and may not exceed 10000; there is no paging, so a bigger catalogue is truncated.
+    #[pyo3(signature = (limit = None))]
+    fn list(&self, py: Python<'_>, limit: Option<u64>) -> PyResult<Vec<PyFunction>> {
         let service = self.api_service.clone();
         py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.functions.list())
+                .block_on(service.functions.list(limit))
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Server-assigned edge between two resources. Returned from `/resources/create`,
-/// `/resources/update`, `/resources/fetch-related`, `/functions/list`, etc. — always
+/// `/resources/update`, `/resources/fetch-related`, `GET /functions`, etc. — always
 /// the response shape for graph operations.
 ///
 /// `relationship_type` is renamed from `type` because `type` is a Rust keyword.

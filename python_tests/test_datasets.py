@@ -87,9 +87,9 @@ async def test_async_client_exposes_datasets(async_client, make_dataset):
 async def test_async_list_honours_limit(async_client, make_dataset):
     """`list()` takes an optional cap.
 
-    Omitting it leaves the server's default of 100 in place; the point of the
+    Omitting it leaves the server's default of 1000 in place; the point of the
     parameter is that a tenant with more datasets than that is otherwise
-    truncated with no way to ask for more.
+    truncated with no way to ask for more, and no cursor to page with.
     """
     ext_id = unique_id("ds_async_limit")
     make_dataset(external_id=ext_id, name=ext_id)
@@ -112,8 +112,10 @@ async def test_async_list_honours_limit(async_client, make_dataset):
 def test_sync_list_and_filter(sync_client, make_dataset):
     """`filter` narrows server-side; `list` does not.
 
-    The distinction matters: pointing `filter` at `/list` would return the whole
-    tenant, and an exclusion check is the only assertion that catches it.
+    The two are separate endpoints now — `GET /datasets` against
+    `POST /datasets/filter` — but they were one handler under two names, and an
+    exclusion check is the only assertion that catches a `filter` that is really
+    a listing.
     """
     ext_id = unique_id("ds_filter")
     make_dataset(external_id=ext_id, name=ext_id, metadata={"suite": "ds_filter"})

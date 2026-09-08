@@ -21,6 +21,33 @@ pub struct PyEventsServiceAsync {
 
 #[pymethods]
 impl PyEventsServiceAsync {
+    /// A criteria-free page of the tenant's events.
+    ///
+    /// **The oldest `limit` events, not the newest.** It runs the event filter with an empty body,
+    /// whose default sort is `eventTime` ascending — the order the cursor pages in. The node
+    /// listings beside it (`resources.list`, `timeseries.list`, `datasets.list`) really are
+    /// newest-first; events are the one member of the family that reads the other way round. For
+    /// "what just happened", use `filter(sort_by="eventTime", sort_order="desc")`.
+    ///
+    /// `limit` defaults to the server's 1000 and may not exceed 10000. A plain list is returned
+    /// rather than a `Page`: there is no cursor to continue with.
+    #[pyo3(signature = (limit = None))]
+    fn list<'py>(&self, py: Python<'py>, limit: Option<u64>) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .events
+                .list(limit)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(result
+                .get_items()
+                .iter()
+                .map(|e| PyEvent::with_client(e.clone(), service.clone()))
+                .collect::<Vec<_>>())
+        })
+    }
+
     fn create<'py>(&self, py: Python<'py>, input: Vec<PyEvent>) -> PyResult<Bound<'py, PyAny>> {
         let events: Vec<Event> = input.iter().cloned().map(Event::from).collect();
         //let payload = DataWrapper::from_vec(events);

@@ -17,7 +17,7 @@ What this suite owns:
 * the page-size contract, which used to differ per entity (two filters defaulted to 100 and two to
   1000, so which page size you got depended on what you were asking about).
 
-``POST /datasets/list`` is the same handler with an empty filter, so it is checked here too.
+``GET /datasets`` is the same handler with an empty filter, so it is checked here too.
 """
 import pytest
 
@@ -158,8 +158,8 @@ def test_the_retired_flags_are_not_accepted(sync_client):
 # --------------------------------------------------------------------------- #
 
 def test_an_argument_free_filter_returns_everything(sync_client, datasets, both):
-    """The same thing ``/datasets/list`` does — the server implements ``list`` by calling the
-    filter handler with an empty filter."""
+    """The same thing ``GET /datasets`` does — the listing is this call with no criteria, and
+    shares the retriever's own limit handling so the two cannot disagree about the page size."""
     from_filter = externals(sync_client.datasets.filter())
     assert from_filter >= both
     assert externals(sync_client.datasets.list(limit=10_000)) >= both

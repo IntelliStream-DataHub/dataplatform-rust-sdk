@@ -69,7 +69,7 @@ impl PyDatasetsServiceSync {
         Ok(())
     }
 
-    /// Datasets in the tenant, newest first. `limit` defaults to the server's 100 and may not
+    /// Datasets in the tenant, newest first. `limit` defaults to the server's 1000 and may not
     /// exceed 10000; there is no paging, so a bigger tenant is truncated rather than paged —
     /// use `filter` to narrow instead.
     #[pyo3(signature = (limit = None))]

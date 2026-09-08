@@ -959,3 +959,73 @@ async fn graph_projection_is_one_to_one_and_typed() -> Result<(), Box<dyn std::e
     );
     Ok(())
 }
+
+/// `GET /resources?limit=` — the plain listing the generic node query gained alongside the
+/// `/datasets/list` consolidation.
+///
+/// Three claims, and the first is the one worth having: the listing is a read under `/resources`
+/// like any other, so its rows are typed per node type rather than flattened to `Resource`. The
+/// other two are the shared `?limit=` contract — a cap that truncates, and an over-cap value that
+/// is a 400 rather than a silent clamp, because a caller who asked for 50000 and received 10000
+/// cannot tell that from a tenant holding exactly 10000.
+#[tokio::test]
+async fn plain_listing_is_typed_capped_and_uncursored() -> Result<(), Box<dyn std::error::Error>> {
+    let api_service = create_api_service();
+    let ext_id = unique_id("list_asset");
+
+    let asset = Resource {
+        id: None,
+        external_id: ext_id.clone(),
+        name: format!("Rust SDK listing {}", ext_id),
+        metadata: None,
+        description: None,
+        is_root: false,
+        data_set_id: None,
+        source: Some("Test_Rust_SDK".to_string()),
+        labels: Some(vec!["ASSET".to_string()]),
+        related_resources: vec![],
+        geolocation: None,
+        created_time: None,
+        last_updated_time: None,
+    };
+    api_service.resources.create(vec![asset], vec![]).await?;
+    let mut cleanup = cleanup_resources(vec![ext_id.clone()]);
+
+    let listed = api_service.resources.list(None).await?;
+    assert_eq!(listed.get_http_status_code(), Some(200));
+    // Newest created first, and the default page is 1000, so a node created a moment ago is on it.
+    let mine = listed
+        .get_items()
+        .iter()
+        .find(|n| n.external_id() == to_snake_lower_cased_allow_start_with_digits(&ext_id))
+        .expect("a resource created a moment ago should be on the newest-first page");
+    assert_eq!(
+        mine.kind(),
+        NodeType::Asset,
+        "the plain listing dispatches on the type-label like every other /resources read"
+    );
+
+    // No `nextCursor`: a walk needs a sort and a cursor and both live on the filter body, so the
+    // api nulls it here rather than handing out one this endpoint could not accept back.
+    assert!(
+        listed.next_cursor().is_none(),
+        "the plain listing is the first page and says so"
+    );
+
+    let capped = api_service.resources.list(Some(1)).await?;
+    assert_eq!(capped.get_items().len(), 1, "limit truncates");
+
+    let over_cap = api_service.resources.list(Some(10_001)).await;
+    assert_eq!(
+        over_cap.map(|_| ()).unwrap_err().get_status().as_u16(),
+        400,
+        "above 10000 is a rejection, not a clamp"
+    );
+
+    api_service
+        .resources
+        .delete(&vec![IdAndExtId::from_external_id(&ext_id)])
+        .await?;
+    cleanup.disarm();
+    Ok(())
+}

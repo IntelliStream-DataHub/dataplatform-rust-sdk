@@ -42,17 +42,29 @@ impl FunctionsService {
             .await
     }
 
-    /// List every function visible to the calling tenant. The server endpoint is `GET`
-    /// today — there is no filter or pagination payload, so callers send no params.
-    pub async fn list(&self) -> Result<DataWrapper<Function>, ResponseError> {
-        let path = &format!("{}/list", self.base_url);
-        self.execute_get_request::<DataWrapper<Function>, ()>(path, None)
+    /// `GET /functions?limit=N` — the first `limit` functions you may read, newest created first.
+    ///
+    /// `None` sends no `limit` and leaves the server's default of 1000 in place; the maximum is
+    /// 10000, above which the server answers 400 rather than clamping. The cap counts rows that
+    /// survive the data-set ACL, so a `limit` is not spent on functions you cannot see.
+    ///
+    /// This was `GET /functions/list` — the only collection that spelled a listing that way, and
+    /// uncapped where every other one is capped. A stale caller now gets a 400: `list` is not a
+    /// number, and the path it lands on is `GET /functions/{id}`.
+    pub async fn list(&self, limit: Option<u64>) -> Result<DataWrapper<Function>, ResponseError> {
+        let query = limit.map(|limit| [("limit", limit)]);
+        self.execute_get_request::<DataWrapper<Function>, _>(&self.base_url, query.as_ref())
             .await
     }
 
     /// Look up functions by id or externalId. The backend has no `/byids` endpoint for
     /// functions yet; this is implemented client-side by listing and filtering, which is
     /// fine for the function-worker use case where the catalog is small.
+    ///
+    /// It asks for the largest page the api allows, because a client-side filter can only match
+    /// what the listing returned. That listing used to be uncapped; a tenant past 10000 functions
+    /// now silently misses the oldest ones here, and needs a real `/byids` endpoint rather than
+    /// a bigger number.
     pub async fn by_ids(
         &self,
         ids: &[IdAndExtId],
@@ -67,7 +79,7 @@ impl FunctionsService {
                 wanted_external_ids.push(ext.clone());
             }
         }
-        let all = self.list().await?;
+        let all = self.list(Some(10_000)).await?;
         let mut matched: Vec<Function> = vec![];
         for f in all.get_items() {
             let id_match = f.id.map_or(false, |i| wanted_ids.contains(&i));

@@ -40,7 +40,7 @@ mod tests {
     async fn test_timeseries_requests() -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
 
-        let result = api_service.time_series.list_with_limit(Some(5)).await;
+        let result = api_service.time_series.list(Some(5)).await;
         match result {
             Ok(timeseries) => {
                 assert!(timeseries.length() <= 5);
@@ -56,7 +56,7 @@ mod tests {
     #[tokio::test]
     async fn test_list()-> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
-        let result = api_service.time_series.list().await;
+        let result = api_service.time_series.list(None).await;
         match result {
             Ok(timeseries) => {
                // assert!(timeseries.length() <= 5);
