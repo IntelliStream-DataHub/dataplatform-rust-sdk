@@ -19,11 +19,13 @@
 //! - **Flat reads** (`get_by_id`, `by_ids`, `filter`, `search`) are fully populated *except*
 //!   `related_resources`, which is always empty — the api does not join the edges in.
 //! - **Graph reads** ([`ResourceService::fetch_related`](crate::resources::ResourceService::fetch_related),
-//!   `fetch_nearest`) are **typed but sparse**: Neo4j stores only a subset of the columns, so a
-//!   [`TimeSeries`] from there carries **none** of its type-specific fields — no `unit`,
-//!   `unit_external_id`, `value_type`, `table_engine` or `security_categories`. They are absent
-//!   from the payload, not defaulted, which is why every one of them is `Option`. `metadata` is
-//!   silently empty rather than absent, and `related_resources` *is* populated there.
+//!   `fetch_nearest`) are typed, and now very nearly 1-1 with a flat read: a [`TimeSeries`]
+//!   from there carries its `unit`, `unit_external_id` and `value_type`. The one field still
+//!   lost is **`metadata`**, which the api writes to Neo4j as flattened `metadata_*` properties
+//!   and never reassembles on the way out, so it is silently empty rather than absent.
+//!   `related_resources` runs the other way — populated here, always `[]` on a flat read.
+//!   Type-specific fields stay `Option` regardless: a node written before a given field was
+//!   projected reports it absent, and absent must not read as a default.
 //! - **Policies** never carry `value`, `template_id` or `data_set_id` on any read — the api's
 //!   transformer does not set them.
 
@@ -679,8 +681,7 @@ mod tests {
 
     /// The full response shape for a node of each type, transcribed from the api's wire-contract
     /// tests (`AssetWireContractTest`, `ResourceWireContractTest`, `TimeseriesWireContractTest`,
-    /// `DataSetModelWireContractTest`, `PolicyWireContractTest`). Ids arrive as JSON *strings*;
-    /// `securityCategories` as raw numbers.
+    /// `DataSetModelWireContractTest`, `PolicyWireContractTest`). Ids arrive as JSON *strings*.
     fn asset_json() -> serde_json::Value {
         json!({
             "id": "34", "externalId": "pump_a", "name": "Pump A", "isRoot": true,
@@ -695,9 +696,9 @@ mod tests {
         json!({
             "id": "7", "externalId": "Engine.Temp", "name": "Engine temp",
             "metadata": {}, "unit": "deg C", "unitExternalId": "deg_c",
-            "relatedResources": [], "description": null, "securityCategories": [1, 2],
+            "relatedResources": [], "description": null,
             "dataSetId": "21", "source": null, "labels": ["TIMESERIES"],
-            "tableEngine": "MERGETREE", "valueType": "float",
+            "valueType": "float",
             "createdTime": "2024-06-17T12:34:56Z", "lastUpdatedTime": "2024-06-17T12:34:56Z"
         })
     }
@@ -818,9 +819,8 @@ mod tests {
         assert_eq!(ts.unit.as_deref(), Some("deg C"));
         assert_eq!(ts.unit_external_id.as_deref(), Some("deg_c"));
         assert_eq!(ts.value_type.as_deref(), Some("float"));
-        assert_eq!(ts.table_engine.as_deref(), Some("MERGETREE"));
-        // Raw numbers on the wire, unlike every id in the family.
-        assert_eq!(ts.security_categories, Some(vec![1, 2]));
+        // No `table_engine`: the api marks it @JsonIgnore, so no read carries it.
+        assert_eq!(ts.table_engine, None);
         assert_eq!(ts.data_set_id, Some(21));
         assert_eq!(ts.labels.as_deref(), Some(&["TIMESERIES".to_string()][..]));
     }
@@ -849,11 +849,12 @@ mod tests {
     }
 
     #[test]
-    fn a_graph_sourced_timeseries_has_none_of_its_type_specific_fields() {
-        // What `/resources/fetch-related` actually sends for a TIMESERIES: the shared node
-        // fields and nothing else. Neo4j does not store the rest, and the api omits them rather
-        // than emitting defaults — so every one of these must be optional, `valueType` included.
-        // A required `valueType` made any graph traversal over a timeseries a hard error.
+    fn a_graph_node_predating_a_field_reports_it_absent() {
+        // Today's projection carries `unit`, `unitExternalId` and `valueType`, but a node last
+        // written before a given field was projected still has none of them, and the api omits
+        // what the graph does not hold rather than emitting a default. So every one of these
+        // must stay optional — a required `valueType` made any traversal over a timeseries a
+        // hard deserialization error, and defaulting one would report storage that is not there.
         let node: Node = serde_json::from_value(json!({
             "id": "793", "externalId": "well_qgl", "name": "Well QGL",
             "createdTime": "2024-06-17T12:34:56Z", "lastUpdatedTime": "2024-06-17T12:34:56Z",
@@ -864,7 +865,6 @@ mod tests {
         assert_eq!(ts.value_type, None, "not told, rather than a wrong default");
         assert_eq!(ts.unit, None);
         assert_eq!(ts.table_engine, None);
-        assert_eq!(ts.security_categories, None);
     }
 
     #[test]
@@ -913,7 +913,6 @@ mod tests {
         let foreign = [
             "unit",
             "unitExternalId",
-            "securityCategories",
             "tableEngine",
             "valueType",
             "policies",
@@ -929,7 +928,7 @@ mod tests {
             ("ASSET", &["geoLocation", "isRoot"][..]),
             (
                 "TIMESERIES",
-                &["unit", "unitExternalId", "securityCategories", "tableEngine", "valueType"][..],
+                &["unit", "unitExternalId", "tableEngine", "valueType"][..],
             ),
             ("FUNCTION", &[][..]),
             ("DATASET", &["policies", "connectedDataSets"][..]),

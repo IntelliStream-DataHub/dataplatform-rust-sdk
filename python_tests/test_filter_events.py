@@ -344,9 +344,18 @@ def test_created_time_is_ingest_time_not_event_time(flt, event_corpus, both):
 # --------------------------------------------------------------------------- #
 
 def test_an_absent_filter_places_no_restriction(sync_client, event_corpus, both):
-    """An argument-free filter returns the tenant's events, not none of them."""
+    """An argument-free filter returns the tenant's events, not none of them.
+
+    Sorted newest-created-first, which is ordering and not a criterion, so the claim under
+    test is unchanged. Without it this asserts something it cannot reach: events default to
+    ``eventTime`` ascending, so this run's two seeds sort behind every older event the tenant
+    holds and fall outside ``limit`` on any populated backend. ``createdTime`` rather than
+    ``eventTime`` because an event's time is caller-supplied and freely in the future — the
+    corpus here holds some — while its creation time is when the row was actually written.
+    """
     everything = poll_until(
-        lambda: externals(sync_client.events.filter(limit=1000)),
+        lambda: externals(sync_client.events.filter(
+            limit=1000, sort_by="createdTime", sort_order="desc")),
         lambda found: found >= both,
         timeout=15.0,
     )

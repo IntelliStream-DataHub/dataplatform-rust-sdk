@@ -8,12 +8,12 @@ assertion fails partway through.
 """
 import os
 import uuid
-from time import sleep
 
 import intellistream_datahub_sdk
 import numpy as np
 import pandas as pd
 import pytest
+from polling import poll_until
 
 # The .env lives at the project root, one directory above python_tests/.
 ENV_FILE = os.path.join(os.path.dirname(__file__), "..", ".env")
@@ -219,15 +219,33 @@ def test_data():
     return pd.Series(walk, index=dates, name="Random Walk")
 
 
+def _await_datapoints(sync_client, test_data, ts):
+    """Block until every inserted point is readable, or the timeout gives up.
+
+    ClickHouse makes an insert visible some time after the call returns, so a fixed sleep is
+    a bet on how long: too short and every dependent test reads `[]` at once, too long and
+    each run pays for the worst case. Polling returns as soon as the rows land and only waits
+    when it has to. Returning short rather than raising leaves the diagnosis to the test —
+    an assertion on the datapoints says more than a fixture blowing up before one runs.
+    """
+    rf = intellistream_datahub_sdk.RetrieveFilter(
+        ts=ts, start=test_data.index[0], end=test_data.index[-1]
+    )
+    poll_until(
+        lambda: sync_client.timeseries.retrieve_datapoints(rf)[0].get_datapoints(),
+        lambda points: len(points) >= len(test_data),
+    )
+
+
 @pytest.fixture(scope="module")
 def inserted_data(sync_client, test_data, ts_float):
     inserted_data = sync_client.timeseries.insert_from_lists(timestamps=test_data.index, values=test_data.values, ts=ts_float)
-    sleep(0.5)
+    _await_datapoints(sync_client, test_data, ts_float)
     yield inserted_data
 
 
 @pytest.fixture(scope="function")
 def fresh_inserted_data(sync_client, test_data, ts_float):
     inserted_data = sync_client.timeseries.insert_from_lists(timestamps=test_data.index, values=test_data.values, ts=ts_float)
-    sleep(0.5)
+    _await_datapoints(sync_client, test_data, ts_float)
     yield inserted_data

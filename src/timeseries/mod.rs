@@ -614,11 +614,12 @@ pub struct TimeSeries {
     /// heterogeneous `/resources` result — see [`crate::nodes::Node`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
-    /// ClickHouse table engine backing this series (`MERGETREE` by default). Server-assigned;
-    /// sent back on every timeseries read.
+    /// ClickHouse table engine backing this series (`MERGETREE` by default).
     ///
-    /// Beware on a node reached through the graph (`fetch_related`/`fetch_nearest`): Neo4j does
-    /// not store this column, so the api fills it from its DTO default rather than from data.
+    /// Stale: no read returns this. Which ClickHouse engine backs a series is an internal
+    /// storage decision, so the api marks it `@JsonIgnore` and omits it from every response —
+    /// flat and graph alike. It is still *accepted* on create, and the field is kept rather
+    /// than removed, so it is write-only in practice and always `None` on the way back.
     #[serde(rename = "tableEngine", default, skip_serializing_if = "Option::is_none")]
     pub table_engine: Option<String>,
 }
