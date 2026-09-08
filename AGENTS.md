@@ -185,7 +185,7 @@ Names the refactors removed — `externalIdPrefix`, `metadataKey`/`metadataValue
 
 Related resources are one field, not two: both `Event` and `EventFilter` carry `relatedResources`, an array of the backend's `IdCollection` (`[{"id": "34"}, {"externalId": "sensor_abc"}]`, modelled by `IdAndExtId`). An entry may name a resource by id, external id, or both; the backend resolves the missing side and returns both. `dataSetId` on the filter uses the same shape. There are no aliases for the retired flat `relatedResourceIds` / `relatedResourceExternalIds` arrays.
 
-`EventFilterForm` + `AdvancedEventFilter` remain the richer style for events; some advanced-filter endpoints are not yet wired up server-side and are tested only via serde round-trips.
+`EventFilterForm` additionally carries `advancedFilter`, a **string** holding a boolean expression in the api's PostgreSQL-flavoured filter language — `type NOT LIKE 'pump' AND (subType = 'water' OR subType = 'gas')`. It replaced a nested and/or/not `Filter` tree in 0.4.0. Three of that tree's nine variants (`range`, `containsAny`, `containsAll`) never had a server-side binding and returned 500, which is part of why it went. The expression is parsed and validated by the api, not here, so an invalid one comes back as a 400 carrying an offset and often a corrected expression.
 
 #### Sorting and paging
 
