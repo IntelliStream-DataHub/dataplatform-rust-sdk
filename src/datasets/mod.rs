@@ -52,20 +52,22 @@ impl DatasetsService {
         self.execute_post_request(path, &json.into()).await
     }
 
-    /// `POST /datasets/list` — datasets in the tenant, newest first, capped at `limit`.
+    /// `GET /datasets?limit=N` — the first `limit` datasets in the tenant, newest created first.
     ///
-    /// `None` leaves the server's default of 100 in place; the maximum is 10000, above which the
-    /// server answers 400. There is no paging, so the cap is a truncation and not a page — pass a
-    /// number you are willing to hold, or narrow with [`filter`](Self::filter) instead.
+    /// `None` sends no `limit` and leaves the server's default of 1000 in place; the maximum is
+    /// 10000, above which the server answers 400 rather than clamping — a caller who asked for
+    /// 50000 and got 10000 could not tell that from a tenant holding exactly 10000. There is no
+    /// paging: no `nextCursor` comes back, so the cap truncates. Criteria, ordering and paging all
+    /// live on [`filter`](Self::filter).
     ///
-    /// Unlike every other `list` in this SDK this is a `POST`, because `/datasets` has no `GET`
-    /// collection route. The server implements `/list` by calling its `/filter` handler, so this
-    /// is [`filter`](Self::filter) with an empty filter and nothing more.
+    /// This was `POST /datasets/list`, which took the same [`DatasetFilterForm`] as `/filter` and
+    /// ran the same handler — two names for one operation, on the only collection in the api that
+    /// had them. A stale caller gets **405**, not 404: `GET /datasets/{id}` matches the path and
+    /// refuses the verb.
     pub async fn list(&self, limit: Option<u64>) -> Result<DataWrapper<Dataset>, ResponseError> {
-        let mut form = DatasetFilterForm::new();
-        form.set_limit(limit.unwrap_or(100));
-        let path = &format!("{}/list", self.base_url);
-        self.execute_post_request(path, &form).await
+        let query = limit.map(|limit| [("limit", limit)]);
+        self.execute_get_request::<DataWrapper<Dataset>, _>(&self.base_url, query.as_ref())
+            .await
     }
 
     /// `POST /datasets/filter` — datasets matching [`DatasetFilterForm`], newest first.
@@ -414,7 +416,7 @@ impl From<&Vec<DatasetUpdate>> for DataWrapper<DatasetUpdate> {
     }
 }
 
-/// Criteria for `POST /datasets/filter` and `POST /datasets/list`.
+/// Criteria for `POST /datasets/filter`.
 ///
 /// Most of it is the shared [`NodeFilter`] — ids, external ids, names, sources, labels, metadata
 /// and the two timestamp windows — flattened onto the wire; read its rules for wildcards,
@@ -482,8 +484,7 @@ impl DatasetFilter {
     }
 }
 
-/// Body of `POST /datasets/filter` and `POST /datasets/list`: the criteria, how many to return,
-/// and in what order.
+/// Body of `POST /datasets/filter`: the criteria, how many to return, and in what order.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DatasetFilterForm {
     #[serde(skip_serializing_if = "Option::is_none")]

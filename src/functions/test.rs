@@ -23,7 +23,7 @@ use crate::tests::ids::unique_id;
         assert_eq!(created.get_items().len(), 1);
         assert_eq!(created.get_items()[0].external_id, ext_id);
 
-        let listed = api.functions.list().await.unwrap();
+        let listed = api.functions.list(None).await.unwrap();
         assert!(listed.get_items().iter().any(|f| f.external_id == ext_id));
 
         let by_ext = api.functions.by_external_id(&ext_id).await.unwrap();

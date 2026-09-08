@@ -901,3 +901,46 @@ mod vocabulary {
         Ok(())
     }
 }
+
+/// `GET /events?limit=` — the plain listing events gained alongside the `/datasets/list`
+/// consolidation, and the one member of the node family that does not read newest-first.
+///
+/// The endpoint runs `POST /events/filter` with an empty body, and that body's default sort is
+/// `eventTime` **ascending** — so this is the *oldest* `limit` events, not the newest, whatever
+/// its own description promises. Pinned here because it is the opposite of what the three node
+/// listings beside it do and the opposite of what the api documents, so a caller reaching for
+/// "what just happened" gets the start of the tenant's history instead.
+///
+/// Needs no fixture: it asserts the order of whatever the tenant already holds, plus the shared
+/// `?limit=` contract.
+#[tokio::test]
+async fn plain_listing_is_oldest_first_capped_and_uncursored(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let api_service = create_api_service();
+
+    let listed = api_service.events.list(Some(50)).await?;
+    assert_eq!(listed.get_http_status_code(), Some(200));
+
+    let times: Vec<_> = listed.get_items().iter().map(|e| e.event_time).collect();
+    assert!(
+        times.windows(2).all(|w| w[0] <= w[1]),
+        "the plain event listing is eventTime ascending, not newest-first: {:?}",
+        times
+    );
+
+    // No `nextCursor`: paging needs a sort and a cursor, and both live on the filter body.
+    assert!(
+        listed.next_cursor().is_none(),
+        "the plain listing is the first page and says so"
+    );
+
+    assert!(listed.get_items().len() <= 50, "limit truncates");
+
+    let over_cap = api_service.events.list(Some(10_001)).await;
+    assert_eq!(
+        over_cap.map(|_| ()).unwrap_err().get_status().as_u16(),
+        400,
+        "above 10000 is a rejection, not a clamp"
+    );
+    Ok(())
+}

@@ -151,7 +151,7 @@ impl PyFunction {
     }
 
     /// The nodes bound into this function (e.g. its input timeseries via PROCESSED_BY
-    /// edges). Populated by the server on `/functions/list`; the Python worker reads each
+    /// edges). Populated by the server on `GET /functions`; the Python worker reads each
     /// entry's `id` and `relationship_type == "PROCESSED_BY"` to build its routing map.
     #[getter]
     fn related_resources(&self) -> Vec<PyRelatedNode> {

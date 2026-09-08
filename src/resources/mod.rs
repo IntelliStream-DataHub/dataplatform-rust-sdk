@@ -156,6 +156,27 @@ impl ResourceService {
             .await
     }
 
+    /// `GET /resources?limit=N` — the first `limit` nodes in the tenant, newest created first.
+    ///
+    /// The cheap "what have I got" read: no body, no criteria. Like every read under
+    /// `/resources` it spans **every** node type and answers each row in the shape of its own
+    /// kind — see [`Node`](crate::nodes::Node) — and it is narrowed to the data sets you may read
+    /// exactly as [`filter`](Self::filter) is.
+    ///
+    /// Resources are the bulk of a tenant, so treat this as a sample rather than an inventory: it
+    /// is the newest `limit` of them and nothing more. Anything narrower — a node type, an
+    /// external id, a data set — belongs in [`filter`](Self::filter), which is also the only one
+    /// of the two that pages.
+    ///
+    /// `None` sends no `limit` and leaves the server's default of 1000 in place; the maximum is
+    /// 10000, above which the server answers 400 rather than clamping. No `nextCursor` comes
+    /// back: a walk needs a sort and a cursor, and both live on the filter body.
+    pub async fn list(&self, limit: Option<u64>) -> Result<DataWrapper<Node>, ResponseError> {
+        let query = limit.map(|limit| [("limit", limit)]);
+        self.execute_get_request::<DataWrapper<Node>, _>(&self.base_url, query.as_ref())
+            .await
+    }
+
     /// `POST /resources/filter` — structured lookup. Every criterion is combined with AND.
     ///
     /// Prefer this to [`search`](Self::search) whenever the question is structured: an exact

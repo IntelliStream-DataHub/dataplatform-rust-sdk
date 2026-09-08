@@ -157,8 +157,7 @@ pub struct TimeSeriesService {
 
 impl TimeSeriesService {
     delegate! { time_series =>
-        fn list() -> Result<DataWrapper<TimeSeries>, ResponseError>;
-        fn list_with_limit(limit: Option<u64>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
+        fn list(limit: Option<u64>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn create(json: &DataWrapper<TimeSeries>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn create_one(ts: &TimeSeries) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn create_from_list(ts_list: &Vec<TimeSeries>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
@@ -188,6 +187,7 @@ pub struct ResourceService {
 
 impl ResourceService {
     delegate! { resources =>
+        fn list(limit: Option<u64>) -> Result<DataWrapper<Node>, ResponseError>;
         fn search(payload: &SearchAndFilterForm<ResourceFilter>) -> Result<DataWrapper<Node>, ResponseError>;
         fn fetch_related(form: &RelatedResourcesForm) -> Result<ResourceNetwork, ResponseError>;
     }
@@ -233,6 +233,7 @@ pub struct EventsService {
 
 impl EventsService {
     delegate! { events =>
+        fn list(limit: Option<u64>) -> Result<DataWrapper<Event>, ResponseError>;
         fn list_dimension(dimension: EventDimension, query: Option<&str>, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
         fn list_types(limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
         fn search_types(query: &str, limit: Option<u32>) -> Result<DataWrapper<String>, ResponseError>;
@@ -338,7 +339,7 @@ pub struct FunctionsService {
 
 impl FunctionsService {
     delegate! { functions =>
-        fn list() -> Result<DataWrapper<Function>, ResponseError>;
+        fn list(limit: Option<u64>) -> Result<DataWrapper<Function>, ResponseError>;
         fn by_ids(ids: &[IdAndExtId]) -> Result<DataWrapper<Function>, ResponseError>;
         fn by_external_id(external_id: &str) -> Result<Function, ResponseError>;
     }

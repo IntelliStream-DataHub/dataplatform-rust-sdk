@@ -18,18 +18,18 @@ pub struct PyTimeSeriesServiceSync {
 
 #[pymethods]
 impl PyTimeSeriesServiceSync {
+    /// The first `limit` series in the tenant, newest created first. `limit` defaults to the
+    /// server's 1000 and may not exceed 10000; there is no paging, so a bigger tenant is truncated
+    /// rather than paged — use `filter` to narrow instead.
     #[pyo3(signature = (limit=None))]
     fn list(&self, py: Python<'_>, limit: Option<u64>) -> PyResult<Vec<PyTimeSeries>> {
         let service = self.api_service.clone();
 
         py.detach(|| {
-            let result = match limit {
-                Some(l) => self
-                    .runtime
-                    .block_on(service.time_series.list_with_limit(Some(l))),
-                None => self.runtime.block_on(service.time_series.list()),
-            }
-            .map_err(|e| crate::datahub_err(e))?;
+            let result = self
+                .runtime
+                .block_on(service.time_series.list(limit))
+                .map_err(|e| crate::datahub_err(e))?;
 
             let py_units: Vec<PyTimeSeries> = result
                 .get_items()

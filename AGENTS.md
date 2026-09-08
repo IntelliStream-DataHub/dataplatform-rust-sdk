@@ -231,6 +231,44 @@ typed. `DatasetFilter` is consequently just the shared criteria — its `writePr
 - **Hits are ranked.** The three node searches order by `ts_rank` and tie-break on id, so the first item is the best match and repeating a request returns the same page rather than a different slice of an equally-scored block. Ranking costs the index's early exit — every match is scored before `limit` applies. `/events/search` is the exception: it is newest-first (`eventTime` descending), not scored.
 - **`limit` defaults to 100, caps at 1000** (the *filter* endpoints default to 1000 and cap at 10000 — different numbers, easy to conflate), and `<= 0` falls back to the default rather than returning nothing.
 
+#### The plain listings share a second contract
+
+`list()` is the criteria-free read — `GET /<collection>?limit=N`, no body — and there is now one of
+them per node type: `resources`, `timeseries`, `datasets`, `events` and `functions` on the SDK side
+(`assets` and `policies` have no service here). The api used to spell it four ways: three types had
+no listing at all, so "what have I got" meant composing a POST body; timeseries and datasets had the
+`GET`; policies returned every row unordered and **uncapped**; functions spelled it
+`GET /functions/list`, also uncapped. Datasets additionally carried a `POST /datasets/list` that took
+`DatasetFilterForm` and ran the `/filter` handler — one operation under two names, on the only
+collection that had them.
+
+- **`limit` is the same contract `/filter` uses**, on purpose: `None` sends no parameter and means
+  the server's **1000**; above **10000** is a **400**, not a clamp, because a caller who asked for
+  50000 and got 10000 cannot tell that from a tenant holding exactly 10000. `<= 0` is the default.
+  The SDK types it `Option<u64>`, so a negative one cannot be sent — Python raises `OverflowError`
+  before the request.
+- **No paging, ever.** The api nulls `nextCursor` on these deliberately: a walk needs a `sort` and a
+  `cursor` and both live in a body. So a listing is the *first page* and nothing more — narrow with
+  `filter` rather than raising the number. In Python that is the visible difference between the two:
+  `filter()` returns a `Page`, `list()` returns a plain list.
+- **Newest created first — except events.** The three node listings sort `createdTime` descending.
+  `GET /events` runs the event filter with an empty body, whose default sort is `eventTime`
+  *ascending* (the order the keyset cursor pages in), so `events.list()` is the **oldest** N events
+  however its own api description reads. Pinned by `events::tests::plain_listing_is_oldest_first_capped_and_uncursored`
+  and `python_tests/test_plain_listings.py`.
+- **`resources.list` is typed like every other `/resources` read** — it spans all six node types and
+  answers each row as its own [`Node`](#the-polymorphic-node-type) variant.
+- **The listing is not a way to fetch everything.** `FunctionsService::by_ids` has no `/byids`
+  endpoint behind it and filters a listing client-side; that listing used to be uncapped, so it now
+  asks for 10000 and a tenant past that silently misses its oldest functions.
+
+Names that are gone rather than aliased, the way the filter refactors handled theirs:
+`POST /datasets/list` (a stale caller gets **405** — `GET /datasets/{id}` matches the path and
+refuses the verb), `GET /functions/list`, and the SDK's own `TimeSeriesService::list_with_limit`,
+which was `list()` under a second name and disagreed with it about the default (100 against the
+server's 1000). The api had that same split on its own side — `GET /timeseries/` defaulted to 100
+where `GET /timeseries` defaulted to 1000, so the page size depended on whether you typed a slash.
+
 #### Building a dataset hierarchy in a test
 
 `Dataset.connected_data_sets` does not create the hierarchy — create the edge explicitly, and note the direction: the row is stored `from = parent, to = child` even though the relationship is named `BELONGS_TO`, and the closure query descends `rel_start -> rel_end`. Reversing it produces no hierarchy and no error. See `python_tests/filter_fixtures.py`.
