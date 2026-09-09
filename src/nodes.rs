@@ -819,8 +819,6 @@ mod tests {
         assert_eq!(ts.unit.as_deref(), Some("deg C"));
         assert_eq!(ts.unit_external_id.as_deref(), Some("deg_c"));
         assert_eq!(ts.value_type.as_deref(), Some("float"));
-        // No `table_engine`: the api marks it @JsonIgnore, so no read carries it.
-        assert_eq!(ts.table_engine, None);
         assert_eq!(ts.data_set_id, Some(21));
         assert_eq!(ts.labels.as_deref(), Some(&["TIMESERIES".to_string()][..]));
     }
@@ -864,7 +862,6 @@ mod tests {
         let ts = node.into_time_series().expect("timeseries");
         assert_eq!(ts.value_type, None, "not told, rather than a wrong default");
         assert_eq!(ts.unit, None);
-        assert_eq!(ts.table_engine, None);
     }
 
     #[test]
@@ -913,7 +910,6 @@ mod tests {
         let foreign = [
             "unit",
             "unitExternalId",
-            "tableEngine",
             "valueType",
             "policies",
             "connectedDataSets",
@@ -926,10 +922,7 @@ mod tests {
         ];
         let own: HashMap<&str, &[&str]> = HashMap::from([
             ("ASSET", &["geoLocation", "isRoot"][..]),
-            (
-                "TIMESERIES",
-                &["unit", "unitExternalId", "tableEngine", "valueType"][..],
-            ),
+            ("TIMESERIES", &["unit", "unitExternalId", "valueType"][..]),
             ("FUNCTION", &[][..]),
             ("DATASET", &["policies", "connectedDataSets"][..]),
             ("POLICY", &["type", "value", "deactivated", "templateId"][..]),

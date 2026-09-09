@@ -145,7 +145,6 @@ def test_a_timeseries_read_through_resources_carries_its_timeseries_fields(
         assert isinstance(node, TimeSeries)
         assert node.unit == "bar"
         assert node.value_type == "float"
-        # No table_engine: the api marks it @JsonIgnore, so no read returns it.
     finally:
         try:
             sync_client.timeseries.delete([ext])
@@ -209,8 +208,6 @@ def test_a_node_reached_through_the_graph_carries_its_type_specific_fields(sync_
         assert isinstance(graph_ts, TimeSeries)
         assert graph_ts.unit == "bar", "the graph carries the unit column"
         assert graph_ts.value_type == "float"
-        # table_engine is the one field no read returns: the api marks it @JsonIgnore.
-        assert graph_ts.table_engine is None
     finally:
         try:
             sync_client.timeseries.delete([ts_ext])
