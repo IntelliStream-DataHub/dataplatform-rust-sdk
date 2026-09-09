@@ -39,11 +39,22 @@ impl SubscriptionsService {
             .await
     }
 
+    /// `POST /subscriptions/filter` — the subscriptions matching [`SubscriptionFilterForm`].
+    ///
+    /// This was `POST /subscriptions/list` until the api moved subscriptions onto the same filter
+    /// contract the rest of the collections use. Only the path moved: `filter`, `limit` and `sort`
+    /// are read exactly as before, and this type is a subset of the retriever the endpoint accepts.
+    /// The old path is gone rather than deprecated, so a client that has not moved gets a 404.
+    ///
+    /// The name stays `list` here, where the Java client spells the same call `filter`. Aligning
+    /// the three is worth doing on its own, together with the `GET /subscriptions?limit=` listing
+    /// the api gained at the same time and no client wraps yet — both are renames and additions
+    /// rather than repairs, and this change is meant to be revertable on its own.
     pub async fn list(
         &self,
         form: &SubscriptionFilterForm,
     ) -> Result<DataWrapper<Subscription>, ResponseError> {
-        let path = &format!("{}/list", self.base_url);
+        let path = &format!("{}/filter", self.base_url);
         self.execute_post_request::<DataWrapper<Subscription>, _>(path, form)
             .await
     }
