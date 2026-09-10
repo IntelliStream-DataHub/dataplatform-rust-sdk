@@ -86,6 +86,7 @@ pub fn event_filter_form(
     sort_by: Option<StringOrList>,
     sort_order: Option<String>,
     cursor: Option<String>,
+    advanced_filter: Option<String>,
 ) -> PyResult<EventFilterForm> {
     let any_keyword = external_id.is_some()
         || source.is_some()
@@ -130,6 +131,13 @@ pub fn event_filter_form(
     }
     if let Some(cursor) = cursor {
         form.set_cursor(cursor);
+    }
+    // A boolean expression in the api's filter language, e.g.
+    //   type NOT LIKE 'pump' AND (subType = 'water' OR subType = 'gas')
+    // Parsed and validated by the api, so an invalid one comes back as a 400 that carries an
+    // offset and usually a corrected expression.
+    if let Some(advanced_filter) = advanced_filter {
+        form.set_advanced_filter(advanced_filter);
     }
     Ok(form.build())
 }

@@ -899,6 +899,7 @@ class EventsServiceSync:
         sort_by: SortBy | None = None,
         sort_order: str | None = None,
         cursor: str | None = None,
+        advanced_filter: str | None = None,
     ) -> Page:
         """Pass either ``filter=`` or the individual criteria keywords; passing both is a
         ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
@@ -954,6 +955,7 @@ class EventsServiceAsync:
         sort_by: SortBy | None = None,
         sort_order: str | None = None,
         cursor: str | None = None,
+        advanced_filter: str | None = None,
     ) -> Page:
         """Pass either ``filter=`` or the individual criteria keywords; passing both is a
         ``TypeError``. Paging is always given here rather than on the filter, so one filter can be

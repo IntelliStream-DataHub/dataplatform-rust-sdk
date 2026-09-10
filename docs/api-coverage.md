@@ -90,8 +90,9 @@ vocabularies). All take a `limit` param, default 1000, capped at 10000.
 Covered: `byids`, `search`, `fetch-related`, `create`, `update`, `delete`.
 
 Missing: `GET /resources/{id}` (single fetch by numeric id), `POST /resources/filter` (structured
-filtering — note the SDK ships `AdvancedFilter` machinery in `src/filters.rs` with no resource
-endpoint wired to it), `POST /resources/fetch-nearest`.
+filtering), `POST /resources/fetch-nearest`. Note that events' `advancedFilter` is now a plain
+expression string and carries no reusable type, so a resource equivalent would start from the
+api's filter language rather than from anything in `src/filters.rs`.
 
 ### `/timeseries` — 11 of 12
 
@@ -149,7 +150,8 @@ knowing, found while testing against a live backend:
 3. ~~`GET /files/download/{id}`~~ — **done**, along with the rest of `/files`.
 4. **`/edges` service** — needed for any relationship management that isn't a resource-create side
    effect, and for discovering relationship types.
-5. **`/resources/filter`** — the `AdvancedFilter` types already exist; only the call is missing.
+5. **`/resources/filter`** — needs both the call and whatever filter shape the api settles on for
+   resources; the events filter language is a string, with no Rust-side types to reuse.
 6. **`/policies` and `/governance`** — newer surfaces; wire up when the platform needs them.
 7. Lower value: events vocabulary enumeration, `/stats`, `/tenant/features`,
    `recommend-value-type`, the live datapoint WebSocket.
