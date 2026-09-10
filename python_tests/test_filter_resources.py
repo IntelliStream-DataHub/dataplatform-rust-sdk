@@ -274,14 +274,7 @@ def test_every_node_carries_its_type_as_a_label(sync_client, resource_corpus, pr
     ("DATASET", "dataset"),
     ("TIMESERIES", "timeseries"),
     ("FUNCTION", "function"),
-    pytest.param("POLICY", "policy", marks=pytest.mark.xfail(
-        reason="There is no POLICY row in the label table at all — the other four type-labels are "
-               "there. A policy node reports `labels: ['POLICY']` because the read path serves the "
-               "denormalised node.labels string column, while filtering joins the label table on "
-               "its hash; with no row there is nothing to join, so the label is visible and "
-               "unsearchable. Distinct from the stale-hash drift V37 repaired: that had rows with "
-               "an XXH64 hash to recompute, this has no row to fix. Server-side.",
-        strict=True)),
+    ("POLICY", "policy"),
 ])
 def test_every_type_label_is_matchable(sync_client, type_label, node_type):
     """A node reports its type-label on every read, so filtering by it must find that node.
@@ -295,6 +288,12 @@ def test_every_type_label_is_matchable(sync_client, type_label, node_type):
     `label.hash` with XXH64 and left `Label.setName`'s XXH3 as the only writer, so every row written
     before that date carried a hash no current code could reproduce. TIMESERIES was written after
     the cutoff and always worked, which is why the bug first looked dataset-specific.
+
+    POLICY was a different fault and stayed red after V37: there was no POLICY row in the label
+    table at all, so a policy node reported `labels: ['POLICY']` from the denormalised
+    `node.labels` column while the filter's join on the label hash had nothing to join to — the
+    label visible and unsearchable, with no row to repair. Fixed server-side; it is a plain case
+    here now rather than a strict xfail.
     """
     of_type = sync_client.resources.filter(node_type=[node_type], limit=1000)
     if not of_type:
