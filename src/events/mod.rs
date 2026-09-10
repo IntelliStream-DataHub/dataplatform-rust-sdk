@@ -735,12 +735,6 @@ impl EventUpdate {
         }
     }
 
-    /// Change the event `externalId`.
-    pub fn external_id(mut self, field: Field<String>) -> Self {
-        self.update.external_id = Some(field);
-        self
-    }
-
     /// Change the event `description`.
     pub fn description(mut self, field: Field<String>) -> Self {
         self.update.description = Some(field);
@@ -796,16 +790,20 @@ impl EventUpdate {
 /// (`set` / `setNull`); `metadata` and the related-resource list use the three-way
 /// [`MapField`] / [`ListField`] (`set` / `add` / `remove`).
 ///
-/// There is deliberately no `event_time`: an event's time is immutable after creation. The
-/// server's events table is partitioned by it, so the mutation cannot move the row and is refused
-/// outright — the api dropped the field from its update form rather than keep answering `200` to a
-/// change it could not make. Sending it now gets a `400` naming the field. Record a corrected time
-/// as a new event, or delete and re-create.
+/// There is deliberately no `event_time` and no `external_id`: both are immutable after creation,
+/// and the api dropped each from its update form rather than keep answering `200` to a change it
+/// could not make. Sending either now gets a `400` naming the field.
+///
+/// The events table is partitioned by `event_time`, so a mutation cannot move the row and is
+/// refused outright. `externalId` is an event's identity rather than a property: the server maps
+/// one external id to the *set* of event UUIDs behind it, because events sharing an external id
+/// are the lifecycle of one logical event. A rename would take every sibling along, and when the
+/// event was targeted by UUID the server did not have the old value to re-key with — so the
+/// "renamed" event stopped resolving under either id. Re-key by creating a new event and deleting
+/// the old one; record a corrected time the same way.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct EventUpdateFields {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub external_id: Option<Field<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<Field<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

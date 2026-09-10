@@ -355,6 +355,9 @@ impl From<EventIdentifyable> for EventIdCollection {
 /// `external_id`; every field is optional and uses the same wrappers as the other services
 /// (`FieldStr`/`FieldU64` for scalars, `ListFieldIdCollection` for the related-resource list,
 /// `MapField` for metadata). Mirrors `ResourceUpdate`.
+///
+/// There is no `external_id` field to change, and no `event_time`: both identify an event rather
+/// than describe it, and the api rejects a body carrying either.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EventUpdate")]
 #[derive(Clone)]
 pub struct PyEventUpdate {
@@ -372,7 +375,6 @@ impl PyEventUpdate {
     #[new]
     #[pyo3(signature = (
         event,
-        external_id = None,
         description = None,
         r#type = None,
         sub_type = None,
@@ -385,7 +387,6 @@ impl PyEventUpdate {
     #[allow(clippy::too_many_arguments)]
     pub fn __init__(
         event: EventIdentifyable,
-        external_id: Option<PyFieldStr>,
         description: Option<PyFieldStr>,
         r#type: Option<PyFieldStr>,
         sub_type: Option<PyFieldStr>,
@@ -401,7 +402,6 @@ impl PyEventUpdate {
                 id: ident.id,
                 external_id: ident.external_id,
                 update: EventUpdateFields {
-                    external_id: external_id.map(Into::into),
                     description: description.map(Into::into),
                     r#type: r#type.map(Into::into),
                     sub_type: sub_type.map(Into::into),

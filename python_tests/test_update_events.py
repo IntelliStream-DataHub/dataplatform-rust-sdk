@@ -142,33 +142,32 @@ def test_type_set_null(sync_client, new_event):
 
 
 # --------------------------------------------------------------------------- #
-# external_id
+# external_id — not updatable at all
 # --------------------------------------------------------------------------- #
 
-def test_external_id_set_value(sync_client, new_event):
+def test_external_id_is_not_an_update_field():
+    """An event's externalId is its identity, not a property, so it cannot be changed.
+
+    The server maps one external id to the *set* of event UUIDs behind it — events sharing an
+    external id are the lifecycle of one logical event — so a rename would take every sibling
+    along, and an event targeted by UUID left the server without the old value to re-key with,
+    which is how a "renamed" event ended up resolving under neither id. The api dropped the field,
+    so a body naming ``externalId`` is a 400; the binding drops the keyword so the request is
+    never built. Re-key by creating a new event and deleting the old one.
+    """
+    with pytest.raises(TypeError):
+        intellistream_datahub_sdk.EventUpdate(
+            uuid.uuid4(), external_id=intellistream_datahub_sdk.FieldStr(value="evt_renamed")
+        )
+
+
+def test_external_id_survives_an_update_of_other_fields(sync_client, new_event):
     event = new_event()
-    new_ext = unique_id("evt_renamed")
 
     updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
-        event, external_id=intellistream_datahub_sdk.FieldStr(value=new_ext)
+        event, description=intellistream_datahub_sdk.FieldStr(value="untouched external id")
     ))
-    assert updated.external_id == new_ext
-
-    stored = poll_until(
-        lambda: sync_client.events.get(event.id),
-        lambda e: e is not None and e.external_id == new_ext,
-    )
-    assert stored is not None and stored.external_id == new_ext
-
-
-@_NO_SETNULL_BRANCH
-def test_external_id_set_null(sync_client, new_event):
-    event = new_event()
-
-    updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
-        event, external_id=intellistream_datahub_sdk.FieldStr(set_null=True)
-    ))
-    assert updated.external_id is None
+    assert updated.external_id == event.external_id
 
 
 # --------------------------------------------------------------------------- #
