@@ -1228,11 +1228,15 @@ async fn acl_a_dataset_or_policy_node_via_resources_needs_the_blanket_grant(
         ),
         (
             {
-                let mut r = Resource::new();
-                r.external_id = unique_id("acl_res_lower");
-                r.name = "acl probe lowercase".to_string();
-                r.labels = Some(vec!["dataset".to_string()]);
-                r.into()
+                // A `Dataset`, not a bare `Resource` wearing the label: a resource always
+                // serializes `isRoot`, which the data-set model does not accept, so that body
+                // dies in binding and never reaches the gate this case is probing. The label is
+                // set before serialization and `ensure_label_opt` matches case-insensitively, so
+                // the lower-case spelling survives — which is the whole point.
+                let mut d = Dataset::new(unique_id("acl_res_lower"));
+                d.name = "acl probe lowercase".to_string();
+                d.labels = Some(vec!["dataset".to_string()]);
+                d.into()
             },
             "a node labelled `dataset` in lower case",
         ),
