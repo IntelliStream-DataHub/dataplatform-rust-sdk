@@ -350,6 +350,13 @@ Behaviours worth knowing, each pinned by an assertion:
   `/labels/delete` and works. Relationship types have **no delete at all** — not in the MCP surface,
   not in `EdgesService` — so every run that creates one leaves it behind for good, and the tenant's
   catalogue only grows. That is the one stray the suite cannot clean up after itself.
+- **`BELONGS_TO` is not a built-in, and no test may assume it exists.** Nothing seeds it: no
+  migration, no bootstrap runner, only the api's own integration tests. It is minted lazily by
+  `RelationshipTypeService.findOrCreateByName` the first time an edge names it, so a fresh tenant
+  has no dataset-hierarchy type until something builds one. Both `mcp_full_tool_surface` and
+  `relations::tests::live::test_relationship_types` used to assert it was present, which passed
+  only on databases that had accumulated it — and since relationship types cannot be deleted, one
+  such database stays convincing for a long time.
 - **Delete order in the graph is not free.** `resource_delete` and `edge_delete` refuse to strand a
   node (see the `edges` notes above), so the sweep builds a triangle and drops `b -> c` — the one edge
   whose endpoints both stay reachable — then deletes `b`, then `c`, then `a`. Getting this order wrong
@@ -373,15 +380,10 @@ Behaviours worth knowing, each pinned by an assertion:
 
 ### Tests that are red on purpose
 
-Two encode intended behaviour the api does not yet provide, in the same spirit as
-`test_duplicate_relationship_type_conflicts`: they stay red until the server-side fix lands rather
+One encodes intended behaviour the api does not yet provide, in the same spirit as
+`test_duplicate_relationship_type_conflicts`: it stays red until the server-side fix lands rather
 than being softened to match the bug.
 
-- `mcp_event_update_by_uuid_reindexes_the_external_id` — renaming an event identified by **UUID**
-  writes the new `externalId` but never reindexes it. The update returns the new value, yet the event
-  stays reachable under the *old* externalId and never under the new one, while `event_get` by UUID
-  reports the new one — two identifiers disagreeing about one row. The same update by `externalId`
-  reindexes within about half a second.
 - `mcp_response_is_a_json_object` — whenever the double-encoding regression above is present, along
   with every other test that parses an envelope. Both directions are the same underlying fault: the
   transport moves the JSON-RPC payload as a `String` and lets content negotiation's JSON converter
@@ -390,6 +392,13 @@ than being softened to match the bug.
   client, guarded by `mcp_accepts_application_json`. Writing, it is handed a `String` to emit *as*
   `application/json` and escapes it. Note the api's own MockMvc test (`McpEndpointTest`) asserts only
   on the security gate, so neither direction was covered there.
+
+Two others stood here and are resolved, their tests staying on as regression guards:
+`unitExternalId` as an alternative to `unit` on `timeseries_create`, and
+`mcp_event_update_by_uuid_reindexes_the_external_id` — renaming an event by UUID wrote the new
+`externalId` without reindexing it. The api settled the second by deleting `newExternalId` from
+`event_update` rather than making the rename work, so that test is gone rather than green: there is
+no rename left to assert on. Nothing in the SDK's MCP suite sends `newExternalId` to an event.
 
 ## Python bindings (`datahub_python_bindings/`)
 
