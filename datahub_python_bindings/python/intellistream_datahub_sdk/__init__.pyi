@@ -835,16 +835,20 @@ EventIdentifiable = Union[Event, EventIdCollection, UUID, str]
 class EventUpdate:
     """Field-level changes for one event.
 
-    There is deliberately no ``event_time``: an event's time is immutable after creation. The
-    server's events table is partitioned by it, so the mutation cannot move the row and is refused
-    outright; the api dropped the field from its update form, and sending it now is a ``400``
-    naming the field. Record a corrected time as a new event, or delete and re-create.
+    There is deliberately no ``event_time`` and no ``external_id``: both identify an event rather
+    than describe it, and the api dropped each from its update form, so sending either is a ``400``
+    naming the field.
+
+    The events table is partitioned by ``event_time``, so the mutation cannot move the row and is
+    refused outright. ``externalId`` maps to the *set* of event UUIDs behind it — events sharing an
+    external id are the lifecycle of one logical event — so a rename would take every sibling along,
+    and an event targeted by UUID left the server without the old value to re-key with. Re-key by
+    creating a new event and deleting the old one; record a corrected time the same way.
     """
 
     def __init__(
         self,
         event: EventIdentifiable,
-        external_id: FieldStr | None = None,
         description: FieldStr | None = None,
         type: FieldStr | None = None,
         sub_type: FieldStr | None = None,
