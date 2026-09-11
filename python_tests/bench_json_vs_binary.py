@@ -117,6 +117,10 @@ def run(client, label: str, binary: bool, points: int, series: int, chunk: int) 
         "ingest_seconds": ingest_seconds,
         "settle_seconds": settle_seconds,
         "points_per_second": sent / ingest_seconds,
+        # Wall clock includes generating the points in interpreted Python, which dominates it.
+        # This is the same points divided by the time actually spent inside the SDK calls, so
+        # it says what the transport did rather than what the loop above did.
+        "points_per_second_in_call": sent / sum(latencies),
         "requests": len(latencies),
         "latency_mean_ms": sum(latencies) / len(latencies) * 1000,
         "latency_p50_ms": latencies[len(latencies) // 2] * 1000,
@@ -143,6 +147,7 @@ def main() -> None:
     rows = [
         ("ingest wall time (s)", "{:.1f}", "ingest_seconds"),
         ("points per second", "{:,.0f}", "points_per_second"),
+        ("points per second in-call", "{:,.0f}", "points_per_second_in_call"),
         ("settle to readable (s)", "{:.1f}", "settle_seconds"),
         ("requests", "{:,.0f}", "requests"),
         ("latency mean (ms)", "{:,.0f}", "latency_mean_ms"),

@@ -10,8 +10,16 @@ cargo test <name>                        # substring match on test name
 cargo test -- --ignored                  # run tests marked #[ignore] (e.g. long-running datapoint tests)
 cargo test <path>::tests::<name>         # e.g. `events::tests::test_events_full`
 cargo test -- --nocapture                # show println! from tests (the SDK prints response bodies)
+cargo test --release <bench name>        # ALWAYS --release for anything timed (see below)
 ./run_python_tests.sh                    # Python-bindings suite (rebuilds the PyO3 module first — see below)
 ```
+
+**Never time anything under a plain `cargo test`.** It builds with the `dev` profile at
+`opt-level = 0`. The `bench_json_vs_binary` comparison first reported Rust as *slower than the
+Java SDK* on both ingest paths that way, 339k against 720k points per second on JSON and 1.0M
+against 3.8M on binary; the whole result was the missing `--release`. That test now panics
+rather than run unoptimised, and the same applies to the PyO3 module, which needs
+`maturin develop --release` before any Python timing means anything.
 
 Most tests are integration tests that call a live backend via `create_api_service()`. They read configuration from a local `.env` file (gitignored). Required:
 

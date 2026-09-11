@@ -375,8 +375,12 @@ impl TimeSeriesService {
                             .datapoints
                             .extend(orig_dp_collection.datapoints.clone());
                     }
-                    new_json.add_item(new_dp_collection.clone());
-                    total_datapoints = total_datapoints - new_dp_collection.datapoints.len();
+                    // Moved, not cloned. This used to deep-copy the collection here and the
+                    // whole request body again below, so every datapoint was copied twice on
+                    // its way out, and a DatapointString is two heap Strings.
+                    let moved_points = new_dp_collection.datapoints.len();
+                    new_json.add_item(new_dp_collection);
+                    total_datapoints = total_datapoints - moved_points;
                     println!("Total datapoints left: {}", total_datapoints);
                 }
 
@@ -389,8 +393,7 @@ impl TimeSeriesService {
                     new_total_datapoints
                 );
 
-                let new_json_clone = new_json.clone();
-                new_request_bodies.push(new_json_clone);
+                new_request_bodies.push(new_json);
             }
         }
         // Now create futures after all request bodies are created

@@ -705,9 +705,21 @@ mod tests {
     /// Sized by `DATAHUB_BENCH_POINTS` (default 10 million) across `DATAHUB_BENCH_SERIES`
     /// series. The api must have its daily quota and rate limiter off for a run of any size:
     /// `-Ddatahub.limits.quota.enabled=false -Ddatahub.limits.rate.enabled=false`.
+    ///
+    /// **Run it with `--release`.** `cargo test` builds with the `dev` profile at
+    /// `opt-level = 0`, and the first time this was measured that way it reported Rust as
+    /// slower than Java at both paths: 339k against 720k points per second on JSON, and 1.0M
+    /// against 3.8M on binary. The assertion below refuses to run without optimisation rather
+    /// than print numbers that mean nothing.
     #[tokio::test]
     #[ignore]
     async fn bench_json_vs_binary() -> Result<(), Box<dyn std::error::Error>> {
+        // debug_assertions is on in the dev profile and off in release, which is the cheapest
+        // reliable way to tell which one built this.
+        if cfg!(debug_assertions) {
+            panic!("built without optimisation; run with `cargo test --release`, or this \
+                    measures opt-level 0 rather than the SDK");
+        }
         let total: usize = std::env::var("DATAHUB_BENCH_POINTS")
             .ok().and_then(|v| v.parse().ok()).unwrap_or(10_000_000);
         let series_count: usize = std::env::var("DATAHUB_BENCH_SERIES")
