@@ -729,8 +729,17 @@ mod tests {
         let api_service = create_api_service();
         println!("\n=== {total} points across {series_count} series, float32 ===");
 
+        // Which paths to run. A sweep over request sizes only needs the binary one, and the JSON
+        // path is slow enough that running it every time makes the sweep the expensive part.
+        let paths = std::env::var("DATAHUB_BENCH_PATHS").unwrap_or_else(|_| "both".to_string());
+        let wanted: Vec<bool> = match paths.as_str() {
+            "binary" => vec![true],
+            "json" => vec![false],
+            _ => vec![false, true],
+        };
+
         let mut results = Vec::new();
-        for binary in [false, true] {
+        for binary in wanted {
             let label = if binary { "binary" } else { "JSON" };
             let run_id = unique_id(if binary { "bench_bin" } else { "bench_json" });
             let external_ids: Vec<String> =
@@ -766,9 +775,14 @@ mod tests {
                     request.add_item(collection);
                 }
                 let call = std::time::Instant::now();
+                let concurrency: usize = std::env::var("DATAHUB_BENCH_REQ_CONCURRENCY")
+                    .ok().and_then(|v| v.parse().ok()).unwrap_or(4);
                 if binary {
                     api_service.time_series
-                        .insert_datapoints_binary(&request, &BinaryIngestOptions::default())
+                        .insert_datapoints_binary(
+                            &request,
+                            &BinaryIngestOptions::default().request_concurrency(concurrency),
+                        )
                         .await
                         .unwrap_or_else(|e| panic!("{label} insert failed: {}", e.get_message()));
                 } else {
@@ -805,15 +819,23 @@ mod tests {
             cleanup.disarm();
         }
 
-        println!("\n=== datapoint ingest from Rust: JSON against binary ===");
-        println!("{total} points across {series_count} series, float32\n");
-        println!("{:<26}{:>18}{:>18}", "metric", results[0].0, results[1].0);
-        println!("{:<26}{:>18.1}{:>18.1}", "ingest wall time (s)", results[0].2, results[1].2);
-        println!("{:<26}{:>18.0}{:>18.0}", "points per second", results[0].3, results[1].3);
-        println!("{:<26}{:>18}{:>18}", "requests", results[0].4, results[1].4);
-        println!("{:<26}{:>18.0}{:>18.0}", "latency mean (ms)", results[0].5, results[1].5);
-        println!("{:<26}{:>18.0}{:>18.0}", "latency p50 (ms)", results[0].6, results[1].6);
-        println!("{:<26}{:>18.0}{:>18.0}", "latency p99 (ms)", results[0].7, results[1].7);
+        println!("\n=== datapoint ingest from Rust ===");
+        println!("{total} points across {series_count} series, {chunk} per call, float32\n");
+        print!("{:<28}", "metric");
+        for r in &results { print!("{:>18}", r.0); }
+        println!();
+        let row = |label: &str, f: &dyn Fn(&(&str, usize, f64, f64, usize, f64, f64, f64)) -> String| {
+            print!("{label:<28}");
+            for r in &results { print!("{:>18}", f(r)); }
+            println!();
+        };
+        row("ingest wall time (s)", &|r| format!("{:.1}", r.2));
+        row("points per second", &|r| format!("{:.0}", r.3));
+        row("points per second in-call", &|r| format!("{:.0}", r.1 as f64 / (r.5 / 1000.0 * r.4 as f64)));
+        row("sdk calls", &|r| format!("{}", r.4));
+        row("latency mean (ms)", &|r| format!("{:.0}", r.5));
+        row("latency p50 (ms)", &|r| format!("{:.0}", r.6));
+        row("latency p99 (ms)", &|r| format!("{:.0}", r.7));
         Ok(())
     }
 

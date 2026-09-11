@@ -142,6 +142,9 @@ pub struct BinaryIngestOptions {
     pub zstd_level: i32,
     /// Retries of one request after a 429 or a 5xx, one second apart per attempt.
     pub max_retries: u32,
+    /// Requests in flight at once when one call packs into more than one, which happens above
+    /// 3.2 million points. Below that a call is a single request and this has no effect.
+    pub request_concurrency: usize,
 }
 
 impl Default for BinaryIngestOptions {
@@ -149,6 +152,7 @@ impl Default for BinaryIngestOptions {
         BinaryIngestOptions {
             zstd_level: 9,
             max_retries: 3,
+            request_concurrency: 4,
         }
     }
 }
@@ -165,6 +169,11 @@ impl BinaryIngestOptions {
 
     pub fn max_retries(mut self, retries: u32) -> Self {
         self.max_retries = retries;
+        self
+    }
+
+    pub fn request_concurrency(mut self, requests: usize) -> Self {
+        self.request_concurrency = requests;
         self
     }
 
@@ -803,9 +812,21 @@ impl TimeSeriesService {
             frames.push(frame);
         }
 
+        // Concurrently, not one after another. A call of up to 3.2M points packs into a single
+        // request and this changes nothing, but a larger one becomes several and the api
+        // validates them independently, so there is no reason to serialise them. Bounded by
+        // `request_concurrency` so a very large call cannot open an unbounded number of
+        // connections.
         let path = format!("{}/data/binary", self.base_url);
-        for body in pack_requests(frames) {
-            self.post_frames(&path, body, options.max_retries).await?;
+        let bodies = pack_requests(frames);
+        let limit = options.request_concurrency.max(1);
+        for window in bodies.chunks(limit) {
+            let sends = window
+                .iter()
+                .map(|body| self.post_frames(&path, body.clone(), options.max_retries));
+            for outcome in join_all(sends).await {
+                outcome?;
+            }
         }
         let mut result = DataWrapper::new();
         result.set_http_status_code(204);
