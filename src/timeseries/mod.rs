@@ -1,4 +1,7 @@
+pub mod binary;
 mod test;
+
+pub use binary::{BinaryIngestOptions, DatapointValueType, Frame, FrameWriter, ResolvedSeries};
 
 use crate::buffer::DurableSpool;
 use crate::datahub::DataHubConfig;
@@ -35,6 +38,8 @@ pub struct TimeSeriesService {
     base_url: String,
     // Durable spool for datapoint ingestion (lazily opened on first buffered send; None if off).
     spool: Mutex<Option<DurableSpool>>,
+    // Series the binary path has resolved to id and value type.
+    binary_series: Mutex<binary::SeriesCache>,
 }
 
 impl TimeSeriesService {
@@ -44,6 +49,7 @@ impl TimeSeriesService {
             api_service,
             base_url,
             spool: Mutex::new(None),
+            binary_series: Mutex::new(binary::SeriesCache::default()),
         }
     }
 

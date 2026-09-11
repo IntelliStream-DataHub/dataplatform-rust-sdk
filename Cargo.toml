@@ -42,6 +42,9 @@ geojson = "1"
 # Reading (never verifying) the payload of a JWT the SDK already holds, to explain an
 # otherwise-unexplained 401 — see `auth_diagnostics`.
 base64 = "0.22"
+arrow-array = "59.3"
+arrow-schema = "59.3"
+arrow-ipc = "59.3"
 
 
 #[lib]

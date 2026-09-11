@@ -834,6 +834,44 @@ pub trait ApiServiceProvider {
         }
     }
 
+    /// `POST` a binary body under its own media type: the datapoint frames of
+    /// `/timeseries/data/binary`. The api's 204 becomes an empty wrapper, as in the JSON helper;
+    /// a rejection carries the api's `problem+json` text.
+    async fn execute_post_bytes_request<T: DeserializeOwned + DataWrapperDeserialization>(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+        content_type: &str,
+    ) -> Result<T, ResponseError> {
+        let token = self.get_token().await?;
+        let response = self
+            .get_api_service()
+            .http_client
+            .post(path)
+            .header(http::header::CONTENT_TYPE, content_type)
+            .header(http::header::ACCEPT, "application/json, application/problem+json")
+            .body(body)
+            .bearer_auth(token.clone())
+            .send()
+            .await
+            .map_err(|err| {
+                eprintln!("HTTP request failed: {}", err);
+                ResponseError::from_err(err)
+            })?;
+        if response.status() == 204 {
+            return T::deserialize_and_set_status("", response.status().as_u16()).map_err(|err| {
+                ResponseError {
+                    status: response.status(),
+                    message: err.to_string(),
+                }
+            });
+        }
+        match process_response::<T>(response, path).await {
+            Ok(value) => Ok(value),
+            Err(e) => Err(self.on_request_error(e, &token).await),
+        }
+    }
+
     /// `GET` an endpoint that answers with bytes rather than JSON (currently only
     /// `/files/download/{id}`).
     ///
