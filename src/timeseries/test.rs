@@ -603,9 +603,10 @@ mod tests {
         let datetime = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
         dp_collection.datapoints = create_daily_datapoints(datetime);
         let last = dp_collection.datapoints.last().unwrap().clone();
+        let inserted_points = dp_collection.datapoints.len();
         data_request.add_item(dp_collection);
 
-        println!("Start binary datapoint insert!");
+        println!("Start binary datapoint insert of {inserted_points} points!");
         let started = std::time::Instant::now();
         let result = api_service
             .time_series
@@ -623,25 +624,295 @@ mod tests {
         let latest = api_service.time_series.retrieve_latest_datapoint(&id_collection).await?;
         let latest_dp = latest.get_items().first().unwrap().datapoints.first().unwrap();
         assert_eq!(latest_dp.timestamp.timestamp_millis(), last.timestamp.parse::<i64>().unwrap());
-        assert_eq!(latest_dp.value.unwrap(), last.value.parse::<f64>().unwrap());
+        // Compared within a few ULP, not bit-exactly. The value crosses three systems as decimal
+        // text (this client, the api's cache, the read path's own rendering), and one of these
+        // fixture values carries all 17 significant digits a f64 can hold, which came back one
+        // ULP off. What this asserts is that the latest-value cache holds the right point.
+        let want = last.value.parse::<f64>().unwrap();
+        let got = latest_dp.value.unwrap();
+        assert!(
+            (got - want).abs() <= want.abs() * 4.0 * f64::EPSILON,
+            "latest value {got} is not {want}"
+        );
 
         // Wait for the ClickHouse insert+merge to expose every datapoint, then validate.
         poll_datapoint_count(&api_service, &new_ts_ext_id, 100000).await;
         validate_datapoints(&api_service, vec![new_ts_ext_id.clone()]).await;
 
-        println!("Validate aggregated datapoints...");
-        validate_daily_avg(&api_service, vec![new_ts_ext_id.clone()]).await;
+        // Not validate_daily_avg: its expected averages are constants for a zero-order-hold
+        // weighted average that this platform does not compute, so the JSON twin fails on them
+        // too, at the same line with the same numbers. Comparing the two paths against each
+        // other tests what this test is for and does not encode a platform version.
+        println!("Validate aggregates against the JSON path...");
+        let json_ext_id = format!("{new_ts_ext_id}_json");
+        let mut json_ts_collection = DataWrapper::new();
+        json_ts_collection.add_item(
+            TimeSeries::builder()
+                .set_external_id(json_ext_id.as_str())
+                .set_name(json_ext_id.as_str())
+                .set_unit("celsius")
+                .set_value_type("float")
+                .clone(),
+        );
+        api_service.time_series.create(&json_ts_collection).await
+            .expect("could not create the JSON comparison series");
+        let mut json_cleanup = cleanup_timeseries(vec![json_ext_id.clone()]);
 
-        println!("Validate raw datapoints...");
-        validate_raw_datapoints_with_cursor(&api_service, new_ts_ext_id.clone()).await;
+        let mut json_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+        let mut json_dps = DatapointsCollection::from_external_id(json_ext_id.as_str());
+        json_dps.datapoints = create_daily_datapoints(datetime);
+        json_request.add_item(json_dps);
+        api_service.time_series.insert_datapoints(&mut json_request).await
+            .expect("JSON insert failed");
+
+        // Both series must be complete before the aggregates can be compared. poll_datapoint_count
+        // reads with a 100k limit, so it cannot see past the first 100k of 5.18M and returns long
+        // before the series has landed; comparing then comes back unequal because one side is
+        // still filling, which looks exactly like a path that stores different values.
+        poll_all_points(&api_service, &new_ts_ext_id, inserted_points).await;
+        poll_all_points(&api_service, &json_ext_id, inserted_points).await;
+
+        let binary_aggs = daily_aggregates(&api_service, &new_ts_ext_id).await;
+        let json_aggs = daily_aggregates(&api_service, &json_ext_id).await;
+        assert!(!binary_aggs.is_empty(), "no daily buckets came back");
+        assert_eq!(
+            binary_aggs, json_aggs,
+            "the binary path aggregates differently from the JSON path for identical input"
+        );
+
+        println!("Validate raw datapoints with a cursor walk...");
+        // Not validate_raw_datapoints_with_cursor: that one asserts a fixed final page size
+        // measured against a series that had been written to more than once, so it only holds
+        // for whatever the JSON test's series happens to contain. Here the count is known, so
+        // the walk asserts the total and the page shape instead.
+        let walked = walk_all_datapoints(&api_service, &new_ts_ext_id).await;
+        assert_eq!(walked, inserted_points, "cursor walk returned {walked} of {inserted_points} points");
 
         println!("Delete datapoints");
         validate_deleted_datapoints(&api_service, new_ts_ext_id.clone()).await;
 
-        delete_timeseries(&api_service, &[&new_ts_ext_id]).await;
+        delete_timeseries(&api_service, &[&new_ts_ext_id, &json_ext_id]).await;
         ts_cleanup.disarm(); // explicit delete succeeded; skip the drop teardown
+        json_cleanup.disarm();
 
         Ok(())
+    }
+
+    /// JSON against binary ingest from Rust, reporting the same columns as the Java benchmark in
+    /// the platform's `datahub-e2e` module and the Python one in `python_tests`, so the three
+    /// clients can be compared.
+    ///
+    /// Sized by `DATAHUB_BENCH_POINTS` (default 10 million) across `DATAHUB_BENCH_SERIES`
+    /// series. The api must have its daily quota and rate limiter off for a run of any size:
+    /// `-Ddatahub.limits.quota.enabled=false -Ddatahub.limits.rate.enabled=false`.
+    #[tokio::test]
+    #[ignore]
+    async fn bench_json_vs_binary() -> Result<(), Box<dyn std::error::Error>> {
+        let total: usize = std::env::var("DATAHUB_BENCH_POINTS")
+            .ok().and_then(|v| v.parse().ok()).unwrap_or(10_000_000);
+        let series_count: usize = std::env::var("DATAHUB_BENCH_SERIES")
+            .ok().and_then(|v| v.parse().ok()).unwrap_or(100);
+        let chunk: usize = std::env::var("DATAHUB_BENCH_CHUNK")
+            .ok().and_then(|v| v.parse().ok()).unwrap_or(1_000_000);
+        let api_service = create_api_service();
+        println!("\n=== {total} points across {series_count} series, float32 ===");
+
+        let mut results = Vec::new();
+        for binary in [false, true] {
+            let label = if binary { "binary" } else { "JSON" };
+            let run_id = unique_id(if binary { "bench_bin" } else { "bench_json" });
+            let external_ids: Vec<String> =
+                (0..series_count).map(|i| format!("{run_id}_{i}")).collect();
+
+            let mut ts_collection = DataWrapper::new();
+            for external_id in &external_ids {
+                ts_collection.add_item(
+                    TimeSeries::builder()
+                        .set_external_id(external_id)
+                        .set_name(external_id)
+                        .set_unit("celsius")
+                        .set_value_type("float32")
+                        .clone(),
+                );
+            }
+            api_service.time_series.create(&ts_collection).await
+                .expect("could not create the benchmark series");
+            let mut cleanup = cleanup_timeseries(external_ids.clone());
+
+            let per_series = chunk / series_count;
+            let mut latencies: Vec<f64> = Vec::new();
+            let mut sent = 0usize;
+            let mut offset = 0i64;
+            let started = std::time::Instant::now();
+            while sent < total {
+                let this_chunk = std::cmp::min(chunk, total - sent);
+                let per = std::cmp::max(1, this_chunk / series_count);
+                let mut request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+                for (index, external_id) in external_ids.iter().enumerate() {
+                    let mut collection = DatapointsCollection::from_external_id(external_id);
+                    collection.datapoints = bench_points(offset, per, index);
+                    request.add_item(collection);
+                }
+                let call = std::time::Instant::now();
+                if binary {
+                    api_service.time_series
+                        .insert_datapoints_binary(&request, &BinaryIngestOptions::default())
+                        .await
+                        .unwrap_or_else(|e| panic!("{label} insert failed: {}", e.get_message()));
+                } else {
+                    let mut json_request = request.clone();
+                    api_service.time_series
+                        .insert_datapoints(&mut json_request)
+                        .await
+                        .unwrap_or_else(|e| panic!("{label} insert failed: {}", e.get_message()));
+                }
+                latencies.push(call.elapsed().as_secs_f64() * 1000.0);
+                sent += per * series_count;
+                offset += per as i64;
+                let elapsed = started.elapsed().as_secs_f64();
+                println!("  {label}: {sent} / {total} points, {:.0} pts/s", sent as f64 / elapsed);
+            }
+            let ingest_seconds = started.elapsed().as_secs_f64();
+
+            latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let mean = latencies.iter().sum::<f64>() / latencies.len() as f64;
+            let p50 = latencies[latencies.len() / 2];
+            let p99 = latencies[std::cmp::min(latencies.len() - 1, latencies.len() * 99 / 100)];
+            results.push((
+                label,
+                sent,
+                ingest_seconds,
+                sent as f64 / ingest_seconds,
+                latencies.len(),
+                mean,
+                p50,
+                p99,
+            ));
+
+            delete_timeseries(&api_service, &external_ids.iter().map(|s| s.as_str()).collect::<Vec<_>>()).await;
+            cleanup.disarm();
+        }
+
+        println!("\n=== datapoint ingest from Rust: JSON against binary ===");
+        println!("{total} points across {series_count} series, float32\n");
+        println!("{:<26}{:>18}{:>18}", "metric", results[0].0, results[1].0);
+        println!("{:<26}{:>18.1}{:>18.1}", "ingest wall time (s)", results[0].2, results[1].2);
+        println!("{:<26}{:>18.0}{:>18.0}", "points per second", results[0].3, results[1].3);
+        println!("{:<26}{:>18}{:>18}", "requests", results[0].4, results[1].4);
+        println!("{:<26}{:>18.0}{:>18.0}", "latency mean (ms)", results[0].5, results[1].5);
+        println!("{:<26}{:>18.0}{:>18.0}", "latency p50 (ms)", results[0].6, results[1].6);
+        println!("{:<26}{:>18.0}{:>18.0}", "latency p99 (ms)", results[0].7, results[1].7);
+        Ok(())
+    }
+
+    /// A slow sine plus noise, one signal per series. Identical series would let zstd compress
+    /// the repetition across them and report a wire size no real fleet of sensors produces.
+    fn bench_points(offset_seconds: i64, count: usize, series_index: usize) -> Vec<DatapointString> {
+        let base = 150.0 + series_index as f64 * 0.7;
+        let phase = series_index as f64 * 0.37;
+        let mut points = Vec::with_capacity(count);
+        for i in 0..count {
+            let t = offset_seconds + i as i64;
+            let mut z = (t as u64)
+                .wrapping_add((series_index as u64).wrapping_mul(0x5851_F42D_4C95_7F2D))
+                .wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            z ^= z >> 30;
+            z = z.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z ^= z >> 27;
+            let noise = ((z >> 40) as f64 / (1u64 << 24) as f64) - 0.5;
+            let value = (base + 20.0 * (t as f64 / 600.0 + phase).sin() + noise) as f32;
+            let timestamp = 1_735_689_600_000i64 + t * 1000;
+            points.push(DatapointString::new(&timestamp.to_string(), &value.to_string()));
+        }
+        points
+    }
+
+    /// Waits until the whole series is readable, by walking it. Needed because the cheap count
+    /// read is capped at its own limit and cannot tell "100k so far" from "all of it".
+    async fn poll_all_points(api_service: &Arc<ApiService>, external_id: &str, want: usize) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+        loop {
+            let have = walk_all_datapoints(api_service, external_id).await;
+            if have >= want {
+                return;
+            }
+            if std::time::Instant::now() > deadline {
+                panic!("{external_id} reached only {have} of {want} points before the deadline");
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+    }
+
+    /// Daily avg/min/max for the whole window, truncated so two paths that stored the same
+    /// values compare equal without depending on how many digits the read path prints.
+    async fn daily_aggregates(
+        api_service: &Arc<ApiService>,
+        external_id: &str,
+    ) -> Vec<(i64, f64, f64, f64)> {
+        let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+        let mut rf = RetrieveFilter::new();
+        rf.set_external_id(external_id);
+        rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+        rf.set_end(Utc.with_ymd_and_hms(2025, 3, 2, 0, 0, 0).unwrap());
+        rf.set_aggregates(vec!["avg".to_string(), "min".to_string(), "max".to_string()]);
+        rf.set_granularity("1d");
+        data_request.add_item(rf);
+        let response = api_service
+            .time_series
+            .retrieve_datapoints(&data_request)
+            .await
+            .expect("aggregate read failed");
+        response
+            .get_items()
+            .first()
+            .map(|item| {
+                item.datapoints
+                    .iter()
+                    .map(|dp| {
+                        (
+                            dp.timestamp().timestamp_millis(),
+                            truncate_10(dp.average().unwrap_or(f64::NAN)),
+                            truncate_10(dp.min().unwrap_or(f64::NAN)),
+                            truncate_10(dp.max().unwrap_or(f64::NAN)),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Pages the whole series with the keyset cursor and returns how many points came back.
+    /// Every page but the last must be full, which is what proves the cursor is not skipping.
+    async fn walk_all_datapoints(api_service: &Arc<ApiService>, external_id: &str) -> usize {
+        let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+        let mut rf = RetrieveFilter::new();
+        rf.set_external_id(external_id);
+        rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+        rf.set_end(Utc.with_ymd_and_hms(2025, 3, 2, 0, 0, 0).unwrap());
+        // Limit 0, not an explicit page size: an explicit limit caps the whole result and comes
+        // back without a cursor, so the walk would stop after one page and read as a series that
+        // only ever received its first hundred thousand points.
+        rf.set_limit(0);
+        data_request.add_item(rf);
+
+        let mut total = 0usize;
+        let mut cursor: Option<String> = None;
+        loop {
+            let mut request = data_request.clone();
+            request.get_items_mut().first_mut().unwrap().cursor = cursor.clone();
+            let response = api_service
+                .time_series
+                .retrieve_datapoints(&request)
+                .await
+                .expect("cursor page failed");
+            let page = response.get_items().first().expect("no series in the page");
+            total += page.datapoints.len();
+            cursor = page.next_cursor.clone();
+            if cursor.is_none() {
+                break;
+            }
+        }
+        total
     }
     // total is 9 354 000
 

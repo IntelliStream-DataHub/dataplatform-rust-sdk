@@ -639,6 +639,18 @@ class TimeSeriesServiceSync:
         """
 
     def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
+    def insert_datapoints_binary(
+        self,
+        input: list[DatapointsCollectionString],
+        zstd_level: int | None = None,
+    ) -> list[str]: ...
+    def insert_from_lists_binary(
+        self,
+        timestamps: list[datetime.datetime],
+        values: list[float],
+        ts: Identifiable,
+        zstd_level: int | None = None,
+    ) -> list[str]: ...
     def insert_from_lists(
         self,
         timestamps: list[datetime.datetime],
