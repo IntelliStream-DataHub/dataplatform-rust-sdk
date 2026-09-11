@@ -359,10 +359,6 @@ class TimeSeries:
     @labels.setter
     def labels(self, value: list[str] | None) -> None: ...
     @property
-    def table_engine(self) -> str | None:
-        """The ClickHouse table engine. On a series reached through `neighbors()` this is the
-        API's default rather than data — re-read the series by id for the real value."""
-    @property
     def id(self) -> int | None: ...
     @property
     def external_id(self) -> str: ...

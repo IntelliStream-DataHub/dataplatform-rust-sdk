@@ -619,14 +619,6 @@ pub struct TimeSeries {
     /// heterogeneous `/resources` result — see [`crate::nodes::Node`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
-    /// ClickHouse table engine backing this series (`MERGETREE` by default).
-    ///
-    /// Stale: no read returns this. Which ClickHouse engine backs a series is an internal
-    /// storage decision, so the api marks it `@JsonIgnore` and omits it from every response —
-    /// flat and graph alike. It is still *accepted* on create, and the field is kept rather
-    /// than removed, so it is write-only in practice and always `None` on the way back.
-    #[serde(rename = "tableEngine", default, skip_serializing_if = "Option::is_none")]
-    pub table_engine: Option<String>,
 }
 
 impl TimeSeries {
@@ -646,7 +638,6 @@ impl TimeSeries {
             last_updated_time: None,
             related_resources: vec![],
             labels: None,
-            table_engine: None,
         }
     }
     pub fn from_dict(dict: HashMap<String, String>) -> Self {
@@ -667,7 +658,6 @@ impl TimeSeries {
             last_updated_time: None,
             related_resources: vec![],
             labels: None,
-            table_engine: None,
         }
     }
 
