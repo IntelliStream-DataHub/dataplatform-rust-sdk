@@ -37,8 +37,29 @@ impl PySubscriptionsServiceSync {
         })
     }
 
+    /// Subscriptions in the tenant, newest first. `limit` defaults to the server's 1000 and may
+    /// not exceed 10000; there is no paging, so a bigger tenant is truncated rather than paged —
+    /// use `filter` to narrow instead.
+    #[pyo3(signature = (limit = None))]
+    fn list(&self, py: Python<'_>, limit: Option<u64>) -> PyResult<Vec<PySubscription>> {
+        let service = self.api_service.clone();
+        py.detach(|| {
+            let result = self
+                .runtime
+                .block_on(service.subscriptions.list(limit))
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(result
+                .get_items()
+                .iter()
+                .cloned()
+                .map(PySubscription::from)
+                .collect())
+        })
+    }
+
+    /// Subscriptions matching every criterion on the filter.
     #[pyo3(signature=(form=None, *, timeseries=None, limit=None, sort=None))]
-    fn list(
+    fn filter(
         &self,
         py: Python<'_>,
         form: Option<PySubscriptionFilterForm>,
@@ -51,7 +72,7 @@ impl PySubscriptionsServiceSync {
         py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.subscriptions.list(&form))
+                .block_on(service.subscriptions.filter(&form))
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()

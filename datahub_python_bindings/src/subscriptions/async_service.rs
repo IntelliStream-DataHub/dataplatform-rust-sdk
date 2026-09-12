@@ -41,8 +41,30 @@ impl PySubscriptionsServiceAsync {
         })
     }
 
+    /// Subscriptions in the tenant, newest first. `limit` defaults to the server's 1000 and may
+    /// not exceed 10000; there is no paging, so a bigger tenant is truncated rather than paged —
+    /// use `filter` to narrow instead.
+    #[pyo3(signature = (limit = None))]
+    fn list<'py>(&self, py: Python<'py>, limit: Option<u64>) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .subscriptions
+                .list(limit)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(result
+                .get_items()
+                .iter()
+                .cloned()
+                .map(PySubscription::from)
+                .collect::<Vec<_>>())
+        })
+    }
+
+    /// Subscriptions matching every criterion on the filter.
     #[pyo3(signature=(form=None, *, timeseries=None, limit=None, sort=None))]
-    fn list<'py>(
+    fn filter<'py>(
         &self,
         py: Python<'py>,
         form: Option<PySubscriptionFilterForm>,
@@ -55,7 +77,7 @@ impl PySubscriptionsServiceAsync {
         future_into_py(py, async move {
             let result = service
                 .subscriptions
-                .list(&form)
+                .filter(&form)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(result
