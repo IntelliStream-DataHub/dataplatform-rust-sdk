@@ -130,10 +130,10 @@ def _sweep(client) -> None:
     except Exception:
         pass
 
-    # Subscriptions — plain list.
+    # Subscriptions — unrestricted filter.
     try:
         _safe_delete_each(
-            client.subscriptions.delete, _matching_prefix(client.subscriptions.list())
+            client.subscriptions.delete, _matching_prefix(client.subscriptions.filter())
         )
     except Exception:
         pass

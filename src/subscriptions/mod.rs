@@ -46,11 +46,11 @@ impl SubscriptionsService {
     /// are read exactly as before, and this type is a subset of the retriever the endpoint accepts.
     /// The old path is gone rather than deprecated, so a client that has not moved gets a 404.
     ///
-    /// The name stays `list` here, where the Java client spells the same call `filter`. Aligning
-    /// the three is worth doing on its own, together with the `GET /subscriptions?limit=` listing
-    /// the api gained at the same time and no client wraps yet — both are renames and additions
-    /// rather than repairs, and this change is meant to be revertable on its own.
-    pub async fn list(
+    /// The method is named for the endpoint, the way every other `filter` in this SDK is, and the
+    /// Java client spells the same call `filter` too. That leaves `list` free on purpose: the api
+    /// gained a criteria-free `GET /subscriptions?limit=` at the same time, which is what `list`
+    /// means on every other collection here, and no client wraps it yet.
+    pub async fn filter(
         &self,
         form: &SubscriptionFilterForm,
     ) -> Result<DataWrapper<Subscription>, ResponseError> {

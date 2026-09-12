@@ -24,7 +24,7 @@ def subscription_timeseries(make_ts):
     return ts_a.external_id, ts_b.external_id
 
 
-def test_create_list_delete(sync_client, subscription_timeseries):
+def test_create_filter_delete(sync_client, subscription_timeseries):
     ts_a_ext, ts_b_ext = subscription_timeseries
     sub_ext = unique_id("sub")
 
@@ -43,12 +43,12 @@ def test_create_list_delete(sync_client, subscription_timeseries):
         assert created[0].date_created is not None
         assert len(created[0].timeseries) == 2
 
-        # Unfiltered list — backend may carry prior test data, so don't assert exact count.
-        all_subs = sync_client.subscriptions.list()
+        # Unrestricted filter — backend may carry prior test data, so don't assert exact count.
+        all_subs = sync_client.subscriptions.filter()
         assert any(s.external_id == sub_ext for s in all_subs)
 
         # Filter by timeseries via kwargs.
-        filtered = sync_client.subscriptions.list(timeseries=[ts_a_ext], limit=100)
+        filtered = sync_client.subscriptions.filter(timeseries=[ts_a_ext], limit=100)
         assert any(s.external_id == sub_ext for s in filtered)
 
         # Same call via an explicit form.
@@ -56,13 +56,13 @@ def test_create_list_delete(sync_client, subscription_timeseries):
             filter=intellistream_datahub_sdk.SubscriptionFilter(timeseries=[ts_a_ext]),
             limit=100,
         )
-        filtered_via_retriever = sync_client.subscriptions.list(form)
-        assert any(s.external_id == sub_ext for s in filtered_via_retriever)
+        filtered_via_form = sync_client.subscriptions.filter(form)
+        assert any(s.external_id == sub_ext for s in filtered_via_form)
 
         # Delete and verify gone.
         sync_client.subscriptions.delete([sub_ext])
         time.sleep(0.5)
-        after = sync_client.subscriptions.list(timeseries=[ts_a_ext])
+        after = sync_client.subscriptions.filter(timeseries=[ts_a_ext])
         assert not any(s.external_id == sub_ext for s in after)
     finally:
         # Best-effort cleanup (delete may have already run in the happy path).
@@ -86,15 +86,15 @@ def test_create_over_missing_timeseries_raises(sync_client):
         sync_client.subscriptions.create([sub])
 
 
-def test_list_rejects_retriever_and_kwargs_together(sync_client):
+def test_filter_rejects_form_and_kwargs_together(sync_client):
     form = intellistream_datahub_sdk.SubscriptionFilterForm()
     with pytest.raises(ValueError):
-        sync_client.subscriptions.list(form, limit=10)
+        sync_client.subscriptions.filter(form, limit=10)
 
 
-def test_list_default_returns_list(sync_client):
+def test_filter_default_returns_list(sync_client):
     # Default form — caller hasn't passed anything. Should not raise; result type only.
-    result = sync_client.subscriptions.list()
+    result = sync_client.subscriptions.filter()
     assert isinstance(result, list)
 
 

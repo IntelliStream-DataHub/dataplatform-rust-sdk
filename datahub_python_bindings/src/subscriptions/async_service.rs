@@ -42,7 +42,7 @@ impl PySubscriptionsServiceAsync {
     }
 
     #[pyo3(signature=(form=None, *, timeseries=None, limit=None, sort=None))]
-    fn list<'py>(
+    fn filter<'py>(
         &self,
         py: Python<'py>,
         form: Option<PySubscriptionFilterForm>,
@@ -55,7 +55,7 @@ impl PySubscriptionsServiceAsync {
         future_into_py(py, async move {
             let result = service
                 .subscriptions
-                .list(&form)
+                .filter(&form)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(result
