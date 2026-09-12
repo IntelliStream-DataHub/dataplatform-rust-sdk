@@ -83,7 +83,11 @@ impl NodeType {
     }
 
     /// The type this label names, or `None` when it is an ordinary domain label.
-    /// The label is canonicalized first, so `"dataset"`, `"DataSet"` and `"data-set"` all resolve.
+    ///
+    /// The label is canonicalized first, so case alone never matters: `"dataset"`, `"DataSet"` and
+    /// `"DATASET"` all resolve. A separator does **not** survive it — `"data-set"` and `"data set"`
+    /// canonicalize to `DATA_SET`, which names no type and is therefore an ordinary domain label,
+    /// exactly as on the api. `labels_canonicalize_the_way_the_api_does` pins both directions.
     pub fn from_type_label(label: &str) -> Option<Self> {
         match to_snake_upper_cased(label).as_str() {
             "ASSET" => Some(NodeType::Asset),
@@ -565,6 +569,40 @@ impl From<Policy> for Node {
     }
 }
 
+/// The type-labels a bare [`Resource`] may wear: those whose api model also declares `isRoot`,
+/// which is the one field a `Resource` always serializes and a shared `NodeModel` does not carry.
+///
+/// Kept as an explicit list rather than derived, because it is a fact about the *api's* models
+/// rather than about this enum — the SDK's own [`Asset`] and [`Resource`] are the two variants with
+/// an `is_root` field, but [`crate::functions::Function`] has none while the api's `Function` does,
+/// so a resource labelled `FUNCTION` still binds cleanly.
+const RESOURCE_COMPATIBLE_LABELS: [NodeType; 3] =
+    [NodeType::Resource, NodeType::Asset, NodeType::Function];
+
+/// Refuse a bare [`Resource`] labelled as a type that cannot accept `isRoot`.
+///
+/// Returns the message to fail serialization with, or `Ok(())` when the labels are sound. An
+/// ordinary domain label is never a type-label and never matches.
+fn reject_unrepresentable_resource_label(labels: &[String]) -> Result<(), String> {
+    for label in labels {
+        let Some(node_type) = NodeType::from_type_label(label) else {
+            continue;
+        };
+        if RESOURCE_COMPATIBLE_LABELS.contains(&node_type) {
+            continue;
+        }
+        return Err(format!(
+            "a bare Resource labelled `{label}` cannot be sent: a Resource always serializes \
+             `isRoot`, which the api's {} model does not accept, so the body would be refused as \
+             `Unknown field: isRoot`. Build the node with its own type instead — the {} variant of \
+             `Node` carries exactly the fields that type accepts.",
+            node_type.filter_name(),
+            node_type.filter_name(),
+        ));
+    }
+    Ok(())
+}
+
 fn ensure_label_opt(labels: &mut Option<Vec<String>>, label: &str) {
     let entries = labels.get_or_insert_with(Vec::new);
     if !entries.iter().any(|l| l.eq_ignore_ascii_case(label)) {
@@ -587,12 +625,26 @@ fn ensure_label(labels: &mut Vec<String>, label: &str) {
 /// - a conflicting type-label is **not** stripped. A body labelled both `ASSET` and `POLICY` earns
 ///   the api's 400 naming both, which is the accurate answer to an ambiguous intent; quietly
 ///   picking one for the caller is not.
-/// - [`Node::Resource`] is passed through verbatim, so the long-standing idiom of creating a typed
-///   node by putting its label on a bare [`Resource`] keeps working unchanged.
+/// - [`Node::Resource`] is passed through, so the long-standing idiom of creating a typed node by
+///   putting its label on a bare [`Resource`] keeps working — but only for the types that can
+///   actually accept a resource's fields. [`Resource`] carries `is_root`, a plain `bool` with no
+///   `skip_serializing_if`, so every body it builds names `isRoot`; the api keeps that field on
+///   the subclasses that legally have it (`Resource`, `Asset`, `Function`) and off the ones that
+///   do not (`Timeseries`, `DataSetModel`, `Policy`), "which keeps illegal combinations
+///   unrepresentable". Labelling a bare [`Resource`] with one of the latter three therefore cannot
+///   succeed: the api rejects the body with `Unknown field: isRoot`, naming a field the caller
+///   never chose to send and saying nothing about the label that caused it. That combination is
+///   refused here instead, where the label and the variant are both in hand.
 impl Serialize for Node {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            Node::Resource(r) => r.serialize(serializer),
+            Node::Resource(r) => {
+                if let Some(labels) = r.labels.as_deref() {
+                    reject_unrepresentable_resource_label(labels)
+                        .map_err(serde::ser::Error::custom)?;
+                }
+                r.serialize(serializer)
+            }
             Node::Asset(a) => {
                 let mut a = a.clone();
                 ensure_label_opt(&mut a.labels, "ASSET");
@@ -1021,8 +1073,61 @@ mod tests {
     }
 
     #[test]
+    /// A bare `Resource` may wear the type-labels whose api model declares `isRoot`, and the
+    /// idiom of building a typed node that way keeps working for them.
+    #[test]
+    fn a_resource_may_be_labelled_as_a_type_that_accepts_is_root() {
+        for label in ["ASSET", "asset", "FUNCTION", "RESOURCE"] {
+            let mut r = Resource::new();
+            r.external_id = "probe".to_string();
+            r.labels = Some(vec![label.to_string()]);
+            let json = serde_json::to_value(Node::Resource(r))
+                .unwrap_or_else(|e| panic!("`{label}` should serialize, got: {e}"));
+            assert_eq!(json["isRoot"], serde_json::json!(false));
+        }
+    }
+
+    /// The three the api keeps `isRoot` off. Serializing is refused here rather than letting the
+    /// api answer `Unknown field: isRoot`, which names a field the caller never set.
+    #[test]
+    fn a_resource_labelled_as_a_type_without_is_root_is_refused() {
+        for label in ["DATASET", "dataset", "POLICY", "policy", "TIMESERIES"] {
+            let mut r = Resource::new();
+            r.external_id = "probe".to_string();
+            r.labels = Some(vec![label.to_string()]);
+            let err = serde_json::to_value(Node::Resource(r))
+                .expect_err(&format!("`{label}` on a bare Resource should be refused"))
+                .to_string();
+            assert!(err.contains("isRoot"), "the error should name the field: {err}");
+            assert!(err.contains(label), "the error should name the label: {err}");
+        }
+    }
+
+    /// An ordinary domain label is not a type-label, so it is never affected.
+    #[test]
+    fn a_domain_label_on_a_resource_is_untouched() {
+        let mut r = Resource::new();
+        r.external_id = "probe".to_string();
+        r.labels = Some(vec!["PUMP".to_string(), "SUBSEA".to_string()]);
+        let json = serde_json::to_value(Node::Resource(r)).expect("domain labels are not types");
+        assert_eq!(json["labels"], serde_json::json!(["PUMP", "SUBSEA"]));
+    }
+
+    /// The typed variants are unaffected: `Dataset` has no `is_root` field to send, so the
+    /// combination the guard refuses is not even constructible through them.
+    #[test]
+    fn the_typed_variants_still_serialize_without_is_root() {
+        let json = serde_json::to_value(Node::Dataset(Dataset::new("probe".to_string())))
+            .expect("a Dataset should serialize");
+        assert!(json.get("isRoot").is_none(), "a Dataset must not send isRoot");
+        assert_eq!(json["labels"], serde_json::json!(["DATASET"]));
+    }
+
     fn labels_canonicalize_the_way_the_api_does() {
         assert_eq!(to_snake_upper_cased("dataset"), "DATASET");
+        // Case folds away, but camel case is not split — so `DataSet` is still the type-label and
+        // `data-set` is not. `NodeType::from_type_label` documents the consequence.
+        assert_eq!(to_snake_upper_cased("DataSet"), "DATASET");
         assert_eq!(to_snake_upper_cased("data-set"), "DATA_SET");
         assert_eq!(to_snake_upper_cased("data set"), "DATA_SET");
         assert_eq!(to_snake_upper_cased("12timeseries"), "TIMESERIES");
