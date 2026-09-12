@@ -38,7 +38,7 @@ impl PySubscriptionsServiceSync {
     }
 
     #[pyo3(signature=(form=None, *, timeseries=None, limit=None, sort=None))]
-    fn list(
+    fn filter(
         &self,
         py: Python<'_>,
         form: Option<PySubscriptionFilterForm>,
@@ -51,7 +51,7 @@ impl PySubscriptionsServiceSync {
         py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.subscriptions.list(&form))
+                .block_on(service.subscriptions.filter(&form))
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(result
                 .get_items()

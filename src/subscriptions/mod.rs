@@ -39,11 +39,22 @@ impl SubscriptionsService {
             .await
     }
 
-    pub async fn list(
+    /// `POST /subscriptions/filter` — the subscriptions matching [`SubscriptionFilterForm`].
+    ///
+    /// This was `POST /subscriptions/list` until the api moved subscriptions onto the same filter
+    /// contract the rest of the collections use. Only the path moved: `filter`, `limit` and `sort`
+    /// are read exactly as before, and this type is a subset of the retriever the endpoint accepts.
+    /// The old path is gone rather than deprecated, so a client that has not moved gets a 404.
+    ///
+    /// The method is named for the endpoint, the way every other `filter` in this SDK is, and the
+    /// Java client spells the same call `filter` too. That leaves `list` free on purpose: the api
+    /// gained a criteria-free `GET /subscriptions?limit=` at the same time, which is what `list`
+    /// means on every other collection here, and no client wraps it yet.
+    pub async fn filter(
         &self,
         form: &SubscriptionFilterForm,
     ) -> Result<DataWrapper<Subscription>, ResponseError> {
-        let path = &format!("{}/list", self.base_url);
+        let path = &format!("{}/filter", self.base_url);
         self.execute_post_request::<DataWrapper<Subscription>, _>(path, form)
             .await
     }

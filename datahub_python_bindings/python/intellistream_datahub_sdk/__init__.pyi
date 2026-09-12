@@ -2166,7 +2166,7 @@ class SubscriptionListenerAsync:
 
 class SubscriptionsServiceSync:
     def create(self, input: list[Subscription]) -> list[Subscription]: ...
-    def list(
+    def filter(
         self,
         form: SubscriptionFilterForm | None = None,
         timeseries: list[SubscriptionTimeseriesId] | None = None,
@@ -2179,7 +2179,7 @@ class SubscriptionsServiceSync:
 
 class SubscriptionsServiceAsync:
     async def create(self, input: list[Subscription]) -> list[Subscription]: ...
-    async def list(
+    async def filter(
         self,
         form: SubscriptionFilterForm | None = None,
         timeseries: list[SubscriptionTimeseriesId] | None = None,

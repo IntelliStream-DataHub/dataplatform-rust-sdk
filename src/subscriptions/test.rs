@@ -135,23 +135,23 @@ mod tests {
             assert!(created_item.date_created.is_some());
             assert_eq!(created_item.timeseries.len(), 2);
 
-            // 3. List — the unfiltered list may include prior test data, so we assert *at least*
-            //    our subscription is present (per AGENTS.md: avoid exact-count assertions against
-            //    shared backend state).
+            // 3. Filter with the default (unrestricted) form — the result may include prior test
+            //    data, so we assert *at least* our subscription is present (per AGENTS.md: avoid
+            //    exact-count assertions against shared backend state).
             let all = api_service
                 .subscriptions
-                .list(&SubscriptionFilterForm::default())
+                .filter(&SubscriptionFilterForm::default())
                 .await?;
             assert!(
                 all.get_items().iter().any(|s| s.external_id == sub_ext),
                 "unfiltered list must contain the subscription we just created"
             );
 
-            // 4. List with a timeseries filter — only subscriptions bound to ts_a should come back.
+            // 4. Filter by timeseries — only subscriptions bound to ts_a should come back.
             //    Our subscription is bound to ts_a, so it must appear.
             let filtered = api_service
                 .subscriptions
-                .list(&SubscriptionFilterForm {
+                .filter(&SubscriptionFilterForm {
                     filter: SubscriptionFilter {
                         timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
                     },
@@ -169,10 +169,10 @@ mod tests {
             // Explicit delete succeeded — disarm the guard so it doesn't re-delete.
             sub_cleanup.disarm();
 
-            // 6. Verify the subscription is gone from the filtered list.
+            // 6. Verify the subscription is gone from the filtered result.
             let after_delete = api_service
                 .subscriptions
-                .list(&SubscriptionFilterForm {
+                .filter(&SubscriptionFilterForm {
                     filter: SubscriptionFilter {
                         timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
                     },
