@@ -124,7 +124,8 @@ impl PyEventsServiceAsync {
     #[pyo3(signature = (filter=None, external_id=None, source=None, r#type=None, sub_type=None,
                         status=None, data_set_id=None, event_time=None, metadata=None,
                         related_resources=None, created_time=None, last_updated_time=None,
-                        limit=None, sort_by=None, sort_order=None, cursor=None))]
+                        limit=None, sort_by=None, sort_order=None, cursor=None,
+                        advanced_filter=None))]
     #[allow(clippy::too_many_arguments)]
     fn filter<'py>(
         &self,
@@ -145,11 +146,12 @@ impl PyEventsServiceAsync {
         sort_by: Option<crate::StringOrList>,
         sort_order: Option<String>,
         cursor: Option<String>,
+        advanced_filter: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let form = crate::events::event_filter_form(
             filter, external_id, source, r#type, sub_type, status, data_set_id, event_time,
             metadata, related_resources, created_time, last_updated_time, limit, sort_by,
-            sort_order, cursor,
+            sort_order, cursor, advanced_filter,
         )?;
         let service = self.api_service.clone();
 

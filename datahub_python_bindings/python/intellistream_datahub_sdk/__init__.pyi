@@ -359,10 +359,6 @@ class TimeSeries:
     @labels.setter
     def labels(self, value: list[str] | None) -> None: ...
     @property
-    def table_engine(self) -> str | None:
-        """The ClickHouse table engine. On a series reached through `neighbors()` this is the
-        API's default rather than data — re-read the series by id for the real value."""
-    @property
     def id(self) -> int | None: ...
     @property
     def external_id(self) -> str: ...
@@ -835,16 +831,20 @@ EventIdentifiable = Union[Event, EventIdCollection, UUID, str]
 class EventUpdate:
     """Field-level changes for one event.
 
-    There is deliberately no ``event_time``: an event's time is immutable after creation. The
-    server's events table is partitioned by it, so the mutation cannot move the row and is refused
-    outright; the api dropped the field from its update form, and sending it now is a ``400``
-    naming the field. Record a corrected time as a new event, or delete and re-create.
+    There is deliberately no ``event_time`` and no ``external_id``: both identify an event rather
+    than describe it, and the api dropped each from its update form, so sending either is a ``400``
+    naming the field.
+
+    The events table is partitioned by ``event_time``, so the mutation cannot move the row and is
+    refused outright. ``externalId`` maps to the *set* of event UUIDs behind it — events sharing an
+    external id are the lifecycle of one logical event — so a rename would take every sibling along,
+    and an event targeted by UUID left the server without the old value to re-key with. Re-key by
+    creating a new event and deleting the old one; record a corrected time the same way.
     """
 
     def __init__(
         self,
         event: EventIdentifiable,
-        external_id: FieldStr | None = None,
         description: FieldStr | None = None,
         type: FieldStr | None = None,
         sub_type: FieldStr | None = None,
@@ -899,6 +899,7 @@ class EventsServiceSync:
         sort_by: SortBy | None = None,
         sort_order: str | None = None,
         cursor: str | None = None,
+        advanced_filter: str | None = None,
     ) -> Page:
         """Pass either ``filter=`` or the individual criteria keywords; passing both is a
         ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
@@ -954,6 +955,7 @@ class EventsServiceAsync:
         sort_by: SortBy | None = None,
         sort_order: str | None = None,
         cursor: str | None = None,
+        advanced_filter: str | None = None,
     ) -> Page:
         """Pass either ``filter=`` or the individual criteria keywords; passing both is a
         ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
@@ -2164,6 +2166,7 @@ class SubscriptionListenerAsync:
 
 class SubscriptionsServiceSync:
     def create(self, input: list[Subscription]) -> list[Subscription]: ...
+    def list(self, limit: int | None = None) -> list[Subscription]: ...
     def filter(
         self,
         form: SubscriptionFilterForm | None = None,
@@ -2177,6 +2180,7 @@ class SubscriptionsServiceSync:
 
 class SubscriptionsServiceAsync:
     async def create(self, input: list[Subscription]) -> list[Subscription]: ...
+    async def list(self, limit: int | None = None) -> list[Subscription]: ...
     async def filter(
         self,
         form: SubscriptionFilterForm | None = None,

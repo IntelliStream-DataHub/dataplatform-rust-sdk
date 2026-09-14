@@ -39,17 +39,33 @@ impl SubscriptionsService {
             .await
     }
 
-    /// `POST /subscriptions/filter` — the subscriptions matching [`SubscriptionFilterForm`].
+    /// `GET /subscriptions?limit=N` — the first `limit` subscriptions in the tenant, newest
+    /// created first.
     ///
-    /// This was `POST /subscriptions/list` until the api moved subscriptions onto the same filter
-    /// contract the rest of the collections use. Only the path moved: `filter`, `limit` and `sort`
-    /// are read exactly as before, and this type is a subset of the retriever the endpoint accepts.
-    /// The old path is gone rather than deprecated, so a client that has not moved gets a 404.
+    /// `None` sends no `limit` and leaves the server's default of 1000 in place; the maximum is
+    /// 10000, above which the server answers 400 rather than clamping. There is no paging: no
+    /// `nextCursor` comes back, so the cap truncates. Criteria, ordering and paging all live on
+    /// [`filter`](Self::filter).
+    pub async fn list(
+        &self,
+        limit: Option<u64>,
+    ) -> Result<DataWrapper<Subscription>, ResponseError> {
+        let query = limit.map(|limit| [("limit", limit)]);
+        self.execute_get_request::<DataWrapper<Subscription>, _>(&self.base_url, query.as_ref())
+            .await
+    }
+
+    /// `POST /subscriptions/filter` — subscriptions matching [`SubscriptionFilterForm`].
     ///
-    /// The method is named for the endpoint, the way every other `filter` in this SDK is, and the
-    /// Java client spells the same call `filter` too. That leaves `list` free on purpose: the api
-    /// gained a criteria-free `GET /subscriptions?limit=` at the same time, which is what `list`
-    /// means on every other collection here, and no client wraps it yet.
+    /// This was `POST /subscriptions/list`, whose body was subscriptions-only: a `limit` that
+    /// defaulted to 100 where the rest of the api defaulted to 1000, a sort property that reached
+    /// the query unvalidated, and no cursor, so a tenant past one page could not reach the rest.
+    /// The api moved it onto the family envelope and removed `/list` rather than aliasing it, so a
+    /// client that has not moved gets a 404.
+    ///
+    /// [`SubscriptionFilterForm`] is a strict subset of what the endpoint now accepts: it does not
+    /// yet carry the `cursor`, nor the `id`, `externalId`, `name`, `createdTime` and
+    /// `lastUpdatedTime` criteria the filter grew alongside `timeseries`.
     pub async fn filter(
         &self,
         form: &SubscriptionFilterForm,

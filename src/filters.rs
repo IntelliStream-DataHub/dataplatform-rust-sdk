@@ -352,8 +352,24 @@ pub struct EventFilterForm {
     cursor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sort: Option<DataSort>,
+    /// A boolean filter expression, sent as `advancedFilter`.
+    ///
+    /// Replaces the nested and/or/not `Filter` tree this used to hold. The api parses the string
+    /// into a tree of its own and renders it as a parameterised query, so what travels here is
+    /// what a person would type into a WHERE clause:
+    ///
+    /// ```text
+    /// type NOT LIKE 'pump' AND (subType = 'water' OR subType = 'gas')
+    /// ```
+    ///
+    /// The dialect is PostgreSQL-flavoured: PostgreSQL function names, `::` casts, ILIKE, and
+    /// `<>` beside `!=`. Event metadata values are text, so comparing one as anything else needs
+    /// a converter -- `to_int`, `to_number`, `to_bool`, `to_date`, `to_timestamp`.
+    ///
+    /// Still `skip_serializing_if`: the api rejects unknown and null-typed keys, so an unset
+    /// filter has to omit the key rather than send `null`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    advanced_filter: Option<AdvancedEventFilter>,
+    advanced_filter: Option<String>,
 }
 
 impl EventFilterForm {
@@ -422,211 +438,11 @@ impl EventFilterForm {
         self.limit = limit;
         self
     }
-    pub fn set_advanced_filter(&mut self, filter: AdvancedEventFilter) -> &mut Self {
-        self.advanced_filter = Some(filter);
+    /// Set the boolean filter expression. See [`EventFilterForm::advanced_filter`].
+    pub fn set_advanced_filter(&mut self, expression: impl Into<String>) -> &mut Self {
+        self.advanced_filter = Some(expression.into());
         self
     }
-    pub fn build(&self) -> Self {
-        self.clone()
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct AdvancedEventFilter {
-    filter: Option<Filter>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    related_resource_filter: Option<RelatedResourceFilter>,
-}
-
-impl AdvancedEventFilter {
-    pub fn new() -> Self {
-        Self {
-            filter: None,                  // filter that the returned event must satisfy
-            related_resource_filter: None, // idea was to filter so that if
-        }
-    }
-    pub fn set_filter(&mut self, filter: &Filter) -> &mut Self {
-        self.filter = Some(filter.clone());
-        self
-    }
-    pub fn set_related_resource_filter(&mut self, filter: &RelatedResourceFilter) -> &mut Self {
-        self.related_resource_filter = Some(filter.clone());
-        self
-    }
-    pub fn build(&self) -> Self {
-        self.clone()
-    }
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct RelatedResourceFilter {
-    // Idea is that you can filter on events that have spesific neighbors.
-    // it will apply the filter on the neighbors if the relation type matches
-    // can see this being useful, but we should be careful as
-    // it can be very complicated and potentialy computatuinaly expensive
-    // relatedResource probably dont need to check their neighbors aswell
-    //
-    // example case: we have a pump that will be worked on with
-    // a work permit that will be a related resource?
-    // assume pump1 exists and will produce a timeseries RPM_pump1 with associated events
-    // like "Pump1 RPM below threshold"
-    // when the work permit is activated pump1 will be updated indicating it has an active work permit on it
-    // the produced event will have a related resource /source field indicating its source ie pump1
-    // using the related resource filter we can filter on events that dont have an active work permit?
-    // can probalby do a lot more complex stuff aswell.
-    filter: Filter,
-    relation_types: Option<Vec<String>>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-///
-/// Constructs an arbitrary boolean statement for advanced filtering.
-///
-/// # Variants
-///
-/// - And(Vec<Filter>): Combines 2 or more filters on logical and.
-///
-/// - Or(Vec<Filter>): Combines 2 or more filters on logical or.
-///
-/// - Not(Box<Filter>): Negates the result of the child
-///
-/// - Equals: Porperty value must match the given value exactly.
-///   - property: The property name to be evaluated.
-///   - value: The value to match against the property.
-///
-/// - In: property matches any of a list of values.
-///   - property: The property name to be evaluated.
-///   - values: The list of values to check for inclusion.
-///
-/// - Range: check if property is between min and max values
-///   - property: The property name to be evaluated.
-///   - min: The optional lower bound of the range (inclusive or exclusive support could be added in the future).
-///   - max: The optional upper bound of the range (inclusive or exclusive support could be added in the future).
-///
-/// - IsSet: check listed properties are not None
-///   - property: A vector of property names to check.
-///
-/// - ContainsAny: property (list-type) contains at least 1 element in any_of
-///   - property: The property name to be evaluated.
-///   - any_of: The list of values to check for presence.
-///
-/// - ContainsAll: property (list-type) contains all elements in all_of
-///   - property: The property name to be evaluated.
-///   - all_of: The list of values that must all be present.
-///
-/// # Usage
-///
-/// This filter can be used to construct an arbitrary boolean statement:
-///
-/// ```rust
-/// use serde_json;
-/// use intellistream_datahub_sdk::{filters::Filter};
-/// use serde_json::json;
-/// let filter = Filter::And(vec![
-///     Filter::Equals {
-///         property: "status".to_string(),
-///         value: "active".to_string()
-///     },
-///     Filter::Not(Box::new(Filter::In {
-///         property: "category".to_string(),
-///         values: vec!["restricted".to_string(), "archived".to_string()]
-///     })),
-/// ]);
-/// let serialized = serde_json::to_string(&filter).unwrap();
-/// println!("{}", serialized);
-/// let deserialized: Filter = serde_json::from_str(&serialized).unwrap();
-/// assert_eq!(filter, deserialized);
-///```
-/// //
-#[serde(rename_all = "camelCase")]
-pub enum Filter {
-    // filters are constructed as a tree like structure using the standard boolean operators AND, OR, NOT,
-    And(Vec<Filter>),
-    Or(Vec<Filter>),
-    Not(Box<Filter>),
-    // these filters assume the property is a single value
-    Equals {
-        // evaluate if the given property is equal to the given value
-        property: String,
-        value: String,
-    },
-    In {
-        // evaluate if any of the given values are equal to the given property
-        property: String,
-        values: Vec<String>,
-    },
-    Range {
-        // evaluate if the given property is between the given min and max values
-        // in future we could add support for inclusive/exclusive bounds
-        max: Option<String>,
-        min: Option<String>,
-        property: String,
-    },
-    IsSet {
-        // evaluate if the given property is set (not null)
-        property: Vec<String>,
-    },
-    // the remaining filters assume a property is a list
-    #[serde(rename_all = "camelCase")]
-    ContainsAny {
-        // check if the property contains any of the given values
-        any_of: Vec<String>,
-        property: String,
-    },
-    #[serde(rename_all = "camelCase")]
-    ContainsAll {
-        all_of: Vec<String>,
-        property: String,
-    },
-}
-
-impl Filter {
-    pub fn and(filters: &Vec<Filter>) -> Self {
-        Filter::And(filters.clone())
-    }
-    pub fn or(filters: &Vec<Filter>) -> Self {
-        Filter::Or(filters.clone())
-    }
-    pub fn not(filter: &Filter) -> Self {
-        Filter::Not(Box::new(filter.clone()))
-    }
-    pub fn eq(property: &str, value: &str) -> Self {
-        Filter::Equals {
-            property: property.to_string(),
-            value: value.to_string(),
-        }
-    }
-    pub fn in_values(property: &str, values: &Vec<String>) -> Self {
-        Filter::In {
-            property: property.to_string(),
-            values: values.clone(),
-        }
-    }
-    pub fn range(property: &str, min: Option<String>, max: Option<String>) -> Self {
-        Filter::Range {
-            property: property.to_string(),
-            min,
-            max,
-        }
-    }
-    pub fn is_set(property: &Vec<String>) -> Self {
-        Filter::IsSet {
-            property: property.clone(),
-        }
-    }
-    pub fn contains_any(property: &str, any_of: &[String]) -> Self {
-        Filter::ContainsAny {
-            property: property.to_string(),
-            any_of: any_of.to_vec(),
-        }
-    }
-    pub fn contains_all(property: &str, all_of: &[String]) -> Self {
-        Filter::ContainsAll {
-            property: property.to_string(),
-            all_of: all_of.to_vec(),
-        }
-    }
-
     pub fn build(&self) -> Self {
         self.clone()
     }
@@ -637,97 +453,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    #[test]
-    fn test_advanced_filter() {
-        let mut filt = AdvancedEventFilter::new();
-        assert_eq!(filt.filter, None);
-        let leaf_filter1 = Filter::Equals {
-            property: "test".to_string(),
-            value: "test".to_string(),
-        };
-        let leaf_filter2 = Filter::contains_all(
-            "policies",
-            &vec!["policy1".to_string(), "policy2".to_string()],
-        );
-        let leaf_filter3 = Filter::is_set(&vec!["metdata".to_string(), "type".to_string()]);
-        let leaf_filter4 = Filter::contains_any(
-            "policies",
-            &vec!["policy3".to_string(), "policy4".to_string()],
-        );
-
-        let bool_filter1 = Filter::and(&vec![leaf_filter1.clone(), leaf_filter2.clone()]);
-        let bool_filter2 = Filter::or(&vec![leaf_filter2, leaf_filter4]);
-        let bool_filter3 = Filter::not(&leaf_filter3);
-        let expected_json = json!({"filter": {"equals": {"property": "test", "value": "test"}}});
-        filt.filter = Some(leaf_filter1.clone());
-        assert_eq!(
-            serde_json::to_string(&filt).unwrap(),
-            expected_json.to_string()
-        );
-
-        let expected_json2 = json!(
-        {"filter":
-            {"and":[
-                {"equals":{"property": "test", "value": "test"}},
-                {"containsAll":{"property":"policies","allOf":["policy1", "policy2"]}}
-            ]
-        }});
-        assert_eq!(
-            serde_json::to_string(&AdvancedEventFilter {
-                filter: Some(bool_filter1.clone()),
-                related_resource_filter: None
-            })
-            .unwrap(),
-            expected_json2.to_string()
-        );
-        let expected_json3 = json!({
-            "filter": {
-                "and": [
-                    {
-                        "or": [
-                            {
-                                "and": [
-                                    {"equals": {"property": "test", "value": "test"}},
-                                    {"containsAll": {"property": "policies", "allOf": ["policy1", "policy2"]}}
-                                ]
-                            },
-                            {
-                                "or": [
-                                    {"containsAll": {"property": "policies", "allOf": ["policy1", "policy2"]}},
-                                    {"containsAny": {"property": "policies", "anyOf": ["policy3", "policy4"]}}
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        "not": {
-                            "not": {
-                                "isSet": {"property": ["metdata", "type"]}
-                            }
-                        }
-                    }
-                ]
-            }
-        });
-
-        let filter1_or_2_and_not3 = Filter::and(&vec![
-            Filter::or(&vec![bool_filter1.clone(), bool_filter2]),
-            Filter::not(&bool_filter3),
-        ]);
-        assert_eq!(
-            serde_json::to_string(&AdvancedEventFilter {
-                filter: Some(filter1_or_2_and_not3),
-                related_resource_filter: None
-            })
-            .unwrap(),
-            expected_json3.to_string()
-        )
-    }
-
-    // The backend event filter reads a single `relatedResources: [{id}|{externalId}]` array
-    // (`Collection<IdCollection>`), NOT flat `relatedResourceIds` / `relatedResourceExternalIds`
-    // arrays. Serializing the flat keys silently disabled related-resource filtering, so lock the
-    // wire shape here.
     #[test]
     fn basic_event_filter_serializes_related_resources_as_id_collection() {
         let mut filter = EventFilter::default();
@@ -941,16 +666,17 @@ mod tests {
     }
 
     /// `advanced_filter` used to serialize under its snake_case Rust name, which the api does not
-    /// read — the filter was silently ignored and the query came back unfiltered.
+    /// know. It is `advancedFilter` on the wire, and now carries an expression rather than a tree.
     #[test]
     fn advanced_filter_serializes_as_camel_case() {
-        let mut filter = EventFilterForm::default();
-        filter.set_advanced_filter(AdvancedEventFilter::new());
+        let mut form = EventFilterForm::default();
+        form.set_advanced_filter("type = 'Alarm' AND subType IS NOT NULL");
+        let value = serde_json::to_value(form.build()).unwrap();
 
-        let value = serde_json::to_value(filter.build()).unwrap();
-        assert!(
-            value.get("advancedFilter").is_some(),
-            "expected advancedFilter, got: {value}"
+        assert_eq!(
+            value.get("advancedFilter").and_then(|v| v.as_str()),
+            Some("type = 'Alarm' AND subType IS NOT NULL"),
+            "expected the expression under advancedFilter, got: {value}"
         );
         assert!(value.get("advanced_filter").is_none());
     }

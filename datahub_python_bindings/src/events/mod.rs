@@ -86,6 +86,7 @@ pub fn event_filter_form(
     sort_by: Option<StringOrList>,
     sort_order: Option<String>,
     cursor: Option<String>,
+    advanced_filter: Option<String>,
 ) -> PyResult<EventFilterForm> {
     let any_keyword = external_id.is_some()
         || source.is_some()
@@ -130,6 +131,13 @@ pub fn event_filter_form(
     }
     if let Some(cursor) = cursor {
         form.set_cursor(cursor);
+    }
+    // A boolean expression in the api's filter language, e.g.
+    //   type NOT LIKE 'pump' AND (subType = 'water' OR subType = 'gas')
+    // Parsed and validated by the api, so an invalid one comes back as a 400 that carries an
+    // offset and usually a corrected expression.
+    if let Some(advanced_filter) = advanced_filter {
+        form.set_advanced_filter(advanced_filter);
     }
     Ok(form.build())
 }
@@ -355,6 +363,9 @@ impl From<EventIdentifyable> for EventIdCollection {
 /// `external_id`; every field is optional and uses the same wrappers as the other services
 /// (`FieldStr`/`FieldU64` for scalars, `ListFieldIdCollection` for the related-resource list,
 /// `MapField` for metadata). Mirrors `ResourceUpdate`.
+///
+/// There is no `external_id` field to change, and no `event_time`: both identify an event rather
+/// than describe it, and the api rejects a body carrying either.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EventUpdate")]
 #[derive(Clone)]
 pub struct PyEventUpdate {
@@ -372,7 +383,6 @@ impl PyEventUpdate {
     #[new]
     #[pyo3(signature = (
         event,
-        external_id = None,
         description = None,
         r#type = None,
         sub_type = None,
@@ -385,7 +395,6 @@ impl PyEventUpdate {
     #[allow(clippy::too_many_arguments)]
     pub fn __init__(
         event: EventIdentifyable,
-        external_id: Option<PyFieldStr>,
         description: Option<PyFieldStr>,
         r#type: Option<PyFieldStr>,
         sub_type: Option<PyFieldStr>,
@@ -401,7 +410,6 @@ impl PyEventUpdate {
                 id: ident.id,
                 external_id: ident.external_id,
                 update: EventUpdateFields {
-                    external_id: external_id.map(Into::into),
                     description: description.map(Into::into),
                     r#type: r#type.map(Into::into),
                     sub_type: sub_type.map(Into::into),

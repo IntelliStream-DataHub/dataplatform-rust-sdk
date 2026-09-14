@@ -39,9 +39,9 @@ The DataHub REST API this SDK targets is a separate Spring Boot project; the HTT
 
 This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point is `create_api_service()` in `src/lib.rs`, which returns an `Arc<ApiService>` built with `Arc::new_cyclic` so each subservice holds a `Weak<ApiService>` back-reference. Subservices are fields on `ApiService`:
 
-- `time_series` (`src/timeseries/`) — `TimeSeries` + datapoint ingestion/retrieval. Neither `TimeSeries` nor `TimeSeriesUpdate` has **`securityCategories`**: it was stored, writable and returned, but nothing ever read it — no part in access control (dataset grants are Keycloak organization groups), no query filtering on it, and the backend silently dropped any id that did not already exist, so the field never round-tripped. It has been removed server-side along with its join table, and the api reads request bodies strictly, so sending it is now a 400. Files keep their own `securityCategories` (`INode` in `src/generic.rs`) — separate entity, separate question. `ListFieldU64` went with it: it was the only field of that type, so the Python wrapper class is gone too (`ListFieldStr` and `ListFieldIdCollection` remain). **`tableEngine` is stale in the same way but still present**: the api marks it `@JsonIgnore`, so no response carries it, flat or graph — it is still accepted on create, so the SDK keeps the field as write-only rather than removing it, and it always reads back `None`.
+- `time_series` (`src/timeseries/`) — `TimeSeries` + datapoint ingestion/retrieval. Neither `TimeSeries` nor `TimeSeriesUpdate` has **`securityCategories`**: it was stored, writable and returned, but nothing ever read it — no part in access control (dataset grants are Keycloak organization groups), no query filtering on it, and the backend silently dropped any id that did not already exist, so the field never round-tripped. It has been removed server-side along with its join table, and the api reads request bodies strictly, so sending it is now a 400. Files keep their own `securityCategories` (`INode` in `src/generic.rs`) — separate entity, separate question. `ListFieldU64` went with it: it was the only field of that type, so the Python wrapper class is gone too (`ListFieldStr` and `ListFieldIdCollection` remain). **`tableEngine`** went the same way. No read had returned it since the api marked it `@JsonIgnore` — which ClickHouse engine backs a series is an internal storage decision — and it has now been removed from the api entirely, so the write side that made it worth keeping as a write-only field is gone too.
 - `units` (`src/unit/`)
-- `events` (`src/events/`) — event CRUD, filter/search, plus the vocabulary endpoints (`list_types`/`search_types` and the same pair for sub-types, statuses and sources, over `EventDimension`). Those answer "what values does this tenant actually use" for the four categorical fields and back filter dropdowns; they read small server-side dimension tables rather than scanning events, so they are cheap but *eventually consistent* with the events. Note the route asymmetry the SDK hides: `/events/list/{plural}` but `/events/search/{singular}`. `EventUpdate` has **no `event_time`**: an event's time is immutable after creation — the events table is partitioned by it, so ClickHouse refuses the mutation outright, and the api used to validate the field, echo the new value back with a 200 and then fail to apply it. It has been dropped from the update form, so sending it is now a 400. Record a corrected time as a new event.
+- `events` (`src/events/`) — event CRUD, filter/search, plus the vocabulary endpoints (`list_types`/`search_types` and the same pair for sub-types, statuses and sources, over `EventDimension`). Those answer "what values does this tenant actually use" for the four categorical fields and back filter dropdowns; they read small server-side dimension tables rather than scanning events, so they are cheap but *eventually consistent* with the events. Note the route asymmetry the SDK hides: `/events/list/{plural}` but `/events/search/{singular}`. `EventUpdate` has **no `event_time` and no `external_id`**: both identify an event rather than describe it, and each was dropped from the api's update form after it had spent a while validating the field, echoing the new value back with a 200 and then failing to apply it — so sending either is now a 400 naming it. The events table is partitioned by `event_time`, so ClickHouse refuses that mutation outright. `externalId` maps to the *set* of event UUIDs behind it, events sharing one being the lifecycle of a single logical event, so a rename would take every sibling along — and when the caller identified the event by UUID the server had no old value to re-key with, leaving the "renamed" event resolvable under neither id. Re-key by creating a new event and deleting the old; record a corrected time the same way.
 - `resources` (`src/resources/`) — the generic node service. Its reads span **every** node type and answer with [`Node`](#the-polymorphic-node-type) rather than one flat shape; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`, `RelatedNode`)
 - `edges` (`src/relations/service.rs`) — the `/edges` endpoints: `get`/`by_ids`/`create`/`delete` plus the relationship-type catalogue (`types`/`create_types`). Edges normally come into being through `resources.create(nodes, relations)`; this service is for linking resources that already exist and for reading or deleting an edge on its own. `get` answers an unknown id with 404 and a `problem+json` body; `by_ids`, like every batch lookup, answers 200 with the found subset and silently omits what is missing. (`get` used to be 200-and-nothing despite documenting a 404 — api #275 made single-resource by-id GETs consistently 404 and deliberately left batch lookups alone.) Two further behaviours are worth knowing, and are documented at each call site:
 
@@ -49,7 +49,7 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
   - `delete` will not remove an edge that is an endpoint's only route to the graph root: `ResourceService.delete` refuses rather than orphan the node, answering **400** with the stranded resource named in `fields` (`{"type": "strandedResource", "externalId": …}`) and a message saying to include it in the deletion or keep a connecting path. Practically, an edge is separately deletable only when both endpoints stay reachable without it; otherwise it goes away with the resources. The check reads the graph projection, which lags the write, so deleting too soon after creating the edge gets the *wrong answer* rather than an error — the refusal does not fire and the node is stranded. `relations::tests` measured 6/6 wrongly allowed immediately after create, 6/6 refused 500ms later; its `await_graph` helper is what the live tests wait on.
 - `datasets` (`src/datasets/`)
 - `files` (`src/files/`) — raw-`PUT` upload via `execute_file_upload_request` (content is the body, metadata rides in `X-Datahub-*` headers), plus directory listing, get/search, `FileUpdate` (rename/move/re-dataset), trash + restore, delete, and download (`download` in memory, `download_to_path` streamed)
-- `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`)
+- `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`). Reads follow the same split as every other collection: `list(limit)` over `GET /subscriptions?limit=` and `filter(form)` over `POST /subscriptions/filter`. Both are recent — `POST /subscriptions/list` was subscriptions-only (a `limit` defaulting to 100 where the api defaulted to 1000, an unvalidated sort property, and no cursor, so a tenant past one page could not reach the rest) and the api removed it rather than aliasing it, so a client that has not moved gets a 404. `SubscriptionFilterForm` is a strict subset of what `/filter` now accepts: it carries no `cursor`, and `SubscriptionFilter` has only `timeseries`, not the `id`, `externalId`, `name`, `createdTime` and `lastUpdatedTime` criteria the api's filter grew beside it.
 - `functions` (`src/functions/`)
 - `labels` (`src/labels/`) — label CRUD (`list`/`get`/`create`/`update`/`delete`). Note the entity type is `labels::Label`, deliberately *not* re-exported at the crate root because `resources::*` already brings a different graph-DTO `Label` there.
 
@@ -185,7 +185,7 @@ Names the refactors removed — `externalIdPrefix`, `metadataKey`/`metadataValue
 
 Related resources are one field, not two: both `Event` and `EventFilter` carry `relatedResources`, an array of the backend's `IdCollection` (`[{"id": "34"}, {"externalId": "sensor_abc"}]`, modelled by `IdAndExtId`). An entry may name a resource by id, external id, or both; the backend resolves the missing side and returns both. `dataSetId` on the filter uses the same shape. There are no aliases for the retired flat `relatedResourceIds` / `relatedResourceExternalIds` arrays.
 
-`EventFilterForm` + `AdvancedEventFilter` remain the richer style for events; some advanced-filter endpoints are not yet wired up server-side and are tested only via serde round-trips.
+`EventFilterForm` additionally carries `advancedFilter`, a **string** holding a boolean expression in the api's PostgreSQL-flavoured filter language — `type NOT LIKE 'pump' AND (subType = 'water' OR subType = 'gas')`. It replaced a nested and/or/not `Filter` tree in 0.4.0. Three of that tree's nine variants (`range`, `containsAny`, `containsAll`) never had a server-side binding and returned 500, which is part of why it went. The expression is parsed and validated by the api, not here, so an invalid one comes back as a 400 carrying an offset and often a corrected expression.
 
 #### Sorting and paging
 
@@ -350,6 +350,13 @@ Behaviours worth knowing, each pinned by an assertion:
   `/labels/delete` and works. Relationship types have **no delete at all** — not in the MCP surface,
   not in `EdgesService` — so every run that creates one leaves it behind for good, and the tenant's
   catalogue only grows. That is the one stray the suite cannot clean up after itself.
+- **`BELONGS_TO` is not a built-in, and no test may assume it exists.** Nothing seeds it: no
+  migration, no bootstrap runner, only the api's own integration tests. It is minted lazily by
+  `RelationshipTypeService.findOrCreateByName` the first time an edge names it, so a fresh tenant
+  has no dataset-hierarchy type until something builds one. Both `mcp_full_tool_surface` and
+  `relations::tests::live::test_relationship_types` used to assert it was present, which passed
+  only on databases that had accumulated it — and since relationship types cannot be deleted, one
+  such database stays convincing for a long time.
 - **Delete order in the graph is not free.** `resource_delete` and `edge_delete` refuse to strand a
   node (see the `edges` notes above), so the sweep builds a triangle and drops `b -> c` — the one edge
   whose endpoints both stay reachable — then deletes `b`, then `c`, then `a`. Getting this order wrong
@@ -373,15 +380,10 @@ Behaviours worth knowing, each pinned by an assertion:
 
 ### Tests that are red on purpose
 
-Two encode intended behaviour the api does not yet provide, in the same spirit as
-`test_duplicate_relationship_type_conflicts`: they stay red until the server-side fix lands rather
+One encodes intended behaviour the api does not yet provide, in the same spirit as
+`test_duplicate_relationship_type_conflicts`: it stays red until the server-side fix lands rather
 than being softened to match the bug.
 
-- `mcp_event_update_by_uuid_reindexes_the_external_id` — renaming an event identified by **UUID**
-  writes the new `externalId` but never reindexes it. The update returns the new value, yet the event
-  stays reachable under the *old* externalId and never under the new one, while `event_get` by UUID
-  reports the new one — two identifiers disagreeing about one row. The same update by `externalId`
-  reindexes within about half a second.
 - `mcp_response_is_a_json_object` — whenever the double-encoding regression above is present, along
   with every other test that parses an envelope. Both directions are the same underlying fault: the
   transport moves the JSON-RPC payload as a `String` and lets content negotiation's JSON converter
@@ -390,6 +392,13 @@ than being softened to match the bug.
   client, guarded by `mcp_accepts_application_json`. Writing, it is handed a `String` to emit *as*
   `application/json` and escapes it. Note the api's own MockMvc test (`McpEndpointTest`) asserts only
   on the security gate, so neither direction was covered there.
+
+Two others stood here and are resolved, their tests staying on as regression guards:
+`unitExternalId` as an alternative to `unit` on `timeseries_create`, and
+`mcp_event_update_by_uuid_reindexes_the_external_id` — renaming an event by UUID wrote the new
+`externalId` without reindexing it. The api settled the second by deleting `newExternalId` from
+`event_update` rather than making the rename work, so that test is gone rather than green: there is
+no rename left to assert on. Nothing in the SDK's MCP suite sends `newExternalId` to an event.
 
 ## Python bindings (`datahub_python_bindings/`)
 

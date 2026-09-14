@@ -135,19 +135,16 @@ mod tests {
             assert!(created_item.date_created.is_some());
             assert_eq!(created_item.timeseries.len(), 2);
 
-            // 3. Filter with the default (unrestricted) form — the result may include prior test
-            //    data, so we assert *at least* our subscription is present (per AGENTS.md: avoid
-            //    exact-count assertions against shared backend state).
-            let all = api_service
-                .subscriptions
-                .filter(&SubscriptionFilterForm::default())
-                .await?;
+            // 3. List — the unfiltered list may include prior test data, so we assert *at least*
+            //    our subscription is present (per AGENTS.md: avoid exact-count assertions against
+            //    shared backend state).
+            let all = api_service.subscriptions.list(None).await?;
             assert!(
                 all.get_items().iter().any(|s| s.external_id == sub_ext),
                 "unfiltered list must contain the subscription we just created"
             );
 
-            // 4. Filter by timeseries — only subscriptions bound to ts_a should come back.
+            // 4. List with a timeseries filter — only subscriptions bound to ts_a should come back.
             //    Our subscription is bound to ts_a, so it must appear.
             let filtered = api_service
                 .subscriptions
@@ -169,7 +166,7 @@ mod tests {
             // Explicit delete succeeded — disarm the guard so it doesn't re-delete.
             sub_cleanup.disarm();
 
-            // 6. Verify the subscription is gone from the filtered result.
+            // 6. Verify the subscription is gone from the filtered list.
             let after_delete = api_service
                 .subscriptions
                 .filter(&SubscriptionFilterForm {

@@ -513,10 +513,11 @@ mod live {
 
         let listed = api.edges.types().await?;
         assert_eq!(listed.get_http_status_code(), Some(200));
-        assert!(
-            listed.get_items().iter().any(|t| t.name == "BELONGS_TO"),
-            "BELONGS_TO is created by the platform itself and should always be present"
-        );
+        // Nothing is asserted about the catalogue's contents here, and in particular not about
+        // BELONGS_TO. It is not a built-in: no migration and no bootstrap seeds it, and
+        // `RelationshipTypeService.findOrCreateByName` mints it the first time an edge names it —
+        // so a fresh tenant has none until something builds a dataset hierarchy. The type this
+        // test creates is what its own catalogue assertion below reads back.
 
         // Names normalise to uppercase snake case, so this lands on SDK_TEST_REL_TYPE.
         // There is no delete-type endpoint, so the type survives between runs: the first run

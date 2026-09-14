@@ -9,7 +9,7 @@ mod tests {
     use maplit::hashmap;
     use reqwest::StatusCode;
     use crate::{create_api_service, ApiService};
-    use crate::generic::{DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter};
+    use crate::generic::{DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter};
     use crate::http::ResponseError;
     use crate::timeseries::{TimeSeries, TimeSeriesFilter, TimeSeriesFilterForm, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
     use crate::tests::cleanup::cleanup_timeseries;
@@ -758,7 +758,123 @@ mod tests {
         }
     }
 
+    /// `avg` is **duration-weighted** (zero-order hold), not an arithmetic mean of the values.
+    ///
+    /// Each datapoint's value counts for as long as it was the current one — until the next
+    /// datapoint, or the end of the bucket for the last one. Two datapoints an uneven distance
+    /// apart are enough to tell the two definitions apart, and the arithmetic is small enough to
+    /// check by eye:
+    ///
+    /// ```text
+    ///   12:00:00  value 10   held 45s
+    ///   12:00:45  value 20   held 15s, to the bucket end
+    ///
+    ///   zero-order hold:  (10*45 + 20*15) / 60  =  12.5
+    ///   arithmetic mean:  (10 + 20) / 2         =  15
+    /// ```
+    ///
+    /// `min` and `max` are not weighted — they are the extremes of the values themselves, so they
+    /// stay 10 and 20 and act as a control: a bucket that somehow held only one of the two would
+    /// show it here rather than hiding inside the average.
+    ///
+    /// This exists because the only previous coverage of the weighting could not see it. The
+    /// 60-day fixture in [`test_datapoints`] writes one datapoint per *second*, so every value is
+    /// held for exactly the same 1s and the weighted mean equals the plain one by construction —
+    /// it pinned five ten-decimal constants that a reader cannot verify and that agree with an
+    /// unweighted average anyway.
+    #[tokio::test]
+    async fn the_average_is_weighted_by_how_long_each_value_held() -> Result<(), Box<dyn std::error::Error>> {
+        let api_service = create_api_service();
+        let ext_id = unique_id("zoh_avg");
+        let mut cleanup = cleanup_timeseries(vec![ext_id.clone()]);
+
+        let mut ts = TimeSeries::new(&ext_id, "ZOH average");
+        ts.set_unit("celsius").set_value_type("float");
+        api_service.time_series.create_from_list(&vec![ts]).await?;
+
+        let bucket_start = Utc.with_ymd_and_hms(2025, 6, 1, 12, 0, 0).unwrap();
+        let mut collection = DatapointsCollection::from_external_id(&ext_id);
+        collection.datapoints = vec![
+            DatapointString::from_datetime(bucket_start, "10"),
+            DatapointString::from_datetime(bucket_start + Duration::seconds(45), "20"),
+        ];
+        let mut insert: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+        insert.get_items_mut().push(collection);
+        api_service.time_series.insert_datapoints(&mut insert).await?;
+
+        let mut query: DataWrapper<RetrieveFilter> = DataWrapper::new();
+        let mut rf = RetrieveFilter::new();
+        rf.set_external_id(&ext_id);
+        rf.set_start(bucket_start);
+        rf.set_end(bucket_start + Duration::seconds(60));
+        rf.set_aggregates(vec!["avg".to_string(), "min".to_string(), "max".to_string()]);
+        rf.set_granularity("1m");
+        query.add_item(rf);
+
+        // The write lands in ClickHouse asynchronously, so wait for the bucket to appear.
+        let result = poll_until_for(
+            std::time::Duration::from_secs(30),
+            || api_service.time_series.retrieve_datapoints(&query),
+            |r: &Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>| {
+                r.as_ref()
+                    .ok()
+                    .and_then(|d: &DataWrapper<DatapointsCollection<Datapoint>>| d.get_items().first())
+                    .is_some_and(|item| !item.datapoints.is_empty())
+            },
+        )
+        .await?;
+
+        let datapoints = &result.get_items().first().expect("the series should be in the answer").datapoints;
+        assert_eq!(datapoints.len(), 1, "one minute of data, one 1m bucket");
+        let bucket = &datapoints[0];
+        assert_eq!(bucket.timestamp, bucket_start, "the bucket is stamped with its start");
+        assert_eq!(
+            bucket.average().unwrap(),
+            12.5,
+            "avg must be duration-weighted: (10*45 + 20*15)/60 = 12.5, not the plain mean of 15"
+        );
+        assert_eq!(bucket.min().unwrap(), 10.0, "min is not weighted");
+        assert_eq!(bucket.max().unwrap(), 20.0, "max is not weighted");
+
+        api_service
+            .time_series
+            .delete(&DataWrapper::from_vec(vec![IdAndExtId::from_external_id(&ext_id)]))
+            .await?;
+        cleanup.disarm();
+        Ok(())
+    }
+
+    /// How far the api's average may sit from the mean computed here.
+    ///
+    /// Not an exact comparison: ClickHouse sums 86 400 floats in its own order, and float addition
+    /// is not associative, so the last digit or two differ from Rust's left-to-right sum — the
+    /// day-one bucket comes back `179.9514040223` against `179.9514040224` here. The failure this
+    /// guards against is a weighting bug, which moves the mean by ~0.5, so a tolerance six orders
+    /// of magnitude tighter than that still catches it with room to spare.
+    const AVG_TOLERANCE: f64 = 1e-6;
+
+    /// The average the api should report for `day` of the fixture, derived from the same file the
+    /// datapoints were built from.
+    ///
+    /// The api's `avg` is duration-weighted (zero-order hold): each value counts for as long as it
+    /// was the current one. **This fixture cannot see that.** It writes one datapoint per second,
+    /// so every value is held for exactly one second, every weight is equal, and the weighted mean
+    /// collapses to the plain mean of that day's 86 400 values. The weighting itself is covered by
+    /// `the_average_is_weighted_by_how_long_each_value_held`, which uses two unevenly spaced
+    /// datapoints and can therefore tell the two definitions apart.
+    ///
+    /// This used to pin three ten-decimal constants instead, with a comment claiming a plain
+    /// average "would return" a different number from the weighted one. For uniform one-second
+    /// data those are the same number, so the constants described a behaviour the fixture could
+    /// not produce; they were stale and unverifiable at once.
+    fn expected_daily_average(values: &[f64], day: usize) -> f64 {
+        const PER_DAY: usize = 24 * 3600;
+        let slice = &values[day * PER_DAY..(day + 1) * PER_DAY];
+        slice.iter().sum::<f64>() / slice.len() as f64
+    }
+
     async fn validate_daily_avg(api_service: &Arc<ApiService>, ts_external_id_vec: Vec<String>) {
+        let values = read_values_from_file().expect("the datapoint source file should be readable");
         for ts_external_id in &ts_external_id_vec {
             let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
             let mut rf = RetrieveFilter::new();
@@ -799,28 +915,17 @@ mod tests {
                             end_date
                         );
 
-                        if let Some(first_item) = r.get_items().first() {
-                            if let Some(external_id) = &first_item.external_id {
-                                if external_id == "rust_sdk_test_6540_ts" {
-                                    if dp.timestamp() == Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap() {
-                                        // normal avg would return 179.9514040223, but we use avgweighted over the window
-                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4516319444);
-                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 1, 22, 0, 0, 0).unwrap() {
-                                        // normal avg would return 180.0561890050
-                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.5567939814);
-                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
-                                        // normal avg would return 179.9661931149
-                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4659953703);
-                                    }
-                                } else {
-                                    if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 5, 0, 0, 0).unwrap() {
-                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4611111111);
-                                    } else if dp.timestamp() == Utc.with_ymd_and_hms(2025, 2, 22, 0, 0, 0).unwrap() {
-                                        assert_eq!(truncate_10(dp.average().unwrap()), 179.4927662037);
-                                    }
-                                }
-                            }
-                        }
+                        // Every bucket is checked against the source data rather than three of
+                        // them against a constant. See `expected_daily_average`.
+                        let day = (dp.timestamp() - start_date).num_days() as usize;
+                        let expected = expected_daily_average(&values, day);
+                        let actual = dp.average().unwrap();
+                        assert!(
+                            (actual - expected).abs() < AVG_TOLERANCE,
+                            "day {day} ({}): average {actual} is not the duration-weighted mean \
+                             {expected} of that day's values",
+                            dp.timestamp()
+                        );
                     }
                 },
                 Err(e) => {
@@ -944,12 +1049,6 @@ mod tests {
         Ok(values)
     }
 
-    fn truncate_10(x: f64) -> f64 {
-        // Clickhouse will have rounding errors using for example avg(), so we truncate the returned
-        // values to mitigate this
-        let multiplier = 10f64.powf(10.0);
-        (x * multiplier).floor() / multiplier
-    }
 
     #[tokio::test]
     async fn test_latest_datapoint() -> Result<(), Box<dyn std::error::Error>> {
