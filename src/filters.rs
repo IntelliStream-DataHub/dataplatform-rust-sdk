@@ -232,6 +232,15 @@ impl EventFilter {
     }
 }
 
+/// A time window, used by every timestamp criterion on every filter — `createdTime`,
+/// `lastUpdatedTime` and `eventTime`.
+///
+/// **Both bounds are inclusive**, so an entity landing exactly on `max` is returned. Easy to get
+/// wrong from the Rust side, where the natural `min..max` is half-open: `eventTime` alone used to
+/// be exclusive at the top, and the api made it `<=` like the other two (`fix(infra)!: the
+/// eventTime window is inclusive at both ends`) because a day boundary written as `...T00:00:00Z`
+/// dropped exactly the event on it. To exclude the upper endpoint, subtract a millisecond — the
+/// resolution the columns are stored at.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Hash)]
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
