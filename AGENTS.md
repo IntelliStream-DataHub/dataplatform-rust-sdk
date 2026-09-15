@@ -141,9 +141,47 @@ For the assertion exchange (`exchange_assertion`), `CLIENT_SECRET` is optional: 
 
 Two error types, used in different layers:
 - `DataHubError` (`src/errors.rs`) — config/auth/setup errors from `DataHubConfig`
-- `ResponseError` (`src/http.rs`) — HTTP errors surfaced to callers of service methods; carries `StatusCode` + message
+- `ResponseError` (`src/http.rs`) — HTTP errors surfaced to callers of service methods; carries `StatusCode` + message, the response's `content_type()`, and `problem()`
 
 `get_token()` in `ApiServiceProvider` converts `DataHubError` → `ResponseError(401)` so service methods can return a single error type.
+
+#### Problem documents (`src/problem.rs`, live tests in `src/problem_integration.rs`)
+
+`ProblemDetail` reads the api's RFC 9457 `application/problem+json` bodies —
+`type`/`title`/`status`/`detail`/`instance` plus extension members. Reach it through
+`ResponseError::problem()`; `get_message()` still returns the raw body, so existing substring
+assertions are unaffected.
+
+- **Branch on `type`, never on prose.** `slug()` is the kebab-case tail under
+  `https://intellistream.ai/errors/` — `"would-strand"`, `"duplicate"`, `"malformed-cursor"`. It is
+  `None` both for an absent type and for a foreign URI, so a slug match cannot be fooled by another
+  service's. `title` and `detail` are prose and the RFC says they may be reworded at any time.
+- **`None` means "not a problem document"**, and that is a real answer rather than a parse failure.
+  Detection is **structural** — one of `type`/`title`/`detail` must be present — not by content
+  type, because the api answers with problems labelled `application/json` and with non-problems
+  labelled the same way. Nothing is defaulted: an absent `type` stays `None` rather than becoming
+  `about:blank`.
+- **Unknown extension members are kept, not dropped** (§3.2), in `extensions`. Typed accessors exist
+  for the ones the api mints: `fields()` (rejected fields, each with the i18n `code` and a
+  `rejected` argument), `unknown_fields()` (the `errors` entries, each a JSON Pointer plus the names
+  valid *at that position*), `duplicated()`, `blocked_by()`, `retry()`, `request_id()`, `docs()`,
+  `location()`.
+- **`retry` is advisory and deliberately not wired into `is_bufferable`.** The api marks a 403
+  `needs-operator`; the SDK still buffers 401/403 so a rotated credential does not cost the batch.
+  Those answer different questions — don't reconcile them without deciding which one ingestion means.
+
+**The api is mid-refactor here, and the SDK is gated on it.** Its `errors/*` branch series converges
+every refusal on one `Problems` helper; until that lands **six** shapes are live at once (full
+problem, typeless problem, Spring Boot whitelabel *with a stack trace*, a success-shaped
+`{"items":[…]}` envelope, the legacy `{"error":{…}}` wrapper, and plain text). `problem_integration`
+is split along that seam: `green` holds on both contracts, `target` encodes the intended one and is
+**red on purpose** until the backend merges it — same convention as
+`mcp_response_is_a_json_object`. Don't soften a `target` assertion to match current behaviour.
+
+Two statements elsewhere in this file describe today's shape and will flip when that lands: 401s
+carrying no body at all (the multi-tenant note, and the reason `src/auth_diagnostics.rs` exists),
+and a refused delete answering **400** with the stranded resource in `fields` (the `edges` note) —
+which becomes a **409** `would-strand` with the blockers in `blockedBy`.
 
 ### Filters (`src/filters.rs`)
 

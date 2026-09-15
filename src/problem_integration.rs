@@ -13,16 +13,21 @@
 //! # The api is mid-refactor, and this module is split along that seam
 //!
 //! The backend is converging every refusal on one `Problems` helper (its `errors/*` branch series).
-//! Until that lands, **five** shapes are live at once, and a caller cannot tell from the outside
+//! Until that lands, **six** shapes are live at once, and a caller cannot tell from the outside
 //! which one an endpoint will pick:
 //!
 //! | Shape | Example today |
 //! |---|---|
 //! | full problem+json with a `type` | unknown field, malformed JSON, bad cursor, bad expression |
-//! | problem+json with **no** `type` | `GET /timeseries/{id}` on a missing id |
+//! | problem+json with **no** `type` | `GET /resources/{id}` on a missing id |
 //! | Spring Boot whitelabel + **stack trace** | `POST /datasets/list`, a `@Valid` search failure |
 //! | a **success-shaped** `{"items":[…]}` envelope | `POST /timeseries/create` validation |
+//! | the legacy `{"error":{"code","message",…}}` wrapper | a duplicate `externalId` |
 //! | plain text | `limit` above 10000 |
+//!
+//! Only the first is readable by [`ProblemDetail`]; the rest are what the refactor is removing. The
+//! last four all answer with `Content-Type: application/json`, so the header cannot be used to tell
+//! them apart either — which is why [`ProblemDetail::parse`] discriminates on structure.
 //!
 //! So the tests come in two groups:
 //!
@@ -85,6 +90,9 @@ impl Refusal {
             }
             None if self.body.trim_start().starts_with("{\"items\"") => {
                 "a success-shaped {\"items\":[…]} envelope".to_string()
+            }
+            None if self.body.trim_start().starts_with("{\"error\"") => {
+                "the legacy {\"error\":{…}} wrapper".to_string()
             }
             None if !self.body.trim_start().starts_with('{') => {
                 format!("plain text: {:?}", self.body.trim())
@@ -554,9 +562,10 @@ mod target {
         // Armed before the create, so a failing assertion still tears the series down.
         let _cleanup = cleanup_timeseries(vec![ext_id.clone()]);
         let created = probe.post("/timeseries/create", &body).await;
-        assert_eq!(
-            created.status, 200,
-            "the first create should succeed: {}",
+        assert!(
+            (200..300).contains(&created.status),
+            "the first create should succeed, got {}: {}",
+            created.status,
             created.preview()
         );
 
