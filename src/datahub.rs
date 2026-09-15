@@ -22,6 +22,9 @@ pub const DEFAULT_BUFFER_RETENTION_MS: i64 = 72 * 3600 * 1000; // 72 hours
 pub const DEFAULT_BUFFER_MAX_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 /// Default directory for the on-disk ingest spools.
 pub const DEFAULT_BUFFER_DIR: &str = ".datahub-spool";
+/// Default number of datapoint insert requests in flight at once. Each carries up to 100 000 points,
+/// which the api holds in memory while it parses them, so this bounds what one insert costs its heap.
+pub const DEFAULT_DATAPOINT_INSERT_PARALLELISM: usize = 4;
 /// Scope sent with a token request when none is configured. See [`OAuthConfig::effective_scope`].
 pub const DEFAULT_SCOPE: &str = "openid";
 /// RFC 7523 grant type: exchange an externally-issued JWT assertion for a token.
@@ -160,6 +163,8 @@ pub struct DataHubConfig {
     pub(crate) buffer_retention_ms: Option<i64>,
     pub(crate) buffer_max_bytes: Option<u64>,
     pub(crate) buffer_dir: Option<PathBuf>,
+    // Datapoint insert requests in flight at once; unset means DEFAULT_DATAPOINT_INSERT_PARALLELISM.
+    pub(crate) datapoint_insert_parallelism: Option<usize>,
 }
 impl AuthState {
     pub fn is_expired(&self) -> bool {
@@ -245,6 +250,7 @@ impl DataHubConfig {
             buffer_retention_ms: None,
             buffer_max_bytes: None,
             buffer_dir: None,
+            datapoint_insert_parallelism: None,
         }
     }
 
@@ -289,6 +295,10 @@ impl DataHubConfig {
             .map(|secs| secs * 1000);
         let buffer_max_bytes = map.get("BUFFER_MAX_BYTES").and_then(|v| v.parse::<u64>().ok());
         let buffer_dir = map.get("BUFFER_DIR").map(PathBuf::from);
+        let datapoint_insert_parallelism = map
+            .get("DATAPOINT_INSERT_PARALLELISM")
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n > 0);
 
         Ok(Self {
             config: Arc::new(oauthconfig),
@@ -300,6 +310,7 @@ impl DataHubConfig {
             buffer_retention_ms,
             buffer_max_bytes,
             buffer_dir,
+            datapoint_insert_parallelism,
         })
     }
 
@@ -390,6 +401,20 @@ impl DataHubConfig {
     pub fn set_buffer_dir<P: Into<PathBuf>>(&mut self, dir: P) -> &mut Self {
         self.buffer_dir = Some(dir.into());
         self
+    }
+
+    /// Set how many datapoint insert requests may be in flight at once (default 4, minimum 1).
+    ///
+    /// More is faster only while the api has cores to parse them on. Past that the extra requests
+    /// just wait inside the api, each holding its body in memory, and enough of them exhaust its heap.
+    pub fn set_datapoint_insert_parallelism(&mut self, parallelism: usize) -> &mut Self {
+        self.datapoint_insert_parallelism = Some(parallelism.max(1));
+        self
+    }
+
+    pub(crate) fn effective_datapoint_insert_parallelism(&self) -> usize {
+        self.datapoint_insert_parallelism
+            .unwrap_or(DEFAULT_DATAPOINT_INSERT_PARALLELISM)
     }
 
     /// Whether durable ingest buffering is enabled (a bound was set or it was explicitly enabled).
@@ -726,6 +751,50 @@ mod scope_tests {
 
         config.scope = Some("organization:* openid".to_string());
         assert_eq!(config.effective_scope(), "organization:* openid");
+    }
+}
+
+#[cfg(test)]
+mod datapoint_insert_parallelism_tests {
+    use super::*;
+
+    fn config_with(value: Option<&str>) -> DataHubConfig {
+        let mut map =
+            HashMap::from([("BASE_URL".to_string(), "http://localhost:8081".to_string())]);
+        if let Some(value) = value {
+            map.insert(
+                "DATAPOINT_INSERT_PARALLELISM".to_string(),
+                value.to_string(),
+            );
+        }
+        DataHubConfig::from_map(map).unwrap()
+    }
+
+    #[test]
+    fn read_from_the_environment() {
+        assert_eq!(
+            config_with(Some("16")).effective_datapoint_insert_parallelism(),
+            16
+        );
+    }
+
+    /// Zero would never send anything and garbage is a typo; both fall back rather than stall.
+    #[test]
+    fn an_unusable_value_falls_back_to_the_default() {
+        for value in [None, Some("0"), Some("lots")] {
+            assert_eq!(
+                config_with(value).effective_datapoint_insert_parallelism(),
+                DEFAULT_DATAPOINT_INSERT_PARALLELISM,
+                "{value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_setter_never_goes_below_one() {
+        let mut config = config_with(None);
+        config.set_datapoint_insert_parallelism(0);
+        assert_eq!(config.effective_datapoint_insert_parallelism(), 1);
     }
 }
 

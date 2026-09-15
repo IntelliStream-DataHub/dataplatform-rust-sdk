@@ -13,7 +13,7 @@ use crate::http::{process_response, ResponseError};
 use crate::serde_helper::is_zero;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
-use futures::{future::join_all, FutureExt};
+use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
@@ -321,7 +321,6 @@ impl TimeSeriesService {
     ) -> Result<DataWrapper<String>, ResponseError> {
         let path = &format!("{}/data", self.base_url);
         let mut new_request_bodies = vec![];
-        let mut futures = vec![];
         const MAX_DATAPOINTS_PER_REQUEST: usize = 100000;
         // Count data points
         let mut active_timeseries_with_datapoints = vec![];
@@ -387,24 +386,25 @@ impl TimeSeriesService {
                 new_request_bodies.push(new_json_clone);
             }
         }
-        // Now create futures after all request bodies are created
-        for request_body in &new_request_bodies {
-            let f = self
-                .execute_post_request::<DataWrapper<String>, _>(path, request_body)
-                .map(|result| match result {
-                    Ok(ref r) => {
-                        // The backend acknowledges a successful insert with 204 No Content.
-                        assert_eq!(r.get_http_status_code().unwrap(), 204);
-                        println!("Successfully inserted datapoints.");
-                    }
-                    Err(e) => {
-                        eprintln!("{}", e.message);
-                        panic!("Error inserting datapoints: {:?}", e.get_message());
-                    }
-                });
-            futures.push(f);
+        // Concurrent, but only so many at once, and a failure goes back to the caller instead of
+        // panicking in their process. Sending every chunk at once handed the api dozens of max-size
+        // bodies together (5.2 million points is 52 of them), and each one holds about 20 MiB of its
+        // heap while it is parsed: far more at once than the api's heap is sized for.
+        let parallelism = self
+            .get_api_service()
+            .config
+            .effective_datapoint_insert_parallelism();
+        // Owned bodies, not a closure over `&DataWrapper`: a borrowing closure is generic over the
+        // borrow's lifetime, and the compiler cannot prove that future `Send`, which the Python
+        // bindings need to hand it to their runtime.
+        let mut sends = stream::iter(new_request_bodies.into_iter().map(|request_body| async move {
+            self.execute_post_request::<DataWrapper<String>, _>(path, &request_body)
+                .await
+        }))
+        .buffer_unordered(parallelism);
+        while let Some(result) = sends.next().await {
+            result?;
         }
-        join_all(futures).await;
 
         total_datapoints = 0;
         for dp_collection in json.get_items().iter() {
@@ -788,5 +788,158 @@ impl TimeSeriesUpdateCollection {
 
     pub fn add_item(&mut self, item: TimeSeriesUpdate) {
         self.items.push(item);
+    }
+}
+
+#[cfg(test)]
+mod unbuffered_insert_tests {
+    use super::*;
+    use crate::datahub::DataHubConfig;
+    use crate::ApiService;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    /// What the fake api saw: how many inserts arrived, and the most it was handling at once.
+    #[derive(Default)]
+    struct Observed {
+        requests: AtomicUsize,
+        in_flight: AtomicUsize,
+        max_in_flight: AtomicUsize,
+    }
+
+    /// Takes one whole request off a keep-alive connection. `None` once the client hangs up.
+    async fn read_request(socket: &mut TcpStream, buf: &mut Vec<u8>) -> Option<()> {
+        loop {
+            if let Some(idx) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                let length = String::from_utf8_lossy(&buf[..idx])
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())?
+                    })
+                    .unwrap_or(0);
+                if buf.len() >= idx + 4 + length {
+                    buf.drain(..idx + 4 + length);
+                    return Some(());
+                }
+            }
+            let mut chunk = [0u8; 64 * 1024];
+            let n = socket.read(&mut chunk).await.ok()?;
+            if n == 0 {
+                return None;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+    }
+
+    /// An api that holds each insert briefly, so overlapping requests are seen to overlap, and answers
+    /// 204 to all of them except the `fail_on`th to arrive (1-based), which gets a 500.
+    async fn fake_api(
+        parallelism: Option<usize>,
+        fail_on: Option<usize>,
+    ) -> (Arc<ApiService>, Arc<Observed>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let observed = Arc::new(Observed::default());
+        let seen = observed.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    while read_request(&mut socket, &mut buf).await.is_some() {
+                        let n = seen.requests.fetch_add(1, Ordering::SeqCst) + 1;
+                        let now = seen.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                        seen.max_in_flight.fetch_max(now, Ordering::SeqCst);
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        seen.in_flight.fetch_sub(1, Ordering::SeqCst);
+                        let response = if Some(n) == fail_on {
+                            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n"
+                        } else {
+                            "HTTP/1.1 204 No Content\r\n\r\n"
+                        };
+                        if socket.write_all(response.as_bytes()).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        let mut config = DataHubConfig::from_vars(
+            format!("http://{addr}"),
+            Some("static-token".to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
+        if let Some(parallelism) = parallelism {
+            config.set_datapoint_insert_parallelism(parallelism);
+        }
+        (ApiService::new(config), observed)
+    }
+
+    /// `points` on one series, cut into full 100 000-point chunks and a final request with the rest.
+    fn datapoints(points: i64) -> DataWrapper<DatapointsCollection<DatapointString>> {
+        let mut collection = DatapointsCollection::from_external_id("chunked_series");
+        collection.datapoints = (0..points)
+            .map(|i| DatapointString::new(&(1_735_689_600_000 + i * 1000).to_string(), "1.5"))
+            .collect();
+        let mut request = DataWrapper::new();
+        request.add_item(collection);
+        request
+    }
+
+    /// Chunks overlap, which is what keeps a large insert fast, but never more of them than the
+    /// configured parallelism: every chunk at once handed the api dozens of max-size bodies together,
+    /// more than its heap holds.
+    #[tokio::test]
+    async fn chunks_are_sent_concurrently_up_to_the_parallelism() {
+        let (api, observed) = fake_api(Some(2), None).await;
+
+        // Four full chunks and the rest: enough that an unbounded send would put four in flight.
+        let result = api
+            .time_series
+            .insert_datapoints(&mut datapoints(450_000))
+            .await
+            .expect("every request was answered 204");
+
+        assert_eq!(result.get_http_status_code(), Some(204));
+        assert_eq!(observed.requests.load(Ordering::SeqCst), 5);
+        assert_eq!(observed.max_in_flight.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn the_default_parallelism_applies_when_none_is_configured() {
+        let (api, observed) = fake_api(None, None).await;
+
+        api.time_series
+            .insert_datapoints(&mut datapoints(650_000))
+            .await
+            .expect("every request was answered 204");
+
+        assert_eq!(
+            observed.max_in_flight.load(Ordering::SeqCst),
+            crate::datahub::DEFAULT_DATAPOINT_INSERT_PARALLELISM
+        );
+    }
+
+    /// A refused chunk is the caller's error to handle, not a panic in their process, and the final
+    /// request with the remainder is never sent after it.
+    #[tokio::test]
+    async fn a_failed_chunk_is_returned_as_an_error() {
+        let (api, observed) = fake_api(Some(2), Some(1)).await;
+
+        let error = api
+            .time_series
+            .insert_datapoints(&mut datapoints(450_000))
+            .await
+            .expect_err("the first request to arrive was answered 500");
+
+        assert_eq!(error.get_status().as_u16(), 500);
+        assert!(observed.requests.load(Ordering::SeqCst) < 5);
     }
 }
