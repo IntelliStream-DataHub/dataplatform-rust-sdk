@@ -38,7 +38,9 @@ pub mod labels;
 mod mcp_integration;
 #[cfg(test)]
 mod multi_tenant_integration;
+mod problem_integration;
 pub mod nodes;
+pub mod problem;
 pub mod relations;
 pub mod resources;
 pub mod serde_helper;
@@ -51,6 +53,7 @@ pub mod functions;
 
 pub use resources::*;
 pub use nodes::{Asset, Node, NodeType, Policy};
+pub use problem::{FieldProblem, ProblemDetail, Retry, UnknownField};
 /// GeoJSON geometry type used by [`Resource::geolocation`]; re-exported so callers
 /// don't need a direct dependency on the `geojson` crate.
 pub use geojson::Geometry;

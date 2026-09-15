@@ -9,6 +9,11 @@ use thiserror::Error;
 pub struct ResponseError {
     pub(crate) status: StatusCode,
     pub(crate) message: String,
+    /// The response's `Content-Type`, when the failure came from the server at all. `None` for an
+    /// error this SDK raised before or instead of a response (a transport failure, a client-side
+    /// rejection), which is what distinguishes "the server said nothing" from "the server answered
+    /// in a shape we did not expect".
+    pub(crate) content_type: Option<String>,
 }
 
 /// `reqwest::Error`'s own `Display` is often a bare category — `"builder error"` for a body that
@@ -34,6 +39,7 @@ impl ResponseError {
         ResponseError {
             status: StatusCode::BAD_REQUEST,
             message,
+            content_type: None,
         }
     }
 
@@ -42,6 +48,7 @@ impl ResponseError {
         ResponseError {
             status: StatusCode::BAD_REQUEST,
             message,
+            content_type: None,
         }
     }
 
@@ -50,6 +57,7 @@ impl ResponseError {
             return ResponseError {
                 status,
                 message: describe(&error),
+                content_type: None,
             };
         }
         // No HTTP status means a transport-level failure (connect/timeout/dropped request). Map those
@@ -62,6 +70,7 @@ impl ResponseError {
         ResponseError {
             status,
             message: describe(&error),
+            content_type: None,
         }
     }
 
@@ -71,6 +80,30 @@ impl ResponseError {
 
     pub fn get_status(&self) -> StatusCode {
         self.status
+    }
+
+    /// The response's `Content-Type`, when this error carries a server response at all.
+    pub fn content_type(&self) -> Option<&str> {
+        self.content_type.as_deref()
+    }
+
+    /// The RFC 9457 problem document the server explained itself with, or `None` when it did not.
+    ///
+    /// `None` covers every body that is not a problem — an empty 401, a plain-text refusal, Spring
+    /// Boot's whitelabel error JSON — and every error raised before a response existed. So this
+    /// answers "did the api explain this failure in the documented way", which is the question a
+    /// caller wants; [`get_message`](Self::get_message) keeps the raw body either way.
+    ///
+    /// Parsed on each call rather than eagerly: the overwhelming majority of `ResponseError`s are
+    /// never asked, and the type stays cheap to clone.
+    pub fn problem(&self) -> Option<crate::problem::ProblemDetail> {
+        crate::problem::ProblemDetail::parse(&self.message)
+    }
+
+    /// The problem type's slug — `"would-strand"`, `"duplicate"` — when the server sent a typed
+    /// problem. This is the member to branch on; `title` and `detail` are prose.
+    pub fn problem_slug(&self) -> Option<String> {
+        self.problem()?.slug().map(str::to_string)
     }
 
     /// A transient failure worth a quick retry: transport failure (status 0), request timeout (408),
@@ -114,6 +147,7 @@ where
             ResponseError {
                 status,
                 message: err.to_string(),
+                content_type: None,
             }
         })?;
 
@@ -127,6 +161,7 @@ where
             ResponseError {
                 status,
                 message: err.to_string(),
+                content_type: None,
             }
         })?;
 
@@ -134,12 +169,19 @@ where
     } else {
         let status = response.status();
         eprintln!("Request failed with status: {status}",);
+        // Read the header before the body: `text()` consumes the response.
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         Err(ResponseError {
             status,
             message: response
                 .text()
                 .await
                 .unwrap_or_else(|_| "Failed to read response body".to_string()),
+            content_type,
         })
     }
 }
@@ -153,6 +195,7 @@ mod tests {
         ResponseError {
             status: StatusCode::from_u16(code).unwrap(),
             message: String::new(),
+            content_type: None,
         }
     }
 

@@ -107,6 +107,7 @@ impl FunctionsService {
         dw.get_items().first().cloned().ok_or_else(|| ResponseError {
             status: oauth2::http::StatusCode::NOT_FOUND,
             message: format!("Function with externalId={} not found", external_id),
+            content_type: None,
         })
     }
 
