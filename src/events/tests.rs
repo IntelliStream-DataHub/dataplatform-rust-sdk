@@ -351,7 +351,7 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
     let expected_events_post_max_time_filter = &expected_events_post_sub_type_filter
         .iter()
         .cloned()
-        .filter(|eve| eve.event_time.lt(&max_time))
+        .filter(|eve| eve.event_time.le(&max_time))
         .collect::<Vec<Event>>();
     assert!(equal_external_ids(
         res_filter_before_max_time.get_items(),
@@ -394,19 +394,13 @@ async fn test_event_filter() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .unwrap();
 
+    // `..=`, not `..`: `time_range.1` is exactly the event time of one fixture event, and the
+    // window includes it — see the note on [`TimeFilter`].
     let expected_events_time_range_filter = &test_events
         .iter()
         .cloned()
-        .filter(|eve| (time_range.0..time_range.1).contains(&eve.event_time))
+        .filter(|eve| (time_range.0..=time_range.1).contains(&eve.event_time))
         .collect::<Vec<Event>>();
-    println!("{:?}", expected_events_time_range_filter.len());
-    println!("{:?}", expected_events_time_range_filter);
-    println!(
-        "{:?}",
-        expected_events_time_range_filter
-            .iter()
-            .all(|eve| (time_range.0..time_range.1).contains(&eve.event_time))
-    );
     assert!(equal_external_ids(
         res_filter_in_time_range.get_items(),
         &expected_events_time_range_filter,
