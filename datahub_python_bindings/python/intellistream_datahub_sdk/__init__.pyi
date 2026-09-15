@@ -84,9 +84,28 @@ class DataHubException(Exception):
                 ...  # already exists
             elif e.status_code == 400:
                 print(e.message)
+
+    When the API explained itself with an RFC 9457 problem document, `problem` is
+    that document as a dict, `problem_type` its `type` URI and `problem_slug` the
+    kebab-case tail of it. Branch on the slug, never on `title`/`detail` — those
+    are prose and may be reworded at any time:
+
+        except DataHubException as e:
+            if e.problem_slug == "would-strand":
+                for blocker in e.problem["blockedBy"]:
+                    print(blocker["externalId"])
+            elif e.problem_slug == "validation-failed":
+                for field in e.problem["fields"]:
+                    print(field["field"], field["message"])
+
+    All three are `None` when the API answered with something that is not a
+    problem document — an empty 401, a stack trace, or plain text.
     """
     status_code: int
     message: str
+    problem: dict | None
+    problem_type: str | None
+    problem_slug: str | None
 
 
 # ====================== Clients ======================

@@ -1,13 +1,14 @@
 //! RFC 9457 `application/problem+json` — the shape the api describes a failure in.
 //!
 //! The api is converging every refusal on this one document (its `Problems` helper is the single
-//! place that builds them). Until that lands, three shapes are live at once, so [`ProblemDetail`]
-//! is deliberately *lenient about the envelope and strict about nothing*:
+//! place that builds them). Until that lands a caller meets three kinds of body, so
+//! [`ProblemDetail`] is deliberately lenient about what it is handed:
 //!
 //! - a full problem — `type`, `title`, `status`, `detail`, `instance`, plus extension members;
-//! - a bare Spring `ProblemDetail` with no `type` (today's `GET /timeseries/{id}` 404);
+//! - a bare Spring `ProblemDetail` with **no `type`** (today's `GET /resources/{id}` 404);
 //! - not a problem at all — Spring Boot's whitelabel `{"timestamp","status","error","trace"}`, a
-//!   plain-text body, or an empty one.
+//!   success-shaped `{"items":[…]}` envelope, the legacy `{"error":{…}}` wrapper, plain text, or
+//!   nothing. `src/problem_integration.rs` has the full catalogue of what answers what.
 //!
 //! [`ProblemDetail::parse`] answers `None` for the third group, so a caller can ask "did the server
 //! explain itself in the documented way" and get a truthful answer rather than a half-filled struct.
@@ -79,7 +80,7 @@ pub enum Retry {
 }
 
 impl Retry {
-    fn from_str(value: &str) -> Self {
+    fn from_wire(value: &str) -> Self {
         match value {
             "same-request" => Retry::SameRequest,
             "change-request" => Retry::ChangeRequest,
@@ -118,6 +119,19 @@ impl ProblemDetail {
     /// Every problem type the api mints lives under this prefix.
     pub const TYPE_BASE: &'static str = "https://intellistream.ai/errors/";
 
+    /// Reads the leading JSON value and **ignores whatever follows it**.
+    ///
+    /// Not pedantry about stray bytes: this SDK appends to the body itself. `explain_auth_failure`
+    /// adds ` — names 2 organizations (…)` to a 401 that arrived without a reason, so the moment
+    /// the api starts sending a problem document on 401 — the case that advice exists for — a
+    /// whole-string parse would reject exactly the response it was added to help with.
+    fn leading_json(body: &str) -> Option<Value> {
+        serde_json::Deserializer::from_str(body)
+            .into_iter::<Value>()
+            .next()?
+            .ok()
+    }
+
     /// Reads a response body as a problem document, or `None` when it is not one.
     ///
     /// Detection is **structural, not by content type**. Two reasons: a problem can reach a client
@@ -131,7 +145,7 @@ impl ProblemDetail {
         if !trimmed.starts_with('{') {
             return None;
         }
-        let value: Value = serde_json::from_str(trimmed).ok()?;
+        let value = Self::leading_json(trimmed)?;
         let object = value.as_object()?;
 
         // `status` alone is not enough — the whitelabel error body has one too.
@@ -158,7 +172,7 @@ impl ProblemDetail {
 
     /// The `retry` extension: what the caller can do about this problem.
     pub fn retry(&self) -> Option<Retry> {
-        self.extension_str("retry").map(Retry::from_str)
+        self.extension_str("retry").map(Retry::from_wire)
     }
 
     /// The `requestId` extension — what to quote to an operator.
@@ -390,6 +404,19 @@ mod tests {
 
         // Absent rather than assumed: today's api sends no `retry` at all.
         assert_eq!(ProblemDetail::parse(TYPELESS_404).unwrap().retry(), None);
+    }
+
+    /// The SDK appends an organization hint to an unexplained 401 (`explain_auth_failure`). When
+    /// the api starts sending a problem on 401, that hint sits *after* the JSON — so a parse that
+    /// required the whole body to be one value would fail on precisely the response the hint was
+    /// added to improve, and only for a principal in more than one organization.
+    #[test]
+    fn a_problem_with_the_sdks_own_hint_appended_still_parses() {
+        let body = r#"{"type":"https://intellistream.ai/errors/unauthorized","title":"Unauthorized","status":401,"detail":"Authentication is required."} — the token names 2 organizations (acme, beta); set SCOPE=organization:<alias>"#;
+
+        let problem = ProblemDetail::parse(body).expect("the leading document should still parse");
+        assert_eq!(problem.slug(), Some("unauthorized"));
+        assert_eq!(problem.status, Some(401));
     }
 
     #[test]

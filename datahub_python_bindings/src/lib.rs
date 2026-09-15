@@ -85,6 +85,30 @@ pub(crate) fn datahub_err(e: ResponseError) -> PyErr {
         let value = err.value(py);
         let _ = value.setattr("status_code", e.get_status().as_u16());
         let _ = value.setattr("message", e.get_message());
+
+        // The RFC 9457 document the api explained itself with, when it sent one. `problem` is the
+        // whole body as a dict so an extension member this SDK has no accessor for is still
+        // reachable; `problem_type` is the full URI and `problem_slug` its kebab-case tail, which
+        // is the member to branch on — `title` and `detail` are prose and may be reworded.
+        //
+        // All three are `None` rather than absent when the api answered with something that is not
+        // a problem (an empty 401, a stack trace, plain text), so `except` blocks can test one
+        // attribute instead of calling `hasattr`.
+        let problem = e.problem();
+        let _ = value.setattr(
+            "problem",
+            problem
+                .as_ref()
+                .and_then(|p| pythonize::pythonize(py, p).ok()),
+        );
+        let _ = value.setattr(
+            "problem_type",
+            problem.as_ref().and_then(|p| p.type_uri.clone()),
+        );
+        let _ = value.setattr(
+            "problem_slug",
+            problem.as_ref().and_then(|p| p.slug().map(str::to_string)),
+        );
         err
     })
 }
