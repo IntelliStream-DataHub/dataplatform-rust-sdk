@@ -132,11 +132,19 @@ def test_unknown_edge_id_is_none(sync_client):
 
 
 def test_types_catalogue(sync_client):
+    """Nothing is asserted about the contents here, and in particular not about BELONGS_TO.
+
+    It is not a built-in: no migration and no bootstrap seeds it, and
+    ``RelationshipTypeService.findOrCreateByName`` mints it the first time an edge names it — so a
+    fresh tenant has none until something builds a dataset hierarchy, which in this suite is
+    ``filter_fixtures``, and that runs after this module. A database that has accumulated it would
+    keep such an assertion passing forever, because relationship types cannot be deleted.
+
+    The catalogue's contents are asserted in ``test_create_type_normalises_the_name``, against a
+    type this suite creates itself.
+    """
     types = sync_client.edges.types()
     assert isinstance(types, list)
-    assert any(t.name == "BELONGS_TO" for t in types), (
-        "BELONGS_TO is created by the platform itself and should always be present"
-    )
     for t in types:
         assert isinstance(t.name, str)
 
@@ -204,7 +212,7 @@ def test_create_between_existing_resources(sync_client):
 @pytest.mark.asyncio
 async def test_async_reads(async_client):
     types = await async_client.edges.types()
-    assert any(t.name == "BELONGS_TO" for t in types)
+    assert isinstance(types, list)
     assert await async_client.edges.get(999_999_999) is None
     graph = await async_client.edges.by_ids([999_999_999])
     assert graph.relations == []
