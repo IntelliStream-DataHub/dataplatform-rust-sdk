@@ -156,6 +156,7 @@ impl FileService {
             ResponseError {
                 status,
                 message: err.to_string(),
+                content_type: None,
             }
         })?;
 
@@ -182,6 +183,7 @@ impl FileService {
         let io_error = |err: std::io::Error| ResponseError {
             status,
             message: err.to_string(),
+            content_type: None,
         };
 
         let mut file = File::create(destination.as_ref()).await.map_err(io_error)?;
@@ -191,6 +193,7 @@ impl FileService {
             ResponseError {
                 status,
                 message: err.to_string(),
+                content_type: None,
             }
         })? {
             file.write_all(&chunk).await.map_err(io_error)?;

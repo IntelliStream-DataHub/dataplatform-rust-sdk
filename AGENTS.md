@@ -46,7 +46,7 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 - `edges` (`src/relations/service.rs`) — the `/edges` endpoints: `get`/`by_ids`/`create`/`delete` plus the relationship-type catalogue (`types`/`create_types`). Edges normally come into being through `resources.create(nodes, relations)`; this service is for linking resources that already exist and for reading or deleting an edge on its own. `get` answers an unknown id with 404 and a `problem+json` body; `by_ids`, like every batch lookup, answers 200 with the found subset and silently omits what is missing. (`get` used to be 200-and-nothing despite documenting a 404 — api #275 made single-resource by-id GETs consistently 404 and deliberately left batch lookups alone.) Two further behaviours are worth knowing, and are documented at each call site:
 
   - `create_types` fails silently on a duplicate name — the unique-hash collision surfaces at commit, after the handler returned, so the caller gets a 200 with an empty *body*, and in a batch the valid new types are rolled back with it. This one does contradict the OpenAPI: `test_duplicate_relationship_type_conflicts` encodes the intended 409 and is red until the server-side fix lands.
-  - `delete` will not remove an edge that is an endpoint's only route to the graph root: `ResourceService.delete` refuses rather than orphan the node, answering **400** with the stranded resource named in `fields` (`{"type": "strandedResource", "externalId": …}`) and a message saying to include it in the deletion or keep a connecting path. Practically, an edge is separately deletable only when both endpoints stay reachable without it; otherwise it goes away with the resources. The check reads the graph projection, which lags the write, so deleting too soon after creating the edge gets the *wrong answer* rather than an error — the refusal does not fire and the node is stranded. `relations::tests` measured 6/6 wrongly allowed immediately after create, 6/6 refused 500ms later; its `await_graph` helper is what the live tests wait on.
+  - `delete` will not remove an edge that is an endpoint's only route to the graph root: `ResourceService.delete` refuses rather than orphan the node, answering **409** `would-strand` with the stranded resource in the problem's `blockedBy` (`[{"externalId": …}]`) and a message saying to include it in the deletion or keep a connecting path — read it through `ResponseError::problem()`. (It was a 400 carrying the old `{"error":{"code","fields"}}` envelope before the api unified on RFC 9457.) Practically, an edge is separately deletable only when both endpoints stay reachable without it; otherwise it goes away with the resources. The check reads the graph projection, which lags the write, so deleting too soon after creating the edge gets the *wrong answer* rather than an error — the refusal does not fire and the node is stranded. `relations::tests` measured 6/6 wrongly allowed immediately after create, 6/6 refused 500ms later; its `await_graph` helper is what the live tests wait on.
 - `datasets` (`src/datasets/`)
 - `files` (`src/files/`) — raw-`PUT` upload via `execute_file_upload_request` (content is the body, metadata rides in `X-Datahub-*` headers), plus directory listing, get/search, `FileUpdate` (rename/move/re-dataset), trash + restore, delete, and download (`download` in memory, `download_to_path` streamed)
 - `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`). Reads follow the same split as every other collection: `list(limit)` over `GET /subscriptions?limit=` and `filter(form)` over `POST /subscriptions/filter`. Both are recent — `POST /subscriptions/list` was subscriptions-only (a `limit` defaulting to 100 where the api defaulted to 1000, an unvalidated sort property, and no cursor, so a tenant past one page could not reach the rest) and the api removed it rather than aliasing it, so a client that has not moved gets a 404. `SubscriptionFilterForm` is a strict subset of what `/filter` now accepts: it carries no `cursor`, and `SubscriptionFilter` has only `timeseries`, not the `id`, `externalId`, `name`, `createdTime` and `lastUpdatedTime` criteria the api's filter grew beside it.
@@ -141,9 +141,56 @@ For the assertion exchange (`exchange_assertion`), `CLIENT_SECRET` is optional: 
 
 Two error types, used in different layers:
 - `DataHubError` (`src/errors.rs`) — config/auth/setup errors from `DataHubConfig`
-- `ResponseError` (`src/http.rs`) — HTTP errors surfaced to callers of service methods; carries `StatusCode` + message
+- `ResponseError` (`src/http.rs`) — HTTP errors surfaced to callers of service methods; carries `StatusCode` + message, the response's `content_type()`, and `problem()`
 
 `get_token()` in `ApiServiceProvider` converts `DataHubError` → `ResponseError(401)` so service methods can return a single error type.
+
+#### Problem documents (`src/problem.rs`, live tests in `src/problem_integration.rs`)
+
+`ProblemDetail` reads the api's RFC 9457 `application/problem+json` bodies —
+`type`/`title`/`status`/`detail`/`instance` plus extension members. Reach it through
+`ResponseError::problem()`; `get_message()` still returns the raw body, so existing substring
+assertions are unaffected.
+
+- **Branch on `type`, never on prose.** `slug()` is the kebab-case tail under
+  `https://intellistream.ai/errors/` — `"would-strand"`, `"duplicate"`, `"malformed-cursor"`. It is
+  `None` both for an absent type and for a foreign URI, so a slug match cannot be fooled by another
+  service's. `title` and `detail` are prose and the RFC says they may be reworded at any time.
+- **`None` means "not a problem document"**, and that is a real answer rather than a parse failure.
+  Detection is **structural** — one of `type`/`title`/`detail` must be present — not by content
+  type, because the api answers with problems labelled `application/json` and with non-problems
+  labelled the same way. Nothing is defaulted: an absent `type` stays `None` rather than becoming
+  `about:blank`.
+- **Unknown extension members are kept, not dropped** (§3.2), in `extensions`. Typed accessors exist
+  for the ones the api mints: `fields()` (rejected fields, each with the i18n `code` and a
+  `rejected` argument), `unknown_fields()` (the `errors` entries, each a JSON Pointer plus the names
+  valid *at that position*), `duplicated()`, `blocked_by()`, `retry()`, `request_id()`, `docs()`,
+  `location()`.
+- **`retry` is advisory and deliberately not wired into `is_bufferable`.** The api marks a 403
+  `needs-operator`; the SDK still buffers 401/403 so a rotated credential does not cost the batch.
+  Those answer different questions — don't reconcile them without deciding which one ingestion means.
+
+**The api's `errors/*` series has landed**, so every refusal now answers `application/problem+json`
+with a `type` — with one exception, below. Before it, six shapes were live at once (full problem,
+typeless problem, Spring Boot whitelabel *with a stack trace*, a success-shaped `{"items":[…]}`
+envelope, the legacy `{"error":{…}}` wrapper, and plain text); `problem_integration`'s module doc
+keeps the table of what each became, because that is what its assertions are pinning against a
+revert. Its three groups: `green` was true before and after, `unified` arrived with the series (red
+on purpose until it merged, regression guards now), and `pending` is what is still outstanding.
+
+**The one gap: a `GET /<collection>/{id}` miss carries no `type`.** Every by-id 404 goes through the
+shared `ObjectNotFoundExceptionHandler`, which hand-builds its document with
+`ProblemDetail.forStatusAndDetail` + `setTitle` instead of calling `Problems.notFound()` — which
+exists, sets `type("not-found")`, and is already used by `FileController` and `TimeseriesController`.
+Easy to miss because `Problems.decorate` still runs on it, so the body carries `requestId` and
+`retry` and looks finished. `slug()` is `None` there, so **don't match a by-id 404 on
+`"not-found"` yet**; `problem_integration::pending` is red on purpose until it is fixed.
+
+Two statements elsewhere in this file describe the pre-unification shape. 401s now *do* carry a
+problem body, so the multi-tenant note and `src/auth_diagnostics.rs` (which reconstructs a reason
+the api used to withhold) are worth re-reading against the current api before relying on them. A
+refused delete is now a **409** `would-strand`/`referenced` carrying its blockers in `blockedBy`,
+not the **400** with `fields` the `edges` note describes.
 
 ### Filters (`src/filters.rs`)
 

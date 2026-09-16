@@ -722,6 +722,7 @@ pub trait ApiServiceProvider {
             .map_err(|e| ResponseError {
                 status: http::StatusCode::UNAUTHORIZED,
                 message: "failed to get api token: ".to_string() + &e.to_string(),
+                content_type: None,
             })
     }
 
@@ -792,6 +793,7 @@ pub trait ApiServiceProvider {
                 ResponseError {
                     status: response.status(),
                     message: err.to_string(),
+                    content_type: None,
                 }
             })
         } else {
@@ -871,6 +873,12 @@ pub trait ApiServiceProvider {
             self.get_api_service().config.invalidate_token().await;
         }
         eprintln!("Request failed with status: {status}");
+        // Read the header before the body: `text()` consumes the response.
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         Err(explain_auth_failure(
             ResponseError {
                 status,
@@ -878,6 +886,7 @@ pub trait ApiServiceProvider {
                     .text()
                     .await
                     .unwrap_or_else(|_| "Failed to read response body".to_string()),
+                content_type,
             },
             &token,
         ))
@@ -911,6 +920,9 @@ fn explain_auth_failure(error: ResponseError, token: &str) -> ResponseError {
     ResponseError {
         status: error.get_status(),
         message,
+        // Preserved: appending the organization hint does not change what the server sent, and
+        // dropping it here would make an explained 401 look like one that never reached the wire.
+        content_type: error.content_type().map(str::to_string),
     }
 }
 
@@ -1134,6 +1146,7 @@ mod auth_failure_tests {
         ResponseError {
             status: StatusCode::from_u16(code).unwrap(),
             message: message.to_string(),
+            content_type: None,
         }
     }
 
