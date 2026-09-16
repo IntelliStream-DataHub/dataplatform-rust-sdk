@@ -4,7 +4,7 @@ Thanks for your interest in contributing. This document covers the legal basics 
 
 ## License
 
-IntelliStream DataHub is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0). See [LICENSE](LICENSE) for the full text.
+The IntelliStream DataHub SDK is licensed under the **Apache License, Version 2.0**. See [LICENSE](LICENSE) for the full text.
 
 By contributing, you agree that your contributions will be licensed under the same terms.
 
@@ -82,7 +82,7 @@ Pull requests are checked automatically. Any commit missing a valid `Signed-off-
 1. Fork the repository and create a feature branch.
 2. Make your changes. Keep commits focused and readable.
 3. Sign off on every commit (`git commit -s`).
-4. Open a pull request against `master` with a clear description of what the change does and why.
+4. Open a pull request against `main` with a clear description of what the change does and why.
 
 ## Questions
 
