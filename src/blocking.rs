@@ -45,7 +45,7 @@ use crate::relations::{EdgeProxy, RelForm, RelTypeForm, RelationshipType};
 use crate::resources::{
     RelatedResourcesForm, Resource, ResourceFilter, ResourceNetwork, ResourceUpdate,
 };
-use crate::timeseries::{TimeSeries, TimeSeriesFilter, TimeSeriesUpdateCollection};
+use crate::timeseries::{BinaryIngestOptions, TimeSeries, TimeSeriesFilter, TimeSeriesUpdateCollection};
 use crate::unit::Unit;
 
 /// Generate blocking methods that delegate to the same-named async method on one of
@@ -168,6 +168,7 @@ impl TimeSeriesService {
         fn search_by_query(query: &str) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn insert_datapoint(id: Option<u64>, external_id: Option<String>, timestamp: DateTime<Utc>, value: String) -> Result<DataWrapper<String>, ResponseError>;
         fn insert_datapoints(json: &mut DataWrapper<DatapointsCollection<DatapointString>>) -> Result<DataWrapper<String>, ResponseError>;
+        fn insert_datapoints_binary(json: &DataWrapper<DatapointsCollection<DatapointString>>, options: &BinaryIngestOptions) -> Result<DataWrapper<String>, ResponseError>;
         fn retrieve_datapoints(json: &DataWrapper<RetrieveFilter>) -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>;
         fn delete_datapoints(json: &DataWrapper<DeleteFilter>) -> Result<DataWrapper<String>, ResponseError>;
         fn retrieve_latest_datapoint(json: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>;
@@ -176,6 +177,11 @@ impl TimeSeriesService {
     /// Already synchronous on the async service; passed through directly.
     pub fn buffered_count(&self) -> u64 {
         self.api.time_series.buffered_count()
+    }
+
+    /// Already synchronous on the async service; passed through directly.
+    pub fn evict_binary_series_cache(&self) {
+        self.api.time_series.evict_binary_series_cache()
     }
 }
 

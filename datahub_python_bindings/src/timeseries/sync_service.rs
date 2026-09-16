@@ -218,6 +218,53 @@ impl PyTimeSeriesServiceSync {
             Ok(result.get_items().clone())
         })
     }
+    /// `POST /timeseries/data/binary`: the same collections as `insert_datapoints`, sent as
+    /// zstd-compressed Arrow frames. `zstd_level` is 1, 3 or 9 and defaults to 9.
+    #[pyo3(signature = (input, zstd_level=None))]
+    fn insert_datapoints_binary<'py>(
+        &self,
+        py: Python<'py>,
+        input: Vec<PyDatapointsCollectionString>,
+        zstd_level: Option<i32>,
+    ) -> PyResult<Vec<String>> {
+        let service = self.api_service.clone();
+        let vec: Vec<DatapointsCollection<DatapointString>> =
+            input.into_iter().map(|item| item.into()).collect();
+        let wrapper = DataWrapper::<DatapointsCollection<DatapointString>>::from_vec(vec);
+        let options = binary_options(zstd_level);
+        py.detach(|| {
+            let result = self
+                .runtime
+                .block_on(service.time_series.insert_datapoints_binary(&wrapper, &options))
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(result.get_items().clone())
+        })
+    }
+
+    /// The binary twin of `insert_from_lists`: parallel timestamp and value sequences for one
+    /// series, which is the shape a DataFrame column pair arrives in.
+    #[pyo3(signature = (timestamps, values, ts, zstd_level=None))]
+    fn insert_from_lists_binary<'py>(
+        &self,
+        py: Python<'py>,
+        timestamps: Vec<Bound<'py, PyAny>>,
+        values: Vec<f64>,
+        ts: Identifiable,
+        zstd_level: Option<i32>,
+    ) -> PyResult<Vec<String>> {
+        let service = self.api_service.clone();
+        let collection = lists_to_collection(timestamps, values, ts)?;
+        let wrapper = DataWrapper::<DatapointsCollection<DatapointString>>::from_vec(vec![collection]);
+        let options = binary_options(zstd_level);
+        py.detach(|| {
+            let result = self
+                .runtime
+                .block_on(service.time_series.insert_datapoints_binary(&wrapper, &options))
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(result.get_items().clone())
+        })
+    }
+
     fn insert_from_lists<'py>(
         &self,
         py: Python<'py>,

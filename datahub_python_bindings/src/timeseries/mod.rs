@@ -469,6 +469,55 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+/// Options for the binary ingest bindings. zstd level 1, 3 or 9; 9 is the default, as in the
+/// Rust and Java SDKs, because the client is what pays for it.
+pub(crate) fn binary_options(
+    zstd_level: Option<i32>,
+) -> intellistream_datahub_sdk::timeseries::BinaryIngestOptions {
+    use intellistream_datahub_sdk::timeseries::BinaryIngestOptions;
+    match zstd_level {
+        Some(level) => BinaryIngestOptions::new().zstd_level(level),
+        None => BinaryIngestOptions::default(),
+    }
+}
+
+/// Parallel timestamp and value sequences for one series, which is the shape a DataFrame's
+/// index and one of its columns arrive in, turned into the wire collection.
+pub(crate) fn lists_to_collection(
+    timestamps: Vec<Bound<'_, PyAny>>,
+    values: Vec<f64>,
+    ts: Identifiable,
+) -> PyResult<DatapointsCollection<DatapointString>> {
+    if timestamps.len() != values.len() {
+        return Err(PyValueError::new_err(format!(
+            "timestamps and values must be the same length, got {} and {}",
+            timestamps.len(),
+            values.len()
+        )));
+    }
+    let datapoints: Vec<DatapointString> = timestamps
+        .into_iter()
+        .zip(values)
+        .map(|(timestamp, value)| {
+            Ok(DatapointString {
+                timestamp: crate::datetime::py_datetime_to_utc(&timestamp)?
+                    .timestamp_millis()
+                    .to_string(),
+                value: value.to_string(),
+            })
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    let id_collection = ts.id_collection();
+    Ok(DatapointsCollection {
+        datapoints,
+        next_cursor: None,
+        id: id_collection.id,
+        external_id: id_collection.external_id,
+        unit: None,
+        unit_external_id: None,
+    })
+}
+
 /// Reverse lookup: the events that reference this timeseries. (The other direction —
 /// `Event.related_resource_nodes()` — resolves an event's resources.) Available only on
 /// timeseriess returned by the API; calling on a locally-constructed one raises.

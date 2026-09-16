@@ -117,6 +117,22 @@ sealed at a ~50 MiB rollover and drained one segment at a time — so even a mul
 spool never loads into memory, and a torn trailing line from an unclean shutdown is skipped
 on read.
 
+## Binary datapoint ingest
+
+`time_series.insert_datapoints_binary(&collections, &BinaryIngestOptions::default())` takes
+the same collections as `insert_datapoints` and sends them through
+`POST /timeseries/data/binary`: each series is resolved once to its id and value type and
+cached, values are checked against that type locally, sorted and de-duplicated, cut into Arrow
+IPC frames at the contract's caps (100 000 points per numeric frame, 10 000 per text or mixed
+frame, 32 frames per request), compressed with zstd (level 9 by default, 1 and 3 are the other
+choices) and posted. A 204 means every frame was accepted.
+
+A series that does not exist is a 404 before anything is sent, a value that does not fit its
+type is a 422, and a 429 or a 5xx is retried. Resolving by external id goes through
+`/timeseries/byids`, so the caller needs read access on the dataset as well as write access.
+The durable spool does not cover this path. `binary::FrameWriter` is public for producers that
+build frames themselves.
+
 ## Python bindings
 
 `datahub_python_bindings/` wraps this SDK as the Python package `intellistream-datahub-sdk` (import name

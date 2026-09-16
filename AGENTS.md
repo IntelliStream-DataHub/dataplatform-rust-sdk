@@ -10,8 +10,16 @@ cargo test <name>                        # substring match on test name
 cargo test -- --ignored                  # run tests marked #[ignore] (e.g. long-running datapoint tests)
 cargo test <path>::tests::<name>         # e.g. `events::tests::test_events_full`
 cargo test -- --nocapture                # show println! from tests (the SDK prints response bodies)
+cargo test --release <bench name>        # ALWAYS --release for anything timed (see below)
 ./run_python_tests.sh                    # Python-bindings suite (rebuilds the PyO3 module first — see below)
 ```
+
+**Never time anything under a plain `cargo test`.** It builds with the `dev` profile at
+`opt-level = 0`. The `bench_json_vs_binary` comparison first reported Rust as *slower than the
+Java SDK* on both ingest paths that way, 339k against 720k points per second on JSON and 1.0M
+against 3.8M on binary; the whole result was the missing `--release`. That test now panics
+rather than run unoptimised, and the same applies to the PyO3 module, which needs
+`maturin develop --release` before any Python timing means anything.
 
 Most tests are integration tests that call a live backend via `create_api_service()`. They read configuration from a local `.env` file (gitignored). Required:
 
@@ -114,6 +122,10 @@ Synchronous mirror of the async API behind the `blocking` cargo feature — the 
 ### Durable ingest buffering (`src/buffer.rs`, integration tests in `src/buffer_integration.rs`)
 
 When a datapoint/event send can't get through, ingestion spools to a segmented, zstd-compressed NDJSON log on disk and flushes automatically on a later ingest call. Invariants to preserve: memory use is bounded by a single segment (plain append-only active segment, zstd-sealed at ~50 MiB rollover via temp file + atomic rename, drained oldest-first one segment at a time); bounded by time retention (whole segments past the window dropped, expired records skipped on read) and a size cap (oldest segment deleted); a torn trailing line from an unclean shutdown is skipped on read. Each on-disk line is `<epoch_millis>\t<json>`; the spool is content-agnostic.
+
+### Binary datapoint ingest (`src/timeseries/binary.rs`)
+
+`TimeSeriesService::insert_datapoints_binary` is the second ingest path, to `POST /timeseries/data/binary`: the same `DatapointsCollection<DatapointString>` input, resolved through `/timeseries/byids` (cached per service instance; needs read access on the dataset), checked against each series' value type locally, cut into Arrow IPC frames at the contract's caps, zstd-compressed per frame (mandatory: level 1, 3 or 9, default 9) and posted through `execute_post_bytes_request`. `FrameWriter` builds one frame and is public; `cut_into_writers` and `pack_requests` hold the caps. The byte layout is the platform's `binary_datapoints_format.md`. The arrow-rs crates (`arrow-array`, `arrow-schema`, `arrow-ipc`) exist for this path and are the seed of the Arrow read path. Not in the Python bindings yet. The ignored `timeseries::tests::test_datapoints_binary` is the live twin of `test_datapoints` and needs a backend that serves the endpoint; the writer's own tests in `binary.rs` run offline.
 
 ### The `ApiServiceProvider` trait (`src/generic.rs`)
 
