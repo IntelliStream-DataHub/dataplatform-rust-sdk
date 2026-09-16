@@ -91,14 +91,22 @@ impl EdgesService {
     ///
     /// It will not, however, delete an edge that is an endpoint's only route to the graph root:
     /// `ResourceService.delete` refuses rather than orphan the node, and the call comes back
-    /// **400** naming the resource that would be stranded:
+    /// **409** naming the resource that would be stranded:
     ///
     /// ```json
-    /// {"error":{"code":400,
-    ///           "fields":[{"externalId":"node_b","type":"strandedResource"}],
-    ///           "message":"Deleting this selection would disconnect resource(s) [node_b] from
-    ///                      the graph root. Include them in the deletion or keep a connecting path."}}
+    /// {"type":"https://intellistream.ai/errors/would-strand",
+    ///  "title":"Delete refused","status":409,"instance":"/edges/delete",
+    ///  "detail":"Deleting this selection would disconnect resource(s) [node_b] from the graph
+    ///            root. Include them in the deletion or keep a connecting path.",
+    ///  "blockedBy":[{"externalId":"node_b"}],
+    ///  "requestId":"01a0aa08-8c30-7d3c-a0cb-f6a56facda30","retry":"change-request"}
     /// ```
+    ///
+    /// Read it with [`ResponseError::problem`](crate::http::ResponseError::problem): the blockers
+    /// are [`ProblemDetail::blocked_by`](crate::problem::ProblemDetail::blocked_by). This was a
+    /// **400** carrying the old `{"error":{"code","fields"}}` envelope until the api unified its
+    /// refusals on RFC 9457 — nothing is wrong with the *request*, so 400 was telling callers to
+    /// fix a payload that was never the remedy.
     ///
     /// So an edge is separately deletable only when both endpoints stay reachable without it —
     /// otherwise it goes away with the resources it connects.

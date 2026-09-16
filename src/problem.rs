@@ -427,9 +427,13 @@ mod tests {
     }
 
     /// A refused delete names the blockers so the caller can go remove them.
+    ///
+    /// Body shape captured from a live `POST /edges/delete`. `blockedBy` entries are open maps —
+    /// a stranded node carries `externalId`, a blocking subscription carries `subscriptionId`,
+    /// `timeseriesId` and `subscriptionExternalId` — so they are read as maps, not a fixed struct.
     #[test]
     fn a_blocked_delete_lists_what_is_in_the_way() {
-        let body = r#"{"type":"https://intellistream.ai/errors/would-strand","title":"Delete refused","status":409,"detail":"Deleting this edge would strand a resource.","blockedBy":[{"type":"strandedResource","externalId":"rust_sdk_node_b"}]}"#;
+        let body = r#"{"type":"https://intellistream.ai/errors/would-strand","title":"Delete refused","status":409,"detail":"Deleting this edge would strand a resource.","blockedBy":[{"externalId":"rust_sdk_node_b"}]}"#;
 
         let problem = ProblemDetail::parse(body).expect("a problem document");
         assert_eq!(problem.slug(), Some("would-strand"));
