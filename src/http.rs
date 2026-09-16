@@ -11,6 +11,23 @@ pub struct ResponseError {
     pub(crate) message: String,
 }
 
+/// `reqwest::Error`'s own `Display` is often a bare category — `"builder error"` for a body that
+/// failed to serialize — with the actual reason one level down in `source()`. Walking the chain is
+/// what makes a serialization refusal legible to the caller instead of arriving as two words.
+fn describe(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut out = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !out.contains(&text) {
+            out.push_str(": ");
+            out.push_str(&text);
+        }
+        source = cause.source();
+    }
+    out
+}
+
 impl ResponseError {
     pub fn from(message: String) -> Self {
         // 0 is not a valid HTTP status; use 400 so this never panics.
@@ -32,7 +49,7 @@ impl ResponseError {
         if let Some(status) = error.status() {
             return ResponseError {
                 status,
-                message: error.to_string(),
+                message: describe(&error),
             };
         }
         // No HTTP status means a transport-level failure (connect/timeout/dropped request). Map those
@@ -44,7 +61,7 @@ impl ResponseError {
         };
         ResponseError {
             status,
-            message: error.to_string(),
+            message: describe(&error),
         }
     }
 
@@ -159,6 +176,66 @@ mod tests {
             assert!(err(code).is_bufferable(), "{code} should buffer");
             assert!(!err(code).is_auth_failure(), "{code} is not an auth failure");
         }
+    }
+
+    /// A `reqwest::Error` wrapping a serialization refusal displays as `"builder error"`; the
+    /// reason is one level down. Without walking the chain the caller sees two useless words.
+    #[test]
+    fn a_wrapped_cause_reaches_the_message() {
+        #[derive(Debug)]
+        struct Outer(Inner);
+        #[derive(Debug)]
+        struct Inner;
+        impl std::fmt::Display for Outer {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "builder error")
+            }
+        }
+        impl std::fmt::Display for Inner {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "a bare Resource labelled `dataset` cannot be sent")
+            }
+        }
+        impl std::error::Error for Inner {}
+        impl std::error::Error for Outer {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+
+        let described = super::describe(&Outer(Inner));
+        assert!(described.starts_with("builder error"));
+        assert!(
+            described.contains("a bare Resource labelled `dataset` cannot be sent"),
+            "the cause should be appended: {described}"
+        );
+    }
+
+    /// A cause whose text the outer error already carries is not repeated.
+    #[test]
+    fn a_redundant_cause_is_not_repeated() {
+        #[derive(Debug)]
+        struct Outer;
+        #[derive(Debug)]
+        struct Inner;
+        impl std::fmt::Display for Outer {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "connection refused by host")
+            }
+        }
+        impl std::fmt::Display for Inner {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "connection refused")
+            }
+        }
+        impl std::error::Error for Inner {}
+        impl std::error::Error for Outer {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&Inner)
+            }
+        }
+
+        assert_eq!(super::describe(&Outer), "connection refused by host");
     }
 
     #[test]

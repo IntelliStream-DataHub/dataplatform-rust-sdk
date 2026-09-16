@@ -45,16 +45,19 @@
 //!
 //! # Tests that are red on purpose
 //!
-//! Two encode intended behaviour the api does not yet provide, in the same spirit as
-//! `test_duplicate_relationship_type_conflicts`: they stay red until the server-side fix lands
+//! One encodes intended behaviour the api does not yet provide, in the same spirit as
+//! `test_duplicate_relationship_type_conflicts`: it stays red until the server-side fix lands
 //! rather than being softened to match the bug.
 //!
-//! - [`mcp_event_update_by_uuid_reindexes_the_external_id`] — renaming an event identified by UUID
-//!   writes the new `externalId` but never reindexes it.
-//! - (resolved) `unitExternalId` as an alternative to `unit` on `timeseries_create`; the test remains
-//!   as a regression guard.
 //! - [`mcp_response_is_a_json_object`] — whenever the double-encoding regression is present. It names
 //!   the fault directly; [`unwrap_envelope`] independently fails every other test for the same cause.
+//!
+//! Two others were red here and have been resolved server-side, the tests staying on as regression
+//! guards: `unitExternalId` as an alternative to `unit` on `timeseries_create`, and renaming an
+//! event by UUID — which the api settled by removing `newExternalId` from `event_update` outright,
+//! an event's externalId being its identity rather than a property (see [`EventUpdateFields`]).
+//!
+//! [`EventUpdateFields`]: crate::events::EventUpdateFields
 
 use crate::tests::cleanup::{
     cleanup_datasets, cleanup_events, cleanup_labels, cleanup_resources, cleanup_timeseries,
@@ -808,8 +811,9 @@ async fn sweep_reference_data(client: &McpClient) -> (String, String, CleanupGua
         .iter()
         .map(|entry| text_of(entry, "name"))
         .collect();
-    // BELONGS_TO is the built-in dataset-hierarchy type; it is always present.
-    assert!(type_names.contains("BELONGS_TO"), "the built-in BELONGS_TO type is missing");
+    // Nothing is asserted about BELONGS_TO here. It is not seeded: no migration and no bootstrap
+    // inserts it, and `RelationshipTypeService.findOrCreateByName` mints it the first time an edge
+    // names it — so a fresh tenant has no dataset-hierarchy type until something builds one.
     assert!(
         type_names.contains(&relationship_type),
         "a type reported created is not listed"
@@ -1288,9 +1292,9 @@ async fn sweep_events(client: &McpClient, dataset: &SweepDataset, label: &str) {
 
     // --- event_create: every field, including relatedResourceExternalIds ---
     let external_id = unique_id("mcp_ev");
-    // Both names, for the same reason as the series above: `event_update` renames this one.
-    let renamed = format!("{external_id}_r");
-    let mut guard = cleanup_events(vec![external_id.clone(), renamed.clone()]);
+    // One name only, unlike the series above: an event's externalId is immutable, so `event_update`
+    // cannot rename this one.
+    let mut guard = cleanup_events(vec![external_id.clone()]);
     let created = client
         .call_tool(
             "event_create",
@@ -1518,12 +1522,13 @@ async fn sweep_events(client: &McpClient, dataset: &SweepDataset, label: &str) {
     assert_eq!(capped["limit"], json!(1));
 
     // --- event_update: externalId + every newX field ---
+    // There is no `newExternalId`: an event's externalId is its identity, not a property, and the
+    // api removed the parameter rather than keep acknowledging a rename it could not apply.
     let updated = client
         .call_tool(
             "event_update",
             json!({
                 "externalId": external_id,
-                "newExternalId": renamed,
                 "newDescription": "MCP sweep event, revised",
                 "newType": "McpRenamedAlarm",
                 "newSubType": "McpRenamedSubType",
@@ -1532,18 +1537,18 @@ async fn sweep_events(client: &McpClient, dataset: &SweepDataset, label: &str) {
         )
         .await;
     let updated_event = &items(&updated)[0];
-    assert_eq!(text_of(updated_event, "externalId"), renamed);
+    assert_eq!(text_of(updated_event, "externalId"), external_id);
     assert_eq!(text_of(updated_event, "description"), "MCP sweep event, revised");
     assert_eq!(text_of(updated_event, "type"), "McpRenamedAlarm");
     assert_eq!(text_of(updated_event, "subType"), "McpRenamedSubType");
     assert_eq!(text_of(updated_event, "status"), "COMPLETE");
 
-    // The row can surface under its new externalId before the rest of the update has propagated, so
-    // wait on the field under test rather than on mere existence.
+    // The update settles asynchronously, so wait on the field under test rather than on mere
+    // existence — the row is reachable throughout.
     let persisted = poll_until(
         || async {
             client
-                .call_tool("event_get", json!({"externalIds": [renamed]}))
+                .call_tool("event_get", json!({"externalIds": [external_id]}))
                 .await
         },
         |payload: &Value| {
@@ -1557,14 +1562,11 @@ async fn sweep_events(client: &McpClient, dataset: &SweepDataset, label: &str) {
     assert_eq!(
         text_of(&items(&persisted)[0], "type"),
         "McpRenamedAlarm",
-        "the renamed event's type change never propagated"
+        "the event's type change never propagated"
     );
     assert_eq!(text_of(&items(&persisted)[0], "status"), "COMPLETE");
 
-    // --- event_update: the `id` (UUID) path, on a field that is not the externalId ---
-    // Renaming the externalId by UUID is broken; see
-    // `mcp_event_update_by_uuid_reindexes_the_external_id`. A status change by UUID works, and is
-    // what covers this parameter.
+    // --- event_update: the `id` (UUID) path ---
     let by_uuid_update = client
         .call_tool("event_update", json!({"id": uuid, "newStatus": "FAILED"}))
         .await;
@@ -1576,7 +1578,7 @@ async fn sweep_events(client: &McpClient, dataset: &SweepDataset, label: &str) {
 
     // --- event_delete: externalIds, then ids on a second event ---
     let delete_response = client
-        .call_tool("event_delete", json!({"externalIds": [renamed]}))
+        .call_tool("event_delete", json!({"externalIds": [external_id]}))
         .await;
     assert!(
         delete_response.is_string(),
@@ -1585,14 +1587,14 @@ async fn sweep_events(client: &McpClient, dataset: &SweepDataset, label: &str) {
     let gone = poll_until(
         || async {
             client
-                .call_tool("event_get", json!({"externalIds": [renamed]}))
+                .call_tool("event_get", json!({"externalIds": [external_id]}))
                 .await
         },
         |payload: &Value| items(payload).is_empty(),
     )
     .await;
     assert!(items(&gone).is_empty(), "event_delete by externalId left the event");
-    guard.disarm(); // only now is the event genuinely gone, under either name
+    guard.disarm(); // only now is the event genuinely gone
 
     let second_external_id = unique_id("mcp_ev_byid");
     let mut second_guard = cleanup_events(vec![second_external_id.clone()]);
@@ -2092,92 +2094,8 @@ async fn sweep_failure_modes(client: &McpClient, dataset: &SweepDataset, label: 
 
 
 // --------------------------------------------------------------------------- //
-// Red on purpose — intended behaviour the api does not yet provide
+// Regression guards for tool behaviour that was once wrong
 // --------------------------------------------------------------------------- //
-
-/// Renaming an event by UUID must leave it findable under its new `externalId`.
-///
-/// Identifying the same update by `externalId` reindexes correctly within about half a second; by
-/// UUID it does not. `event_update` returns the new value, but the event stays reachable under the
-/// *old* externalId and never under the new one, while `event_get` by UUID reports the new one — two
-/// identifiers disagreeing about one row. A caller that renames and then looks the event up the
-/// obvious way concludes it was deleted.
-#[tokio::test]
-async fn mcp_event_update_by_uuid_reindexes_the_external_id() {
-    let client = McpClient::new();
-    let dataset_external_id = unique_id("mcp_ds_rename");
-    let mut dataset_guard = cleanup_datasets(vec![dataset_external_id.clone()]);
-    let dataset = client
-        .call_tool(
-            "dataset_create",
-            json!({"externalId": dataset_external_id, "name": "MCP rename dataset"}),
-        )
-        .await;
-    let dataset_id = id_of(&items(&dataset)[0]);
-
-    let external_id = unique_id("mcp_ev_rename");
-    let renamed = format!("{external_id}_r");
-    let mut event_guard = cleanup_events(vec![external_id.clone(), renamed.clone()]);
-    let created = client
-        .call_tool(
-            "event_create",
-            json!({
-                "externalId": external_id,
-                "type": "McpRenameAlarm",
-                "dataSetId": dataset_id,
-                "eventTime": EVENT_TIME,
-            }),
-        )
-        .await;
-    let uuid = text_of(&items(&created)[0], "id");
-    poll_until(
-        || async { client.call_tool("event_get", json!({"ids": [uuid]})).await },
-        |payload: &Value| !items(payload).is_empty(),
-    )
-    .await;
-
-    let acknowledged = client
-        .call_tool("event_update", json!({"id": uuid, "newExternalId": renamed}))
-        .await;
-    assert_eq!(
-        text_of(&items(&acknowledged)[0], "externalId"),
-        renamed,
-        "the update did not even claim to rename it"
-    );
-
-    let found = poll_until(
-        || async {
-            client
-                .call_tool("event_get", json!({"externalIds": [renamed]}))
-                .await
-        },
-        |payload: &Value| !items(payload).is_empty(),
-    )
-    .await;
-
-    let stale = client
-        .call_tool("event_get", json!({"externalIds": [external_id]}))
-        .await;
-
-    if client.quietly("event_delete", json!({"ids": [uuid]})).await {
-        event_guard.disarm();
-    }
-    if client
-        .quietly("dataset_delete", json!({"externalId": dataset_external_id}))
-        .await
-    {
-        dataset_guard.disarm();
-    }
-
-    assert!(
-        !items(&found).is_empty(),
-        "renamed by UUID, but the new externalId resolves to nothing"
-    );
-    assert!(
-        items(&stale).is_empty(),
-        "the old externalId still resolves after the rename"
-    );
-}
 
 /// `timeseries_create` must accept `unitExternalId` in place of `unit`, as it documents.
 ///

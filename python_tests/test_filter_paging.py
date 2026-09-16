@@ -289,20 +289,35 @@ def test_a_malformed_boundary_is_a_400_and_not_a_500(sync_client, prefix, sortab
 def test_an_injection_payload_in_the_cursor_boundary_is_data(sync_client, prefix,
                                                              sortable_timeseries, by_index):
     """The cursor boundary is the one caller-supplied value that reaches a comparison rather than
-    a pattern, so it is worth showing it is bound rather than interpolated.
+    a pattern, so it is worth showing it is bound rather than interpolated. (The sort *property* is
+    the other half of that question, and is a whitelist — see
+    ``test_an_unsortable_property_falls_back_to_the_default``.)
 
-    A payload is *supposed* to match the rows sorting after it — a quote sorts before any letter,
-    so it behaves exactly like an ordinary low-sorting boundary. That equivalence is what
-    distinguishes data from syntax; "it returned no rows" would not.
+    Each payload rides behind row C's name, which is what makes the answer knowable: the boundary
+    lands between C and D because C sorts before D, and nothing the payload contains can move it.
+    A payload sent as the whole boundary cannot be read that way — where a punctuation-led string
+    sorts is exactly what collations disagree about. glibc ignores punctuation at the primary level
+    and ICU does not, so ``' UNION SELECT 1 --`` sorts *before* this corpus under one and *after*
+    it under the other, and the test would be asserting the database's locale rather than the
+    server's parameter binding.
+
+    The equivalence is the point: a bound value gives D, E, F, while a boundary reaching the query
+    as syntax gives an error or a different set (``' OR 1=1 --`` would return all six). "It
+    returned no rows" would distinguish neither, and nor would "it did not crash".
     """
+    anchor = sortable_timeseries[2]["name"]
+
     def page_after(boundary):
+        # Cursor id 0: below every real id, so the tie-break never decides which rows come back.
         return ids_of(sync_client.timeseries.filter(
             external_id=f"{prefix}_sort_ts_*", limit=10, sort_by="name", sort_order="asc",
-            cursor=forge_cursor("name", "asc", "1", boundary)))
+            cursor=forge_cursor("name", "asc", "0", boundary)))
 
-    ordinary = page_after("!")
+    # The anchor alone is row C's own name, so the id tie-break decides C, and 0 is below every
+    # real id: C is still returned. Appending anything at all moves the boundary strictly past it.
+    assert page_after(anchor) == by_index[2:]
     for payload in ["' OR 1=1 --", "'; DROP TABLE node;--", "' UNION SELECT 1 --", "{x:String}"]:
-        assert page_after(payload) == ordinary, f"payload={payload!r}"
+        assert page_after(f"{anchor} {payload}") == by_index[3:], f"payload={payload!r}"
 
     # And the table is still there afterwards.
     assert ids_of(sync_client.timeseries.filter(

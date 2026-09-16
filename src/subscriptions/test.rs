@@ -138,10 +138,7 @@ mod tests {
             // 3. List — the unfiltered list may include prior test data, so we assert *at least*
             //    our subscription is present (per AGENTS.md: avoid exact-count assertions against
             //    shared backend state).
-            let all = api_service
-                .subscriptions
-                .list(&SubscriptionFilterForm::default())
-                .await?;
+            let all = api_service.subscriptions.list(None).await?;
             assert!(
                 all.get_items().iter().any(|s| s.external_id == sub_ext),
                 "unfiltered list must contain the subscription we just created"
@@ -151,7 +148,7 @@ mod tests {
             //    Our subscription is bound to ts_a, so it must appear.
             let filtered = api_service
                 .subscriptions
-                .list(&SubscriptionFilterForm {
+                .filter(&SubscriptionFilterForm {
                     filter: SubscriptionFilter {
                         timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
                     },
@@ -172,7 +169,7 @@ mod tests {
             // 6. Verify the subscription is gone from the filtered list.
             let after_delete = api_service
                 .subscriptions
-                .list(&SubscriptionFilterForm {
+                .filter(&SubscriptionFilterForm {
                     filter: SubscriptionFilter {
                         timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
                     },

@@ -97,14 +97,6 @@ impl PyTimeSeries {
     pub fn set_labels(&mut self, value: Option<Vec<String>>) {
         self.inner.labels = value;
     }
-    /// The ClickHouse table engine backing this series. Server-assigned.
-    ///
-    /// On a series reached through `neighbors()` this is the api's DTO default rather than data —
-    /// the graph does not store the column. Re-read the series by id for the real value.
-    #[getter]
-    pub fn table_engine(&self) -> Option<&str> {
-        self.inner.table_engine.as_deref()
-    }
     /// Always `"timeseries"`. Present on every node class so data-driven code can dispatch
     /// without an `isinstance` ladder.
     #[getter]

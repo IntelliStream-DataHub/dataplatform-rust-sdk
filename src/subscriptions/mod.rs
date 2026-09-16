@@ -39,11 +39,38 @@ impl SubscriptionsService {
             .await
     }
 
+    /// `GET /subscriptions?limit=N` — the first `limit` subscriptions in the tenant, newest
+    /// created first.
+    ///
+    /// `None` sends no `limit` and leaves the server's default of 1000 in place; the maximum is
+    /// 10000, above which the server answers 400 rather than clamping. There is no paging: no
+    /// `nextCursor` comes back, so the cap truncates. Criteria, ordering and paging all live on
+    /// [`filter`](Self::filter).
     pub async fn list(
+        &self,
+        limit: Option<u64>,
+    ) -> Result<DataWrapper<Subscription>, ResponseError> {
+        let query = limit.map(|limit| [("limit", limit)]);
+        self.execute_get_request::<DataWrapper<Subscription>, _>(&self.base_url, query.as_ref())
+            .await
+    }
+
+    /// `POST /subscriptions/filter` — subscriptions matching [`SubscriptionFilterForm`].
+    ///
+    /// This was `POST /subscriptions/list`, whose body was subscriptions-only: a `limit` that
+    /// defaulted to 100 where the rest of the api defaulted to 1000, a sort property that reached
+    /// the query unvalidated, and no cursor, so a tenant past one page could not reach the rest.
+    /// The api moved it onto the family envelope and removed `/list` rather than aliasing it, so a
+    /// client that has not moved gets a 404.
+    ///
+    /// [`SubscriptionFilterForm`] is a strict subset of what the endpoint now accepts: it does not
+    /// yet carry the `cursor`, nor the `id`, `externalId`, `name`, `createdTime` and
+    /// `lastUpdatedTime` criteria the filter grew alongside `timeseries`.
+    pub async fn filter(
         &self,
         form: &SubscriptionFilterForm,
     ) -> Result<DataWrapper<Subscription>, ResponseError> {
-        let path = &format!("{}/list", self.base_url);
+        let path = &format!("{}/filter", self.base_url);
         self.execute_post_request::<DataWrapper<Subscription>, _>(path, form)
             .await
     }
