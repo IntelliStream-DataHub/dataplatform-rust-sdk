@@ -546,6 +546,85 @@ mod unified {
         );
     }
 
+    /// A delete the api refuses names what is standing in the way, so the caller can go remove it.
+    ///
+    /// This was a **400** before the unification: "fix your payload", which was never the remedy.
+    /// Nothing is wrong with the request — it is well-formed, the id exists, and repeating it
+    /// verbatim works once the subscription is gone. That is a conflict with the current state, and
+    /// it puts a refused delete alongside the other 409s.
+    ///
+    /// `blockedBy` carries structured records rather than `field -> message` pairs: the whole point
+    /// is that the caller can read the blocking subscription's external id and act on it.
+    #[tokio::test]
+    async fn a_delete_something_still_references_names_the_blocker() {
+        use crate::tests::cleanup::{cleanup_subscriptions, cleanup_timeseries};
+        use crate::tests::ids::unique_id;
+
+        let probe = Probe::new();
+        let ts_ext = unique_id("problem_referenced_ts");
+        let sub_ext = unique_id("problem_referenced_sub");
+
+        // Both guards armed before their creates, so a failing assertion still tears down. The
+        // subscription must go first: it is what blocks the series.
+        let _ts_cleanup = cleanup_timeseries(vec![ts_ext.clone()]);
+        let _sub_cleanup = cleanup_subscriptions(vec![sub_ext.clone()]);
+
+        let created = probe
+            .post(
+                "/timeseries/create",
+                &format!(
+                    r#"{{"items":[{{"externalId":"{ts_ext}","name":"referenced probe","unit":"celsius","valueType":"FLOAT"}}]}}"#
+                ),
+            )
+            .await;
+        assert!(
+            (200..300).contains(&created.status),
+            "the series should be created, got {}: {}",
+            created.status,
+            created.preview()
+        );
+
+        let subscribed = probe
+            .post(
+                "/subscriptions/create",
+                &format!(
+                    r#"{{"items":[{{"externalId":"{sub_ext}","name":"referenced probe sub","timeseries":[{{"externalId":"{ts_ext}"}}]}}]}}"#
+                ),
+            )
+            .await;
+        assert!(
+            (200..300).contains(&subscribed.status),
+            "the subscription should be created, got {}: {}",
+            subscribed.status,
+            subscribed.preview()
+        );
+
+        let refusal = probe
+            .post("/timeseries/delete", &format!(r#"{{"items":[{{"externalId":"{ts_ext}"}}]}}"#))
+            .await;
+
+        assert_eq!(
+            refusal.status, 409,
+            "a delete blocked by live state is a conflict, not a malformed request: {}",
+            refusal.preview()
+        );
+        let problem = assert_is_a_typed_problem(&refusal, "a delete the subscription blocks");
+        assert_eq!(problem.slug(), Some("referenced"));
+
+        let blockers = problem.blocked_by();
+        assert!(
+            !blockers.is_empty(),
+            "the caller cannot act without knowing what blocked it: {}",
+            refusal.preview()
+        );
+        assert!(
+            blockers.iter().any(|entry| entry
+                .values()
+                .any(|value| value.as_str() == Some(sub_ext.as_str()))),
+            "the blocking subscription should be named by external id, got {blockers:?}"
+        );
+    }
+
     /// A taken external id is a conflict, and the caller needs to know *which* id collided — in a
     /// batch it is not otherwise knowable.
     #[tokio::test]
