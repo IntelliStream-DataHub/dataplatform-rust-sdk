@@ -170,18 +170,27 @@ assertions are unaffected.
   `needs-operator`; the SDK still buffers 401/403 so a rotated credential does not cost the batch.
   Those answer different questions — don't reconcile them without deciding which one ingestion means.
 
-**The api is mid-refactor here, and the SDK is gated on it.** Its `errors/*` branch series converges
-every refusal on one `Problems` helper; until that lands **six** shapes are live at once (full
-problem, typeless problem, Spring Boot whitelabel *with a stack trace*, a success-shaped
-`{"items":[…]}` envelope, the legacy `{"error":{…}}` wrapper, and plain text). `problem_integration`
-is split along that seam: `green` holds on both contracts, `target` encodes the intended one and is
-**red on purpose** until the backend merges it — same convention as
-`mcp_response_is_a_json_object`. Don't soften a `target` assertion to match current behaviour.
+**The api's `errors/*` series has landed**, so every refusal now answers `application/problem+json`
+with a `type` — with one exception, below. Before it, six shapes were live at once (full problem,
+typeless problem, Spring Boot whitelabel *with a stack trace*, a success-shaped `{"items":[…]}`
+envelope, the legacy `{"error":{…}}` wrapper, and plain text); `problem_integration`'s module doc
+keeps the table of what each became, because that is what its assertions are pinning against a
+revert. Its three groups: `green` was true before and after, `unified` arrived with the series (red
+on purpose until it merged, regression guards now), and `pending` is what is still outstanding.
 
-Two statements elsewhere in this file describe today's shape and will flip when that lands: 401s
-carrying no body at all (the multi-tenant note, and the reason `src/auth_diagnostics.rs` exists),
-and a refused delete answering **400** with the stranded resource in `fields` (the `edges` note) —
-which becomes a **409** `would-strand` with the blockers in `blockedBy`.
+**The one gap: a `GET /<collection>/{id}` miss carries no `type`.** Every by-id 404 goes through the
+shared `ObjectNotFoundExceptionHandler`, which hand-builds its document with
+`ProblemDetail.forStatusAndDetail` + `setTitle` instead of calling `Problems.notFound()` — which
+exists, sets `type("not-found")`, and is already used by `FileController` and `TimeseriesController`.
+Easy to miss because `Problems.decorate` still runs on it, so the body carries `requestId` and
+`retry` and looks finished. `slug()` is `None` there, so **don't match a by-id 404 on
+`"not-found"` yet**; `problem_integration::pending` is red on purpose until it is fixed.
+
+Two statements elsewhere in this file describe the pre-unification shape. 401s now *do* carry a
+problem body, so the multi-tenant note and `src/auth_diagnostics.rs` (which reconstructs a reason
+the api used to withhold) are worth re-reading against the current api before relying on them. A
+refused delete is now a **409** `would-strand`/`referenced` carrying its blockers in `blockedBy`,
+not the **400** with `fields` the `edges` note describes.
 
 ### Filters (`src/filters.rs`)
 

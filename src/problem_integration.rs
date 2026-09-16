@@ -10,35 +10,34 @@
 //! cargo test problem_ -- --nocapture        # with the bodies printed
 //! ```
 //!
-//! # The api is mid-refactor, and this module is split along that seam
+//! # The unification landed; this suite is now the regression guard
 //!
-//! The backend is converging every refusal on one `Problems` helper (its `errors/*` branch series).
-//! Until that lands, **six** shapes are live at once, and a caller cannot tell from the outside
-//! which one an endpoint will pick:
+//! The api's `errors/*` series merged, and every refusal below answers with a problem document.
+//! Before it, **six** shapes were live at once and a caller could not tell from the outside which
+//! one an endpoint would pick:
 //!
-//! | Shape | Example today |
-//! |---|---|
-//! | full problem+json with a `type` | unknown field, malformed JSON, bad cursor, bad expression |
-//! | problem+json with **no** `type` | `GET /resources/{id}` on a missing id |
-//! | Spring Boot whitelabel + **stack trace** | `POST /datasets/list`, a `@Valid` search failure |
-//! | a **success-shaped** `{"items":[…]}` envelope | `POST /timeseries/create` validation |
-//! | the legacy `{"error":{"code","message",…}}` wrapper | a duplicate `externalId` |
-//! | plain text | `limit` above 10000 |
+//! | Shape, before | Example | Now |
+//! |---|---|---|
+//! | full problem+json with a `type` | unknown field, malformed JSON, bad cursor, bad expression | unchanged |
+//! | problem+json with **no** `type` | `GET /resources/{id}` on a missing id | **still typeless** — see [`pending`] |
+//! | Spring Boot whitelabel + **stack trace** | `POST /datasets/list`, a `@Valid` search failure | typed problem, no trace |
+//! | a **success-shaped** `{"items":[…]}` envelope | `POST /timeseries/create` validation | `validation-failed` with `fields` |
+//! | the legacy `{"error":{"code","message",…}}` wrapper | a duplicate `externalId` | `duplicate` with `duplicated` |
+//! | plain text | `limit` above 10000 | typed problem with `fields` |
 //!
-//! Only the first is readable by [`ProblemDetail`]; the rest are what the refactor is removing. The
-//! last four all answer with `Content-Type: application/json`, so the header cannot be used to tell
-//! them apart either — which is why [`ProblemDetail::parse`] discriminates on structure.
+//! Four of those six answered with `Content-Type: application/json`, which is why
+//! [`ProblemDetail::parse`] discriminates on structure rather than on the header. That is still the
+//! right call: it is what lets these tests state "this is *not* a problem document" as a fact.
 //!
-//! So the tests come in two groups:
+//! The three groups are kept apart because which assertions were aspirational is worth remembering:
 //!
-//! - [`green`] — behaviour that holds on today's api *and* on the unified one. These must stay
-//!   passing through the refactor; if one breaks, the refactor changed something it did not mean to.
-//! - [`target`] — the contract the `errors/*` work is converging on. These are **red on purpose**
-//!   against an api that has not merged it yet, in the same spirit as
-//!   [`crate::mcp_integration`]'s `mcp_response_is_a_json_object` and
-//!   `test_duplicate_relationship_type_conflicts`: an intended behaviour is worth more encoded as a
-//!   failing test than softened to match the bug. Each one names, in its assertion message, what it
-//!   gets today — so a run's output says how far along the refactor is rather than merely "red".
+//! - [`green`] — true before the unification and after it. A failure here means the refactor
+//!   changed something it did not mean to.
+//! - [`unified`] — arrived *with* the unification. Every one was red on purpose until the api
+//!   merged; they are regression guards now, and a failure means a revert.
+//! - [`pending`] — the one refusal still without a `type`. Red on purpose, per the convention
+//!   [`crate::mcp_integration`] uses: an intended behaviour is worth more as a failing test than
+//!   softened to match the bug.
 //!
 //! # Why the assertions avoid prose
 //!
@@ -399,12 +398,13 @@ mod green {
     }
 }
 
-/// The contract the api's `errors/*` work is converging on.
+/// The refusals that gained a problem document when the api's `errors/*` series landed.
 ///
-/// **These are red until that lands, by design.** Each assertion names what it gets instead, so the
-/// output of a run reads as a progress report on the refactor. Do not soften one to match current
-/// behaviour — that is how a wire contract quietly becomes whatever the server happens to do.
-mod target {
+/// Every one of these was red on purpose beforehand, and each still names what it gets instead when
+/// it fails — so a revert reports itself as "got plain text" rather than as a bare assertion
+/// failure. Do not soften one to match a regression: that is how a wire contract quietly becomes
+/// whatever the server happens to do.
+mod unified {
     use super::{Probe, Refusal};
     use crate::problem::{ProblemDetail, Retry};
 
@@ -584,6 +584,56 @@ mod target {
                 .any(|entry| entry.values().any(|value| value.as_str() == Some(ext_id.as_str()))),
             "the colliding value should be named, got {}",
             refusal.preview()
+        );
+    }
+}
+
+/// What the unification has not reached yet.
+///
+/// **Red on purpose**, like [`crate::mcp_integration`]'s `mcp_response_is_a_json_object`. When the
+/// api closes this, the test goes green and moves to [`unified`].
+mod pending {
+    use super::Probe;
+    use crate::problem::ProblemDetail;
+
+    /// Every `GET /<collection>/{id}` miss answers through one shared advice, and it is the last
+    /// refusal in the api with no `type`.
+    ///
+    /// Easy to miss, because the body looks finished: `Problems.decorate` still runs on it, so it
+    /// carries `requestId` and `retry` like every other problem, and only `type` is absent. But
+    /// `type` is the member clients branch on — `slug()` is `None` here, so a caller matching on
+    /// `"not-found"` silently falls through to its default arm on one of the most common errors
+    /// there is.
+    ///
+    /// The fix is one line: `ObjectNotFoundExceptionHandler` hand-builds its document with
+    /// `ProblemDetail.forStatusAndDetail` + `setTitle`, where `Problems.notFound(detail)` — which
+    /// exists, sets `NOT_FOUND = type("not-found")`, and is already used by `FileController` and
+    /// `TimeseriesController` — would do it.
+    #[tokio::test]
+    async fn a_missing_id_is_typed_like_every_other_refusal() {
+        let refusal = Probe::new().get("/resources/999999999").await;
+
+        assert_eq!(refusal.status, 404);
+        let problem = refusal
+            .problem()
+            .unwrap_or_else(|| panic!("a 404 should be a problem, got {}", refusal.slug_or_shape()));
+
+        // Pinned so that if the shared advice is migrated, this test notices rather than the
+        // decoration silently masking it: these already arrive, only `type` does not.
+        assert!(
+            problem.request_id().is_some() && problem.retry().is_some(),
+            "the advice already decorates this problem: {}",
+            refusal.preview()
+        );
+
+        assert_eq!(
+            problem.slug(),
+            Some("not-found"),
+            "a by-id miss should carry a `type` under {} like every other refusal — got {:?}. \
+             ObjectNotFoundExceptionHandler builds its document by hand instead of calling \
+             Problems.notFound().",
+            ProblemDetail::TYPE_BASE,
+            problem.type_uri
         );
     }
 }

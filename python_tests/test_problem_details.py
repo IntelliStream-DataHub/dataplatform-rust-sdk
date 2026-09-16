@@ -8,10 +8,10 @@ Branch on ``problem_slug``, never on ``title``/``detail`` — those are prose an
 ``problem`` is the whole body as a dict, so an extension member the bindings have no accessor for is
 still reachable from Python.
 
-The API is mid-refactor here: its ``errors/*`` branch series converges every refusal on one problem
-shape, and until it lands several endpoints answer with something else (plain text, a stack trace,
-a legacy ``{"error": {...}}`` wrapper). Those cases ``xfail`` with the body they got, so this suite
-stays green while still reporting how far along the refactor is. See ``AGENTS.md`` → Errors.
+The API's ``errors/*`` series has landed, so every refusal here answers with a problem document and
+these are regression guards rather than a progress report. The one exception is a ``GET`` by id,
+which still carries no ``type``; ``src/problem_integration.rs`` → ``pending`` tracks that, and the
+404 test below tolerates it explicitly rather than silently. See ``AGENTS.md`` → Errors.
 """
 
 import pytest
@@ -42,9 +42,11 @@ def test_a_missing_id_arrives_as_a_problem_dict(sync_client):
     assert error.problem["instance"] == "/resources/999999999"
     # `detail` is prose: asserted present, never matched on.
     assert error.problem.get("detail")
-    # This 404 carries no `type` yet, so the slug is None — and must not be invented as
-    # "not-found". The api's errors/* series gives it one; see AGENTS.md → Errors.
-    assert error.problem_slug is None or error.problem_slug == "not-found"
+    # A by-id miss is the one refusal still without a `type`, so the slug is None here and must
+    # not be invented as "not-found". Tracked as red-on-purpose in
+    # `src/problem_integration.rs` → `pending`; when the api fixes it that test goes green and
+    # this tolerance can become an equality.
+    assert error.problem_slug in (None, "not-found")
 
 
 def test_a_bad_cursor_is_identified_by_type_not_by_wording(sync_client):
@@ -74,29 +76,35 @@ def test_a_bad_filter_expression_says_where_it_broke(sync_client):
     )
 
 
-def test_the_attributes_are_none_rather_than_absent_when_there_is_no_problem(sync_client):
-    """``problem`` is ``None``, not missing, so an ``except`` block needs no ``hasattr``.
-
-    A limit above the 10000 cap is refused as **plain text** today, which makes it the clearest
-    case of a refusal with no document behind it. The attributes must still be there.
-    """
+def test_an_over_cap_limit_names_the_offending_field(sync_client):
+    """This was refused as bare plain text before the unification; now it names ``limit``."""
     error = refusal(lambda: sync_client.timeseries.list(limit=99_999))
 
     assert error.status_code == 400
-    # The point of the test: every attribute exists whatever the API answered with.
-    assert error.problem is None or isinstance(error.problem, dict)
-    assert error.problem_slug is None or isinstance(error.problem_slug, str)
-    assert error.problem_type is None or isinstance(error.problem_type, str)
+    assert error.problem is not None, (
+        f"an over-cap limit should be a problem document, got {error.message!r}"
+    )
+    assert any(
+        field.get("field") == "limit" for field in error.problem.get("fields", [])
+    ), f"the rejected field should be named: {error.problem}"
 
-    if error.problem is None:
-        pytest.xfail(
-            "an over-cap limit is still refused as plain text; a problem document is pending the "
-            f"api's errors/* series. Got: {error.message!r}"
-        )
+
+def test_the_attributes_are_none_rather_than_absent_when_there_is_no_problem():
+    """``problem`` is ``None``, not missing, so an ``except`` block needs no ``hasattr``.
+
+    Raised locally rather than fetched: now that the API answers every refusal with a document, a
+    client-side failure is the honest way to exercise the no-problem path, and it does not depend
+    on some endpoint continuing to misbehave.
+    """
+    error = DataHubException("boom")
+
+    assert getattr(error, "problem", None) is None
+    assert getattr(error, "problem_slug", None) is None
+    assert getattr(error, "problem_type", None) is None
 
 
 def test_a_duplicate_external_id_is_a_conflict(sync_client, make_ts):
-    """409 is already right; the body is still the legacy ``{"error": {...}}`` wrapper."""
+    """409 was already right; the body is a ``duplicate`` problem naming the value now."""
     created = make_ts()
     duplicate = intellistream_datahub_sdk.TimeSeries(
         external_id=created.external_id,
@@ -107,13 +115,12 @@ def test_a_duplicate_external_id_is_a_conflict(sync_client, make_ts):
 
     error = refusal(lambda: sync_client.timeseries.create([duplicate]))
     assert error.status_code == 409
-
-    if error.problem is None:
-        pytest.xfail(
-            "a duplicate externalId still answers with the legacy {'error': {...}} wrapper "
-            f"rather than a problem document. Got: {error.message!r}"
-        )
-    assert error.problem_slug == "duplicate"
+    assert error.problem is not None, (
+        f"a duplicate should be a problem document, got {error.message!r}"
+    )
+    assert error.problem_slug == "duplicate", (
+        f"got {error.problem_type!r} from body {error.message!r}"
+    )
     assert any(
         created.external_id in entry.values()
         for entry in error.problem.get("duplicated", [])
