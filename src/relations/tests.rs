@@ -457,20 +457,23 @@ mod live {
             .expect_err("deleting c's last route to the root should be refused");
         assert_eq!(
             refused.get_status().as_u16(),
-            400,
-            "a stranding delete is a client error, not a server fault: {refused:?}"
+            409,
+            "a stranding delete conflicts with the graph as it stands: {refused:?}"
+        );
+        assert_eq!(
+            refused.problem_slug().as_deref(),
+            Some("would-strand"),
+            "the refusal should say what it is refusing: {refused:?}"
         );
         // With `a` declared root, the victim is unambiguous: `c` is the node that loses its last
         // route. Without a declared root this named a different node between runs, because the
         // projection picked the anchor itself.
-        let message = refused.get_message();
+        let blocked_by = refused.problem().map(|p| p.blocked_by()).unwrap_or_default();
         assert!(
-            message.contains("disconnect"),
-            "the refusal should say what it is refusing: {message}"
-        );
-        assert!(
-            message.contains(c),
-            "the refusal should name {c} as the stranded resource: {message}"
+            blocked_by
+                .iter()
+                .any(|b| b.get("externalId").and_then(serde_json::Value::as_str) == Some(c)),
+            "the refusal should name {c} as the stranded resource: {blocked_by:?}"
         );
 
         // Tear down in one request. Deleting these nodes individually is perfectly legal —
