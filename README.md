@@ -4,8 +4,8 @@ An async Rust client (reqwest + Tokio) for the **DataHub Platform** REST API, wi
 optional blocking client and Python bindings built from the same core.
 
 Services are fields on the `ApiService` returned by `create_api_service()`:
-`time_series` (including datapoint ingestion), `units`, `events`, `resources`, `datasets`,
-`files`, `subscriptions` (including WebSocket listening), and `functions`.
+`time_series` (including datapoint ingestion), `units`, `events`, `resources`, `edges`,
+`datasets`, `files`, `subscriptions` (including WebSocket listening), `functions` and `labels`.
 
 ## Installation
 
@@ -18,7 +18,7 @@ alias then applies across the whole crate, with no `use` line in any module:
 
 ```toml
 [dependencies]
-dh = { package = "intellistream-datahub-sdk", version = "0.2" }
+dh = { package = "intellistream-datahub-sdk", version = "0.4" }
 ```
 
 ```rust
@@ -50,8 +50,8 @@ async fn main() {
 
 Enable the `blocking` cargo feature for a synchronous mirror of the async API — the same
 split as `reqwest` / `reqwest::blocking`. Every call delegates to the async implementation
-on a runtime owned by the client, so behavior is identical. Do not use it from inside an
-async context; use the async `ApiService` there.
+on a runtime owned by the client, so behavior is identical. `subscriptions` is async-only. Do not
+use it from inside an async context; use the async `ApiService` there.
 
 ```rust
 use intellistream_datahub_sdk::blocking;
@@ -69,12 +69,14 @@ environment:
 - Either `TOKEN` (bearer token used as-is, never considered expired), **or** the OAuth2
   client-credentials set: `CLIENT_ID`, `CLIENT_SECRET`, `TOKEN_URI`
 - `PROJECT_NAME` — optional
-- `SCOPE` — against DataHub, needed when the realm uses Keycloak Organizations: that claim comes
-  from a dynamic client scope, so the request must name it (`organization:*`, or
-  `organization:<alias>` to pin one tenant). Without it the token carries no tenant and every call
-  fails `401 invalid_token`, which looks like bad credentials but is not. Not needed where the
-  realm produces the `organization` claim with a protocol mapper. Entra ID instead requires
-  `SCOPE=api://<app-id-uri>/.default`.
+- `SCOPE` — added to `openid`, which is always sent: the API resolves dataset grants through the
+  identity provider's UserInfo endpoint, which refuses a token without it. Needed when the realm
+  uses Keycloak Organizations: that claim comes from a dynamic client scope, so the request must
+  name it (`organization:*`, or `organization:<alias>` to pin one tenant). Without it the token
+  carries no tenant and every call fails `401 invalid_token`, which looks like bad credentials but
+  is not. Not needed where the realm produces the `organization` claim with a protocol mapper.
+  Entra ID's `api://<app-id-uri>/.default` does not go here — Entra rejects it alongside `openid`
+  — but in `ASSERTION_SCOPE`, below.
 - `AUDIENCE` — optional, sent only when set. Required by Auth0, unused by Keycloak.
 
 Setting an assertion source switches the request at `TOKEN_URI` to the RFC 7523 `jwt-bearer`
@@ -103,6 +105,25 @@ Keycloak user linked to the assertion's subject.
 
 The same options are available on the builder as `set_scope`, `set_audience`, `set_assertion`,
 `set_assertion_credentials`, `set_assertion_scope` and `set_assertion_audience`.
+
+## Errors
+
+Service methods return `Result<_, ResponseError>`. When the API explains a refusal with an
+RFC 9457 `application/problem+json` document, `ResponseError::problem()` parses it into a
+`ProblemDetail`. Branch on its `slug()` — the tail of the `type` URI, such as `"would-strand"` or
+`"duplicate"` — rather than on `title` or `detail`, which are prose. The extension members the API
+sends have typed accessors (`fields()`, `unknown_fields()`, `blocked_by()`, `duplicated()`,
+`retry()`, `request_id()`), and `get_message()` still returns the raw body.
+
+```rust
+match api.edges.delete(&edge_ids).await {
+    Err(e) if e.problem_slug().as_deref() == Some("would-strand") => {
+        let blockers = e.problem().map(|p| p.blocked_by()).unwrap_or_default();
+        println!("refused, would strand {blockers:?}");
+    }
+    other => { other?; }
+}
+```
 
 ## Durable ingest buffering
 

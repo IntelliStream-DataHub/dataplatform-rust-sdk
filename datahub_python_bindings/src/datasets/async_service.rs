@@ -191,12 +191,6 @@ impl PyDatasetsServiceAsync {
     /// A dataset is the unit access is granted on, so the server treats editing one as an operator
     /// action: this needs an all-datasets write grant and raises 403 without one, even for a
     /// caller who can write the dataset's contents.
-    ///
-    /// **Do not combine a `metadata` change with `write_protected` / `deactivated` in one update.**
-    /// The server stores those flags as node metadata, so setting either in the same call as a
-    /// metadata delta silently drops the delta — 200, no error, half the change lost. Send two
-    /// updates. Their keys (`property:is_write_protected`, `property:is_deactivated`) are also
-    /// visible in `Dataset.metadata`.
     fn update<'p>(
         &self,
         py: Python<'p>,

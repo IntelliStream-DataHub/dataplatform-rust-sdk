@@ -62,9 +62,6 @@ create_exception!(
     "Error returned by the DataHub API. Carries the HTTP `status_code` and the raw response `message`."
 );
 
-/// Convert an SDK `ResponseError` into a `DataHubException` that exposes the HTTP
-/// `status_code` and `message` as attributes, so Python callers can branch on the
-/// status code (e.g. `except DataHubException as e: if e.status_code == 409: ...`).
 /// Map a "not found" into Python's `None`.
 ///
 /// Every single-resource `GET` in the API answers an unknown id with **404** (batch `/byids`
@@ -79,6 +76,9 @@ pub(crate) fn none_on_404<T>(result: Result<T, ResponseError>) -> PyResult<Optio
     }
 }
 
+/// Convert an SDK `ResponseError` into a `DataHubException` that exposes the HTTP
+/// `status_code` and `message` as attributes, so Python callers can branch on the
+/// status code (e.g. `except DataHubException as e: if e.status_code == 409: ...`).
 pub(crate) fn datahub_err(e: ResponseError) -> PyErr {
     Python::attach(|py| {
         let err = DataHubException::new_err(e.get_message());
@@ -92,7 +92,7 @@ pub(crate) fn datahub_err(e: ResponseError) -> PyErr {
         // is the member to branch on — `title` and `detail` are prose and may be reworded.
         //
         // All three are `None` rather than absent when the api answered with something that is not
-        // a problem (an empty 401, a stack trace, plain text), so `except` blocks can test one
+        // a problem (a proxy's empty 502, a stack trace, plain text), so `except` blocks can test one
         // attribute instead of calling `hasattr`.
         let problem = e.problem();
         let _ = value.setattr(
@@ -140,7 +140,7 @@ pub(crate) fn missing_client_err() -> PyErr {
 /// of `buffer_retention_secs` / `buffer_max_bytes` (or `enable_buffering=True`) turns buffering on;
 /// unset bounds fall back to the defaults (72h / 5 GiB).
 ///
-/// `scope` / `audience` are added to the token request only when set. An assertion source
+/// `scope` is added to the `openid` every token request carries; `audience` is sent only when set. An assertion source
 /// (`assertion`, or the `assertion_client_id`/`assertion_client_secret`/`assertion_token_url`
 /// triple) switches that request to the RFC 7523 `jwt-bearer` grant.
 #[allow(clippy::too_many_arguments)]

@@ -212,7 +212,7 @@ impl PyEventsServiceAsync {
         })
     }
 
-    /// Free-text search over event descriptions, ranked by relevance.
+    /// Substring search over external id, description and metadata values, newest first.
     #[pyo3(signature = (query, filter = None, limit = None))]
     fn search<'py>(
         &self,

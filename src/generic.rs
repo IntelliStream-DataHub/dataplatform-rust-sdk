@@ -932,17 +932,17 @@ pub trait ApiServiceProvider {
     }
 }
 
-/// Add a reason to a 401 that arrived without one.
+/// Add a reason, read from the token the SDK just sent, to a 401.
 ///
-/// The API rejects a token whose `organization` claim is missing, malformed or ambiguous, but its
-/// authentication entry point sends no `error_description` and an empty body — so the caller gets
-/// `401` and nothing else, which reads as a bad credential. The token the SDK just sent carries
-/// enough to say which it was; see [`crate::auth_diagnostics`] for why reading it discloses
-/// nothing.
+/// The API rejects a token whose `organization` claim is missing, malformed or ambiguous. That 401
+/// used to arrive with an empty body, which reads as a bad credential; it now carries a problem
+/// document naming the failed check. The token is enough to say which case it was either way — see
+/// [`crate::auth_diagnostics`] for why reading it discloses nothing.
 ///
-/// Anything already explained is left alone: a non-401, or a 401 that did come with a body, keeps
-/// its own message, and a well-formed claim adds nothing (the 401 then has a cause this cannot
-/// see — expiry, revocation, audience, signature).
+/// A non-401 is left alone, and so is a well-formed claim (the 401 then has a cause this cannot
+/// see — expiry, revocation, audience, signature). Otherwise the hint replaces an empty body or is
+/// appended after the server's, which [`ProblemDetail::parse`](crate::problem::ProblemDetail::parse)
+/// reads past.
 fn explain_auth_failure(error: ResponseError, token: &str) -> ResponseError {
     if error.get_status() != http::StatusCode::UNAUTHORIZED {
         return error;

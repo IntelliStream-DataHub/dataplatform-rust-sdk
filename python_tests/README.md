@@ -35,8 +35,7 @@ piecemeal or debug the setup.
 ## Prerequisites
 
 - **Rust toolchain** (`cargo`) — needed to compile the bindings.
-- **Python 3.9+** (this machine has `python3` 3.12). Note: only `python3` exists here,
-  there is no bare `python`.
+- **Python 3.9+**. The commands below use `python3`, since some systems have no bare `python`.
 - A reachable backend and a valid `.env` (see [Backend config](#backend-config)).
 
 ---

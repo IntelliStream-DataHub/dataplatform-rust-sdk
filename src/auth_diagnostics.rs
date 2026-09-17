@@ -1,12 +1,12 @@
-//! Explaining a 401 that the API declines to explain.
+//! Explaining a 401 from the token that earned it.
 //!
 //! DataHub resolves the caller's tenant from the access token's `organization` claim, and rejects
 //! the token outright when that claim is missing, malformed, or names more than one organization.
-//! The reason never reaches the caller: the API installs a custom authentication entry point that
-//! answers with a bare `WWW-Authenticate: Bearer realm="Restricted Content"` and a generic body,
-//! logging the real reason server-side only. What arrives here is
-//! `ResponseError { status: 401, message: "" }` — indistinguishable from a rotated secret, which
-//! is why the usual first response is to go and rotate the secret.
+//! The reason used to stay on the server: a bare `WWW-Authenticate: Bearer realm="Restricted
+//! Content"` and an empty body, so what arrived was `ResponseError { status: 401, message: "" }` —
+//! indistinguishable from a rotated secret, which is why the usual first response was to go and
+//! rotate the secret. The api now answers with a problem document whose `detail` names the failed
+//! check; this module predates that, and still explains a 401 from an api that does not.
 //!
 //! The token itself carries the answer, so the SDK reconstructs it locally: decode the payload,
 //! look at `organization`, and report which case the server would have hit.

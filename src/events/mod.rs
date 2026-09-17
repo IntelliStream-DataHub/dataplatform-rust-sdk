@@ -227,9 +227,10 @@ impl EventsService {
             .await
     }
 
-    /// Free-text search over event descriptions (`POST /events/search`). Matching is fuzzy and
-    /// word-aware; results are ranked by relevance. For structured filters (time ranges, types,
-    /// related resources) use [`filter`](Self::filter) instead — it is faster and more predictable.
+    /// Substring search (`POST /events/search`): `query` matches case-insensitively anywhere in the
+    /// external id, the description or a metadata value. Results are newest first (`eventTime`
+    /// descending), not ranked. For structured filters (time ranges, types, related resources) use
+    /// [`filter`](Self::filter) instead — it is faster and more predictable.
     pub async fn search(
         &self,
         search: &SearchAndFilterForm<EventFilter>,

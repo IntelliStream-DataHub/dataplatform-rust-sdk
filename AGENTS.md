@@ -8,7 +8,7 @@ cargo build
 cargo test                               # runs all non-ignored tests
 cargo test <name>                        # substring match on test name
 cargo test -- --ignored                  # run tests marked #[ignore] (e.g. long-running datapoint tests)
-cargo test <path>::tests::<name>         # e.g. `events::tests::test_events_full`
+cargo test <path>::tests::<name>         # e.g. `events::tests::test_event_filter`
 cargo test -- --nocapture                # show println! from tests (the SDK prints response bodies)
 cargo test --release <bench name>        # ALWAYS --release for anything timed (see below)
 ./run_python_tests.sh                    # Python-bindings suite (rebuilds the PyO3 module first — see below)
@@ -37,7 +37,7 @@ cargo test multi_tenant_integration -- --ignored --nocapture --test-threads=1
 ./run_python_tests.sh -k multi_tenant
 ```
 
-They need six purpose-built Keycloak principals beyond the usual `.env` (a two-organization one, read-only/write-only/no-grant ones, and a full-access one per organization), configured through `MT_*` variables. Each test skips with a printed note when its fixture is absent, so a checkout without that realm setup is unaffected. **The Rust module's `//!` doc is the reference** — it carries the env contract, the organization-group naming convention, the realm-level mapper prerequisites, and the reason 401s here can only be asserted on status (the API drops the explanation before it reaches any client).
+They need six purpose-built Keycloak principals beyond the usual `.env` (a two-organization one, read-only/write-only/no-grant ones, and a full-access one per organization), configured through `MT_*` variables. Each test skips with a printed note when its fixture is absent, so a checkout without that realm setup is unaffected. **The Rust module's `//!` doc is the reference** — it carries the env contract, the organization-group naming convention, the realm-level mapper prerequisites, and why its 401 assertions rest on status and `src/auth_diagnostics.rs` rather than on the response — written while the API withheld the reason, which its 401 problem document now carries in `detail`.
 
 ## Backend
 
@@ -97,13 +97,15 @@ Behaviours worth knowing, each pinned by a test in `src/nodes.rs`:
   must not read as a default. Two things are still not 1-1 — `related_resources` runs the other way
   (populated here, `[]` on a flat read), and an asset's geometry is reconstructed as a Point, so a
   Point round-trips exactly but a stored Polygon comes back wrong.
-- **`update` still echoes flat `Resource`s**, whatever the node's real type — the one read/write
-  asymmetry left, owned by the api's `NODE_UPDATE_REFACTOR.md`. `ResourceService::update` is
-  therefore the one method here that does *not* return `Node`.
+- **`ResourceService::update` still returns flat `Resource`s**, whatever the node's real type — the
+  one method here that does *not* return `Node`. The api's echo has been typed since backend
+  `42d60fcc`, so this is the SDK lagging: a timeseries update comes back without its `unit`
+  because `Resource` has nowhere to put it.
 - **Policies never carry `value`, `template_id` or `data_set_id`** on a read, and their `metadata`
   can be outright `null`.
-- **`Resource::geolocation` is write-only** server-side: accepted on create, never echoed. Assets
-  carry it.
+- **`Resource::geolocation` is refused server-side.** Since backend `42d60fcc` only an asset has
+  `geoLocation`, so a plain resource carrying one is a 400 `unreadable-request-body` naming it. Set
+  a location on an `ASSET`-labelled node; the field on `Resource` (and its Python twin) is left over.
 - **Every type is creatable through `/resources/create`, timeseries included** — each element of
   `nodes` is dispatched by its own labels. `DATASET` and `POLICY` need the all-datasets manage
   grant (403 without), and their `data_set_id` is silently dropped. A duplicate `external_id`
@@ -125,11 +127,11 @@ When a datapoint/event send can't get through, ingestion spools to a segmented, 
 
 ### Binary datapoint ingest (`src/timeseries/binary.rs`)
 
-`TimeSeriesService::insert_datapoints_binary` is the second ingest path, to `POST /timeseries/data/binary`: the same `DatapointsCollection<DatapointString>` input, resolved through `/timeseries/byids` (cached per service instance; needs read access on the dataset), checked against each series' value type locally, cut into Arrow IPC frames at the contract's caps, zstd-compressed per frame (mandatory: level 1, 3 or 9, default 9) and posted through `execute_post_bytes_request`. `FrameWriter` builds one frame and is public; `cut_into_writers` and `pack_requests` hold the caps. The byte layout is the platform's `binary_datapoints_format.md`. The arrow-rs crates (`arrow-array`, `arrow-schema`, `arrow-ipc`) exist for this path and are the seed of the Arrow read path. Not in the Python bindings yet. The ignored `timeseries::tests::test_datapoints_binary` is the live twin of `test_datapoints` and needs a backend that serves the endpoint; the writer's own tests in `binary.rs` run offline.
+`TimeSeriesService::insert_datapoints_binary` is the second ingest path, to `POST /timeseries/data/binary`: the same `DatapointsCollection<DatapointString>` input, resolved through `/timeseries/byids` (cached per service instance; needs read access on the dataset), checked against each series' value type locally, cut into Arrow IPC frames at the contract's caps, zstd-compressed per frame (mandatory: level 1, 3 or 9, default 9) and posted through `execute_post_bytes_request`. `FrameWriter` builds one frame and is public; `cut_into_writers` and `pack_requests` hold the caps. The byte layout is the platform's `binary_datapoints_format.md`. The arrow-rs crates (`arrow-array`, `arrow-schema`, `arrow-ipc`) exist for this path and are the seed of the Arrow read path. Python exposes it on the sync client only, as `insert_datapoints_binary` and `insert_from_lists_binary`. The ignored `timeseries::tests::test_datapoints_binary` is the live twin of `test_datapoints` and needs a backend that serves the endpoint; the writer's own tests in `binary.rs` run offline.
 
 ### The `ApiServiceProvider` trait (`src/generic.rs`)
 
-Every subservice implements `ApiServiceProvider`, which owns the HTTP plumbing: token acquisition, `execute_get_request`, `execute_post_request`, `execute_file_upload_request`, `execute_get_stream_request`. Subservice methods should go through these helpers rather than calling `reqwest` directly — a few early methods (e.g. `TimeSeriesService::list`) still bypass the trait and should be migrated when touched.
+Every subservice implements `ApiServiceProvider`, which owns the HTTP plumbing: token acquisition, `execute_get_request`, `execute_post_request`, `execute_file_upload_request`, `execute_get_stream_request`. Subservice methods should go through these helpers rather than calling `reqwest` directly.
 
 `execute_get_stream_request` is the odd one out: it returns the raw `reqwest::Response` instead of a `DataWrapper`, for endpoints that answer with bytes (currently only `/files/download/{id}`). It also overrides the client's default `Accept: application/json` with `*/*` — that endpoint only `produces` `application/octet-stream`, and Spring answers a JSON-only `Accept` with 406 before the handler runs.
 
@@ -177,32 +179,28 @@ assertions are unaffected.
   for the ones the api mints: `fields()` (rejected fields, each with the i18n `code` and a
   `rejected` argument), `unknown_fields()` (the `errors` entries, each a JSON Pointer plus the names
   valid *at that position*), `duplicated()`, `blocked_by()`, `retry()`, `request_id()`, `docs()`,
-  `location()`.
+  `location()`, `pointer()`. `ResponseError::problem_slug()` is the shortcut for branching.
 - **`retry` is advisory and deliberately not wired into `is_bufferable`.** The api marks a 403
   `needs-operator`; the SDK still buffers 401/403 so a rotated credential does not cost the batch.
   Those answer different questions — don't reconcile them without deciding which one ingestion means.
 
 **The api's `errors/*` series has landed**, so every refusal now answers `application/problem+json`
-with a `type` — with one exception, below. Before it, six shapes were live at once (full problem,
+with a `type`. Before it, six shapes were live at once (full problem,
 typeless problem, Spring Boot whitelabel *with a stack trace*, a success-shaped `{"items":[…]}`
 envelope, the legacy `{"error":{…}}` wrapper, and plain text); `problem_integration`'s module doc
 keeps the table of what each became, because that is what its assertions are pinning against a
-revert. Its three groups: `green` was true before and after, `unified` arrived with the series (red
-on purpose until it merged, regression guards now), and `pending` is what is still outstanding.
+revert. Its two groups: `green` was true before and after, and `unified` arrived with the series (red
+on purpose until it merged, regression guards now).
 
-**The one gap: a `GET /<collection>/{id}` miss carries no `type`.** Every by-id 404 goes through the
-shared `ObjectNotFoundExceptionHandler`, which hand-builds its document with
-`ProblemDetail.forStatusAndDetail` + `setTitle` instead of calling `Problems.notFound()` — which
-exists, sets `type("not-found")`, and is already used by `FileController` and `TimeseriesController`.
-Easy to miss because `Problems.decorate` still runs on it, so the body carries `requestId` and
-`retry` and looks finished. `slug()` is `None` there, so **don't match a by-id 404 on
-`"not-found"` yet**; `problem_integration::pending` is red on purpose until it is fixed.
+The last to land was a `GET /<collection>/{id}` miss (datahub-platform #117): every by-id 404 goes
+through the shared `ObjectNotFoundExceptionHandler`, which hand-built an untyped document until it
+switched to `Problems.notFound()`. It was easy to miss because `Problems.decorate` ran on it too, so
+the body carried `requestId` and `retry` and looked finished. `slug()` is `"not-found"` there now.
 
-Two statements elsewhere in this file describe the pre-unification shape. 401s now *do* carry a
-problem body, so the multi-tenant note and `src/auth_diagnostics.rs` (which reconstructs a reason
-the api used to withhold) are worth re-reading against the current api before relying on them. A
-refused delete is now a **409** `would-strand`/`referenced` carrying its blockers in `blockedBy`,
-not the **400** with `fields` the `edges` note describes.
+401s carry a problem too, whose `detail` names the failed check — for a token refused over its
+`organization` claim, which case it hit. `src/auth_diagnostics.rs` predates that: it reconstructs the
+same reason from the token and appends it to the message, and the multi-tenant 401 tests assert on
+that hint or on status rather than on the problem.
 
 ### Filters (`src/filters.rs`)
 
@@ -488,6 +486,6 @@ under another test, and use a fixed *pair* when a test has to tell two labels ap
 
 - `#[serde(rename = "camelCase")]` or explicit `#[serde(rename = "...")]` on fields — the backend is camelCase, Rust is snake_case.
 - **A request body naming a field the api does not have is a 400.** Jackson used to drop unknown properties, so a stale or misspelled key was answered with 200 and no effect; a strict converter now rejects the body and names every offender alongside the fields the endpoint accepts. Two consequences for this SDK: a struct that doubles as request *and* response must `#[serde(skip_serializing)]` its response-only fields — `GraphDataWrapper`'s `errorBody`/`httpStatusCode` reached `/resources/create` and made every resource and function create and update a 400 — and one Rust type may not stand in for two endpoints that disagree on their fields (see the search forms above). Reading is unaffected: responses stay lenient in both directions.
-- `externalId` (string, user-supplied) and numeric `id` are both valid identifiers across the API. `IdAndExtId` / `IdAndExtIdCollection` model this choice.
+- `externalId` (string, user-supplied) and numeric `id` are both valid identifiers across the API. `IdAndExtId` models this choice.
 - `process_response` (`src/http.rs`) prints response bodies to stdout (truncated to 2000 chars). This is deliberate for debugging — don't silently remove it.
 - Tests that depend on backend state being empty are brittle; recent fixes moved away from exact-count assertions (see commit `7f0a059`). Don't add new ones.

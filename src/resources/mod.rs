@@ -126,8 +126,8 @@ impl ResourceService {
     /// it can set is a shared node field, so one update form covers all six node types — except
     /// `geolocation`, which only an asset stores.
     ///
-    /// **The echo is flat.** Unlike every read on this service, the api answers here with each
-    /// node serialized as a plain [`Resource`], whatever its type — so a timeseries updated
+    /// **The echo is read as flat.** The api answers with each node in its own typed shape, but
+    /// this method deserializes every one as a plain [`Resource`] — so a timeseries updated
     /// through this endpoint comes back without its `unit`, though the same node reads back as a
     /// [`Node::TimeSeries`] from [`get_by_id`](Self::get_by_id). Re-read the node if you need its
     /// typed form. The returned `labels` do reflect what the backend stored, including the
@@ -235,9 +235,9 @@ pub struct Resource {
     /// [`geojson::Geometry::new_point`] and friends (re-exported as
     /// [`crate::Geometry`]).
     ///
-    /// **Write-only on a plain resource.** The api accepts it on create/update but never echoes
-    /// it back on a `Resource`, so this is always `None` on a read. A node created with the
-    /// `ASSET` type-label comes back as [`crate::nodes::Asset`], which does carry it.
+    /// **Refused on a plain resource.** Only an asset has `geoLocation` on the api, so sending it
+    /// here is a 400 `unreadable-request-body`. A node created with the `ASSET` type-label comes
+    /// back as [`crate::nodes::Asset`], which does carry it.
     #[serde(rename = "geoLocation", skip_serializing_if = "Option::is_none")]
     pub geolocation: Option<geojson::Geometry>,
     #[serde(skip_serializing_if = "Option::is_none")]
