@@ -737,6 +737,7 @@ fn unprocessable(message: String) -> ResponseError {
     ResponseError {
         status: StatusCode::UNPROCESSABLE_ENTITY,
         message,
+        content_type: None,
     }
 }
 
@@ -931,6 +932,7 @@ impl TimeSeriesService {
             return Err(ResponseError {
                 status: StatusCode::NOT_FOUND,
                 message: format!("Could not find following timeseries: {}", missing.join(", ")),
+                content_type: None,
             });
         }
         Ok(resolved)
