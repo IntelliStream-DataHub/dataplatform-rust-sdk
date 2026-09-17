@@ -1,6 +1,24 @@
 # AGENTS.md
 Guidance for AI coding agents working in this repository. Claude Code reads it through the `CLAUDE.md` import alongside it.
 
+## Documentation lives in another repository
+
+The developer documentation for this SDK, with every Python and Rust example on it, is
+[datahub-sdk-docs](https://github.com/IntelliStream-DataHub/datahub-sdk-docs). Its pages describe
+this repository's `main`, not the latest release, so a change a caller can notice makes a page
+wrong the moment it merges: a renamed or removed method, a changed signature or constructor, a
+field that became optional or required, a changed default, a new feature. Internals, tests and CI
+changes do not.
+
+**You are not expected to have that repository checked out**, and updating it is not a
+precondition for merging here. Saying in the pull request which docs pages the change affects,
+or opening an issue on datahub-sdk-docs, is enough. The platform asks the same of its changes, in
+its own `AGENTS.md`.
+
+A release is a docs event too. When you tag `vX.Y.Z`, open an issue on datahub-sdk-docs: its quick
+start names the latest release, and a new minor version gets a frozen snapshot of the docs. The
+rules are in that repository's `AGENTS.md`, under "Versions".
+
 ## Build / Test
 
 ```
