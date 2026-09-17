@@ -57,8 +57,8 @@ impl ResourceService {
     ///   belonged to a data set would orphan its own ACL grant, so the api refuses to set it
     ///   rather than erroring.
     ///
-    /// Note also that a duplicate `external_id` surfaces here as a constraint violation rather
-    /// than the clean 409 `/timeseries/create` answers with — a known asymmetry in the api.
+    /// A duplicate `external_id` is a 409 `duplicate` naming it in
+    /// [`ProblemDetail::duplicated`](crate::problem::ProblemDetail::duplicated).
     pub async fn create<N: Into<Node>>(
         &self,
         nodes: Vec<N>,
@@ -581,8 +581,8 @@ pub struct ResourceFilter {
 
 /// Request body for [`ResourceService::fetch_nearest`] (`POST /resources/fetch-nearest`).
 ///
-/// Note the endpoint reads `id` only: it does not resolve `external_id`, so start from a numeric
-/// id (resolve one with [`by_ids`](ResourceService::by_ids) if that is all you have).
+/// The endpoint also accepts an `externalId` start, but this form does not carry one yet: start
+/// from a numeric id (resolve one with [`by_ids`](ResourceService::by_ids) if that is all you have).
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FetchNearestResourcesForm {

@@ -53,7 +53,7 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 - `resources` (`src/resources/`) — the generic node service. Its reads span **every** node type and answer with [`Node`](#the-polymorphic-node-type) rather than one flat shape; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`, `RelatedNode`)
 - `edges` (`src/relations/service.rs`) — the `/edges` endpoints: `get`/`by_ids`/`create`/`delete` plus the relationship-type catalogue (`types`/`create_types`). Edges normally come into being through `resources.create(nodes, relations)`; this service is for linking resources that already exist and for reading or deleting an edge on its own. `get` answers an unknown id with 404 and a `problem+json` body; `by_ids`, like every batch lookup, answers 200 with the found subset and silently omits what is missing. (`get` used to be 200-and-nothing despite documenting a 404 — api #275 made single-resource by-id GETs consistently 404 and deliberately left batch lookups alone.) Two further behaviours are worth knowing, and are documented at each call site:
 
-  - `create_types` fails silently on a duplicate name — the unique-hash collision surfaces at commit, after the handler returned, so the caller gets a 200 with an empty *body*, and in a batch the valid new types are rolled back with it. This one does contradict the OpenAPI: `test_duplicate_relationship_type_conflicts` encodes the intended 409 and is red until the server-side fix lands.
+  - `create_types` answers a name that already exists with **409** `duplicate`, and a batch is all-or-nothing: one duplicate rolls back the new types beside it. It used to be a 200 with an empty body, the unique-hash collision surfacing only at commit; `test_duplicate_relationship_type_conflicts` was red on purpose until the api mapped it and guards it now.
   - `delete` will not remove an edge that is an endpoint's only route to the graph root: `ResourceService.delete` refuses rather than orphan the node, answering **409** `would-strand` with the stranded resource in the problem's `blockedBy` (`[{"externalId": …}]`) and a message saying to include it in the deletion or keep a connecting path — read it through `ResponseError::problem()`. (It was a 400 carrying the old `{"error":{"code","fields"}}` envelope before the api unified on RFC 9457.) Practically, an edge is separately deletable only when both endpoints stay reachable without it; otherwise it goes away with the resources. The check reads the graph projection, which lags the write, so deleting too soon after creating the edge gets the *wrong answer* rather than an error — the refusal does not fire and the node is stranded. `relations::tests` measured 6/6 wrongly allowed immediately after create, 6/6 refused 500ms later; its `await_graph` helper is what the live tests wait on.
 - `datasets` (`src/datasets/`)
 - `files` (`src/files/`) — raw-`PUT` upload via `execute_file_upload_request` (content is the body, metadata rides in `X-Datahub-*` headers), plus directory listing, get/search, `FileUpdate` (rename/move/re-dataset), trash + restore, delete, and download (`download` in memory, `download_to_path` streamed)
@@ -109,7 +109,8 @@ Behaviours worth knowing, each pinned by a test in `src/nodes.rs`:
 - **Every type is creatable through `/resources/create`, timeseries included** — each element of
   `nodes` is dispatched by its own labels. `DATASET` and `POLICY` need the all-datasets manage
   grant (403 without), and their `data_set_id` is silently dropped. A duplicate `external_id`
-  surfaces as a constraint violation rather than the clean 409 `/timeseries/create` gives.
+  is a 409 `duplicate`, the same as `/timeseries/create`. A plain resource needs at least one
+  label (400 `constraint-violation` without one).
 
 In Python each variant maps to its own pyclass, so `isinstance(node, TimeSeries)` works and an
 object from `resources.filter()` behaves exactly like one from `timeseries.by_ids()`. The dispatch
@@ -439,8 +440,8 @@ Behaviours worth knowing, each pinned by an assertion:
 ### Tests that are red on purpose
 
 One encodes intended behaviour the api does not yet provide, in the same spirit as
-`test_duplicate_relationship_type_conflicts`: it stays red until the server-side fix lands rather
-than being softened to match the bug.
+`test_duplicate_relationship_type_conflicts` did until the api fixed it: it stays red until the
+server-side fix lands rather than being softened to match the bug.
 
 - `mcp_response_is_a_json_object` — whenever the double-encoding regression above is present, along
   with every other test that parses an envelope. Both directions are the same underlying fault: the

@@ -135,17 +135,11 @@ impl EdgesService {
     /// Names are case-insensitive and normalised to uppercase snake case (`Flows To` →
     /// `FLOWS_TO`); a blank name, or one that normalises to nothing, is a 400.
     ///
-    /// **A name that already exists currently fails silently.** The service has no find-or-create:
-    /// it saves a fresh entity unconditionally, so a duplicate collides on the unique name hash at
-    /// *commit* time — after the handler has returned — and the caller gets a **200 with an empty
-    /// body** rather than the documented "existing ones returned unchanged". Worse in a batch:
-    /// every form is saved in one transaction, so a single duplicate rolls back the valid new
-    /// types alongside it and the response still says 200.
-    ///
-    /// Until that is fixed, treat a 200 with no items as "something in this batch already
-    /// existed and *nothing* was created", and use [`types`](Self::types) to see the real state.
-    /// The intended behaviour is a 409, matching [`create`](Self::create) on a duplicate edge;
-    /// `test_duplicate_relationship_type_conflicts` encodes that and is red until then.
+    /// **A name that already exists is a 409 `duplicate`**, like [`create`](Self::create) on a
+    /// duplicate edge. The batch is all-or-nothing: one existing name rolls back the new types
+    /// beside it, so resend without the duplicate. (It used to be a 200 with an empty body, the
+    /// unique-hash collision surfacing only at commit; `test_duplicate_relationship_type_conflicts`
+    /// pins the 409 for both cases.)
     pub async fn create_types<I>(
         &self,
         data: &I,

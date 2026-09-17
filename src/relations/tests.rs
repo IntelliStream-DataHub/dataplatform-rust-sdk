@@ -653,8 +653,8 @@ mod live {
     /// transaction, so a single duplicate rolls the whole thing back — valid new types in the same
     /// request are discarded too, and the response still says 200. Nothing tells the caller.
     ///
-    /// This test encodes the intended behaviour (409, like `POST /edges/create` on a duplicate
-    /// edge) and will pass once the server-side fix lands.
+    /// The api now maps that collision to a 409 `duplicate`, like `POST /edges/create` on a
+    /// duplicate edge, and this test guards it.
     #[tokio::test]
     async fn test_duplicate_relationship_type_conflicts() -> Result<(), Box<dyn std::error::Error>>
     {
