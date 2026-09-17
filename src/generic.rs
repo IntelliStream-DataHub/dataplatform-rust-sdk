@@ -865,6 +865,7 @@ pub trait ApiServiceProvider {
                 ResponseError {
                     status: response.status(),
                     message: err.to_string(),
+                    content_type: None,
                 }
             });
         }
