@@ -128,7 +128,10 @@ frame, 32 frames per request), compressed with zstd (level 9 by default, 1 and 3
 choices) and posted. A 204 means every frame was accepted.
 
 A series that does not exist is a 404 before anything is sent, a value that does not fit its
-type is a 422, and a 429 or a 5xx is retried. Resolving by external id goes through
+type is a 422, and a 429 or a 5xx is retried. Every refusal from the server is a problem
+document of type `datapoint-block-rejected`, so branch on its `reason` extension
+(`unknown-timeseries`, `value-type-mismatch`, `too-many-in-flight`, …) rather than on
+`problem_slug()`. Resolving by external id goes through
 `/timeseries/byids`, so the caller needs read access on the dataset as well as write access.
 The durable spool does not cover this path. `binary::FrameWriter` is public for producers that
 build frames themselves.

@@ -744,10 +744,15 @@ fn unprocessable(message: String) -> ResponseError {
 /// The server rejected the request because the series named in a frame no longer match what the
 /// client resolved: unknown after a delete, or renamed since.
 fn is_stale_series_rejection(error: &ResponseError) -> bool {
-    let status = error.get_status();
-    (status == StatusCode::NOT_FOUND || status == StatusCode::UNPROCESSABLE_ENTITY)
-        && (error.message.contains("unknown-timeseries")
-            || error.message.contains("external-id-mismatch"))
+    let Some(problem) = error.problem() else {
+        return false;
+    };
+    // Every binary refusal shares this one type; what went wrong is in `reason`.
+    problem.slug() == Some("datapoint-block-rejected")
+        && matches!(
+            problem.extensions.get("reason").and_then(|reason| reason.as_str()),
+            Some("unknown-timeseries" | "external-id-mismatch")
+        )
 }
 
 impl TimeSeriesService {
@@ -964,6 +969,44 @@ mod tests {
         let schema = reader.schema();
         let batches: Vec<RecordBatch> = reader.map(|b| b.unwrap()).collect();
         (batches, schema)
+    }
+
+    #[test]
+    fn only_a_stale_series_problem_rebuilds_the_request() {
+        let error = |status: StatusCode, body: &str| ResponseError {
+            status,
+            message: body.to_string(),
+            content_type: Some("application/problem+json".to_string()),
+        };
+        let rejected = |reason: &str| {
+            format!(
+                r#"{{"type":"https://intellistream.ai/errors/datapoint-block-rejected","title":"Datapoint block rejected","reason":"{reason}","timeseriesIds":[3]}}"#
+            )
+        };
+
+        assert!(is_stale_series_rejection(&error(
+            StatusCode::NOT_FOUND,
+            &rejected("unknown-timeseries")
+        )));
+        assert!(is_stale_series_rejection(&error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            &rejected("external-id-mismatch")
+        )));
+        assert!(!is_stale_series_rejection(&error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            &rejected("value-type-mismatch")
+        )));
+        assert!(!is_stale_series_rejection(&error(
+            StatusCode::NOT_FOUND,
+            r#"{"type":"https://intellistream.ai/errors/not-found","reason":"unknown-timeseries"}"#
+        )));
+        // The SDK's own 404 names the series it could not resolve, and an external id can spell a
+        // reason: matching on the body text retried this.
+        assert!(!is_stale_series_rejection(&ResponseError {
+            status: StatusCode::NOT_FOUND,
+            message: "Could not find following timeseries: unknown-timeseries-pump".to_string(),
+            content_type: None,
+        }));
     }
 
     #[test]
