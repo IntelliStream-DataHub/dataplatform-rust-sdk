@@ -19,7 +19,7 @@
 //! | Shape, before | Example | Now |
 //! |---|---|---|
 //! | full problem+json with a `type` | unknown field, malformed JSON, bad cursor, bad expression | unchanged |
-//! | problem+json with **no** `type` | `GET /resources/{id}` on a missing id | **still typeless** — see [`pending`] |
+//! | problem+json with **no** `type` | `GET /resources/{id}` on a missing id | `not-found` |
 //! | Spring Boot whitelabel + **stack trace** | `POST /datasets/list`, a `@Valid` search failure | typed problem, no trace |
 //! | a **success-shaped** `{"items":[…]}` envelope | `POST /timeseries/create` validation | `validation-failed` with `fields` |
 //! | the legacy `{"error":{"code","message",…}}` wrapper | a duplicate `externalId` | `duplicate` with `duplicated` |
@@ -29,15 +29,12 @@
 //! [`ProblemDetail::parse`] discriminates on structure rather than on the header. That is still the
 //! right call: it is what lets these tests state "this is *not* a problem document" as a fact.
 //!
-//! The three groups are kept apart because which assertions were aspirational is worth remembering:
+//! The two groups are kept apart because which assertions were aspirational is worth remembering:
 //!
 //! - [`green`] — true before the unification and after it. A failure here means the refactor
 //!   changed something it did not mean to.
 //! - [`unified`] — arrived *with* the unification. Every one was red on purpose until the api
 //!   merged; they are regression guards now, and a failure means a revert.
-//! - [`pending`] — the one refusal still without a `type`. Red on purpose, per the convention
-//!   [`crate::mcp_integration`] uses: an intended behaviour is worth more as a failing test than
-//!   softened to match the bug.
 //!
 //! # Why the assertions avoid prose
 //!
@@ -513,9 +510,10 @@ mod unified {
         );
     }
 
-    /// An unauthenticated call answers 401 with `Content-Length: 0` today. That is why
-    /// [`crate::auth_diagnostics`] exists at all — the SDK reconstructs a reason from the token it
-    /// just sent, because the api sends none. A body here would make that guesswork unnecessary.
+    /// An unauthenticated call used to answer 401 with `Content-Length: 0`, which is why
+    /// [`crate::auth_diagnostics`] reconstructs a reason from the token the SDK just sent. The api
+    /// now names the failed check in `detail` — including which organization-claim case a token
+    /// hit.
     #[tokio::test]
     async fn an_unauthenticated_call_says_why() {
         let refusal = Probe::new().get_unauthenticated("/timeseries?limit=1").await;
@@ -665,29 +663,11 @@ mod unified {
             refusal.preview()
         );
     }
-}
 
-/// What the unification has not reached yet.
-///
-/// **Red on purpose**, like [`crate::mcp_integration`]'s `mcp_response_is_a_json_object`. When the
-/// api closes this, the test goes green and moves to [`unified`].
-mod pending {
-    use super::Probe;
-    use crate::problem::ProblemDetail;
-
-    /// Every `GET /<collection>/{id}` miss answers through one shared advice, and it is the last
-    /// refusal in the api with no `type`.
-    ///
-    /// Easy to miss, because the body looks finished: `Problems.decorate` still runs on it, so it
-    /// carries `requestId` and `retry` like every other problem, and only `type` is absent. But
-    /// `type` is the member clients branch on — `slug()` is `None` here, so a caller matching on
-    /// `"not-found"` silently falls through to its default arm on one of the most common errors
-    /// there is.
-    ///
-    /// The fix is one line: `ObjectNotFoundExceptionHandler` hand-builds its document with
-    /// `ProblemDetail.forStatusAndDetail` + `setTitle`, where `Problems.notFound(detail)` — which
-    /// exists, sets `NOT_FOUND = type("not-found")`, and is already used by `FileController` and
-    /// `TimeseriesController` — would do it.
+    /// Every `GET /<collection>/{id}` miss answers through one shared advice, and it was the last
+    /// refusal to gain a `type` (datahub-platform #117). The untyped version was easy to miss: the
+    /// decoration ran on it too, so it carried `requestId` and `retry` and looked finished, while a
+    /// caller matching `slug()` on `"not-found"` fell through to its default arm.
     #[tokio::test]
     async fn a_missing_id_is_typed_like_every_other_refusal() {
         let refusal = Probe::new().get("/resources/999999999").await;
@@ -697,11 +677,11 @@ mod pending {
             .problem()
             .unwrap_or_else(|| panic!("a 404 should be a problem, got {}", refusal.slug_or_shape()));
 
-        // Pinned so that if the shared advice is migrated, this test notices rather than the
-        // decoration silently masking it: these already arrive, only `type` does not.
+        // Pinned so that a revert to a hand-built document shows as a missing `type` rather than
+        // being masked by the decoration, which ran on the untyped version too.
         assert!(
             problem.request_id().is_some() && problem.retry().is_some(),
-            "the advice already decorates this problem: {}",
+            "the advice decorates every problem: {}",
             refusal.preview()
         );
 
