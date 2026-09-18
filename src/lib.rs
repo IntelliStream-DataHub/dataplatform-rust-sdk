@@ -4,6 +4,7 @@ use reqwest::ClientBuilder;
 use std::sync::{Arc, Weak};
 
 use crate::datahub::DataHubConfig;
+pub use crate::assets::AssetsService;
 pub use crate::events::EventsService;
 pub use crate::files::{FileService, FileUpload};
 pub use crate::resources::ResourceService;
@@ -20,6 +21,7 @@ pub use crate::subscriptions::SubscriptionsService;
 pub(crate) mod auth_diagnostics;
 #[cfg(feature = "blocking")]
 pub mod blocking;
+pub mod assets;
 pub mod buffer;
 #[cfg(test)]
 mod buffer_integration;
@@ -77,6 +79,7 @@ pub struct ApiService {
     pub units: UnitsService,
     pub events: EventsService,
     pub resources: ResourceService,
+    pub assets: AssetsService,
     pub datasets: DatasetsService,
     pub files: FileService,
     pub subscriptions: SubscriptionsService,
@@ -133,6 +136,7 @@ pub fn create_api_service() -> Arc<ApiService> {
             units: UnitsService::new(Weak::clone(weak_self), &base_url_clone), // Pass the Weak reference
             events: EventsService::new(Weak::clone(weak_self), &base_url_clone),
             resources: ResourceService::new(Weak::clone(weak_self), &base_url_clone),
+            assets: AssetsService::new(Weak::clone(weak_self), &base_url_clone),
             datasets: DatasetsService::new(Weak::clone(weak_self), &base_url_clone),
             files: FileService::new(Weak::clone(weak_self), &base_url_clone),
             subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
@@ -169,6 +173,7 @@ impl ApiService {
                 units: UnitsService::new(Weak::clone(weak_self), &base_url_clone), // Pass the Weak reference
                 events: EventsService::new(Weak::clone(weak_self), &base_url_clone),
                 resources: ResourceService::new(Weak::clone(weak_self), &base_url_clone),
+                assets: AssetsService::new(Weak::clone(weak_self), &base_url_clone),
                 datasets: DatasetsService::new(Weak::clone(weak_self), &base_url_clone),
                 files: FileService::new(Weak::clone(weak_self), &base_url_clone),
                 subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),
@@ -206,6 +211,7 @@ impl ApiService {
                 units: UnitsService::new(Weak::clone(weak_self), &base_url_clone), // Pass the Weak reference
                 events: EventsService::new(Weak::clone(weak_self), &base_url_clone),
                 resources: ResourceService::new(Weak::clone(weak_self), &base_url_clone),
+                assets: AssetsService::new(Weak::clone(weak_self), &base_url_clone),
                 datasets: DatasetsService::new(Weak::clone(weak_self), &base_url_clone),
                 files: FileService::new(Weak::clone(weak_self), &base_url_clone),
                 subscriptions: SubscriptionsService::new(Weak::clone(weak_self), &base_url_clone),

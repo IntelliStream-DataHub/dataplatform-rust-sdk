@@ -40,10 +40,11 @@ use crate::generic::{
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::labels::Label;
-use crate::nodes::Node;
+use crate::nodes::{Asset, Node};
 use crate::relations::{EdgeProxy, RelForm, RelTypeForm, RelationshipType};
 use crate::resources::{
-    RelatedResourcesForm, Resource, ResourceFilter, ResourceNetwork, ResourceUpdate,
+    RelatedResourcesForm, Resource, ResourceFilter, ResourceFilterForm, ResourceNetwork,
+    ResourceUpdate,
 };
 use crate::timeseries::{BinaryIngestOptions, TimeSeries, TimeSeriesFilter, TimeSeriesUpdateCollection};
 use crate::unit::Unit;
@@ -91,6 +92,7 @@ pub struct ApiService {
     api: Arc<crate::ApiService>,
     pub time_series: TimeSeriesService,
     pub resources: ResourceService,
+    pub assets: AssetsService,
     pub events: EventsService,
     pub datasets: DatasetsService,
     pub units: UnitsService,
@@ -131,6 +133,7 @@ impl ApiService {
         ApiService {
             time_series: service!(TimeSeriesService),
             resources: service!(ResourceService),
+            assets: service!(AssetsService),
             events: service!(EventsService),
             datasets: service!(DatasetsService),
             units: service!(UnitsService),
@@ -334,6 +337,39 @@ impl FileService {
     ) -> Result<u64, ResponseError> {
         self.rt
             .block_on(self.api.files.download_to_path(id, destination))
+    }
+}
+
+/// Blocking counterpart of [`crate::assets::AssetsService`].
+pub struct AssetsService {
+    api: Arc<crate::ApiService>,
+    rt: Arc<Runtime>,
+}
+
+impl AssetsService {
+    delegate! { assets =>
+        fn get_by_id(id: u64) -> Result<DataWrapper<Asset>, ResponseError>;
+        fn list(limit: Option<u64>) -> Result<DataWrapper<Asset>, ResponseError>;
+        fn filter(form: &ResourceFilterForm) -> Result<DataWrapper<Asset>, ResponseError>;
+        fn search(
+            form: &SearchAndFilterForm<ResourceFilter>,
+        ) -> Result<DataWrapper<Asset>, ResponseError>;
+        fn search_by_query(query: &str) -> Result<DataWrapper<Asset>, ResponseError>;
+    }
+
+    delegate_into! { assets =>
+        fn create(data: Into<DataWrapper<Asset>>) -> Result<DataWrapper<Asset>, ResponseError>;
+        fn by_ids(id_collection: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Asset>, ResponseError>;
+        fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Asset>, ResponseError>;
+    }
+
+    /// Mirrors the async `update`: the echo is typed, and a [`Node`] rather than an [`Asset`] —
+    /// an update may touch relations whose other end is not an asset.
+    pub fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Node>, ResponseError>
+    where
+        for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
+    {
+        self.rt.block_on(self.api.assets.update(input))
     }
 }
 
