@@ -45,14 +45,21 @@ def ids_of(page):
     return [item.external_id for item in page]
 
 
+# The server refuses a cursor from any other version with a 400, so a forged cursor left on an old
+# version is rejected before its boundary is ever read — and a test forging one to probe the
+# boundary then passes for the wrong reason. `test_the_cursor_is_opaque_and_versioned` fails the
+# moment this falls behind the server; bump it here and nowhere else.
+CURSOR_VERSION = "v2"
+
+
 def forge_cursor(property_name, direction, row_id, value):
     """Build a cursor by hand — only ever to test what the server does with a bad one.
 
     Callers must not do this: a cursor is opaque precisely so its encoding can change. The shape is
-    base64url of ``v1|<property>|<asc|desc>|<id>|v<value>`` (or ``n`` for a null boundary).
+    base64url of ``<version>|<property>|<asc|desc>|<id>|v<value>`` (or ``n`` for a null boundary).
     """
     tagged = "n" if value is None else f"v{value}"
-    raw = f"v1|{property_name}|{direction}|{row_id}|{tagged}"
+    raw = f"{CURSOR_VERSION}|{property_name}|{direction}|{row_id}|{tagged}"
     return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
 
 
@@ -183,24 +190,21 @@ def test_paging_across_a_run_of_tied_values(ts_page, sync_client, prefix):
 
 
 # --------------------------------------------------------------------------- #
-# tied timestamps — xfail on purpose, until the api fixes them
+# tied timestamps — regression guards
 #
-# `test_paging_across_a_run_of_tied_values` above ties on `dataSetId` and passes, and a 30-way tie
-# on `name` pages exactly right in both directions. So this is *not* "a tied sort key breaks
-# paging" — the tie-break works fine on a string or an id boundary. It is not applied when the
-# boundary is a *timestamp*, and `createdTime` descending is the default sort of all four filters,
-# so the walk a caller writes without thinking about sorting at all is the one that is wrong.
+# The timestamp columns store microseconds, and v1 cursors carried their boundary in milliseconds.
+# The truncated boundary sat below every row sharing its millisecond, so `equal(column, boundary)`
+# never matched and the `id` tie-break never engaged: those rows were **skipped** descending and
+# **re-emitted** ascending. Descending was the dangerous half — `createdTime` descending is the
+# default sort, and `nextCursor` is absent on the last page either way, so nothing told the caller
+# the set was incomplete. v2 cursors carry microseconds; both tests were xfail until it landed.
 #
-# The two directions fail differently, which is why they are two tests: rows sharing the boundary's
-# millisecond are **skipped** descending and **re-emitted** ascending. Descending is the dangerous
-# half — `nextCursor` is absent on the last page either way, so nothing tells the caller the set
-# was incomplete. (Note `sort_by="createdTime"` with no `sort_order` is *ascending*; the default
-# sort is the same column descending, which is why the two are spelled out here.)
-#
-# Both tests encode the contract rather than the bug, and are `strict=True` so that the day the api
-# fixes this they fail as XPASS and the mark comes off. `tied_timestamp_timeseries` creates its
-# rows in one batch on purpose: a batch stamps several rows inside the same millisecond, which is
-# how a caller meets this in the first place — a bulk import, then a walk over the result.
+# Nothing else in this file could have caught it: every other tie here is on `dataSetId` or `name`,
+# whose boundaries round-trip exactly. `tied_timestamp_timeseries` creates its rows in one batch on
+# purpose — a batch stamps several rows inside the same millisecond, which is how a caller meets
+# this in the first place: a bulk import, then a walk over the result. (`sort_by="createdTime"`
+# with no `sort_order` is *ascending*; the default sort is the same column descending, which is why
+# the two directions are spelled out.)
 # --------------------------------------------------------------------------- #
 
 @pytest.fixture
@@ -229,15 +233,12 @@ def tied_timestamp_timeseries(sync_client, datasets, prefix):
         pass
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="descending, keyset paging skips the rows sharing the boundary's "
-                          "millisecond; the walk ends short with no cursor to say so")
 def test_a_walk_under_the_default_sort_loses_no_rows(sync_client, tied_timestamp_timeseries):
-    """The default sort is ``createdTime`` descending, and a walk under it silently drops rows.
+    """The default sort is ``createdTime`` descending, and a walk under it used to drop rows.
 
     This is the walk a caller gets for free — ``filter(...)``, then follow ``next_cursor`` — so a
-    bulk import followed by a paged read returns a set that is quietly missing members. The rows
-    lost are the ones sharing the boundary's millisecond.
+    bulk import followed by a paged read returned a set quietly missing the rows that shared the
+    boundary's millisecond.
     """
     stem, expected = tied_timestamp_timeseries
     rows, _requests = walk(
@@ -247,15 +248,11 @@ def test_a_walk_under_the_default_sort_loses_no_rows(sync_client, tied_timestamp
     )
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="ascending, the rows sharing the boundary's millisecond are re-emitted "
-                          "rather than skipped, so the walk returns them on both pages")
 def test_an_ascending_timestamp_walk_repeats_no_rows(sync_client, tied_timestamp_timeseries):
-    """Ascending fails the other way round: the same rows come back twice.
+    """Ascending failed the other way round: the same rows came back on two pages.
 
-    Same population and page size as the test above, opposite symptom. ``lastUpdatedTime`` behaves
-    identically — both are timestamps, and neither ``name`` nor ``source`` nor ``dataSetId`` does
-    this in either direction.
+    Same population and page size as the test above, opposite symptom from the same truncation.
+    ``lastUpdatedTime`` behaved identically; no other sortable column is a timestamp.
     """
     stem, expected = tied_timestamp_timeseries
     rows, _requests = walk(
@@ -273,12 +270,17 @@ def test_an_ascending_timestamp_walk_repeats_no_rows(sync_client, tied_timestamp
 
 def test_the_cursor_is_opaque_and_versioned(ts_page):
     """Base64url of a versioned encoding. Asserted only as far as "it is not something a caller
-    should be reading" — the point of the ``v1`` prefix is that the format can change."""
+    should be reading" — the point of the version prefix is that the format can change.
+
+    Pinned to ``CURSOR_VERSION`` rather than to "some version", because this is also the check that
+    ``forge_cursor`` still speaks the server's version. It went from ``v1`` to ``v2`` when timestamp
+    boundaries moved to microseconds, and every forged-cursor test below kept passing on the version
+    rejection alone until this one named the drift."""
     cursor = ts_page(limit=2, sort_by="name", sort_order="asc").next_cursor
     assert cursor and "|" not in cursor and " " not in cursor
 
     decoded = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
-    assert decoded.startswith("v1|"), decoded
+    assert decoded.startswith(f"{CURSOR_VERSION}|"), decoded
     # It carries the sort, which is what lets the server refuse a mismatched continuation.
     assert "name" in decoded and "asc" in decoded
 
@@ -288,6 +290,12 @@ UNREADABLE_CURSORS = [
     pytest.param("!!!", id="punctuation"),
     pytest.param("djE6", id="truncated"),
     pytest.param(base64.urlsafe_b64encode(b"v9|junk").decode(), id="unknown-version"),
+    # Well-formed, and valid before v2 carried timestamps in microseconds. Read under v2 its
+    # millisecond boundary would land in 1970 and the walk would restart from the top — a cursor
+    # stored across the upgrade has to be refused rather than misread.
+    pytest.param(
+        base64.urlsafe_b64encode(b"v1|createdTime|desc|5|v1789733333563").decode().rstrip("="),
+        id="retired-v1"),
 ]
 
 

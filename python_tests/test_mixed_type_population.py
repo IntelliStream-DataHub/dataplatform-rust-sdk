@@ -288,14 +288,13 @@ def test_paging_a_mixed_population_visits_every_type_exactly_once(sync_client, c
     page — so the thing that could go wrong here is a boundary compared against a column only some
     of the types populate, which would strand whichever type straddles it.
 
-    Sorted by ``externalId`` rather than the default: the default sort is ``createdTime``, and a
-    walk under it drops rows outright on this backend whatever the population's types
-    (``test_filter_paging.py::test_a_walk_under_the_default_sort_loses_no_rows``). Leaving it
-    default here would mean this test failed for a reason it has nothing to say about.
+    Under the default sort on purpose. The corpus is one create call, so its ``createdTime`` values
+    tie across types in every millisecond it spans — the case that dropped rows before v2 cursors
+    carried timestamps in microseconds (``test_filter_paging.py``'s tied-timestamp tests).
     """
     walked = _walk(
         lambda limit, cursor: sync_client.resources.filter(
-            external_id=f"{corpus['stem']}*", limit=limit, cursor=cursor, sort_by="externalId"
+            external_id=f"{corpus['stem']}*", limit=limit, cursor=cursor
         ),
         7,
     )
@@ -307,7 +306,7 @@ def test_paging_a_typed_filter_never_leaves_the_type(sync_client, corpus):
     """Every page of a typed walk is drawn from the same type, not just the first one."""
     walked = _walk(
         lambda limit, cursor: sync_client.timeseries.filter(
-            external_id=f"{corpus['stem']}*", limit=limit, cursor=cursor, sort_by="externalId"
+            external_id=f"{corpus['stem']}*", limit=limit, cursor=cursor
         ),
         5,
     )

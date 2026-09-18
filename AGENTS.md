@@ -277,25 +277,23 @@ list-like, so existing code is unaffected, but carrying `.next_cursor`.
   sort column alone is not a position unless it is unique, so a page boundary inside a run of equal
   values repeats or drops exactly those rows. An unrecognised property falls back to the default
   rather than erroring; anything that is not exactly `desc` sorts ascending.
-- **The tie-breaker is not applied on a *timestamp* boundary** — only on `createdTime` and
-  `lastUpdatedTime`, and `createdTime` descending is the default sort. Rows sharing the boundary's
-  millisecond, which is what a batch create produces, are **skipped descending** and **re-emitted
-  ascending**: a walk comes back short one way and long the other. The cursor carries the boundary
-  as epoch millis and the column stores milliseconds, so nothing is lost encoding it — the tie
-  group is simply not split by `id` the way a string boundary's is. Descending is the dangerous
-  half, because `nextCursor` is absent on the last page either way and nothing tells the caller the
-  set was incomplete. This is not "ties break paging": a 30-way tie on `name` pages exactly right
-  in both directions, as do `source`, `dataSetId` and any unique column — so sorting on
-  `externalId` or `id` is the workaround. Nothing to do with node type either; a single-type batch
-  loses rows too. Pinned by the two `xfail(strict=True)` tests in
-  `python_tests/test_filter_paging.py`; it is a datahub-platform bug, so those go green from the
-  other side.
+- **Timestamp boundaries are microseconds**, and were not always. The `createdTime` and
+  `lastUpdatedTime` columns store microseconds; v1 cursors carried their boundary in milliseconds,
+  so the boundary sat below every row sharing its millisecond, `equal(column, boundary)` never
+  matched and the `id` tie-break never engaged. Rows from one batch create were **skipped**
+  descending — the default sort, with no `nextCursor` to say the walk was short — and **re-emitted**
+  ascending. v2 cursors carry microseconds. Easy to misdiagnose from the client: the JSON reports
+  those columns in milliseconds, so the sub-millisecond part the cursor lost is invisible from
+  here. The tied-timestamp tests in `python_tests/test_filter_paging.py` guard it — every other tie
+  there is on `dataSetId` or `name`, whose boundaries round-trip exactly.
 - **Defaults differ.** Nodes: `createdTime` descending, sortable by `id`, `externalId`, `name`,
   `source`, `description`, `createdTime`, `lastUpdatedTime`, `dataSetId`. Events: `eventTime`
   **ascending** — the order the cursor pages in — sortable also by `type`, `subType`, `status`.
 - **Nulls are a block**: last ascending, first descending.
 - **Cursors are opaque** (base64 of a versioned encoding of sort + boundary + id). Never build one;
-  echo back `next_cursor`. An unreadable cursor restarts from page one rather than erroring.
+  echo back `next_cursor`. An unreadable cursor is a **400** `malformed-cursor` — and so is one
+  from a retired version, so a cursor stored across a server upgrade that bumped it means
+  restarting the walk, not resuming it.
 - **A cursor belongs to its sort.** Continuing it under another is *meant* to be a 400; today it is
   a 200 with a zero-byte body — see `python_tests/test_filter_paging.py`. Paging a nullable event
   sort (`subType`, `status`) is refused the same way.
