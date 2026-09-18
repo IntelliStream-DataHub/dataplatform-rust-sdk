@@ -676,10 +676,23 @@ mod tests {
         let binary_aggs = daily_aggregates(&api_service, &new_ts_ext_id).await;
         let json_aggs = daily_aggregates(&api_service, &json_ext_id).await;
         assert!(!binary_aggs.is_empty(), "no daily buckets came back");
-        assert_eq!(
-            binary_aggs, json_aggs,
-            "the binary path aggregates differently from the JSON path for identical input"
-        );
+        assert_eq!(binary_aggs.len(), json_aggs.len(), "the two paths answered a different number of buckets");
+        // min and max select a stored value, so they must match exactly. avg is computed, and
+        // ClickHouse sums the two series' parts in different orders.
+        for ((bucket, binary_avg, binary_min, binary_max), (json_bucket, json_avg, json_min, json_max)) in
+            binary_aggs.into_iter().zip(json_aggs)
+        {
+            assert_eq!(bucket, json_bucket, "the two paths answered different buckets");
+            assert_eq!(
+                (binary_min, binary_max),
+                (json_min, json_max),
+                "bucket {bucket}: min/max differ, so the two paths stored different values"
+            );
+            assert!(
+                (binary_avg - json_avg).abs() < AVG_TOLERANCE,
+                "bucket {bucket}: avg {binary_avg} from the binary path against {json_avg} from JSON"
+            );
+        }
 
         println!("Validate raw datapoints with a cursor walk...");
         // Not validate_raw_datapoints_with_cursor: that one asserts a fixed final page size
@@ -878,15 +891,7 @@ mod tests {
         }
     }
 
-    fn truncate_10(x: f64) -> f64 {
-        // Clickhouse will have rounding errors using for example avg(), so we truncate the returned
-        // values to mitigate this
-        let multiplier = 10f64.powf(10.0);
-        (x * multiplier).floor() / multiplier
-    }
-
-    /// Daily avg/min/max for the whole window, truncated so two paths that stored the same
-    /// values compare equal without depending on how many digits the read path prints.
+    /// `(bucket start millis, avg, min, max)` per day for the whole window.
     async fn daily_aggregates(
         api_service: &Arc<ApiService>,
         external_id: &str,
@@ -913,9 +918,9 @@ mod tests {
                     .map(|dp| {
                         (
                             dp.timestamp().timestamp_millis(),
-                            truncate_10(dp.average().unwrap_or(f64::NAN)),
-                            truncate_10(dp.min().unwrap_or(f64::NAN)),
-                            truncate_10(dp.max().unwrap_or(f64::NAN)),
+                            dp.average().expect("a daily bucket without avg"),
+                            dp.min().expect("a daily bucket without min"),
+                            dp.max().expect("a daily bucket without max"),
                         )
                     })
                     .collect()
