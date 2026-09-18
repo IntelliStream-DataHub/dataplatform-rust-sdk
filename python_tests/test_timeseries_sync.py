@@ -142,8 +142,13 @@ def test_insert_datapoints_missing_timeseries_returns_not_found(sync_client):
     vals = intellistream_datahub_sdk.DatapointsCollectionString(datapoints=[dp], ts=nonexistent)
     with pytest.raises(intellistream_datahub_sdk.DataHubException) as exc_info:
         sync_client.timeseries.insert_datapoints(input=[vals])
-    assert exc_info.value.status_code == 404
-    assert "Could not find following timeseries" in exc_info.value.message
+    error = exc_info.value
+    assert error.status_code == 404
+    assert error.problem_slug == "not-found", error.message
+    # A partial success: the rest of the batch was inserted, and `missing` says what was not.
+    assert any(
+        entry.get("externalId") == "nonexistent_ts_for_404_test" for entry in error.problem.get("missing", [])
+    ), f"`missing` should name the absent series: {error.problem}"
 
 
 def test_invalid_retrieve_latest_datapoint(sync_client):
