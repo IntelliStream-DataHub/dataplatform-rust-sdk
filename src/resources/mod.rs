@@ -126,13 +126,18 @@ impl ResourceService {
     /// it can set is a shared node field, so one update form covers all six node types — except
     /// `geolocation`, which only an asset stores.
     ///
-    /// **The echo is flat.** Unlike every read on this service, the api answers here with each
-    /// node serialized as a plain [`Resource`], whatever its type — so a timeseries updated
-    /// through this endpoint comes back without its `unit`, though the same node reads back as a
-    /// [`Node::TimeSeries`] from [`get_by_id`](Self::get_by_id). Re-read the node if you need its
-    /// typed form. The returned `labels` do reflect what the backend stored, including the
-    /// intrinsic type-label it always forces back.
-    pub async fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
+    /// **The echo is typed**, like every other read here: each node comes back in the shape of its
+    /// own kind, so a timeseries updated through this endpoint carries its `unit` and `value_type`
+    /// and an asset its `geolocation`. The returned `labels` reflect what the backend stored,
+    /// including the intrinsic type-label it always forces back.
+    ///
+    /// This used to answer with a flat [`Resource`] whatever the node's real type — the last
+    /// read/write asymmetry on this service — and the SDK typed it that way. The api's node-update
+    /// refactor made the pipeline per-type, and the echo followed. Worth knowing because the old
+    /// shape was not merely lossy: `Resource` requires `isRoot`, which only resources and assets
+    /// carry, so updating a timeseries or a function through the old signature failed to
+    /// *deserialize* rather than returning something thin.
+    pub async fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Node>, ResponseError>
     where
         for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
     {
@@ -142,7 +147,7 @@ impl ResourceService {
             payload.relations = Some(vec![]);
         }
         let url = &format!("{}/update", self.base_url);
-        self.execute_post_request::<GraphDataWrapper<Resource>, _>(&url, &payload)
+        self.execute_post_request::<GraphDataWrapper<Node>, _>(&url, &payload)
             .await
     }
 
