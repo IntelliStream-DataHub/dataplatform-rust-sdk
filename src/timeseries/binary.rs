@@ -743,11 +743,18 @@ fn unprocessable(message: String) -> ResponseError {
 
 /// The server rejected the request because the series named in a frame no longer match what the
 /// client resolved: unknown after a delete, or renamed since.
+///
+/// Read from the problem document, not the body text: the SDK's own pre-flight 404 names the
+/// series it could not resolve, so an external id spelling one of these slugs used to earn a
+/// pointless second attempt.
 fn is_stale_series_rejection(error: &ResponseError) -> bool {
-    let status = error.get_status();
-    (status == StatusCode::NOT_FOUND || status == StatusCode::UNPROCESSABLE_ENTITY)
-        && (error.message.contains("unknown-timeseries")
-            || error.message.contains("external-id-mismatch"))
+    let Some(problem) = error.problem() else {
+        return false;
+    };
+    matches!(
+        problem.slug(),
+        Some("unknown-timeseries" | "external-id-mismatch")
+    )
 }
 
 impl TimeSeriesService {
@@ -964,6 +971,47 @@ mod tests {
         let schema = reader.schema();
         let batches: Vec<RecordBatch> = reader.map(|b| b.unwrap()).collect();
         (batches, schema)
+    }
+
+    #[test]
+    fn only_a_stale_series_problem_rebuilds_the_request() {
+        let refusal = |status: StatusCode, slug: &str, reason: &str| ResponseError {
+            status,
+            message: format!(
+                r#"{{"type":"https://intellistream.ai/errors/{slug}","title":"Binary datapoint request rejected","reason":"{reason}","timeseriesIds":[3]}}"#
+            ),
+            content_type: Some("application/problem+json".to_string()),
+        };
+
+        assert!(is_stale_series_rejection(&refusal(
+            StatusCode::NOT_FOUND,
+            "unknown-timeseries",
+            "unknown-timeseries"
+        )));
+        assert!(is_stale_series_rejection(&refusal(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "external-id-mismatch",
+            "external-id-mismatch"
+        )));
+        // Re-resolving cannot make a value fit a type it does not fit.
+        assert!(!is_stale_series_rejection(&refusal(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "value-type-mismatch",
+            "value-type-mismatch"
+        )));
+        // The single type every binary refusal carried before platform #120 split it. Deliberately
+        // not matched: it never reached a release of this SDK, so nothing can be sending it.
+        assert!(!is_stale_series_rejection(&refusal(
+            StatusCode::NOT_FOUND,
+            "datapoint-block-rejected",
+            "unknown-timeseries"
+        )));
+        // The SDK's own pre-flight 404 is not a problem document, whatever the series is called.
+        assert!(!is_stale_series_rejection(&ResponseError {
+            status: StatusCode::NOT_FOUND,
+            message: "Could not find following timeseries: unknown-timeseries-pump".to_string(),
+            content_type: None,
+        }));
     }
 
     #[test]

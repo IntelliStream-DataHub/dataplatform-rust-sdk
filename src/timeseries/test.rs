@@ -1579,6 +1579,57 @@ mod tests {
         Ok(())
     }
 
+    /// Recreating a series under the same external id gives it a new id, so the server refuses the
+    /// one this service cached — `unknown-timeseries` — and the call must re-resolve and succeed.
+    /// The only live coverage of that retry: every other path resolves before it sends. Needs a
+    /// backend that serves the binary endpoint.
+    #[tokio::test]
+    #[ignore]
+    async fn test_insert_datapoints_binary_re_resolves_a_recreated_series() -> Result<(), Box<dyn std::error::Error>> {
+        let api_service = create_api_service();
+        let ext_id = unique_id("ts_binary_recreated");
+        let mut ts_cleanup = cleanup_timeseries(vec![ext_id.clone()]);
+
+        let mut ts_collection = DataWrapper::new();
+        ts_collection.add_item(
+            TimeSeries::builder()
+                .set_external_id(&ext_id)
+                .set_name(&ext_id)
+                .set_unit("celsius")
+                .set_value_type("float")
+                .clone(),
+        );
+        let mut data_request: DataWrapper<DatapointsCollection<DatapointString>> = DataWrapper::new();
+        let mut dp_collection = DatapointsCollection::from_external_id(&ext_id);
+        dp_collection.datapoints = vec![
+            DatapointString::from_datetime(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap(), "42.0"),
+        ];
+        data_request.add_item(dp_collection);
+
+        api_service.time_series.create(&ts_collection).await.expect("could not create the series");
+        api_service
+            .time_series
+            .insert_datapoints_binary(&data_request, &BinaryIngestOptions::default())
+            .await
+            .expect("the first binary insert failed");
+
+        delete_timeseries(&api_service, &[&ext_id]).await;
+        api_service.time_series.create(&ts_collection).await.expect("could not recreate the series");
+
+        match api_service
+            .time_series
+            .insert_datapoints_binary(&data_request, &BinaryIngestOptions::default())
+            .await
+        {
+            Ok(r) => assert_eq!(r.get_http_status_code().unwrap(), StatusCode::NO_CONTENT.as_u16()),
+            Err(e) => panic!("the cached id was not re-resolved: {}: {}", e.get_status(), e.get_message()),
+        }
+
+        delete_timeseries(&api_service, &[&ext_id]).await;
+        ts_cleanup.disarm();
+        Ok(())
+    }
+
     fn validate_data_insertion(result: Result<DataWrapper<String>, ResponseError>) {
         match result {
             Ok(r) => {
