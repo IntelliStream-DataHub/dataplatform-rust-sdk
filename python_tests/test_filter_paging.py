@@ -183,6 +183,91 @@ def test_paging_across_a_run_of_tied_values(ts_page, sync_client, prefix):
 
 
 # --------------------------------------------------------------------------- #
+# tied timestamps — xfail on purpose, until the api fixes them
+#
+# `test_paging_across_a_run_of_tied_values` above ties on `dataSetId` and passes, and a 30-way tie
+# on `name` pages exactly right in both directions. So this is *not* "a tied sort key breaks
+# paging" — the tie-break works fine on a string or an id boundary. It is not applied when the
+# boundary is a *timestamp*, and `createdTime` descending is the default sort of all four filters,
+# so the walk a caller writes without thinking about sorting at all is the one that is wrong.
+#
+# The two directions fail differently, which is why they are two tests: rows sharing the boundary's
+# millisecond are **skipped** descending and **re-emitted** ascending. Descending is the dangerous
+# half — `nextCursor` is absent on the last page either way, so nothing tells the caller the set
+# was incomplete. (Note `sort_by="createdTime"` with no `sort_order` is *ascending*; the default
+# sort is the same column descending, which is why the two are spelled out here.)
+#
+# Both tests encode the contract rather than the bug, and are `strict=True` so that the day the api
+# fixes this they fail as XPASS and the mark comes off. `tied_timestamp_timeseries` creates its
+# rows in one batch on purpose: a batch stamps several rows inside the same millisecond, which is
+# how a caller meets this in the first place — a bulk import, then a walk over the result.
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def tied_timestamp_timeseries(sync_client, datasets, prefix):
+    """30 timeseries created in one call, so their ``createdTime`` values tie in blocks.
+
+    A single create is what produces the tie: the rows land across a handful of milliseconds, in
+    groups of several. Their names are identical too, so the population is a tie under any sort
+    but ``id`` and ``externalId``.
+    """
+    _parent, child = datasets
+    stem = f"{prefix}_tied_ts"
+    externals = [f"{stem}_{i:02d}" for i in range(30)]
+    sync_client.timeseries.create([
+        intellistream_datahub_sdk.TimeSeries(
+            external_id=external_id, name=f"Tied Stamp {prefix}", unit="bar",
+            value_type="float", data_set_id=child.id)
+        for external_id in externals
+    ])
+
+    yield stem, set(externals)
+
+    try:
+        sync_client.timeseries.delete(externals)
+    except Exception:
+        pass
+
+
+@pytest.mark.xfail(strict=True,
+                   reason="descending, keyset paging skips the rows sharing the boundary's "
+                          "millisecond; the walk ends short with no cursor to say so")
+def test_a_walk_under_the_default_sort_loses_no_rows(sync_client, tied_timestamp_timeseries):
+    """The default sort is ``createdTime`` descending, and a walk under it silently drops rows.
+
+    This is the walk a caller gets for free — ``filter(...)``, then follow ``next_cursor`` — so a
+    bulk import followed by a paged read returns a set that is quietly missing members. The rows
+    lost are the ones sharing the boundary's millisecond.
+    """
+    stem, expected = tied_timestamp_timeseries
+    rows, _requests = walk(
+        lambda **paging: sync_client.timeseries.filter(external_id=f"{stem}_*", **paging), limit=7)
+    assert set(rows) == expected, (
+        f"the default-order walk dropped {len(expected - set(rows))} of {len(expected)} rows"
+    )
+
+
+@pytest.mark.xfail(strict=True,
+                   reason="ascending, the rows sharing the boundary's millisecond are re-emitted "
+                          "rather than skipped, so the walk returns them on both pages")
+def test_an_ascending_timestamp_walk_repeats_no_rows(sync_client, tied_timestamp_timeseries):
+    """Ascending fails the other way round: the same rows come back twice.
+
+    Same population and page size as the test above, opposite symptom. ``lastUpdatedTime`` behaves
+    identically — both are timestamps, and neither ``name`` nor ``source`` nor ``dataSetId`` does
+    this in either direction.
+    """
+    stem, expected = tied_timestamp_timeseries
+    rows, _requests = walk(
+        lambda **paging: sync_client.timeseries.filter(external_id=f"{stem}_*", **paging),
+        limit=7, sort_by="createdTime", sort_order="asc")
+    assert len(rows) == len(set(rows)), (
+        f"the walk returned {len(rows) - len(set(rows))} rows more than once"
+    )
+    assert set(rows) == expected
+
+
+# --------------------------------------------------------------------------- #
 # the cursor is opaque
 # --------------------------------------------------------------------------- #
 

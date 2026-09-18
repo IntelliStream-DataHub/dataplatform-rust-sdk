@@ -277,6 +277,19 @@ list-like, so existing code is unaffected, but carrying `.next_cursor`.
   sort column alone is not a position unless it is unique, so a page boundary inside a run of equal
   values repeats or drops exactly those rows. An unrecognised property falls back to the default
   rather than erroring; anything that is not exactly `desc` sorts ascending.
+- **The tie-breaker is not applied on a *timestamp* boundary** — only on `createdTime` and
+  `lastUpdatedTime`, and `createdTime` descending is the default sort. Rows sharing the boundary's
+  millisecond, which is what a batch create produces, are **skipped descending** and **re-emitted
+  ascending**: a walk comes back short one way and long the other. The cursor carries the boundary
+  as epoch millis and the column stores milliseconds, so nothing is lost encoding it — the tie
+  group is simply not split by `id` the way a string boundary's is. Descending is the dangerous
+  half, because `nextCursor` is absent on the last page either way and nothing tells the caller the
+  set was incomplete. This is not "ties break paging": a 30-way tie on `name` pages exactly right
+  in both directions, as do `source`, `dataSetId` and any unique column — so sorting on
+  `externalId` or `id` is the workaround. Nothing to do with node type either; a single-type batch
+  loses rows too. Pinned by the two `xfail(strict=True)` tests in
+  `python_tests/test_filter_paging.py`; it is a datahub-platform bug, so those go green from the
+  other side.
 - **Defaults differ.** Nodes: `createdTime` descending, sortable by `id`, `externalId`, `name`,
   `source`, `description`, `createdTime`, `lastUpdatedTime`, `dataSetId`. Events: `eventTime`
   **ascending** — the order the cursor pages in — sortable also by `type`, `subType`, `status`.
