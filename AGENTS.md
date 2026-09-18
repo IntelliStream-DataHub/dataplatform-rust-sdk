@@ -73,6 +73,17 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 
   - `create_types` fails silently on a duplicate name — the unique-hash collision surfaces at commit, after the handler returned, so the caller gets a 200 with an empty *body*, and in a batch the valid new types are rolled back with it. This one does contradict the OpenAPI: `test_duplicate_relationship_type_conflicts` encodes the intended 409 and is red until the server-side fix lands.
   - `delete` will not remove an edge that is an endpoint's only route to the graph root: `ResourceService.delete` refuses rather than orphan the node, answering **409** `would-strand` with the stranded resource in the problem's `blockedBy` (`[{"externalId": …}]`) and a message saying to include it in the deletion or keep a connecting path — read it through `ResponseError::problem()`. (It was a 400 carrying the old `{"error":{"code","fields"}}` envelope before the api unified on RFC 9457.) Practically, an edge is separately deletable only when both endpoints stay reachable without it; otherwise it goes away with the resources. The check reads the graph projection, which lags the write, so deleting too soon after creating the edge gets the *wrong answer* rather than an error — the refusal does not fire and the node is stranded. `relations::tests` measured 6/6 wrongly allowed immediately after create, 6/6 refused 500ms later; its `await_graph` helper is what the live tests wait on.
+- `assets` (`src/assets/`) — the typed `/assets` family: create, `get_by_id`, `by_ids`, `list`,
+  `filter`, `search`, `update`, `delete`. Every call is the `/resources` pipeline with the `ASSET`
+  discriminator pinned server-side, so the two cannot drift on ACLs or status codes; what differs
+  is that reads answer `Asset` rather than [`Node`](#the-polymorphic-node-type), so `geolocation`
+  and `is_root` are reachable without a match. `filter`/`search` reuse `ResourceFilterForm` and
+  `SearchAndFilterForm<ResourceFilter>` — the api declares the same types on both families — and a
+  `nodeType` in the body is **replaced** with `["asset"]`, not merged, since entries OR together and
+  merging would widen an `/assets` request into a mixed query. Unlike `/resources/create`, the
+  caller never sets the `ASSET` label: the endpoint deserializes into the api's `Asset`, whose
+  constructor forces it in. `delete` answers 204 with no body, so the wrapper is always empty, and
+  `update` echoes a typed `Node` rather than a flat `Resource`.
 - `datasets` (`src/datasets/`)
 - `files` (`src/files/`) — raw-`PUT` upload via `execute_file_upload_request` (content is the body, metadata rides in `X-Datahub-*` headers), plus directory listing, get/search, `FileUpdate` (rename/move/re-dataset), trash + restore, delete, and download (`download` in memory, `download_to_path` streamed)
 - `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`). Reads follow the same split as every other collection: `list(limit)` over `GET /subscriptions?limit=` and `filter(form)` over `POST /subscriptions/filter`. Both are recent — `POST /subscriptions/list` was subscriptions-only (a `limit` defaulting to 100 where the api defaulted to 1000, an unvalidated sort property, and no cursor, so a tenant past one page could not reach the rest) and the api removed it rather than aliasing it, so a client that has not moved gets a 404. `SubscriptionFilterForm` is a strict subset of what `/filter` now accepts: it carries no `cursor`, and `SubscriptionFilter` has only `timeseries`, not the `id`, `externalId`, `name`, `createdTime` and `lastUpdatedTime` criteria the api's filter grew beside it.
@@ -323,8 +334,8 @@ typed. `DatasetFilter` is consequently just the shared criteria — its `writePr
 #### The plain listings share a second contract
 
 `list()` is the criteria-free read — `GET /<collection>?limit=N`, no body — and there is now one of
-them per node type: `resources`, `timeseries`, `datasets`, `events` and `functions` on the SDK side
-(`assets` and `policies` have no service here). The api used to spell it four ways: three types had
+them per node type: `resources`, `assets`, `timeseries`, `datasets`, `events` and `functions` on
+the SDK side (`policies` has no service here). The api used to spell it four ways: three types had
 no listing at all, so "what have I got" meant composing a POST body; timeseries and datasets had the
 `GET`; policies returned every row unordered and **uncapped**; functions spelled it
 `GET /functions/list`, also uncapped. Datasets additionally carried a `POST /datasets/list` that took

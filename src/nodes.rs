@@ -251,6 +251,12 @@ impl Asset {
 
 impl GraphNode for Asset {}
 
+impl crate::generic::DataHubEntity for Asset {
+    fn ext_id(&self) -> &String {
+        &self.external_id
+    }
+}
+
 /// An access policy, as a node.
 ///
 /// Reads are sparse by construction: the api's policy transformer never sets `value`,

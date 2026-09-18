@@ -1,3 +1,4 @@
+mod assets;
 mod datasets;
 mod datetime;
 mod events;
@@ -34,6 +35,8 @@ use crate::timeseries::datapoints::PyRetrieveFilter;
 use crate::timeseries::sync_service::PyTimeSeriesServiceSync;
 use crate::timeseries::{PyDeleteFilter, PyTimeSeries};
 use crate::units::PyUnit;
+use crate::assets::async_service::PyAssetsServiceAsync;
+use crate::assets::sync_service::PyAssetsServiceSync;
 use crate::functions::async_service::PyFunctionsServiceAsync;
 use crate::functions::sync_service::PyFunctionsServiceSync;
 use crate::units::async_service::PyUnitServiceAsync;
@@ -342,6 +345,13 @@ impl PySyncClient {
         }
     }
     #[getter]
+    fn assets(&self) -> PyAssetsServiceSync {
+        PyAssetsServiceSync {
+            api_service: self.inner.clone(),
+            runtime: self.runtime.clone(),
+        }
+    }
+    #[getter]
     fn datasets(&self) -> PyDatasetsServiceSync {
         PyDatasetsServiceSync {
             api_service: self.inner.clone(),
@@ -500,6 +510,12 @@ impl PyAsyncClient {
     #[getter]
     fn resources(&self) -> PyResourcesServiceAsync {
         PyResourcesServiceAsync {
+            api_service: self.inner.clone(),
+        }
+    }
+    #[getter]
+    fn assets(&self) -> PyAssetsServiceAsync {
+        PyAssetsServiceAsync {
             api_service: self.inner.clone(),
         }
     }
@@ -1256,6 +1272,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     files::register(m)?;
     subscriptions::register(m)?;
     functions::register(m)?;
+    assets::register(m)?;
     relations::register(m)?;
     nodes::register(m)?;
     Ok(())

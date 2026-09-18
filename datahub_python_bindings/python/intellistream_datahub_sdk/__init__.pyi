@@ -175,6 +175,8 @@ class DataHubClient:
     @property
     def resources(self) -> ResourcesServiceSync: ...
     @property
+    def assets(self) -> AssetsServiceSync: ...
+    @property
     def datasets(self) -> DatasetsServiceSync: ...
     @property
     def subscriptions(self) -> SubscriptionsServiceSync: ...
@@ -225,6 +227,8 @@ class AsyncDataHubClient:
     def files(self) -> FilesServiceAsync: ...
     @property
     def resources(self) -> ResourcesServiceAsync: ...
+    @property
+    def assets(self) -> AssetsServiceAsync: ...
     @property
     def subscriptions(self) -> SubscriptionsServiceAsync: ...
     @property
@@ -2312,6 +2316,120 @@ class FunctionsServiceAsync:
     async def by_external_id(self, external_id: str) -> Function: ...
     async def update(self, input: list[ResourceUpdate]) -> GraphResult: ...
     async def delete(self, input: list[FunctionIdentifiable]) -> None: ...
+
+
+# ====================== Assets ======================
+
+class AssetsServiceSync:
+    """The typed ``/assets`` family — the ``ASSET``-labelled corner of the resource graph.
+
+    Every call is the generic ``/resources`` pipeline with the type pinned server-side, so the
+    two paths cannot drift apart on ACLs or status codes. What differs is the shape that comes
+    back: ``Asset``, so ``geolocation`` and ``is_root`` are reachable without a type check.
+    """
+
+    def create(self, input: list[Asset]) -> list[Asset]:
+        """Create assets. Each needs an ``external_id`` and a ``name``.
+
+        Unlike ``resources.create``, the ``ASSET`` label need not be set by hand. Relations are
+        not creatable here — use ``resources.create`` for assets and their edges in one call.
+        """
+    def get_by_id(self, id: int) -> Asset | None:
+        """One asset by numeric id; raises on 404.
+
+        A 404 does not tell you the id is free: a node that exists but is not an asset, and an
+        asset you may not read, are both reported as missing.
+        """
+    def by_ids(self, input: list[ResourceIdentifiable]) -> list[Asset]:
+        """Assets by id or external id. What cannot be found is omitted, not raised."""
+    def list(self, limit: int | None = None) -> list[Asset]:
+        """The first ``limit`` assets, newest created first. Defaults to 1000, caps at 10000.
+
+        A plain list rather than a ``Page``: there is no cursor to continue with, so narrow with
+        ``filter`` instead of raising the number.
+        """
+    def filter(
+        self,
+        filter: ResourceFilter | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        is_root: bool | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """Assets matching every criterion, newest first. Criteria combine with AND.
+
+        Pass either ``filter=`` or the individual keywords, not both.
+
+        There is no ``node_type`` keyword on purpose: this endpoint answers with assets whatever
+        it is given, so the server replaces it. A ``node_type`` on a ``filter=`` object is
+        discarded the same way.
+        """
+    def search(
+        self,
+        query: str,
+        filter: ResourceFilter | None = None,
+        limit: int | None = None,
+    ) -> list[Asset]:
+        """Free-text search over assets, best match first.
+
+        ``filter`` only ever removes hits from the phrase's. ``limit`` defaults to 100 and caps
+        at 1000 — ``filter`` uses 1000/10000, which is easy to conflate.
+        """
+    def update(self, input: list[ResourceUpdate]) -> GraphResult:
+        """Update assets in place. ``geolocation`` is the field that means anything only here.
+
+        ``.nodes`` holds typed node objects, not necessarily all assets — an update may touch
+        relations whose other end is something else.
+        """
+    def delete(self, input: list[ResourceIdentifiable]) -> None:
+        """Delete assets, and with them all their relationships.
+
+        A delete that would disconnect a surviving node from the graph root raises 409
+        ``would-strand``, naming the blockers on the exception's ``problem``.
+        """
+
+
+class AssetsServiceAsync:
+    async def create(self, input: list[Asset]) -> list[Asset]: ...
+    async def get_by_id(self, id: int) -> Asset | None: ...
+    async def by_ids(self, input: list[ResourceIdentifiable]) -> list[Asset]: ...
+    async def list(self, limit: int | None = None) -> list[Asset]: ...
+    async def filter(
+        self,
+        filter: ResourceFilter | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        is_root: bool | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page: ...
+    async def search(
+        self,
+        query: str,
+        filter: ResourceFilter | None = None,
+        limit: int | None = None,
+    ) -> list[Asset]: ...
+    async def update(self, input: list[ResourceUpdate]) -> GraphResult: ...
+    async def delete(self, input: list[ResourceIdentifiable]) -> None: ...
 
 
 # ====================== Edges ======================
