@@ -76,7 +76,13 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 - `datasets` (`src/datasets/`)
 - `files` (`src/files/`) — raw-`PUT` upload via `execute_file_upload_request` (content is the body, metadata rides in `X-Datahub-*` headers), plus directory listing, get/search, `FileUpdate` (rename/move/re-dataset), trash + restore, delete, and download (`download` in memory, `download_to_path` streamed)
 - `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`). Reads follow the same split as every other collection: `list(limit)` over `GET /subscriptions?limit=` and `filter(form)` over `POST /subscriptions/filter`. Both are recent — `POST /subscriptions/list` was subscriptions-only (a `limit` defaulting to 100 where the api defaulted to 1000, an unvalidated sort property, and no cursor, so a tenant past one page could not reach the rest) and the api removed it rather than aliasing it, so a client that has not moved gets a 404. `SubscriptionFilterForm` is a strict subset of what `/filter` now accepts: it carries no `cursor`, and `SubscriptionFilter` has only `timeseries`, not the `id`, `externalId`, `name`, `createdTime` and `lastUpdatedTime` criteria the api's filter grew beside it.
-- `functions` (`src/functions/`)
+- `functions` (`src/functions/`) — `create`, `list`, `get_by_id`, `update`, `delete`, plus a
+  client-side `by_ids`/`by_external_id`. The api serves **no `/byids`, `/filter` or `/search`** for
+  functions — the only node type missing all three — so `by_ids` lists and filters locally, asking
+  for the largest page the api allows; a tenant past 10000 functions silently misses its oldest.
+  `Function::related_resources` is **always empty**: `FunctionTransformer` never joins the edges
+  in, and unlike `/resources/create` the create echo is no exception, because it re-reads the rows
+  through that same transformer. `name` is `Option` here but non-null on the api.
 - `labels` (`src/labels/`) — label CRUD (`list`/`get`/`create`/`update`/`delete`). Note the entity type is `labels::Label`, deliberately *not* re-exported at the crate root because `resources::*` already brings a different graph-DTO `Label` there.
 
 ### The polymorphic node type (`src/nodes.rs`)
