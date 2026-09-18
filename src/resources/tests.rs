@@ -1029,3 +1029,89 @@ async fn plain_listing_is_typed_capped_and_uncursored() -> Result<(), Box<dyn st
     cleanup.disarm();
     Ok(())
 }
+
+/// The `/resources/update` echo is typed, not flat.
+///
+/// It answered with a plain `Resource` whatever the node's real type until the api's node-update
+/// refactor made the pipeline per-type. That was not merely lossy: `Resource` requires `isRoot`,
+/// which only resources and assets carry, so updating a timeseries or a function through the old
+/// signature failed to *deserialize*. Nothing here caught it because every update test in this
+/// file updates a plain resource, which does carry `isRoot`.
+///
+/// This drives the two types that broke, and asserts the echo comes back in each node's own shape.
+#[tokio::test]
+#[ignore]
+async fn update_echo_is_typed_per_node_type() -> Result<(), ResponseError> {
+    let api = create_api_service();
+
+    let ts_ext = unique_id("update_echo_ts");
+    let fn_ext = unique_id("update_echo_fn");
+    let mut ts_cleanup = cleanup_timeseries(vec![ts_ext.clone()]);
+    let mut fn_cleanup = cleanup_functions(vec![fn_ext.clone()]);
+
+    let mut ts = crate::timeseries::TimeSeries::new(&ts_ext, "update echo ts");
+    ts.unit = Some("bar".to_string());
+    api.time_series.create_from_list(&vec![ts]).await?;
+
+    api.functions
+        .create(&vec![crate::functions::Function::new(fn_ext.clone())
+            .with_name("update echo fn".to_string())])
+        .await?;
+
+    // A timeseries: the echo must carry `unit`/`value_type`, which a flat `Resource` has no room
+    // for, and must not require `isRoot`, which a timeseries does not have.
+    let echoed = api
+        .resources
+        .update(&vec![
+            ResourceUpdate::by_external_id(&ts_ext).set_name("update echo ts (renamed)")
+        ])
+        .await?;
+    let node = echoed
+        .nodes()
+        .unwrap_or_default()
+        .into_iter()
+        .next()
+        .expect("the update echoes the node");
+    let ts_back = node
+        .into_time_series()
+        .expect("a timeseries echoes as Node::TimeSeries, not Node::Resource");
+    assert_eq!(ts_back.external_id, ts_ext);
+    assert_eq!(ts_back.name, "update echo ts (renamed)");
+    assert_eq!(
+        ts_back.unit.as_deref(),
+        Some("bar"),
+        "the typed echo carries the timeseries' own fields"
+    );
+
+    // A function: the shape with the fewest fields, and the one whose missing `isRoot` is what
+    // surfaced this.
+    let echoed = api
+        .resources
+        .update(&vec![
+            ResourceUpdate::by_external_id(&fn_ext).set_name("update echo fn (renamed)")
+        ])
+        .await?;
+    let node = echoed
+        .nodes()
+        .unwrap_or_default()
+        .into_iter()
+        .next()
+        .expect("the update echoes the node");
+    let fn_back = node
+        .into_function()
+        .expect("a function echoes as Node::Function, not Node::Resource");
+    assert_eq!(fn_back.external_id, fn_ext);
+    assert_eq!(fn_back.name.as_deref(), Some("update echo fn (renamed)"));
+
+    api.time_series
+        .delete(&DataWrapper::from_vec(vec![IdAndExtId::from_external_id(
+            &ts_ext,
+        )]))
+        .await?;
+    ts_cleanup.disarm();
+    api.functions
+        .delete(&vec![IdAndExtId::from_external_id(&fn_ext)])
+        .await?;
+    fn_cleanup.disarm();
+    Ok(())
+}

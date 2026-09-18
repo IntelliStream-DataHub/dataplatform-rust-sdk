@@ -115,9 +115,14 @@ Behaviours worth knowing, each pinned by a test in `src/nodes.rs`:
   must not read as a default. Two things are still not 1-1 — `related_resources` runs the other way
   (populated here, `[]` on a flat read), and an asset's geometry is reconstructed as a Point, so a
   Point round-trips exactly but a stored Polygon comes back wrong.
-- **`update` still echoes flat `Resource`s**, whatever the node's real type — the one read/write
-  asymmetry left, owned by the api's `NODE_UPDATE_REFACTOR.md`. `ResourceService::update` is
-  therefore the one method here that does *not* return `Node`.
+- **`update` echoes typed nodes too**, so every read *and* write on this service answers `Node`.
+  It echoed flat `Resource`s whatever the node's real type until the api's `NODE_UPDATE_REFACTOR.md`
+  landed and made the pipeline per-type; the SDK followed in
+  `update_echo_is_typed_per_node_type` (`src/resources/tests.rs`). That asymmetry was not merely
+  lossy: `Resource` requires `isRoot`, which only resources and assets carry, so updating a
+  timeseries or a function *failed to deserialize*. Nothing caught it because every update test in
+  the file updated a plain resource. The same applies to `/assets/update` and `/functions/update`,
+  which are the same shared pipeline.
 - **Policies never carry `value`, `template_id` or `data_set_id`** on a read, and their `metadata`
   can be outright `null`.
 - **`Resource::geolocation` is write-only** server-side: accepted on create, never echoed. Assets

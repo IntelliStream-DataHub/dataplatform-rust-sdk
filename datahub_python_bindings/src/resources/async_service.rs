@@ -153,10 +153,13 @@ impl PyResourcesServiceAsync {
     /// fields to change; every field it can set is shared by all node types, so one update form
     /// covers them all.
     ///
-    /// **The echo is flat.** Unlike every read on this service, the api answers here with each
-    /// node shaped as a plain `Resource` whatever its real type, so `.nodes` holds `Resource`
-    /// objects even for a timeseries. Re-read the node if you need its typed form. The `labels`
-    /// do reflect what the server stored, intrinsic type-label included.
+    /// **The echo is typed**, like every other read here: `.nodes` holds each node as its own
+    /// class, so a timeseries comes back as `TimeSeries` carrying its `unit` and an asset as
+    /// `Asset` carrying its `geo_location`. The `labels` reflect what the server stored, intrinsic
+    /// type-label included.
+    ///
+    /// This used to answer with a plain `Resource` whatever the node's real type. The api's
+    /// node-update refactor made the pipeline per-type and the echo followed.
     fn update<'py>(
         &self,
         py: Python<'py>,
@@ -170,7 +173,7 @@ impl PyResourcesServiceAsync {
                 .update(&updates)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            Ok(PyGraphResult::from_resource_wrapper(result, service.clone()))
+            Ok(PyGraphResult::from_wrapper(result, service.clone()))
         })
     }
 

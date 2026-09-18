@@ -222,8 +222,8 @@ impl ResourceService {
         self.rt.block_on(self.api.resources.delete(input))
     }
 
-    /// Mirrors the async `update`: the echo is a flat [`Resource`] whatever the node's type.
-    pub fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
+    /// Mirrors the async `update`: the echo is typed, each node in the shape of its own kind.
+    pub fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Node>, ResponseError>
     where
         for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
     {

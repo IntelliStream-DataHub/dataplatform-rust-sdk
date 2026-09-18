@@ -113,12 +113,15 @@ mod tests {
     // ----------------------------------------------------------------------------------------
 
     /// Sorted label list from an update/read response's first node.
-    fn labels_of(gdw: &GraphDataWrapper<Resource>) -> Vec<String> {
+    ///
+    /// Takes a `Node` rather than a `Resource`: the update echo is typed, so a node comes back in
+    /// the shape of its own kind and `labels` is reached through the enum's accessor.
+    fn labels_of(gdw: &GraphDataWrapper<crate::nodes::Node>) -> Vec<String> {
         let mut v = gdw
             .nodes()
             .unwrap_or_default()
             .first()
-            .and_then(|r| r.labels.clone())
+            .map(|n| n.labels().to_vec())
             .unwrap_or_default();
         v.sort();
         v

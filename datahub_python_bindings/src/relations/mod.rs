@@ -7,7 +7,7 @@ use intellistream_datahub_sdk::relations::{
     EdgeProxy, RelForm, RelTypeForm, RelatedNode, RelationDirection, RelationshipType,
 };
 use intellistream_datahub_sdk::nodes::Node;
-use intellistream_datahub_sdk::{ApiService, Resource};
+use intellistream_datahub_sdk::ApiService;
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, pyclass, pymethods};
 use std::collections::HashMap;
@@ -359,8 +359,9 @@ pub struct PyGraphResult {
 }
 
 impl PyGraphResult {
-    /// Build the Python view of a typed graph response (create, `by_ids`), stamping `client` onto
-    /// every node so callers can chain navigation off the results.
+    /// Build the Python view of a typed graph response — create, `by_ids` and, since the api's
+    /// node-update refactor, `update` — stamping `client` onto every node so callers can chain
+    /// navigation off the results.
     pub fn from_wrapper(wrapper: GraphDataWrapper<Node>, client: Arc<ApiService>) -> Self {
         let nodes = crate::nodes::PyNode::many(wrapper.nodes().unwrap_or_default(), client.clone());
         Self {
@@ -369,25 +370,10 @@ impl PyGraphResult {
         }
     }
 
-    /// Build the view of a response the api echoes as flat resources whatever the node's real
-    /// type — today that is `/resources/update` alone. The nodes really are resource-shaped here,
-    /// so they are presented as such rather than being guessed back into their types out of data
-    /// the echo does not carry.
-    pub fn from_resource_wrapper(
-        wrapper: GraphDataWrapper<Resource>,
-        client: Arc<ApiService>,
-    ) -> Self {
-        let nodes = wrapper
-            .nodes()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|r| crate::nodes::PyNode::with_client(Node::Resource(r), client.clone()))
-            .collect();
-        Self {
-            nodes,
-            relations: Self::relations_of(&wrapper.relations()),
-        }
-    }
+    // `from_resource_wrapper` stood here, for the one response the api echoed as flat resources
+    // whatever the node's real type: `/resources/update`. The api's node-update refactor made that
+    // echo typed like every other read, so `from_wrapper` covers it and there is no longer a shape
+    // that needs guessing back into its types.
 
     fn relations_of(relations: &Option<&Vec<EdgeProxy>>) -> Vec<PyEdgeProxy> {
         relations
