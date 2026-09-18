@@ -1531,18 +1531,24 @@ mod tests {
             Ok(_) => panic!("Expected 404 Not Found for non-existent timeseries"),
             Err(e) => {
                 assert_eq!(e.get_status(), StatusCode::NOT_FOUND);
-                let msg = e.get_message();
-                assert!(
-                    msg.contains("Could not find following timeseries"),
-                    "unexpected error body: {msg}"
-                );
+                let problem = e.problem().unwrap_or_else(|| panic!("not a problem document: {}", e.get_message()));
+                assert_eq!(problem.slug(), Some("not-found"), "{problem:?}");
+                // `missing` names each series whose data-points were skipped.
+                let named = problem
+                    .extensions
+                    .get("missing")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|missing| {
+                        missing.iter().any(|m| m.get("externalId").and_then(serde_json::Value::as_str) == Some(missing_ext_id.as_str()))
+                    });
+                assert!(named, "the refusal should name {missing_ext_id}: {problem:?}");
             }
         }
         Ok(())
     }
 
     /// The binary path resolves every series before it builds a frame, so a missing one is
-    /// refused here, with the JSON path's wording, and no frame is ever sent.
+    /// refused here, by the SDK itself, and no frame is ever sent.
     #[tokio::test]
     async fn test_insert_datapoints_binary_missing_timeseries_returns_not_found() -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
