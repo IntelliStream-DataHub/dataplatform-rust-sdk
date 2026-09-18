@@ -2,7 +2,10 @@
 mod test;
 
 use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId};
+use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
+use crate::nodes::Node;
+use crate::resources::ResourceUpdate;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -57,9 +60,54 @@ impl FunctionsService {
             .await
     }
 
+    /// `GET /functions/{id}` — one function by its numeric id.
+    ///
+    /// **404 does not mean the id is free.** A function the caller may not read is reported as
+    /// missing rather than forbidden, so a 404 says "not a function you can read" and nothing
+    /// more. A node of another type is not a function and is reported the same way.
+    ///
+    /// Unlike [`by_ids`](Self::by_ids), which omits what it cannot find, this is an error. Prefer
+    /// it to `by_ids` when you already have the numeric id: `by_ids` has no endpoint behind it and
+    /// pages the whole listing to filter client-side.
+    pub async fn get_by_id(&self, id: u64) -> Result<DataWrapper<Function>, ResponseError> {
+        let path = &format!("{}/{}", self.base_url, id);
+        self.execute_get_request::<DataWrapper<Function>, ()>(path, None)
+            .await
+    }
+
+    /// `POST /functions/update` — partial update of one or more functions.
+    ///
+    /// Each [`ResourceUpdate`] targets a function by id or external id and carries only the fields
+    /// it changes. A function is a plain node, so every field the shared update form can set
+    /// applies — except
+    /// [`geolocation`](crate::resources::ResourceUpdateFields::geolocation), which only an asset
+    /// stores and which the server ignores here. The intrinsic `FUNCTION` type-label is immutable:
+    /// an update cannot turn a function into something else.
+    ///
+    /// **The echo is typed**, as on
+    /// [`ResourceService::update`](crate::resources::ResourceService::update), and it is a [`Node`]
+    /// rather than a [`Function`]: an update may touch relations whose other end is not a function.
+    /// Match on [`Node::into_function`](crate::nodes::Node::into_function) for the ones that are.
+    ///
+    /// This is also why the echo could not stay a flat `Resource`: `Resource` requires `isRoot`,
+    /// which a function does not have, so the flat shape failed to *deserialize* here.
+    pub async fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Node>, ResponseError>
+    where
+        for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
+    {
+        let mut payload = input.into();
+        // The server iterates `relations`; send an empty list rather than null when unset.
+        if payload.relations.is_none() {
+            payload.relations = Some(vec![]);
+        }
+        let path = &format!("{}/update", self.base_url);
+        self.execute_post_request::<GraphDataWrapper<Node>, _>(path, &payload)
+            .await
+    }
+
     /// Look up functions by id or externalId. The backend has no `/byids` endpoint for
-    /// functions yet; this is implemented client-side by listing and filtering, which is
-    /// fine for the function-worker use case where the catalog is small.
+    /// functions — nor `/filter` or `/search`, which every other node type has — so this is
+    /// implemented client-side by listing and filtering.
     ///
     /// It asks for the largest page the api allows, because a client-side filter can only match
     /// what the listing returned. That listing used to be uncapped; a tenant past 10000 functions
@@ -111,6 +159,13 @@ impl FunctionsService {
         })
     }
 
+    /// `POST /functions/delete` — delete functions by id or external id. Deleting a function
+    /// removes all of its relationships.
+    ///
+    /// The api answers **204 with no body**, so the returned wrapper is always empty — read
+    /// [`get_http_status_code`](DataWrapper::get_http_status_code), not the items. A delete that
+    /// would strand a surviving node is refused with **409** `would-strand`; read it through
+    /// [`ResponseError::problem`](crate::http::ResponseError::problem).
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<Function>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
@@ -129,6 +184,9 @@ pub struct Function {
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
     pub external_id: String,
+    /// Optional here, **required by the api** — `Function` declares `name` non-null, so a create
+    /// that omits it is a 400. `Option` only because a read of a row written before the constraint
+    /// can still answer without one; build one with [`Function::with_name`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// Resource-shape labels. The canonical `FUNCTION` label is always present.
@@ -148,8 +206,16 @@ pub struct Function {
         with = "crate::serde_helper::opt_string_id"
     )]
     pub data_set_id: Option<u64>,
-    /// The nodes this function is connected to, with relationship type and direction.
-    /// Populated server-side by `FunctionService.list()`.
+    /// Declared by the shared node base, but **always empty on everything this service returns**.
+    ///
+    /// The api maps a `FunctionEntity` through `FunctionTransformer`, which applies the shared node
+    /// fields and the labels and never joins the edges in — so `list`, `get_by_id` *and* the
+    /// `create` echo all answer `[]`. Unlike `/resources/create`, the create echo is no exception:
+    /// it re-reads the rows from Postgres through the same transformer.
+    ///
+    /// Read a function's edges through
+    /// [`ResourceService::fetch_related`](crate::resources::ResourceService::fetch_related) or
+    /// [`EdgesService`](crate::relations::EdgesService).
     #[serde(default, skip_serializing)]
     pub related_resources: Vec<RelatedNode>,
     #[serde(skip_serializing)]

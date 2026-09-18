@@ -345,6 +345,7 @@ pub struct FunctionsService {
 
 impl FunctionsService {
     delegate! { functions =>
+        fn get_by_id(id: u64) -> Result<DataWrapper<Function>, ResponseError>;
         fn list(limit: Option<u64>) -> Result<DataWrapper<Function>, ResponseError>;
         fn by_ids(ids: &[IdAndExtId]) -> Result<DataWrapper<Function>, ResponseError>;
         fn by_external_id(external_id: &str) -> Result<Function, ResponseError>;
@@ -353,6 +354,14 @@ impl FunctionsService {
     delegate_into! { functions =>
         fn create(data: Into<DataWrapper<Function>>) -> Result<DataWrapper<Function>, ResponseError>;
         fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<Function>, ResponseError>;
+    }
+
+    /// Mirrors the async `update`: the echo is typed, and a [`Node`] rather than a [`Function`].
+    pub fn update<I>(&self, input: &I) -> Result<GraphDataWrapper<Node>, ResponseError>
+    where
+        for<'a> &'a I: Into<GraphDataWrapper<ResourceUpdate>>,
+    {
+        self.rt.block_on(self.api.functions.update(input))
     }
 }
 

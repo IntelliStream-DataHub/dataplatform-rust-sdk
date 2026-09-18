@@ -2,6 +2,7 @@ use crate::functions::{FunctionIdentifyable, PyFunction};
 use intellistream_datahub_sdk::ApiService;
 use intellistream_datahub_sdk::functions::Function;
 use intellistream_datahub_sdk::generic::IdAndExtId;
+use intellistream_datahub_sdk::resources::ResourceUpdate;
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -90,6 +91,47 @@ impl PyFunctionsServiceAsync {
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(PyFunction::with_client(function, service.clone()))
+        })
+    }
+
+    /// One function by numeric id.
+    ///
+    /// Raises on 404 — and a 404 does not tell you the id is free: a function you may not read is
+    /// reported as missing rather than forbidden.
+    fn get_by_id<'py>(&self, py: Python<'py>, id: u64) -> PyResult<Bound<'py, PyAny>> {
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .functions
+                .get_by_id(id)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(result
+                .get_items()
+                .first()
+                .map(|f| PyFunction::with_client(f.clone(), service.clone())))
+        })
+    }
+
+    /// Update functions in place. `.nodes` holds typed node objects — a function comes back as
+    /// `Function`.
+    fn update<'py>(
+        &self,
+        py: Python<'py>,
+        input: Vec<crate::resources::PyResourceUpdate>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let updates: Vec<ResourceUpdate> = input.into_iter().map(ResourceUpdate::from).collect();
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .functions
+                .update(&updates)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(crate::relations::PyGraphResult::from_wrapper(
+                result,
+                service.clone(),
+            ))
         })
     }
 
