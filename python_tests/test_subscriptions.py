@@ -139,6 +139,7 @@ def test_listen_end_to_end(sync_client):
     sync_client.subscriptions.create([sub])
 
     received = None
+    listener = None
     try:
         # Open the listener before writing — otherwise the fan-out fires before we connect.
         listener = sync_client.subscriptions.listen([sub_ext])
@@ -170,8 +171,16 @@ def test_listen_end_to_end(sync_client):
         assert any(abs(v - 42.0) < 1e-9 for v in floats)
 
         listener.ack([received.message_id])
-        listener.close()
     finally:
+        # Close before deleting, on every path. The api cannot delete a subscription whose
+        # Pulsar consumer is still connected: the broker answers 412 "Subscription has active
+        # connected consumers", the delete fails with a 500, and the subscription is left behind
+        # in the tenant. A failed assertion above must not be what decides that.
+        if listener is not None:
+            try:
+                listener.close()
+            except Exception:
+                pass
         try:
             sync_client.subscriptions.delete([sub_ext])
         except Exception:
@@ -237,6 +246,7 @@ def test_listen_fans_out_all_bound_timeseries(sync_client):
 
     expected_values = {float(i) for i in range(len(ts_exts))}  # 0.0, 1.0, 2.0 — one per timeseries
     delivered_values = set()
+    listener = None
     try:
         listener = sync_client.subscriptions.listen([sub_ext])
         # Ingest one distinctly-valued datapoint to each bound timeseries.
@@ -255,8 +265,16 @@ def test_listen_fans_out_all_bound_timeseries(sync_client):
                 for dp in item.datapoints:
                     delivered_values.add(dp.as_float())
             listener.ack([msg.message_id])
-        listener.close()
     finally:
+        # Close before deleting, on every path. The api cannot delete a subscription whose
+        # Pulsar consumer is still connected: the broker answers 412 "Subscription has active
+        # connected consumers", the delete fails with a 500, and the subscription is left behind
+        # in the tenant. A failed assertion above must not be what decides that.
+        if listener is not None:
+            try:
+                listener.close()
+            except Exception:
+                pass
         try:
             sync_client.subscriptions.delete([sub_ext])
         except Exception:
@@ -318,6 +336,7 @@ def test_listen_partial_refusal_keeps_valid_subscription(sync_client):
 
     saw_error = False
     saw_message = False
+    listener = None
     try:
         # Multiplex a valid subscription and a bogus one over a single socket.
         listener = sync_client.subscriptions.listen([sub_ext, bogus_ext])
@@ -343,8 +362,16 @@ def test_listen_partial_refusal_keeps_valid_subscription(sync_client):
                     saw_error = True  # the bogus subscription was refused — keep polling the valid one
                 else:
                     raise
-        listener.close()
     finally:
+        # Close before deleting, on every path. The api cannot delete a subscription whose
+        # Pulsar consumer is still connected: the broker answers 412 "Subscription has active
+        # connected consumers", the delete fails with a 500, and the subscription is left behind
+        # in the tenant. A failed assertion above must not be what decides that.
+        if listener is not None:
+            try:
+                listener.close()
+            except Exception:
+                pass
         try:
             sync_client.subscriptions.delete([sub_ext])
         except Exception:
