@@ -4,8 +4,8 @@ mod tests {
     use crate::subscriptions::listen::build_ws_url;
     use crate::tests::cleanup::{cleanup_subscriptions, cleanup_timeseries};
     use crate::subscriptions::{
-        EventAction, EventObject, Subscription, SubscriptionFilter, SubscriptionMessage,
-        SubscriptionFilterForm,
+        EventAction, EventObject, ListenError, Subscription, SubscriptionFilter,
+        SubscriptionMessage, SubscriptionFilterForm,
     };
     use crate::filters::DataSort;
     use crate::timeseries::TimeSeries;
@@ -453,6 +453,64 @@ mod tests {
         assert_eq!(v, EventObject::ResourceAndRelation);
         let back = serde_json::to_value(&v).unwrap();
         assert_eq!(back, serde_json::json!("RESOURCE_AND_RELATION"));
+    }
+
+    // A quiet subscription must end the wait, not hang on it. This is the case that had no answer
+    // before `next_timeout`: `next` answers the server's pings and reconnects when it closes an
+    // idle session, so nothing the server does can end a wait for a message that never comes.
+    #[tokio::test]
+    async fn test_next_timeout_ends_a_quiet_wait() -> Result<(), Box<dyn std::error::Error>> {
+        use std::time::{Duration, Instant};
+        let api_service = create_api_service();
+        let ts_ext = unique_id("quiet_ts");
+        let sub_ext = unique_id("quiet_sub");
+
+        let mut ts = TimeSeries::new(&ts_ext, "Quiet TS");
+        ts.set_unit("Celsius").set_unit_external_id("temperature_deg_c");
+        api_service.time_series.create_from_list(&vec![ts]).await?;
+        let mut ts_cleanup = cleanup_timeseries(vec![ts_ext.clone()]);
+        api_service
+            .subscriptions
+            .create(&Subscription::new(
+                sub_ext.clone(),
+                format!("Quiet {}", sub_ext),
+                vec![IdAndExtId::from_external_id(&ts_ext)],
+            ))
+            .await?;
+        let mut sub_cleanup = cleanup_subscriptions(vec![sub_ext.clone()]);
+
+        let result: Result<(), Box<dyn std::error::Error>> = async {
+            // Nothing is ever written to this timeseries, so nothing can arrive.
+            let mut listener = api_service.subscriptions.listen(&[sub_ext.as_str()]).await?;
+
+            let started = Instant::now();
+            match listener.next_timeout(Duration::from_secs(2)).await {
+                Some(Err(ListenError::Timeout { after })) => {
+                    assert_eq!(after, Duration::from_secs(2));
+                }
+                other => panic!("a quiet stream must time out, got {:?}", other.map(|r| r.map(|_| ()))),
+            }
+            let waited = started.elapsed();
+            assert!(waited >= Duration::from_secs(2), "returned early: {:?}", waited);
+            // Generous, because the real failure this guards against is a wait that never ends at
+            // all; a tight bound only measures how loaded the machine is under a parallel run.
+            assert!(waited < Duration::from_secs(15), "deadline ignored: {:?}", waited);
+
+            // The timeout is not a teardown: the listener is still usable afterwards.
+            match listener.next_timeout(Duration::from_millis(500)).await {
+                Some(Err(ListenError::Timeout { .. })) => {}
+                other => panic!("listener unusable after a timeout, got {:?}", other.map(|r| r.map(|_| ()))),
+            }
+            listener.close().await?;
+            Ok(())
+        }
+        .await;
+
+        delete_subscriptions(&api_service, &[IdAndExtId::from_external_id(&sub_ext)]).await;
+        sub_cleanup.disarm();
+        delete_timeseries(&api_service, vec![IdAndExtId::from_external_id(&ts_ext)]).await;
+        ts_cleanup.disarm();
+        result
     }
 
     // End-to-end: requires the backend consumer running so datapoints written via the REST API are
