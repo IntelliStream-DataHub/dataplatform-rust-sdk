@@ -13,7 +13,13 @@ use std::sync::Weak;
 use std::time::Duration;
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ListenError {
+    /// No message arrived within the timeout given to
+    /// [`next_timeout`](SubscriptionListener::next_timeout). The connection is untouched and still
+    /// usable — a quiet stream and a broken one both land here, so this says nothing about health.
+    #[error("no message arrived within {after:?}")]
+    Timeout { after: Duration },
     #[error("failed to build request: {0}")]
     Request(String),
     #[error("handshake failed: {0}")]
@@ -283,11 +289,48 @@ impl SubscriptionListener {
     /// caller. Returns `Some(Err(_))` only when a reconnect ultimately fails or a frame can't be
     /// decoded — calling `next` again after that resumes the reconnect attempts.
     pub async fn next(&mut self) -> Option<Result<SubscriptionMessage, ListenError>> {
+        self.next_inner(None).await
+    }
+
+    /// [`next`](Self::next), but giving up after `timeout` with [`ListenError::Timeout`].
+    ///
+    /// Waiting forever is rarely what a caller means, because `next` alone cannot time out on its
+    /// own: it answers pings without returning and re-establishes a dropped connection, so the
+    /// server's ~45s idle close never ends the wait either. A silent stream and a broken one look
+    /// identical from here, and the wait for both is unbounded.
+    ///
+    /// The deadline spans the whole call, reconnects included, so it also bounds a connection the
+    /// server keeps refusing. It is applied to the socket read **only**: a reconnect already under
+    /// way runs to completion rather than being abandoned part-built, which is why this exists
+    /// instead of leaving callers to wrap `next` in `tokio::time::timeout` themselves.
+    pub async fn next_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Option<Result<SubscriptionMessage, ListenError>> {
+        self.next_inner(Some(timeout)).await
+    }
+
+    async fn next_inner(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> Option<Result<SubscriptionMessage, ListenError>> {
+        let deadline = timeout.map(|d| tokio::time::Instant::now() + d);
         loop {
             if let Some(msg) = self.buffered.pop_front() {
                 return Some(Ok(msg));
             }
-            let frame = match self.ws.next().await {
+            let read = match deadline {
+                Some(deadline) => match tokio::time::timeout_at(deadline, self.ws.next()).await {
+                    Ok(read) => read,
+                    Err(_) => {
+                        return Some(Err(ListenError::Timeout {
+                            after: timeout.unwrap_or_default(),
+                        }))
+                    }
+                },
+                None => self.ws.next().await,
+            };
+            let frame = match read {
                 Some(Ok(f)) => f,
                 // Stream ended or a transport error — the connection is gone; re-establish it.
                 None | Some(Err(_)) => match self.reconnect().await {
