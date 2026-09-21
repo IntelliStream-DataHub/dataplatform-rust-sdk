@@ -13,6 +13,7 @@ use std::sync::Weak;
 use std::time::Duration;
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ListenError {
     #[error("failed to build request: {0}")]
     Request(String),
@@ -26,6 +27,20 @@ pub enum ListenError {
     Serialize(#[from] serde_json::Error),
     #[error("subscription '{external_id}' error: {reason}")]
     Subscription { external_id: String, reason: String },
+    /// The server refused the **connection**, not one subscription: the tenant or the user is at
+    /// its open-WebSocket limit. It names no subscription — there is none to blame — and the socket
+    /// is closed straight after the frame, so this is not retryable until a socket is freed.
+    /// Distinct from [`Subscription`](Self::Subscription) for exactly that reason: one subscription
+    /// failing leaves the others on the connection delivering, this leaves nothing.
+    #[error("websocket connection refused: {message}")]
+    ConnectionLimit {
+        /// What the limit counts — `"tenant"` or `"user"`.
+        scope: String,
+        /// The cap that was reached.
+        limit: u64,
+        /// The server's explanation, which says how to get under the cap.
+        message: String,
+    },
 }
 
 /// One message delivered by the backend. Carries the opaque `message_id` the client must
@@ -121,6 +136,10 @@ struct WsBatch {
 /// Error frame the server sends when a requested subscription can't be attached — e.g. `not-found`
 /// (no such subscription for the tenant) or `forbidden` (the caller lacks read access to the
 /// subscription's dataset). The connection is not closed; the other subscriptions keep delivering.
+///
+/// The same shape also carries the connection-level refusal, which names no subscription and adds
+/// `scope`, `limit` and `message`. Those three are what say *which* cap was hit and by how much, so
+/// they are read rather than dropped — without them the caller sees a refusal it cannot act on.
 #[derive(Debug, Deserialize)]
 struct WsError {
     #[allow(dead_code)]
@@ -129,6 +148,12 @@ struct WsError {
     subscription_external_id: Option<String>,
     #[serde(default)]
     reason: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    limit: Option<u64>,
+    #[serde(default)]
+    message: Option<String>,
 }
 
 /// A server text frame is either a batch of messages or a subscription error. Untagged: a frame
@@ -143,7 +168,15 @@ enum ServerFrame {
 /// Outcome of decoding one server text frame.
 pub(crate) enum DecodedFrame {
     Messages(Vec<SubscriptionMessage>),
-    SubscriptionError { external_id: String, reason: String },
+    SubscriptionError {
+        external_id: String,
+        reason: String,
+    },
+    ConnectionLimit {
+        scope: String,
+        limit: u64,
+        message: String,
+    },
 }
 
 /// Decode a server text frame into either its messages (with the frame's subscription id stamped
@@ -166,6 +199,22 @@ pub(crate) fn decode_text_frame(text: &str) -> Result<DecodedFrame, ListenError>
                     .collect(),
             )
         }
+        // Told apart structurally, by the two fields only the connection refusal carries, rather
+        // than by matching `reason` against a string — the same reason problem documents are
+        // branched on `type` and not on prose.
+        ServerFrame::Error(WsError {
+            scope: Some(scope),
+            limit: Some(limit),
+            message,
+            reason,
+            ..
+        }) => DecodedFrame::ConnectionLimit {
+            scope,
+            limit,
+            message: message
+                .or(reason)
+                .unwrap_or_else(|| "connection refused".to_string()),
+        },
         ServerFrame::Error(err) => DecodedFrame::SubscriptionError {
             external_id: err.subscription_external_id.unwrap_or_default(),
             reason: err.reason.unwrap_or_else(|| "unknown".to_string()),
@@ -307,6 +356,19 @@ impl SubscriptionListener {
                     // subscriptions on this connection.
                     Ok(DecodedFrame::SubscriptionError { external_id, reason }) => {
                         return Some(Err(ListenError::Subscription { external_id, reason }));
+                    }
+                    // Connection-level: the server closes right after this frame, so there is
+                    // nothing left on this socket to keep reading for.
+                    Ok(DecodedFrame::ConnectionLimit {
+                        scope,
+                        limit,
+                        message,
+                    }) => {
+                        return Some(Err(ListenError::ConnectionLimit {
+                            scope,
+                            limit,
+                            message,
+                        }));
                     }
                     Err(e) => return Some(Err(e)),
                 },
