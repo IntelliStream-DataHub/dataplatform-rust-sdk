@@ -28,6 +28,7 @@ from fixtures import (  # noqa: F401  (fixtures are used by name via pytest inje
     sync_client,
     unique_id,
 )
+from polling import poll_until
 
 UTC = timezone.utc
 OSLO = ZoneInfo("Europe/Oslo")  # DST-aware: +01:00 in winter (CET), +02:00 in summer (CEST)
@@ -159,26 +160,10 @@ def test_dst_named_zone_resolves_offset_by_date():
 # --------------------------------------------------------------------------- #
 
 
-def _retrieve_with_retry(sync_client, ts, start, end, attempts=15, delay=1.0):
-    """Poll retrieve_datapoints until points appear (ClickHouse ingest lag)."""
-    for _ in range(attempts):
-        dps = sync_client.timeseries.retrieve_datapoints(
-            intellistream_datahub_sdk.RetrieveFilter(ts=ts, start=start, end=end, limit=1000)
-        )[0].get_datapoints()
-        if dps:
-            return dps
-        sleep(delay)
-    return []
-
-
-def _by_ids_with_retry(sync_client, event, attempts=15, delay=1.0):
-    """Poll events.by_ids until the freshly-created event is visible (index lag)."""
-    for _ in range(attempts):
-        fetched = sync_client.events.by_ids([event])
-        if fetched:
-            return fetched
-        sleep(delay)
-    return []
+def _retrieve_datapoints(sync_client, ts, start, end):
+    return sync_client.timeseries.retrieve_datapoints(
+        intellistream_datahub_sdk.RetrieveFilter(ts=ts, start=start, end=end, limit=1000)
+    )[0].get_datapoints()
 
 
 def test_datapoint_non_utc_offset_survives_roundtrip(sync_client, make_ts):
@@ -195,12 +180,18 @@ def test_datapoint_non_utc_offset_survives_roundtrip(sync_client, make_ts):
 
     sync_client.timeseries.insert_from_lists(timestamps=timestamps, values=values, ts=ts)
 
-    dps = _retrieve_with_retry(
-        sync_client, ts,
-        start=datetime(2025, 6, 1, tzinfo=UTC),
-        end=datetime(2025, 6, 2, tzinfo=UTC),
+    dps = poll_until(
+        lambda: _retrieve_datapoints(
+            sync_client, ts,
+            start=datetime(2025, 6, 1, tzinfo=UTC),
+            end=datetime(2025, 6, 2, tzinfo=UTC),
+        ),
+        lambda points: len(points) >= len(cases),
     )
-    assert dps, "no datapoints came back after insert"
+    assert len(dps) == len(cases), (
+        f"only {len(dps)} of {len(cases)} inserted datapoints came back, so the instants "
+        "below cannot be checked"
+    )
 
     got = {dp.timestamp: dp.value for dp in dps}
     for input_dt, value, expected_utc in cases:
@@ -224,7 +215,7 @@ def test_event_non_utc_offset_survives_roundtrip(sync_client, make_dataset, make
     )
     make_events([ev])
 
-    fetched = _by_ids_with_retry(sync_client, ev)
+    fetched = poll_until(lambda: sync_client.events.by_ids([ev]), bool)
     assert fetched, "event not found after create"
     assert fetched[0].event_time == expected_utc
 
@@ -240,10 +231,13 @@ def test_delete_datapoints_non_utc_boundary(sync_client, make_ts):
     sync_client.timeseries.insert_from_lists(
         timestamps=[before, after], values=[1.0, 2.0], ts=ts
     )
-    inserted = _retrieve_with_retry(
-        sync_client, ts,
-        start=datetime(2025, 6, 1, tzinfo=UTC),
-        end=datetime(2025, 6, 2, tzinfo=UTC),
+    inserted = poll_until(
+        lambda: _retrieve_datapoints(
+            sync_client, ts,
+            start=datetime(2025, 6, 1, tzinfo=UTC),
+            end=datetime(2025, 6, 2, tzinfo=UTC),
+        ),
+        lambda points: len(points) >= 2,
     )
     assert len(inserted) == 2, "both points should exist before the delete"
 

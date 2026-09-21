@@ -220,21 +220,35 @@ def test_data():
 
 
 def _await_datapoints(sync_client, test_data, ts):
-    """Block until every inserted point is readable, or the timeout gives up.
+    """Block until every inserted point is readable, and fail the fixture if they never are.
 
     ClickHouse makes an insert visible some time after the call returns, so a fixed sleep is
     a bet on how long: too short and every dependent test reads `[]` at once, too long and
     each run pays for the worst case. Polling returns as soon as the rows land and only waits
-    when it has to. Returning short rather than raising leaves the diagnosis to the test —
-    an assertion on the datapoints says more than a fixture blowing up before one runs.
+    when it has to.
     """
+    # `end` is exclusive here, unlike the TimeFilter the /filter endpoints take, so a window
+    # ending on the last point returns every point but that one and the wait can never finish.
     rf = intellistream_datahub_sdk.RetrieveFilter(
-        ts=ts, start=test_data.index[0], end=test_data.index[-1]
+        ts=ts,
+        start=test_data.index[0],
+        end=test_data.index[-1] + pd.Timedelta(milliseconds=1),
     )
-    poll_until(
+    # A batch lands all at once rather than trickling in, and a 100-point one was measured at
+    # ~25s against a dev backend — too close to the 30s default to survive a loaded run.
+    timeout = 90.0
+    points = poll_until(
         lambda: sync_client.timeseries.retrieve_datapoints(rf)[0].get_datapoints(),
         lambda points: len(points) >= len(test_data),
+        timeout=timeout,
     )
+    if len(points) < len(test_data):
+        pytest.fail(
+            f"only {len(points)} of {len(test_data)} inserted datapoints became readable within "
+            f"{timeout:.0f}s, so the series this fixture promises does not exist yet. "
+            "The fixtures built on this are module-scoped, so returning anyway would hand every "
+            "dependent test a short read to fail on instead."
+        )
 
 
 @pytest.fixture(scope="module")
