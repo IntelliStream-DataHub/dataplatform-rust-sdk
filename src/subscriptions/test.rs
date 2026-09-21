@@ -4,7 +4,7 @@ mod tests {
     use crate::subscriptions::listen::build_ws_url;
     use crate::tests::cleanup::{cleanup_subscriptions, cleanup_timeseries};
     use crate::subscriptions::{
-        EventAction, EventObject, Subscription, SubscriptionFilter, SubscriptionMessage,
+        EventAction, EventObject, Subscription, SubscriptionFilter,
         SubscriptionFilterForm,
     };
     use crate::filters::DataSort;
@@ -494,21 +494,17 @@ mod tests {
                 .insert_datapoint(None, Some(ts_ext.clone()), Utc::now(), "42.0".to_string())
                 .await?;
 
-            // Wait up to ~10s for the datapoint to land.
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-            let mut received: Option<SubscriptionMessage> = None;
-            while tokio::time::Instant::now() < deadline {
-                tokio::select! {
-                    maybe = listener.next() => {
-                        if let Some(Ok(msg)) = maybe {
-                            received = Some(msg);
-                            break;
-                        }
-                    }
-                    _ = tokio::time::sleep(Duration::from_millis(200)) => {}
-                }
-            }
-            let msg = received.ok_or("no message arrived before the deadline")?;
+            // Wait up to ~10s for the datapoint to land. Every outcome has to name itself: an
+            // error frame (`not-found`, `forbidden`, `websocket-limit-reached`) says exactly why,
+            // and discarding it made a refused subscription and a dead fan-out both report as
+            // "no message arrived". One timeout around `next` rather than a `select!` per 200ms,
+            // because `next` holds `&mut self` and is not cancel-safe.
+            let msg = match tokio::time::timeout(Duration::from_secs(10), listener.next()).await {
+                Ok(Some(Ok(msg))) => msg,
+                Ok(Some(Err(e))) => return Err(format!("listener returned an error: {e}").into()),
+                Ok(None) => return Err("listener stream ended before a message arrived".into()),
+                Err(_) => return Err("no message arrived before the deadline".into()),
+            };
             assert_eq!(msg.payload.event_object, EventObject::Datapoints);
             assert_eq!(msg.payload.event_action, EventAction::Create);
             listener.ack(&[msg.message_id.as_str()]).await?;
