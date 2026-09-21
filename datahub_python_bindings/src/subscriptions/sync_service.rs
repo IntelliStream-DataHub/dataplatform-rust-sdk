@@ -142,7 +142,7 @@ pub(crate) fn build_filter_form(
         r.limit = l;
     }
     if let Some(s) = sort {
-        r.sort = s.into();
+        r.sort = Some(s.into());
     }
     Ok(r)
 }

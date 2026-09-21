@@ -65,8 +65,9 @@ pub use relations::{EdgeProxy, RelForm, RelatedNode, RelationDirection};
 use crate::datasets::*;
 pub use crate::datasets::Dataset;
 
+pub use filters::DataSort;
 pub use subscriptions::{
-    DataCollectionString, DataSort, DataWrapperMessage, EventAction, EventObject, ListenError,
+    DataCollectionString, DataWrapperMessage, EventAction, EventObject, ListenError,
     Subscription, SubscriptionFilter, SubscriptionListener, SubscriptionMessage,
     SubscriptionFilterForm, WsDatapoint,
 };

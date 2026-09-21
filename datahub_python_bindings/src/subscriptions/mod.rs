@@ -1,8 +1,9 @@
 use crate::PyIdCollection;
 use crate::timeseries::PyTimeSeries;
+use intellistream_datahub_sdk::filters::DataSort;
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::subscriptions::{
-    DataCollectionString, DataSort, DataWrapperMessage, EventAction, EventObject, Subscription,
+    DataCollectionString, DataWrapperMessage, EventAction, EventObject, Subscription,
     SubscriptionFilter, SubscriptionMessage, SubscriptionFilterForm, WsDatapoint,
 };
 use pyo3::exceptions::PyValueError;
@@ -96,32 +97,23 @@ impl From<PyDataSort> for DataSort {
 #[pymethods]
 impl PyDataSort {
     #[new]
-    #[pyo3(signature=(property=None, order=None, nulls=None))]
-    fn new(
-        property: Option<Vec<String>>,
-        order: Option<String>,
-        nulls: Option<String>,
-    ) -> Self {
+    #[pyo3(signature=(property=None, order=None))]
+    fn new(property: Option<Vec<String>>, order: Option<String>) -> Self {
         Self {
             inner: DataSort {
-                property,
+                property: property.unwrap_or_default(),
                 order,
-                nulls,
             },
         }
     }
 
     #[getter]
-    fn property(&self) -> Option<Vec<String>> {
+    fn property(&self) -> Vec<String> {
         self.inner.property.clone()
     }
     #[getter]
     fn order(&self) -> Option<String> {
         self.inner.order.clone()
-    }
-    #[getter]
-    fn nulls(&self) -> Option<String> {
-        self.inner.nulls.clone()
     }
 }
 
@@ -159,7 +151,7 @@ impl PySubscriptionFilterForm {
             inner.limit = l;
         }
         if let Some(s) = sort {
-            inner.sort = s.into();
+            inner.sort = Some(s.into());
         }
         Self { inner }
     }
@@ -173,8 +165,8 @@ impl PySubscriptionFilterForm {
         self.inner.limit
     }
     #[getter]
-    fn sort(&self) -> PyDataSort {
-        self.inner.sort.clone().into()
+    fn sort(&self) -> Option<PyDataSort> {
+        self.inner.sort.clone().map(PyDataSort::from)
     }
 }
 
