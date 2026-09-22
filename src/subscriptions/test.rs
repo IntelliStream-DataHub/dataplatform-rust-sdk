@@ -398,6 +398,47 @@ mod tests {
         }
     }
 
+    // The connection-level refusal, byte for byte as SubscriptionWebSocketHandler.sendLimitError
+    // builds it: no subscriptionExternalId, and the three fields that say which cap was hit. Those
+    // used to be dropped, leaving `subscription '' error: websocket-limit-reached` — a refusal
+    // naming no subscription and no number.
+    #[test]
+    fn test_connection_limit_frame_keeps_scope_limit_and_message() {
+        use crate::subscriptions::listen::{decode_text_frame, DecodedFrame};
+        let wire = serde_json::json!({
+            "error": true,
+            "reason": "websocket-limit-reached",
+            "scope": "tenant",
+            "limit": 25,
+            "message": "This tenant already has 25 open WebSocket connections, which is the limit. \
+                        Close one, or contact IntelliStream to have the limit raised."
+        });
+        match decode_text_frame(&wire.to_string()).unwrap() {
+            DecodedFrame::ConnectionLimit { scope, limit, message } => {
+                assert_eq!(scope, "tenant");
+                assert_eq!(limit, 25);
+                assert!(message.contains("25 open WebSocket connections"));
+            }
+            _ => panic!("a connection refusal must not decode as a subscription error"),
+        }
+    }
+
+    // Told apart by the fields present, not by the reason string: a subscription error that happens
+    // to carry an unfamiliar reason still decodes as a subscription error.
+    #[test]
+    fn test_subscription_error_is_not_mistaken_for_a_connection_limit() {
+        use crate::subscriptions::listen::{decode_text_frame, DecodedFrame};
+        let wire = serde_json::json!({
+            "error": true,
+            "subscriptionExternalId": "some_sub",
+            "reason": "websocket-limit-reached"
+        });
+        match decode_text_frame(&wire.to_string()).unwrap() {
+            DecodedFrame::SubscriptionError { external_id, .. } => assert_eq!(external_id, "some_sub"),
+            _ => panic!("no scope/limit means it is not a connection refusal"),
+        }
+    }
+
     #[test]
     fn test_event_object_resource_and_relation_snake() {
         // The odd enum — the Java side uses UPPER_SNAKE for this variant, others are single-word UPPER.
