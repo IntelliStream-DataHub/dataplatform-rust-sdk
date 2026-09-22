@@ -7,6 +7,7 @@ pub use listen::{
     SubscriptionListener, SubscriptionMessage, WsDatapoint,
 };
 
+use crate::filters::DataSort;
 use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId};
 use crate::http::ResponseError;
 use crate::ApiService;
@@ -144,23 +145,14 @@ pub struct SubscriptionFilter {
     pub timeseries: Vec<IdAndExtId>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct DataSort {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub property: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub order: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nulls: Option<String>,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionFilterForm {
     pub filter: SubscriptionFilter,
     pub limit: u32,
-    pub sort: DataSort,
+    /// Absent means the endpoint's default order, `createdTime` descending.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort: Option<DataSort>,
 }
 
 impl Default for SubscriptionFilterForm {
@@ -168,7 +160,7 @@ impl Default for SubscriptionFilterForm {
         SubscriptionFilterForm {
             filter: SubscriptionFilter::default(),
             limit: 100,
-            sort: DataSort::default(),
+            sort: None,
         }
     }
 }

@@ -4,9 +4,10 @@ mod tests {
     use crate::subscriptions::listen::build_ws_url;
     use crate::tests::cleanup::{cleanup_subscriptions, cleanup_timeseries};
     use crate::subscriptions::{
-        DataSort, EventAction, EventObject, Subscription, SubscriptionFilter, SubscriptionMessage,
+        EventAction, EventObject, Subscription, SubscriptionFilter, SubscriptionMessage,
         SubscriptionFilterForm,
     };
+    use crate::filters::DataSort;
     use crate::timeseries::TimeSeries;
     use crate::{create_api_service, ApiService};
     use reqwest::StatusCode;
@@ -53,16 +54,22 @@ mod tests {
     #[test]
     fn test_filter_form_default_serializes_cleanly() {
         // SubscriptionFilterForm::default() must serialize to a body the backend accepts:
-        // - empty filter.timeseries collapses to just `{"filter":{},"limit":100,"sort":{}}`
-        // - sort fields are all None so they must be omitted so the @Pattern validator on `nulls` is skipped
+        // `{"filter":{},"limit":100}` — an unset sort is omitted rather than sent empty, and
+        // `nulls` is absent because the api removed the field and now 400s on it.
         let json = serde_json::to_value(&SubscriptionFilterForm::default()).unwrap();
         assert_eq!(json["limit"], 100);
         let filter_obj = json["filter"].as_object().unwrap();
         assert!(filter_obj.get("timeseries").is_none());
-        let sort_obj = json["sort"].as_object().unwrap();
-        assert!(sort_obj.get("nulls").is_none());
-        assert!(sort_obj.get("property").is_none());
-        assert!(sort_obj.get("order").is_none());
+        assert!(json.get("sort").is_none());
+
+        let sorted = SubscriptionFilterForm {
+            sort: Some(DataSort::desc("name")),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&sorted).unwrap();
+        assert_eq!(json["sort"]["property"], serde_json::json!(["name"]));
+        assert_eq!(json["sort"]["order"], "desc");
+        assert!(json["sort"].as_object().unwrap().get("nulls").is_none());
     }
 
     // Helpers for the integration test — mirrors delete_events in events/tests.rs.
@@ -153,7 +160,7 @@ mod tests {
                         timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
                     },
                     limit: 100,
-                    sort: DataSort::default(),
+                    sort: None,
                 })
                 .await?;
             assert!(
@@ -174,7 +181,7 @@ mod tests {
                         timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
                     },
                     limit: 100,
-                    sort: DataSort::default(),
+                    sort: None,
                 })
                 .await?;
             assert!(
