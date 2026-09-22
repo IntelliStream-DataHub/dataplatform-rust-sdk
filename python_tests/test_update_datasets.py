@@ -4,9 +4,10 @@
 add/remove delta paths for ``metadata`` and ``labels``. ``test_datasets.py`` keeps the
 round-trip/no-op cases that came before this file.
 
-The endpoint forwards to the resource update under the hood, and that forwarding is where the
-gaps are: only ``description`` has its ``setNull`` passed through, so clearing ``name`` or
-``externalId`` is silently a no-op. Labels go through the resource layer's type-label rule, so the
+The endpoint forwards to the resource update under the hood, and only ``description`` has its
+``setNull`` passed through. That is not a gap: ``name`` and ``externalId`` are NOT NULL columns and
+``DataSetFields`` rejects a ``setNull`` on either with a 400 before the forwarding runs, so the
+resource layer is never asked. Labels go through the resource layer's type-label rule, so the
 ``DATASET`` label is forced back on every edit.
 
 A dataset carries no ``labels`` field in its own response shape, so the label assertions re-read
@@ -19,12 +20,6 @@ import pytest
 import intellistream_datahub_sdk
 from fixtures import make_dataset, sync_client, unique_id
 from polling import poll_until
-
-_NO_SETNULL_PASSTHROUGH = pytest.mark.xfail(
-    reason="DataSetService forwards only description's setNull to the resource layer",
-    strict=False,
-)
-
 
 def _apply(sync_client, update):
     result = sync_client.datasets.update([update])
@@ -120,24 +115,15 @@ def test_description_set_null(sync_client, new_dataset):
     assert updated.description is None
 
 
-@_NO_SETNULL_PASSTHROUGH
-def test_name_set_null(sync_client, new_dataset):
+@pytest.mark.parametrize("field", ["name", "external_id"])
+def test_required_field_cannot_be_cleared(sync_client, new_dataset, field):
     dataset = new_dataset(name="Clear my name")
 
-    updated = _apply(sync_client, intellistream_datahub_sdk.DatasetUpdate(
-        dataset.external_id, name=intellistream_datahub_sdk.FieldStr(set_null=True)
-    ))
-    assert not updated.name
-
-
-@_NO_SETNULL_PASSTHROUGH
-def test_external_id_set_null(sync_client, new_dataset):
-    dataset = new_dataset()
-
-    updated = _apply(sync_client, intellistream_datahub_sdk.DatasetUpdate(
-        dataset.external_id, external_id=intellistream_datahub_sdk.FieldStr(set_null=True)
-    ))
-    assert not updated.external_id
+    with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
+        sync_client.datasets.update([intellistream_datahub_sdk.DatasetUpdate(
+            dataset.external_id, **{field: intellistream_datahub_sdk.FieldStr(set_null=True)}
+        )])
+    assert "cannot be null" in str(excinfo.value), str(excinfo.value)
 
 
 # --------------------------------------------------------------------------- #

@@ -3,13 +3,12 @@
 Every field of ``EventUpdate`` gets a set-a-value test and a clear-it test, plus the
 add/remove delta paths for the two collection fields (``metadata``, ``related_resources``).
 
-``eventTime`` is **not** an update field: an event's time is immutable after creation, so the
-api has no such field and rejects a body naming one.
+``eventTime`` and ``externalId`` are **not** update fields: both identify an event rather than
+describe it, so the api has no such field and rejects a body naming one.
 
-Three fields have **no ``setNull`` branch server-side** — ``externalId``, ``dataSetId``, and the
-two collections — so a ``setNull`` there is silently a no-op rather than an error. The tests
-below pin that as behaviour; ``xfail(strict=False)`` marks the ones where clearing is the
-arguably-correct answer, so they flip to xpass if the server grows the branch.
+``dataSetId`` is clearable (``EventService.validateAndUpdate`` has the ``setNull`` branch) and an
+unknown one is a 400 rather than being stored. Both used to be the other way round and were
+carried here as ``xfail(strict=False)``; they are plain assertions now.
 
 The update response echoes the stored event, so assertions read it directly; a re-read is only
 used where persistence itself is the point (the event projection lags a write).
@@ -22,13 +21,6 @@ import pytest
 import intellistream_datahub_sdk
 from fixtures import make_dataset, make_resource, sync_client, unique_id
 from polling import poll_until
-
-# Clearing these is unrepresentable server-side: the update service reads `.getSet()` for them
-# and never looks at `setNull`.
-_NO_SETNULL_BRANCH = pytest.mark.xfail(
-    reason="server has no setNull branch for this field; the request is accepted and ignored",
-    strict=False,
-)
 
 
 def _apply(sync_client, update):
@@ -211,10 +203,13 @@ def test_data_set_id_set_value(sync_client, new_event, make_dataset):
     assert updated.data_set_id == dataset.id
 
 
-@_NO_SETNULL_BRANCH
 def test_data_set_id_set_null(sync_client, new_event, make_dataset):
     dataset = make_dataset(name=unique_id("evt_upd_ds_null"))
     event = new_event(data_set_id=dataset.id)
+
+    # Assert the precondition: without it a create that silently dropped `dataSetId` would make
+    # the clear below pass having cleared nothing.
+    assert _apply(sync_client, intellistream_datahub_sdk.EventUpdate(event)).data_set_id == dataset.id
 
     updated = _apply(sync_client, intellistream_datahub_sdk.EventUpdate(
         event, data_set_id=intellistream_datahub_sdk.FieldU64(set_null=True)
@@ -222,19 +217,21 @@ def test_data_set_id_set_null(sync_client, new_event, make_dataset):
     assert updated.data_set_id is None
 
 
-@pytest.mark.xfail(
-    reason="the event update only ACL-checks dataSetId, never looks it up — an unknown id is "
-    "stored and the event ends up pointing at a data set that does not exist",
-    strict=False,
-)
 def test_data_set_id_unknown_is_rejected(sync_client, new_event):
-    """The resource update rejects this with 400; the event update accepts it."""
+    """`EventService.update` resolves every target id before touching any event.
+
+    It resolves them against *nodes*, not data sets, so this pins only that an id matching nothing
+    at all is refused — an id belonging to some other node type still gets stored.
+    """
     event = new_event()
 
-    with pytest.raises(intellistream_datahub_sdk.DataHubException):
+    with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
         sync_client.events.update([intellistream_datahub_sdk.EventUpdate(
             event, data_set_id=intellistream_datahub_sdk.FieldU64(value=2**62)
         )])
+    # A bare `raises` would also be satisfied by the 403 the ACL check gives on a data set the
+    # caller has no grant on, which is a different answer to a different question.
+    assert '"status":400' in str(excinfo.value), str(excinfo.value)
 
 
 # --------------------------------------------------------------------------- #

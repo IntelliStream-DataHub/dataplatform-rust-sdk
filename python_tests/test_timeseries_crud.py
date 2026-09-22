@@ -229,29 +229,19 @@ def test_update_set_value_then_set_null(sync_client, make_ts):
     assert sync_client.timeseries.update([null_update])[0].description is None
 
 
-# `name` and `external_id` are set-only server-side: TimeseriesService reads `.getSet()` for both
-# and never looks at `setNull`, so clearing either is accepted and ignored. strict=False surfaces
-# an xpass if the backend grows the branch.
-_NO_SETNULL_BRANCH = pytest.mark.xfail(
-    reason="backend has no setNull branch for this field; the request is accepted and ignored",
-    strict=False,
-)
-
-
-@_NO_SETNULL_BRANCH
-def test_update_name_set_null(sync_client, make_ts):
+# `name` and `external_id` back NOT NULL columns, so neither is clearable: `TimeseriesFields`
+# rejects a `setNull` on either with a 400 naming the field, before the adapter that has only a
+# `.getSet()` branch for them is reached.
+@pytest.mark.parametrize("field", ["name", "external_id"])
+def test_update_required_field_cannot_be_cleared(sync_client, make_ts, field):
     ts = make_ts(name="Clear my name")
 
-    update = intellistream_datahub_sdk.TimeSeriesUpdate(ts, name=intellistream_datahub_sdk.FieldStr(set_null=True))
-    assert not sync_client.timeseries.update([update])[0].name
-
-
-@_NO_SETNULL_BRANCH
-def test_update_external_id_set_null(sync_client, make_ts):
-    ts = make_ts()
-
-    update = intellistream_datahub_sdk.TimeSeriesUpdate(ts, external_id=intellistream_datahub_sdk.FieldStr(set_null=True))
-    assert not sync_client.timeseries.update([update])[0].external_id
+    update = intellistream_datahub_sdk.TimeSeriesUpdate(
+        ts, **{field: intellistream_datahub_sdk.FieldStr(set_null=True)}
+    )
+    with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
+        sync_client.timeseries.update([update])
+    assert "cannot be null" in str(excinfo.value), str(excinfo.value)
 
 
 # --------------------------------------------------------------------------- #

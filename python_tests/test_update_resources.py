@@ -4,20 +4,22 @@
 covered there. This file takes the other six fields of ``ResourceUpdate``: a set-a-value test and
 a clear-it test each, plus the add/remove delta paths for ``metadata``.
 
-``externalId`` and ``name`` have no ``setNull`` branch server-side (the update service only reads
-``.getSet()`` for them), so clearing either is silently a no-op. Those two are marked
-``xfail(strict=False)``, and flip to xpass if the server grows the branch.
+``externalId`` and ``name`` are **not clearable**: both are NOT NULL columns, so the api rejects a
+``setNull`` on either in validation (``ResourceFields.rejectSetNull``) before the mutator — which
+has no ``setNull`` branch for them — ever runs. ``test_required_field_cannot_be_cleared`` pins that
+400. It asserted the clear *succeeded* and carried an ``xfail(strict=False)`` reading "accepted and
+ignored"; both halves were wrong, and the request was never a no-op.
+
+That test matches on the problem's prose rather than its ``type``, against the usual rule: the
+``type`` is the generic ``errors/bad-request`` every rejected field shares, and the ``fields`` entry
+names the entity (``"Resource"``), not which field was refused. The message is the only thing that
+distinguishes this from any other 400 here.
 """
 import pytest
 
 import intellistream_datahub_sdk
 from fixtures import make_dataset, make_resource, sync_client, unique_id
 from polling import poll_until
-
-_NO_SETNULL_BRANCH = pytest.mark.xfail(
-    reason="server has no setNull branch for this field; the request is accepted and ignored",
-    strict=False,
-)
 
 
 def _apply(sync_client, update):
@@ -120,24 +122,15 @@ def test_scalar_set_null(sync_client, new_resource, field, attr):
     assert getattr(updated, attr) is None
 
 
-@_NO_SETNULL_BRANCH
-def test_name_set_null(sync_client, new_resource):
+@pytest.mark.parametrize("field", ["name", "external_id"])
+def test_required_field_cannot_be_cleared(sync_client, new_resource, field):
     ext = new_resource(name="Clear my name")
 
-    updated = _apply(sync_client, intellistream_datahub_sdk.ResourceUpdate(
-        ext, name=intellistream_datahub_sdk.FieldStr(set_null=True)
-    ))
-    assert not updated.name
-
-
-@_NO_SETNULL_BRANCH
-def test_external_id_set_null(sync_client, new_resource):
-    ext = new_resource()
-
-    updated = _apply(sync_client, intellistream_datahub_sdk.ResourceUpdate(
-        ext, external_id=intellistream_datahub_sdk.FieldStr(set_null=True)
-    ))
-    assert not updated.external_id
+    with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
+        sync_client.resources.update([intellistream_datahub_sdk.ResourceUpdate(
+            ext, **{field: intellistream_datahub_sdk.FieldStr(set_null=True)}
+        )])
+    assert "cannot be null" in str(excinfo.value), str(excinfo.value)
 
 
 # --------------------------------------------------------------------------- #
