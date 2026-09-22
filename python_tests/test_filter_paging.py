@@ -24,6 +24,7 @@ Two rules carry the weight, and neither fails loudly when it is wrong:
   cursor is the start of a walk, not an error in one.
 """
 import base64
+import string
 
 import pytest
 
@@ -45,15 +46,40 @@ def ids_of(page):
     return [item.external_id for item in page]
 
 
-def forge_cursor(property_name, direction, row_id, value):
-    """Build a cursor by hand — only ever to test what the server does with a bad one.
+def forge_cursor(template, property_name, row_id, value):
+    """Rewrite a server-minted cursor's boundary — only ever to test what the server does with a
+    bad one.
 
-    Callers must not do this: a cursor is opaque precisely so its encoding can change. The shape is
-    base64url of ``v1|<property>|<asc|desc>|<id>|v<value>`` (or ``n`` for a null boundary).
+    ``template`` is a real ``next_cursor`` produced by the very sort the forgery will be sent
+    under, and only the id and value segments are replaced. Whatever sits in front of the sort —
+    a version tag, say — travels through exactly as the server minted it.
+
+    Building one from scratch is what this deliberately does not do. A cursor is opaque so that
+    its encoding can change, and a test that spells the encoding out turns any such change into a
+    red run *here* rather than in the platform's own ``PageCursor`` tests. It also fails the wrong
+    way round: a forgery the server rejects as structurally malformed answers 400 just like one
+    rejected for its boundary, so a stale shape leaves the tests below passing while testing
+    nothing.
+
+    The segment layout still has to be known this far: ``<property>|<asc|desc>|<id>|v<value>``,
+    with ``n`` for a null boundary and the value last because it may contain the separator.
     """
+    raw = base64.urlsafe_b64decode(template + "=" * (-len(template) % 4)).decode()
+    parts = raw.split("|")
+    assert property_name in parts, f"cursor does not carry its sort property: {raw!r}"
+    index = parts.index(property_name)
+    # Only a version-style prefix may precede the sort. Further left means the name was matched
+    # inside the boundary value instead, which is not a segment this may rewrite.
+    assert index <= 1, f"unexpected cursor layout, forge_cursor needs updating: {raw!r}"
+    assert len(parts) >= index + 4, \
+        f"cursor has too few segments, forge_cursor needs updating: {raw!r}"
+    direction = parts[index + 1]
+    assert direction in ("asc", "desc"), \
+        f"cursor does not carry its direction where expected, forge_cursor needs updating: {raw!r}"
+
     tagged = "n" if value is None else f"v{value}"
-    raw = f"v1|{property_name}|{direction}|{row_id}|{tagged}"
-    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+    forged = "|".join([*parts[:index], property_name, direction, str(row_id), tagged])
+    return base64.urlsafe_b64encode(forged.encode()).decode().rstrip("=")
 
 
 @pytest.fixture
@@ -186,23 +212,31 @@ def test_paging_across_a_run_of_tied_values(ts_page, sync_client, prefix):
 # the cursor is opaque
 # --------------------------------------------------------------------------- #
 
-def test_the_cursor_is_opaque_and_versioned(ts_page):
-    """Base64url of a versioned encoding. Asserted only as far as "it is not something a caller
-    should be reading" — the point of the ``v1`` prefix is that the format can change."""
-    cursor = ts_page(limit=2, sort_by="name", sort_order="asc").next_cursor
-    assert cursor and "|" not in cursor and " " not in cursor
+def test_the_cursor_is_opaque(ts_page):
+    """Asserted only as far as a caller can rely on it: base64url, unpadded, so it survives a
+    query string, a JSON body and a copy-paste without escaping.
 
-    decoded = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
-    assert decoded.startswith("v1|"), decoded
-    # It carries the sort, which is what lets the server refuse a mismatched continuation.
-    assert "name" in decoded and "asc" in decoded
+    What the encoding *says* is deliberately not asserted here. It has already changed once — it
+    carried a ``v1`` version tag and no longer does — and pinning that from this repository is what
+    made an internal change to the api's ``PageCursor`` fail an SDK suite, on an unrelated platform
+    pull request, rather than the platform's own tests for it. The two properties that matter to a
+    caller are covered behaviourally instead: that a cursor belongs to the sort that produced it
+    (``test_continuing_a_cursor_under_a_different_sort_is_refused``) and that an unreadable one is
+    refused rather than silently restarting the walk
+    (``test_an_unreadable_cursor_never_silently_returns_page_one``).
+    """
+    cursor = ts_page(limit=2, sort_by="name", sort_order="asc").next_cursor
+    assert cursor and "|" not in cursor and " " not in cursor and "=" not in cursor
+    # Deliberately not the base64url alphabet: a signed or dot-delimited token would satisfy
+    # everything a caller needs and fail that, which is the coupling this test just shed.
+    assert set(cursor) <= set(string.ascii_letters + string.digits + "-._~"), cursor
 
 
 UNREADABLE_CURSORS = [
     pytest.param("not-a-cursor", id="not-base64"),
     pytest.param("!!!", id="punctuation"),
     pytest.param("djE6", id="truncated"),
-    pytest.param(base64.urlsafe_b64encode(b"v9|junk").decode(), id="unknown-version"),
+    pytest.param(base64.urlsafe_b64encode(b"v9|junk").decode(), id="right-alphabet-wrong-shape"),
 ]
 
 
@@ -277,11 +311,25 @@ def test_a_malformed_boundary_is_a_400_and_not_a_500(sync_client, prefix, sortab
     Numeric and temporal columns validate their boundary now, so it is a 400 like any other
     unusable cursor rather than a server fault.
     """
+    def page(**paging):
+        return sync_client.timeseries.filter(external_id=f"{prefix}_sort_ts_*", **paging)
+
     for property_name in ["id", "dataSetId", "createdTime", "lastUpdatedTime"]:
-        cursor = forge_cursor(property_name, "asc", "5", "not-a-number")
+        template = page(limit=1, sort_by=property_name).next_cursor
+        assert template, f"{property_name}: no cursor to forge from"
+        # The template unmodified has to be accepted, or the refusal below would be about the
+        # forgery's *shape* rather than about its boundary — which is a 400 either way, and so a
+        # test that cannot tell the two apart passes without asserting anything.
+        try:
+            page(limit=1, sort_by=property_name, cursor=template)
+        except DataHubException as error:
+            raise AssertionError(
+                f"{property_name}: the server refused a cursor it minted itself, so nothing below "
+                f"can be attributed to the boundary: {error.message[:120]}") from error
+
+        cursor = forge_cursor(template, property_name, "5", "not-a-number")
         with pytest.raises(DataHubException) as excinfo:
-            sync_client.timeseries.filter(
-                external_id=f"{prefix}_sort_ts_*", limit=2, sort_by=property_name, cursor=cursor)
+            page(limit=2, sort_by=property_name, cursor=cursor)
         assert excinfo.value.status_code == 400, \
             f"{property_name}: {excinfo.value.status_code} {excinfo.value.message[:100]}"
 
@@ -306,12 +354,16 @@ def test_an_injection_payload_in_the_cursor_boundary_is_data(sync_client, prefix
     returned no rows" would distinguish neither, and nor would "it did not crash".
     """
     anchor = sortable_timeseries[2]["name"]
+    template = sync_client.timeseries.filter(
+        external_id=f"{prefix}_sort_ts_*", limit=1, sort_by="name",
+        sort_order="asc").next_cursor
+    assert template, "no cursor to forge a boundary into"
 
     def page_after(boundary):
         # Cursor id 0: below every real id, so the tie-break never decides which rows come back.
         return ids_of(sync_client.timeseries.filter(
             external_id=f"{prefix}_sort_ts_*", limit=10, sort_by="name", sort_order="asc",
-            cursor=forge_cursor("name", "asc", "0", boundary)))
+            cursor=forge_cursor(template, "name", "0", boundary)))
 
     # The anchor alone is row C's own name, so the id tie-break decides C, and 0 is below every
     # real id: C is still returned. Appending anything at all moves the boundary strictly past it.

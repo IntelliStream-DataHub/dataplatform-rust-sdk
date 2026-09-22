@@ -319,10 +319,11 @@ pub struct PageRequest {
     pub sort: Option<DataSort>,
     /// Where a previous page stopped: the `next_cursor` of that response, verbatim.
     ///
-    /// **Opaque.** It is base64 of a versioned encoding of the sort, the last row's value and its
-    /// id — do not build or parse one. An unreadable cursor restarts from the first page rather
-    /// than erroring, which is obviously wrong to a caller; guessing at half a position would
-    /// silently skip or repeat the rows around the boundary.
+    /// **Opaque.** It is base64 of an encoding of the sort, the last row's value and its id — do
+    /// not build or parse one, and do not count on the shape: it has changed. An unreadable cursor
+    /// is a 400 rather than a silent restart from page one, which a caller echoing back what it
+    /// was handed would never escape; guessing at half a position would silently skip or repeat
+    /// the rows around the boundary.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
 }
@@ -410,8 +411,8 @@ impl EventFilterForm {
     /// Resume a walk from where the previous page stopped.
     ///
     /// The value is the `next_cursor` of the previous response, verbatim. It is **opaque** — base64
-    /// of a versioned encoding carrying the sort, the last row's value and its id — so do not build
-    /// or parse one. An unreadable cursor restarts from the first page rather than erroring.
+    /// of an encoding carrying the sort, the last row's value and its id — so do not build or parse
+    /// one. An unreadable cursor is refused with a 400.
     ///
     /// Send it with the **same** [`sort`](Self::set_sort) that produced it: a cursor is a position
     /// in one particular order, and continuing it under another is a **400** rather than a page

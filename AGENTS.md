@@ -303,11 +303,16 @@ list-like, so existing code is unaffected, but carrying `.next_cursor`.
   `source`, `description`, `createdTime`, `lastUpdatedTime`, `dataSetId`. Events: `eventTime`
   **ascending** — the order the cursor pages in — sortable also by `type`, `subType`, `status`.
 - **Nulls are a block**: last ascending, first descending.
-- **Cursors are opaque** (base64 of a versioned encoding of sort + boundary + id). Never build one;
-  echo back `next_cursor`. An unreadable cursor restarts from page one rather than erroring.
-- **A cursor belongs to its sort.** Continuing it under another is *meant* to be a 400; today it is
-  a 200 with a zero-byte body — see `python_tests/test_filter_paging.py`. Paging a nullable event
-  sort (`subType`, `status`) is refused the same way.
+- **Cursors are opaque** (base64 of an encoding of sort + boundary + id). Never build one; echo
+  back `next_cursor`. The encoding has changed once already — it carried a `v1` version tag and no
+  longer does — so nothing here may pin it. `forge_cursor` in
+  `python_tests/test_filter_paging.py`, which needs a *bad* cursor to send, rewrites the boundary
+  of a real one rather than assembling one, and fails loudly if even that much of the layout
+  moves. An unreadable cursor is a 400, not a silent page one.
+- **A cursor belongs to its sort.** Continuing it under another is a **400** naming both sorts, and
+  so is continuing it under no sort at all — the default order is still a different order. Nullable
+  event sorts (`subType`, `status`) page all the way through; they used to answer a full first page
+  with no cursor, which reads as "that is all there is".
 - `nextCursor` is absent on a short page, so "keep going while it is present" is the whole loop. A
   full page may still be the last, so a walk ends with one empty request.
 

@@ -539,9 +539,8 @@ impl Event {
     }
 
     // `page_cursor()` used to live here, building `<eventTime millis>_<id>` by hand. Cursors are
-    // opaque now — base64 of a versioned encoding that carries the sort as well as the position —
-    // and a hand-built one does not decode, which restarts the walk from the first page rather
-    // than failing. Read `next_cursor` off the response instead.
+    // opaque now — base64 of an encoding that carries the sort as well as the position — and a
+    // hand-built one is refused with a 400. Read `next_cursor` off the response instead.
 
     pub fn get_external_id(&self) -> &str {
         &self.external_id.as_str()
