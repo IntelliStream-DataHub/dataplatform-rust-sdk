@@ -26,8 +26,9 @@ use std::sync::Weak;
 /// leaving a caller's `["timeseries"]` in place would widen a request to `/assets` into a mixed
 /// query.
 ///
-/// `/assets` is the newest of the typed families. What it does *not* share with `/functions` is
-/// worth knowing: functions have no `/byids`, `/filter` or `/search` on the api at all.
+/// What it does *not* share with `/functions` is worth knowing: the api serves the same three
+/// reads there, but the SDK's [`FunctionsService`](crate::functions::FunctionsService) has not
+/// wired them yet and still filters a listing client-side.
 pub struct AssetsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,

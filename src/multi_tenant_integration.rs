@@ -59,16 +59,18 @@
 //! let beta = ApiService::new(config); // a second client, a second tenant
 //! ```
 //!
-//! **The server's reason never reaches the client.** The API installs a custom authentication
-//! entry point that emits a bare `WWW-Authenticate: Bearer realm="Restricted Content"` with no
-//! `error_description`, and a body that is Spring's generic error JSON; the descriptive message
-//! goes only to the server log. So nothing these tests assert about a 401 comes from the response.
+//! **The server explains its 401s.** The authentication entry point answers
+//! `application/problem+json` with `type: .../errors/unauthorized` and a `detail` naming the
+//! branch the organization validator hit — a missing, empty, malformed or ambiguous claim — so
+//! the multi-organization test can assert on a message naming both organizations, and it is the
+//! server's own words it reads. `WWW-Authenticate` still carries no `error_description`; the
+//! reason is in the body.
 //!
-//! What the SDK does instead is reconstruct the reason from the token it just sent — see
-//! [`crate::auth_diagnostics`], which decodes the `organization` claim and reports which of the
-//! validator's branches it would have hit. That is why the multi-organization test can assert on a
-//! message naming both organizations even though the wire carries none. Everything else is
-//! asserted on **status alone**, with the cases told apart by how the fixture is built.
+//! [`crate::auth_diagnostics`] reconstructs the same reason from the token the SDK just sent and
+//! appends it, so the message a caller sees can carry both. Every 401 here shares the
+//! `unauthorized` slug, so the cause is only in the prose: a caller cannot branch on `type` to
+//! tell "no token" from "ambiguous organization". Cases that differ only by fixture are asserted
+//! on **status alone**.
 //!
 //! (403s are different: those carry a real RFC 9457 `problem+json` body from the server, with
 //! `dataSetId` and `permission`, which the ACL tests assert on directly.)
@@ -461,10 +463,10 @@ async fn multi_tenant_multi_org_principal_with_wildcard_scope_is_rejected(
         "a token naming two organizations",
     );
 
-    // The server sends no reason at all, so this message is one the SDK reconstructs from the
-    // token it just used (`crate::auth_diagnostics`). Asserting it here — against a real
-    // two-organization token from a real realm — is what proves the diagnosis fires on the path
-    // that actually matters, rather than only on the hand-built tokens in its unit tests.
+    // The reason reaches the caller two ways now: the server writes it into the problem's
+    // `detail`, and `crate::auth_diagnostics` appends its own from the token just used. Asserting
+    // it against a real two-organization token from a real realm is what proves the explanation
+    // survives the whole path, entry point to `ResponseError`.
     let message = error.get_message();
     assert!(
         message.contains("names 2 organizations"),
@@ -1004,16 +1006,16 @@ async fn acl_dataset_management_requires_a_blanket_write_grant() -> Result<(), R
 /// The child is linked with `connectedDataSets`, which the backend reads as "the dataset this one
 /// is part of" and stores as the `BELONGS_TO` edge the ACL closure walks.
 ///
-/// **Currently unreachable through this SDK**, and the test skips rather than failing. Two gaps
-/// meet here:
+/// **The test still skips**, but only one gap is left: `POST /datasets/create` with a non-empty
+/// `connectedDataSets` answers **200 with an empty body and creates nothing at all** — no error,
+/// no entity. With the field empty it returns the created dataset as normal, so the parent link
+/// cannot be set at create time.
 ///
-/// - `POST /datasets/create` with a non-empty `connectedDataSets` answers **200 with an empty
-///   body and creates nothing at all** — no error, no entity. With the field empty it returns the
-///   created dataset as normal. So the parent link cannot be set at create time.
-/// - [`DatasetsService::update`](crate::datasets::DatasetsService::update) is `todo!()`, so it
-///   cannot be set afterwards either.
-///
-/// The skip resolves itself the moment either gap closes.
+/// `DatasetsService::update` is implemented now (it was `todo!()` when this was written), and
+/// [`EdgesService`](crate::relations::EdgesService) can create the edge directly. Note the
+/// direction if you wire this up: the row is stored `from = parent, to = child` even though the
+/// relationship is named `BELONGS_TO`, and the closure query descends `rel_start -> rel_end` —
+/// `connected_data_sets` does not create it. See `python_tests/filter_fixtures.py`.
 #[tokio::test]
 #[ignore]
 async fn acl_a_parent_dataset_grant_covers_descendants() -> Result<(), ResponseError> {

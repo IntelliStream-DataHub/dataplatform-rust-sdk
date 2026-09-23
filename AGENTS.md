@@ -55,7 +55,7 @@ cargo test multi_tenant_integration -- --ignored --nocapture --test-threads=1
 ./run_python_tests.sh -k multi_tenant
 ```
 
-They need six purpose-built Keycloak principals beyond the usual `.env` (a two-organization one, read-only/write-only/no-grant ones, and a full-access one per organization), configured through `MT_*` variables. Each test skips with a printed note when its fixture is absent, so a checkout without that realm setup is unaffected. **The Rust module's `//!` doc is the reference** — it carries the env contract, the organization-group naming convention, the realm-level mapper prerequisites, and the reason 401s here can only be asserted on status (the API drops the explanation before it reaches any client).
+They need six purpose-built Keycloak principals beyond the usual `.env` (a two-organization one, read-only/write-only/no-grant ones, and a full-access one per organization), configured through `MT_*` variables. Each test skips with a printed note when its fixture is absent, so a checkout without that realm setup is unaffected. **The Rust module's `//!` doc is the reference** — it carries the env contract, the organization-group naming convention, the realm-level mapper prerequisites, and the reason a 401's cause lives in the problem's `detail` rather than in its `type` (every entry-point 401 shares the `unauthorized` slug).
 
 ## Backend
 
@@ -65,13 +65,13 @@ The DataHub REST API this SDK targets is a separate Spring Boot project; the HTT
 
 This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point is `create_api_service()` in `src/lib.rs`, which returns an `Arc<ApiService>` built with `Arc::new_cyclic` so each subservice holds a `Weak<ApiService>` back-reference. Subservices are fields on `ApiService`:
 
-- `time_series` (`src/timeseries/`) — `TimeSeries` + datapoint ingestion/retrieval. Neither `TimeSeries` nor `TimeSeriesUpdate` has **`securityCategories`**: it was stored, writable and returned, but nothing ever read it — no part in access control (dataset grants are Keycloak organization groups), no query filtering on it, and the backend silently dropped any id that did not already exist, so the field never round-tripped. It has been removed server-side along with its join table, and the api reads request bodies strictly, so sending it is now a 400. Files keep their own `securityCategories` (`INode` in `src/generic.rs`) — separate entity, separate question. `ListFieldU64` went with it: it was the only field of that type, so the Python wrapper class is gone too (`ListFieldStr` and `ListFieldIdCollection` remain). **`tableEngine`** went the same way. No read had returned it since the api marked it `@JsonIgnore` — which ClickHouse engine backs a series is an internal storage decision — and it has now been removed from the api entirely, so the write side that made it worth keeping as a write-only field is gone too.
+- `time_series` (`src/timeseries/`) — `TimeSeries` + datapoint ingestion/retrieval. Neither `TimeSeries` nor `TimeSeriesUpdate` has **`securityCategories`**: it was stored, writable and returned, but nothing ever read it — no part in access control (dataset grants are Keycloak organization groups), no query filtering on it, and the backend silently dropped any id that did not already exist, so the field never round-tripped. It has been removed server-side along with its join table, and the api reads request bodies strictly, so sending it is now a 400. Files keep their own `securityCategories` (`INode` in `src/generic.rs`) — separate entity, separate question. `ListFieldU64` went with it: it was the only field of that type, so the Python wrapper class is gone too (`ListFieldStr` and `ListFieldIdCollection` remain). **`tableEngine`** went the same way, but is *not* a 400 everywhere: no read had returned it since the api marked it `@JsonIgnore` — which ClickHouse engine backs a series is an internal storage decision — and the write side is gone. `Timeseries` keeps it in a `@JsonIgnoreProperties` list so an older SDK's body is **accepted and the field ignored**; the update form (`TimeseriesFields`) has no such list, so sending it *there* is a 400.
 - `units` (`src/unit/`)
 - `events` (`src/events/`) — event CRUD, filter/search, plus the vocabulary endpoints (`list_types`/`search_types` and the same pair for sub-types, statuses and sources, over `EventDimension`). Those answer "what values does this tenant actually use" for the four categorical fields and back filter dropdowns; they read small server-side dimension tables rather than scanning events, so they are cheap but *eventually consistent* with the events. Note the route asymmetry the SDK hides: `/events/list/{plural}` but `/events/search/{singular}`. `EventUpdate` has **no `event_time` and no `external_id`**: both identify an event rather than describe it, and each was dropped from the api's update form after it had spent a while validating the field, echoing the new value back with a 200 and then failing to apply it — so sending either is now a 400 naming it. The events table is partitioned by `event_time`, so ClickHouse refuses that mutation outright. `externalId` maps to the *set* of event UUIDs behind it, events sharing one being the lifecycle of a single logical event, so a rename would take every sibling along — and when the caller identified the event by UUID the server had no old value to re-key with, leaving the "renamed" event resolvable under neither id. Re-key by creating a new event and deleting the old; record a corrected time the same way.
 - `resources` (`src/resources/`) — the generic node service. Its reads span **every** node type and answer with [`Node`](#the-polymorphic-node-type) rather than one flat shape; relationship edges live in `src/relations/` (`EdgeProxy`, `RelForm`, `RelatedNode`)
 - `edges` (`src/relations/service.rs`) — the `/edges` endpoints: `get`/`by_ids`/`create`/`delete` plus the relationship-type catalogue (`types`/`create_types`). Edges normally come into being through `resources.create(nodes, relations)`; this service is for linking resources that already exist and for reading or deleting an edge on its own. `get` answers an unknown id with 404 and a `problem+json` body; `by_ids`, like every batch lookup, answers 200 with the found subset and silently omits what is missing. (`get` used to be 200-and-nothing despite documenting a 404 — api #275 made single-resource by-id GETs consistently 404 and deliberately left batch lookups alone.) Two further behaviours are worth knowing, and are documented at each call site:
 
-  - `create_types` fails silently on a duplicate name — the unique-hash collision surfaces at commit, after the handler returned, so the caller gets a 200 with an empty *body*, and in a batch the valid new types are rolled back with it. This one does contradict the OpenAPI: `test_duplicate_relationship_type_conflicts` encodes the intended 409 and is red until the server-side fix lands.
+  - `create_types` answers a duplicate name with **409** `duplicate`, naming `name` in `fields`. It used to fail silently — the unique-hash collision surfaced at commit, after the handler returned, so the caller got a 200 with an empty *body*. `test_duplicate_relationship_type_conflicts` encoded the intended 409 while that was true and is a regression guard now. Still true, and still worth knowing: the service has **no find-or-create**, and a batch is one transaction, so a single duplicate rolls back the valid new types alongside it.
   - `delete` will not remove an edge that is an endpoint's only route to the graph root: `ResourceService.delete` refuses rather than orphan the node, answering **409** `would-strand` with the stranded resource in the problem's `blockedBy` (`[{"externalId": …}]`) and a message saying to include it in the deletion or keep a connecting path — read it through `ResponseError::problem()`. (It was a 400 carrying the old `{"error":{"code","fields"}}` envelope before the api unified on RFC 9457.) Practically, an edge is separately deletable only when both endpoints stay reachable without it; otherwise it goes away with the resources. The check reads the graph projection, which lags the write, so deleting too soon after creating the edge gets the *wrong answer* rather than an error — the refusal does not fire and the node is stranded. `relations::tests` measured 6/6 wrongly allowed immediately after create, 6/6 refused 500ms later; its `await_graph` helper is what the live tests wait on.
 - `assets` (`src/assets/`) — the typed `/assets` family: create, `get_by_id`, `by_ids`, `list`,
   `filter`, `search`, `update`, `delete`. Every call is the `/resources` pipeline with the `ASSET`
@@ -88,9 +88,10 @@ This crate is a thin async HTTP SDK around a DataHub-style REST API. Entry point
 - `files` (`src/files/`) — raw-`PUT` upload via `execute_file_upload_request` (content is the body, metadata rides in `X-Datahub-*` headers), plus directory listing, get/search, `FileUpdate` (rename/move/re-dataset), trash + restore, delete, and download (`download` in memory, `download_to_path` streamed)
 - `subscriptions` (`src/subscriptions/`) — subscription CRUD, plus `listen.rs`: WebSocket listening against the api's subscription-listen endpoint (`tokio-tungstenite`). Reads follow the same split as every other collection: `list(limit)` over `GET /subscriptions?limit=` and `filter(form)` over `POST /subscriptions/filter`. Both are recent — `POST /subscriptions/list` was subscriptions-only (a `limit` defaulting to 100 where the api defaulted to 1000, an unvalidated sort property, and no cursor, so a tenant past one page could not reach the rest) and the api removed it rather than aliasing it, so a client that has not moved gets a 404. `SubscriptionFilterForm` is a strict subset of what `/filter` now accepts: it carries no `cursor`, and `SubscriptionFilter` has only `timeseries`, not the `id`, `externalId`, `name`, `createdTime` and `lastUpdatedTime` criteria the api's filter grew beside it.
 - `functions` (`src/functions/`) — `create`, `list`, `get_by_id`, `update`, `delete`, plus a
-  client-side `by_ids`/`by_external_id`. The api serves **no `/byids`, `/filter` or `/search`** for
-  functions — the only node type missing all three — so `by_ids` lists and filters locally, asking
-  for the largest page the api allows; a tenant past 10000 functions silently misses its oldest.
+  client-side `by_ids`/`by_external_id`. The api **does** serve `/functions/byids`, `/filter` and
+  `/search` (platform #131) — **the SDK has not wired them yet**, so `by_ids` still lists and
+  filters locally, asking for the largest page the api allows; a tenant past 10000 functions
+  silently misses its oldest. Wiring the three is the fix, not a bigger page.
   `Function::related_resources` is **always empty**: `FunctionTransformer` never joins the edges
   in, and unlike `/resources/create` the create echo is no exception, because it re-reads the rows
   through that same transformer. `name` is `Option` here but non-null on the api.
@@ -142,12 +143,17 @@ Behaviours worth knowing, each pinned by a test in `src/nodes.rs`:
   which are the same shared pipeline.
 - **Policies never carry `value`, `template_id` or `data_set_id`** on a read, and their `metadata`
   can be outright `null`.
-- **`Resource::geolocation` is write-only** server-side: accepted on create, never echoed. Assets
+- **`Resource::geolocation` is not a resource field at all** any more: only `Asset` declares it, so
+  an unlabelled create body carrying `geoLocation` is a **400** naming it as an unknown field. It
+  used to be accepted-and-never-echoed. The shared *update* form still takes it for any type and
+  applies it only to assets. Assets
   carry it.
 - **Every type is creatable through `/resources/create`, timeseries included** — each element of
   `nodes` is dispatched by its own labels. `DATASET` and `POLICY` need the all-datasets manage
-  grant (403 without), and their `data_set_id` is silently dropped. A duplicate `external_id`
-  surfaces as a constraint violation rather than the clean 409 `/timeseries/create` gives.
+  grant (403 without), and their `data_set_id` is a **400** telling you to remove it — hierarchy is
+  expressed with `BELONGS_TO` edges — not the silent drop it once was. The grant check runs first,
+  so a caller without it still sees the 403. A duplicate `external_id` is a clean **409** carrying
+  the value in `duplicated`, the same as `/timeseries/create`; the old asymmetry is gone.
 
 In Python each variant maps to its own pyclass, so `isinstance(node, TimeSeries)` works and an
 object from `resources.filter()` behaves exactly like one from `timeseries.by_ids()`. The dispatch
@@ -223,26 +229,26 @@ assertions are unaffected.
   Those answer different questions — don't reconcile them without deciding which one ingestion means.
 
 **The api's `errors/*` series has landed**, so every refusal now answers `application/problem+json`
-with a `type` — with one exception, below. Before it, six shapes were live at once (full problem,
+with a `type`. Before it, six shapes were live at once (full problem,
 typeless problem, Spring Boot whitelabel *with a stack trace*, a success-shaped `{"items":[…]}`
 envelope, the legacy `{"error":{…}}` wrapper, and plain text); `problem_integration`'s module doc
 keeps the table of what each became, because that is what its assertions are pinning against a
-revert. Its three groups: `green` was true before and after, `unified` arrived with the series (red
-on purpose until it merged, regression guards now), and `pending` is what is still outstanding.
+revert. Its groups: `green` was true before and after, and `unified` arrived with the series (red
+on purpose until it merged, regression guards now).
 
-**The one gap: a `GET /<collection>/{id}` miss carries no `type`.** Every by-id 404 goes through the
-shared `ObjectNotFoundExceptionHandler`, which hand-builds its document with
-`ProblemDetail.forStatusAndDetail` + `setTitle` instead of calling `Problems.notFound()` — which
-exists, sets `type("not-found")`, and is already used by `FileController` and `TimeseriesController`.
-Easy to miss because `Problems.decorate` still runs on it, so the body carries `requestId` and
-`retry` and looks finished. `slug()` is `None` there, so **don't match a by-id 404 on
-`"not-found"` yet**; `problem_integration::pending` is red on purpose until it is fixed.
+**The last gap closed.** A `GET /<collection>/{id}` miss used to hand-build its document with
+`ProblemDetail.forStatusAndDetail` + `setTitle`, so it reached the caller as `about:blank` with no
+`type` while `Problems.decorate` still gave it a `requestId` and a `retry` — finished-looking and
+unmatchable. `ObjectNotFoundExceptionHandler` now calls `Problems.notFound()` like every other
+refusal, so a by-id 404 carries `type: …/errors/not-found` and **`slug()` matches `"not-found"`**.
+`problem_integration`'s `pending` group was red on purpose until that landed; it is green now and
+stays as the regression guard.
 
-Two statements elsewhere in this file describe the pre-unification shape. 401s now *do* carry a
-problem body, so the multi-tenant note and `src/auth_diagnostics.rs` (which reconstructs a reason
-the api used to withhold) are worth re-reading against the current api before relying on them. A
-refused delete is now a **409** `would-strand`/`referenced` carrying its blockers in `blockedBy`,
-not the **400** with `fields` the `edges` note describes.
+401s carry a problem document too, with `type: …/errors/unauthorized` and a `detail` naming the
+check that failed — a missing, empty, malformed or ambiguous `organization` claim. That is the
+reason `src/auth_diagnostics.rs` reconstructs from the token it just sent, so the SDK now appends
+a near-duplicate of what the server already said. Note every entry-point 401 shares the
+`unauthorized` slug, so the cause is in the prose and cannot be branched on.
 
 ### Filters (`src/filters.rs`)
 
@@ -267,11 +273,11 @@ state between them. Before 0.3.0 the Python side had three shapes at once — an
 and datasets, a flat `TimeSeriesFilterForm` that was really the criteria, and bare keywords on
 resources — and `timeseries.search` silently discarded the paging fields of the form it was handed.
 
-The four `/{entity}/filter` endpoints share one contract. `NodeFilter` (`src/filters.rs`) is the criteria every node type can be filtered by — `id`, `externalId`, `name`, `source`, `labels`, `metadata`, `createdTime`, `lastUpdatedTime` — and `ResourceFilter`, `TimeSeriesFilter` and `DatasetFilter` each `#[serde(flatten)]` it, so on the wire its fields sit alongside the type-specific ones. `EventFilter` deliberately does **not** extend it (events are not nodes: no `name` column, a UUID id) but matches it field for field wherever ClickHouse can back it.
+The `/{entity}/filter` endpoints share one contract — `resources`, `timeseries`, `datasets` and `events` here, plus `assets` and `functions`, which reuse the resource and node criteria rather than declaring their own. `NodeFilter` (`src/filters.rs`) is the criteria every node type can be filtered by — `id`, `externalId`, `name`, `source`, `labels`, `metadata`, `createdTime`, `lastUpdatedTime` — and `ResourceFilter`, `TimeSeriesFilter` and `DatasetFilter` each `#[serde(flatten)]` it, so on the wire its fields sit alongside the type-specific ones. `EventFilter` deliberately does **not** extend it (events are not nodes: no `name` column, a UUID id) but matches it field for field wherever ClickHouse can back it.
 
 The rules, which every one of them obeys:
 
-- **Patterns.** `externalId`, `name`, `source` — plus `unit`/`unitExternalId` on timeseries and `type`/`subType`/`status` on events — are pattern lists. `*` and `%` are both wildcards; `_` is **literal**, because identifiers here are built out of underscores and raw `LIKE` would make `sap_work_orders` also match `sapXwork_orders`. Matching is case-insensitive. An entry with no wildcard matches exactly, and resolves through the indexed hash where one exists.
+- **Patterns.** `externalId`, `name`, `source` — plus `unit`/`unitExternalId` on timeseries and `type`/`subType`/`status` on events — are pattern lists. `*` and `%` are both wildcards; `_` is **literal**, because identifiers here are built out of underscores and raw `LIKE` would make `sap_work_orders` also match `sapXwork_orders`. Matching is case-insensitive, with **one exception**: a no-wildcard `externalId` entry on the *event* filter matches case-sensitively, because event writers hash the external id verbatim where the node filters lowercase first. An entry with no wildcard matches exactly, and resolves through the indexed hash where one exists.
 - **Singular names, list values.** Every criterion above is a list, and every one is named in the singular, because the api declares them `@SingleOrList`: a bare value is accepted wherever a list is, and one value is the common case. `labels` and `relatedResources` keep their plurals — their entries AND rather than OR, so those fields really are about a set. The SDK always sends the list form.
 - **AND across fields, OR within a list** — except `labels` and `metadata`, where every entry must be present.
 - **Empty means no restriction**, and so do blank entries and `None`: an empty `IN` is not valid SQL, and a caller who built a list and found nothing to put in it means "no restriction" far more often than "match nothing".
@@ -298,7 +304,8 @@ list-like, so existing code is unaffected, but carrying `.next_cursor`.
 - **One** sort property, plus `id` appended. The tie-breaker is what makes the order *total*: a
   sort column alone is not a position unless it is unique, so a page boundary inside a run of equal
   values repeats or drops exactly those rows. An unrecognised property falls back to the default
-  rather than erroring; anything that is not exactly `desc` sorts ascending.
+  rather than erroring; the property is trimmed first, and anything that is not `desc` (compared
+  case-insensitively) sorts ascending.
 - **Defaults differ.** Nodes: `createdTime` descending, sortable by `id`, `externalId`, `name`,
   `source`, `description`, `createdTime`, `lastUpdatedTime`, `dataSetId`. Events: `eventTime`
   **ascending** — the order the cursor pages in — sortable also by `type`, `subType`, `status`.
@@ -322,16 +329,15 @@ It spans **every** node type — assets, timeseries, functions, resources, data 
 narrowed by `nodeType` (`["resource", "timeseries"]`, case-insensitive; omitted = all; a list of
 only unknown names matches *nothing*). It behaved this way before by omission, with no discriminator
 and single-table inheritance doing the rest; the breadth is now stated and narrowable. What comes
-back is typed per row — see [`Node`](#the-polymorphic-node-type). The other three endpoints stay
-typed. `DatasetFilter` is consequently just the shared criteria — its `writeProtected` and
+back is typed per row — see [`Node`](#the-polymorphic-node-type). The other endpoints stay typed. `DatasetFilter` is consequently just the shared criteria — its `writeProtected` and
 `deactivated` flags were removed server-side as inert.
 
-#### The four `/search` endpoints share one contract
+#### The `/search` endpoints share one contract
 
-`{ "search": { "query": … }, "filter": … , "limit": … }` — the same shape on all four, so one type covers them: `SearchAndFilterForm<F>`, generic over the filter alone, mirroring the api's `SearchBody<F>`. `DatasetSearch` and `EventSearch` were the same three fields written twice more and are gone; the duplication is what let the dataset one keep claiming its filter was ignored for a release after that stopped being true. In Python there is no form class at all — every `search` takes `query`, `filter` and `limit` directly, the way `datasets.search` always did.
+`{ "search": { "query": … }, "filter": … , "limit": … }` — the same shape on every one, so one type covers them: `SearchAndFilterForm<F>`, generic over the filter alone, mirroring the api's `SearchBody<F>`. `DatasetSearch` and `EventSearch` were the same three fields written twice more and are gone; the duplication is what let the dataset one keep claiming its filter was ignored for a release after that stopped being true. In Python there is no form class at all — every `search` takes `query`, `filter` and `limit` directly, the way `datasets.search` always did.
 
 - **The phrase selects, the filter only removes, `limit` caps what survives.** A filter can never widen a search, and omitting it (`None`) returns the phrase's hits as found; it is skipped rather than sent empty. `search.query` is the one field that is *not* optional — see below.
-- **All four apply it.** Resources, datasets and events used to accept a filter and drop it on the floor; `python_tests/test_filter_search_bodies.py` carried those as `xfail(strict=True)` and they went green when the gap closed.
+- **All of them apply it.** Resources, datasets and events used to accept a filter and drop it on the floor; `python_tests/test_filter_search_bodies.py` carried those as `xfail(strict=True)` and they went green when the gap closed.
 - **`search.query` is the only free-text field, and it is required** — 3–140 characters, and nothing else. It used to carry a charset too (`^[\p{IsLatin}\p{Zs}\p{Nd}]+`), which rejected the `._:+=-` that external ids are built from and every non-Latin script with them; it was never a safety control (the phrase is a bound parameter) but a way of guaranteeing the tsquery at least one lexeme, and the empty case is guarded directly now. `name` and `description` used to sit beside it, honoured only by the timeseries search and only one of the three at a time, with `name` matching by *exact equality* under an endpoint documented as full-text. Both are gone from the api: `query` already covers the description column, and the filter's `name` is a case-insensitive pattern list, which is strictly more than the old field could do. `TimeSeriesService::search_by_name`/`search_by_description` went with them — match a name through `filter`.
 - **Hits are ranked.** The three node searches order by `ts_rank` and tie-break on id, so the first item is the best match and repeating a request returns the same page rather than a different slice of an equally-scored block. Ranking costs the index's early exit — every match is scored before `limit` applies. `/events/search` is the exception: it is newest-first (`eventTime` descending), not scored.
 - **`limit` defaults to 100, caps at 1000** (the *filter* endpoints default to 1000 and cap at 10000 — different numbers, easy to conflate), and `<= 0` falls back to the default rather than returning nothing.
@@ -363,9 +369,9 @@ collection that had them.
   and `python_tests/test_plain_listings.py`.
 - **`resources.list` is typed like every other `/resources` read** — it spans all six node types and
   answers each row as its own [`Node`](#the-polymorphic-node-type) variant.
-- **The listing is not a way to fetch everything.** `FunctionsService::by_ids` has no `/byids`
-  endpoint behind it and filters a listing client-side; that listing used to be uncapped, so it now
-  asks for 10000 and a tenant past that silently misses its oldest functions.
+- **The listing is not a way to fetch everything.** `FunctionsService::by_ids` does not yet call
+  the api's `/functions/byids` and filters a listing client-side; that listing used to be uncapped,
+  so it now asks for 10000 and a tenant past that silently misses its oldest functions.
 
 Names that are gone rather than aliased, the way the filter refactors handled theirs:
 `POST /datasets/list` (a stale caller gets **405** — `GET /datasets/{id}` matches the path and
@@ -403,14 +409,14 @@ Two transport details are easy to get wrong and cost a confusing failure each:
 - **`Accept` must be `application/json, text/event-stream`, byte for byte.** The transport compares
   it with `MediaType.equals`, so offering only `application/json` is a bare 400 with nothing pointing
   at the header.
-- **The response must not be double-encoded.** This has regressed to the envelope being written as a
-  `String` which Spring then serializes *as JSON*, so the body is a quoted, escaped document and the
-  obvious `parse(body)["result"]` yields a string. `unwrap_envelope` **rejects** that rather than
-  parsing twice. Accommodating it would leave the suite green against a wire format no conformant MCP
-  client can read, so while it is present nearly every test here fails — which is the accurate
-  report, because no tool is reachable. `mcp_response_is_a_json_object` is what names the cause; the
-  handful that still pass are the ones that never parse an envelope (the auth rejections, the
-  malformed-body check).
+- **The response must not be double-encoded.** The envelope was once written as a `String` which
+  Spring then serialized *as JSON*, so the body was a quoted, escaped document and the obvious
+  `parse(body)["result"]` yielded a string. `unwrap_envelope` **rejects** that rather than parsing
+  twice — accommodating it would have left the suite green against a wire format no conformant MCP
+  client can read, so while the fault was present nearly every test here failed, which was the
+  accurate report. `StrictJacksonJsonHttpMessageConverter` now declines to read or write
+  `CharSequence`/`byte[]`, closing both directions; `mcp_response_is_a_json_object` and
+  `mcp_accepts_application_json` are the guards.
 
 ### Cleanup
 
@@ -483,27 +489,30 @@ Behaviours worth knowing, each pinned by an assertion:
   `unitExternalId: "pressure_bar"`. Take the id from `unit_list` in tests — one that is merely absent
   from the tenant fails as "Unknown unit externalId", which is a different path from supplying neither.
 
-### Tests that are red on purpose
+### Tests that were red on purpose
 
-One encodes intended behaviour the api does not yet provide, in the same spirit as
-`test_duplicate_relationship_type_conflicts`: it stays red until the server-side fix lands rather
-than being softened to match the bug.
+**Nothing in this suite is red today.** The convention stands — an intended behaviour is worth more
+as a failing test than softened to match the bug — and everything written that way has since landed
+server-side. The tests stay on as regression guards:
 
-- `mcp_response_is_a_json_object` — whenever the double-encoding regression above is present, along
-  with every other test that parses an envelope. Both directions are the same underlying fault: the
-  transport moves the JSON-RPC payload as a `String` and lets content negotiation's JSON converter
-  handle it. Reading, the converter is asked to bind an object *into* a `String` and refuses — a
-  **500 on the spec-mandated `Content-Type: application/json`**, which locks out every off-the-shelf
-  client, guarded by `mcp_accepts_application_json`. Writing, it is handed a `String` to emit *as*
-  `application/json` and escapes it. Note the api's own MockMvc test (`McpEndpointTest`) asserts only
-  on the security gate, so neither direction was covered there.
+- `mcp_response_is_a_json_object` and `mcp_accepts_application_json` — the two directions of the
+  double-encoding fault above, one underlying cause: the transport moved the JSON-RPC payload as a
+  `String` and let content negotiation's JSON converter handle it. Reading, the converter was asked
+  to bind an object *into* a `String` and refused — a **500 on the spec-mandated
+  `Content-Type: application/json`**, which locked out every off-the-shelf client. Writing, it was
+  handed a `String` to emit *as* `application/json` and escaped it. The api's own MockMvc test
+  (`McpEndpointTest`, in `datahub-analysis`) asserts only on the security gate, so neither
+  direction was covered there; `StrictJacksonConverterBoundaryTest` and
+  `StrictJacksonJsonHttpMessageConverterTest` in `datahub-api` now cover both.
+- `unitExternalId` as an alternative to `unit` on `timeseries_create`.
+- `test_duplicate_relationship_type_conflicts` (in `relations::tests`, not this module) — a
+  duplicate relationship type is a 409 now.
 
-Two others stood here and are resolved, their tests staying on as regression guards:
-`unitExternalId` as an alternative to `unit` on `timeseries_create`, and
-`mcp_event_update_by_uuid_reindexes_the_external_id` — renaming an event by UUID wrote the new
-`externalId` without reindexing it. The api settled the second by deleting `newExternalId` from
-`event_update` rather than making the rename work, so that test is gone rather than green: there is
-no rename left to assert on. Nothing in the SDK's MCP suite sends `newExternalId` to an event.
+One was resolved by deletion rather than by a fix: `mcp_event_update_by_uuid_reindexes_the_external_id`
+— renaming an event by UUID wrote the new `externalId` without reindexing it. The api settled it by
+removing `newExternalId` from `event_update` rather than making the rename work, so that test is gone
+rather than green: there is no rename left to assert on. Nothing in the SDK's MCP suite sends
+`newExternalId` to an event.
 
 ## Python bindings (`datahub_python_bindings/`)
 

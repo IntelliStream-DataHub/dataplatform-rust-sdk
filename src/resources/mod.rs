@@ -53,12 +53,14 @@ impl ResourceService {
     ///
     /// - **`DATASET` and `POLICY` nodes need the all-datasets manage grant**, and are a 403
     ///   without it.
-    /// - **`data_set_id` is silently dropped on those two types.** A data set or policy that
-    ///   belonged to a data set would orphan its own ACL grant, so the api refuses to set it
-    ///   rather than erroring.
+    /// - **`data_set_id` on those two types is a 400**, not a silent drop. A data set or policy
+    ///   that belonged to a data set would orphan its own ACL grant, so the api says so rather
+    ///   than dropping the field. Hierarchy is expressed with `BELONGS_TO` edges instead. The
+    ///   grant check runs first, so a caller without the manage grant still sees the 403.
     ///
-    /// Note also that a duplicate `external_id` surfaces here as a constraint violation rather
-    /// than the clean 409 `/timeseries/create` answers with — a known asymmetry in the api.
+    /// A duplicate `external_id` is a clean **409** carrying the offending value in the problem's
+    /// `duplicated` extension, the same as `/timeseries/create` — the old asymmetry, where this
+    /// path surfaced a raw constraint violation, is gone.
     pub async fn create<N: Into<Node>>(
         &self,
         nodes: Vec<N>,
@@ -240,9 +242,11 @@ pub struct Resource {
     /// [`geojson::Geometry::new_point`] and friends (re-exported as
     /// [`crate::Geometry`]).
     ///
-    /// **Write-only on a plain resource.** The api accepts it on create/update but never echoes
-    /// it back on a `Resource`, so this is always `None` on a read. A node created with the
-    /// `ASSET` type-label comes back as [`crate::nodes::Asset`], which does carry it.
+    /// **Not a field of a plain resource.** Only an asset declares a location, so sending this in
+    /// an unlabelled `/resources/create` body is a **400** naming `geoLocation` as an unknown
+    /// field, and it is always `None` on a read. Label the node `ASSET` and it binds to
+    /// [`crate::nodes::Asset`], which does carry it. Update is the exception: the shared form
+    /// accepts [`ResourceUpdateFields::geolocation`] for any node type and applies it to assets.
     #[serde(rename = "geoLocation", skip_serializing_if = "Option::is_none")]
     pub geolocation: Option<geojson::Geometry>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -586,8 +590,10 @@ pub struct ResourceFilter {
 
 /// Request body for [`ResourceService::fetch_nearest`] (`POST /resources/fetch-nearest`).
 ///
-/// Note the endpoint reads `id` only: it does not resolve `external_id`, so start from a numeric
-/// id (resolve one with [`by_ids`](ResourceService::by_ids) if that is all you have).
+/// The endpoint takes `id` **or** `externalId` and resolves either, answering 404 for an unknown
+/// one. **This form carries only `id`** — the SDK has not added the `externalId` side yet — so
+/// start from a numeric id, resolving one with [`by_ids`](ResourceService::by_ids) if that is all
+/// you have.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FetchNearestResourcesForm {
