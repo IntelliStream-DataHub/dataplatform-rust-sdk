@@ -143,6 +143,7 @@ pub mod nodes;
 pub mod problem;
 pub mod relations;
 pub mod resources;
+#[doc(hidden)] // id-as-string serde adapters; see the module doc for why they stay `pub`
 pub mod serde_helper;
 pub mod subscriptions;
 #[cfg(test)]

@@ -1,3 +1,20 @@
+//! Files — upload, download, and the directory tree they live in.
+//!
+//! [`FileService`] is reached as `api.files`. Files and folders are both
+//! [`INode`]s: walk the tree with
+//! [`list_root_directory`](FileService::list_root_directory) and
+//! [`list_directory_by_path`](FileService::list_directory_by_path), look one up with
+//! [`get_by_id`](FileService::get_by_id), [`get_by_external_id`](FileService::get_by_external_id)
+//! or [`search`](FileService::search), rename, move or re-assign a data set with
+//! [`update`](FileService::update), and soft-delete, [`list_trash`](FileService::list_trash) and
+//! [`restore`](FileService::restore).
+//!
+//! Upload is a raw `PUT`: the file content is the request body and all metadata rides in
+//! `X-Datahub-*` headers, which [`FileUpload`] builds for you — but note that [`FileUpload::new`]
+//! inspects the path eagerly and **panics** if it is not a readable regular file, so validate it
+//! first. Download comes in two shapes: [`download`](FileService::download) buffers the whole file
+//! into memory, while [`download_to_path`](FileService::download_to_path) streams it to disk.
+
 mod test;
 
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;

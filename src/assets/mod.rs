@@ -1,3 +1,18 @@
+//! Assets — the typed `/assets` family, and the [`Asset`] shape its reads
+//! answer with.
+//!
+//! [`AssetsService`] is reached as `api.assets`. Every call is the generic `/resources` pipeline
+//! with the `ASSET` discriminator pinned server-side, so the two families cannot drift on ACLs or
+//! status codes; what differs is that reads answer [`Asset`] rather than the
+//! polymorphic [`Node`], putting `geolocation` and `is_root` in reach without a
+//! match. Filtering and searching reuse the resource bodies, and a `node_type` set on either is
+//! *replaced* with `["asset"]` rather than merged.
+//!
+//! Two things to expect: [`list`](AssetsService::list) does not page, so narrow with
+//! [`filter`](AssetsService::filter) instead of raising `limit`; and
+//! [`update`](AssetsService::update) echoes [`Node`]s rather than `Asset`s,
+//! because an update may touch relations whose other end is a different node type.
+
 #[cfg(test)]
 mod tests;
 

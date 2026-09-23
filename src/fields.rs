@@ -1,3 +1,16 @@
+//! The update primitives the `POST /<collection>/update` request bodies are built from:
+//! [`Field`] for a scalar, [`ListField`] for a list, [`MapField`] for `metadata`.
+//!
+//! An update names its target and then describes only the fields it changes, so each of these has
+//! to distinguish "leave alone" (absent) from "set to this" and from "clear". Set or clear a
+//! scalar with [`Field::value`] and [`Field::null`]. Lists and maps go further: [`ListField::set`]
+//! and [`MapField::set`] replace the whole collection, while `add` / `remove` apply a delta and
+//! leave the rest in place — the two are mutually exclusive by construction, so a body carrying
+//! both cannot be built.
+//!
+//! You meet these as the fields of each entity's update form, e.g.
+//! [`ResourceUpdateFields`](crate::resources::ResourceUpdateFields).
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

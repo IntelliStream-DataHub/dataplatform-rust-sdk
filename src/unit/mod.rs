@@ -1,3 +1,14 @@
+//! The unit catalogue — the engineering units a
+//! [`TimeSeries`](crate::timeseries::TimeSeries) can be expressed in.
+//!
+//! [`UnitsService`] is reached as `api.units` and is read-only: the SDK exposes no create, update
+//! or delete here, because the catalogue is maintained server-side. Fetch all of it with
+//! [`list`](UnitsService::list) — it is a small, slow-changing set — or resolve individual entries
+//! with [`by_external_id`](UnitsService::by_external_id) and [`by_ids`](UnitsService::by_ids).
+//!
+//! A [`Unit`] carries its display `symbol`, the physical `quantity` it measures, its `alias_names`
+//! and a `conversion` table. Attach one to a series through `TimeSeries::unit_external_id`.
+
 mod test;
 
 use crate::generic::{ApiServiceProvider, DataWrapper, IdAndExtId};

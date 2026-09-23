@@ -1,3 +1,32 @@
+//! Events — time-stamped records of something that happened, plus the vocabulary endpoints behind
+//! their filter dropdowns.
+//!
+//! [`EventsService`] is reached as `api.events`. An [`Event`] is identified by a UUID rather than a
+//! numeric id, and [`create`](EventsService::create) stamps a UUID v7 client-side on any event that
+//! arrives without one — so a retry carries the same id and the server collapses the duplicate
+//! instead of storing it twice.
+//!
+//! - **CRUD and queries** — [`create`](EventsService::create), [`get`](EventsService::get),
+//!   [`by_ids`](EventsService::by_ids), [`update`](EventsService::update),
+//!   [`delete`](EventsService::delete), plus [`filter`](EventsService::filter),
+//!   [`search`](EventsService::search) and [`count`](EventsService::count).
+//! - **Vocabulary** — [`list_types`](EventsService::list_types) /
+//!   [`search_types`](EventsService::search_types) and the same pair for sub-types, statuses and
+//!   sources (see [`EventDimension`]). They answer "what values does this tenant actually use" for
+//!   the four categorical fields, reading small server-side dimension tables instead of scanning
+//!   events — cheap, but only *eventually consistent* with the events themselves.
+//!
+//! Two surprises worth knowing. [`list`](EventsService::list) returns the **oldest** events, not
+//! the newest: it is `filter` with an empty body, whose default sort is `eventTime` ascending, so
+//! ask "what just happened" through `filter` with a descending sort. And [`EventUpdate`] cannot
+//! change `event_time` or `external_id` — both identify an event rather than describe it, and
+//! sending either is a 400; record a correction by creating a new event and deleting the old one.
+//!
+//! With durable buffering enabled on the client, [`create`](EventsService::create) can answer
+//! **202 with no items** because the batch was spooled to disk rather than sent. Check
+//! [`get_http_status_code`](crate::generic::DataWrapper::get_http_status_code) or
+//! [`buffered_count`](EventsService::buffered_count) when you need to tell the two apart.
+
 #[cfg(test)]
 mod tests;
 

@@ -1,3 +1,21 @@
+//! Configuration and authentication. [`DataHubConfig`] holds the API base URL and the credentials
+//! every call is made with, and mints, caches and refreshes the bearer token behind them.
+//!
+//! Build one from the process environment and a local `.env` with [`DataHubConfig::from_env`], or
+//! from a named file with [`from_envfile`](DataHubConfig::from_envfile), then pass it to
+//! [`ApiService::new`](crate::ApiService::new). `BASE_URL` is always required; for credentials,
+//! either set `TOKEN` to a token you manage yourself — that one is never treated as expired and
+//! never refreshed — or give `CLIENT_ID`, `CLIENT_SECRET` and `TOKEN_URI` for the
+//! client-credentials flow, or the `ASSERTION*` variables for the RFC 7523 `jwt-bearer` exchange.
+//! The setters adjust the same values in code, and also switch on the durable ingest buffer
+//! ([`enable_buffering`](DataHubConfig::enable_buffering)).
+//!
+//! `openid` is **always** requested and `SCOPE` *adds* to it rather than replacing it, because the
+//! API resolves dataset grants by calling the identity provider's UserInfo endpoint with your own
+//! token — on a Keycloak Organizations realm that means `SCOPE=organization:<alias>`. Everything
+//! here fails with [`DataHubError`], never with
+//! [`ResponseError`](crate::http::ResponseError).
+
 use crate::errors::DataHubError;
 use chrono::{DateTime, Utc};
 use dotenv::from_path;

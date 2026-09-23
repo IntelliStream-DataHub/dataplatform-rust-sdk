@@ -1,3 +1,25 @@
+//! Filter criteria, and the sorting and paging types the filter endpoints share.
+//!
+//! **Two types per entity, named the same way every time.** `XFilter` is the *criteria* — the
+//! fields a row is matched on. `XFilterForm` is the *request body*, wrapping those criteria with
+//! `limit`, `sort` and `cursor`. So [`ResourceFilter`](crate::resources::ResourceFilter) goes
+//! inside [`ResourceFilterForm`](crate::resources::ResourceFilterForm), and likewise for
+//! timeseries, datasets and subscriptions. The same `XFilter` is what
+//! [`SearchAndFilterForm`](crate::generic::SearchAndFilterForm) narrows a search by, which is why
+//! paging belongs to the form and not to the criteria.
+//!
+//! Each entity's pair lives in its own module; what is *here* is the shared machinery.
+//! [`NodeFilter`] is the criteria every node type can be filtered by, flattened into all three
+//! node filters, so on the wire its fields sit alongside the type-specific ones. [`TimeFilter`] is
+//! every timestamp window (inclusive at **both** ends), [`MetadataFilter`] the metadata criterion,
+//! and [`DataSort`] + [`PageRequest`] the ordering and keyset paging. Events are the one entity
+//! whose pair lives here in full — [`EventFilter`] and [`EventFilterForm`] — because events are
+//! not nodes and the filter deliberately does not extend [`NodeFilter`].
+//!
+//! Across all of them: fields **AND** together, entries within a list **OR** (except `labels` and
+//! `metadata`, where every entry must be present), and an empty list, a blank entry or `None`
+//! places no restriction.
+
 use crate::generic::IdAndExtId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

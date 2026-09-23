@@ -1,3 +1,30 @@
+//! Time series and their datapoints.
+//!
+//! [`TimeSeriesService`] is reached as `api.time_series` and does two distinct jobs:
+//!
+//! - **The series themselves** — [`create`](TimeSeriesService::create),
+//!   [`list`](TimeSeriesService::list), [`by_ids`](TimeSeriesService::by_ids),
+//!   [`filter`](TimeSeriesService::filter), [`search`](TimeSeriesService::search),
+//!   [`update`](TimeSeriesService::update) and [`delete`](TimeSeriesService::delete), over
+//!   [`TimeSeries`]. `list` is a capped, unpaged sample; criteria and paging live on `filter`,
+//!   whose `data_set_id` expands down the data-set hierarchy server-side.
+//! - **Datapoints** — [`insert_datapoint`](TimeSeriesService::insert_datapoint) and
+//!   [`insert_datapoints`](TimeSeriesService::insert_datapoints) on the JSON ingest path,
+//!   [`insert_datapoints_binary`](TimeSeriesService::insert_datapoints_binary) on the Arrow/zstd
+//!   one (see [`binary`]), then
+//!   [`retrieve_datapoints`](TimeSeriesService::retrieve_datapoints),
+//!   [`retrieve_latest_datapoint`](TimeSeriesService::retrieve_latest_datapoint) and
+//!   [`delete_datapoints`](TimeSeriesService::delete_datapoints) to read and clear them.
+//!
+//! Ingest is retry-safe — datapoints dedup on `(series, timestamp)` server-side — and with durable
+//! buffering enabled on the client, `insert_datapoints` spools to disk when the server is
+//! unreachable and answers **202 with no items** instead of failing, flushing the backlog on a
+//! later call.
+//!
+//! Mind which delete you want: [`delete`](TimeSeriesService::delete) removes the series *and* its
+//! datapoints, while [`delete_datapoints`](TimeSeriesService::delete_datapoints) clears a window
+//! and keeps the definition.
+
 pub mod binary;
 mod test;
 
@@ -598,10 +625,10 @@ pub struct TimeSeries {
     pub data_set_id: Option<u64>,
     /// The series' value type (`float`, `bigint`, `text`, …).
     ///
-    /// `None` means the endpoint did not say, not that the series has no type. A flat read always
-    /// carries it; a node reached through the graph (`fetch_related`/`fetch_nearest`) does not,
-    /// because Neo4j stores only a subset of the columns — re-read the series by id when the
-    /// value type matters.
+    /// `None` means the endpoint did not say, not that the series has no type. Both the flat and
+    /// the graph reads (`fetch_related`/`fetch_nearest`) carry it now; a series last written
+    /// before the graph projection included the field still reports it absent, so treat `None` as
+    /// "not stated" rather than as a default.
     #[serde(
         rename = "valueType",
         default,

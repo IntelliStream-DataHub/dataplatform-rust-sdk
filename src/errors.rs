@@ -1,3 +1,11 @@
+//! [`DataHubError`], the error type for configuration and authentication — what can go wrong
+//! *before* a request is made.
+//!
+//! [`DataHubConfig::from_env`](crate::datahub::DataHubConfig::from_env) and its siblings return it
+//! for a missing or unparseable setting, and the token exchange returns it for an OAuth2 or URL
+//! failure. Service methods never surface it: the SDK maps a failed token acquisition to a 401
+//! [`ResponseError`](crate::http::ResponseError) so every API call has one error type.
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]

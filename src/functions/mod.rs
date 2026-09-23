@@ -1,3 +1,21 @@
+//! Function nodes — a plain graph node, distinguished only by its intrinsic `FUNCTION` type-label.
+//!
+//! [`FunctionsService`] is reached as `api.functions` and covers
+//! [`create`](FunctionsService::create), [`list`](FunctionsService::list),
+//! [`get_by_id`](FunctionsService::get_by_id), [`update`](FunctionsService::update) and
+//! [`delete`](FunctionsService::delete). A [`Function`] adds no fields of its own to the shared
+//! node base, and its `name` is `Option` here but required by the server, so a create that omits
+//! it is a 400.
+//!
+//! Two caller-visible limits. `Function::related_resources` is **always empty** on everything this
+//! service returns, the create echo included — read a function's edges through
+//! [`ResourceService::fetch_related`](crate::resources::ResourceService::fetch_related) or
+//! [`EdgesService`](crate::relations::EdgesService) instead. And
+//! [`by_ids`](FunctionsService::by_ids) / [`by_external_id`](FunctionsService::by_external_id) are
+//! implemented client-side over a single 10000-row listing, so a tenant holding more functions
+//! than that silently misses its oldest; prefer [`get_by_id`](FunctionsService::get_by_id)
+//! whenever you have the numeric id.
+
 #[cfg(test)]
 mod test;
 

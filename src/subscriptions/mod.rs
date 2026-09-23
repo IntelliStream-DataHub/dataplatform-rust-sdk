@@ -1,3 +1,23 @@
+//! Subscriptions — a named set of timeseries to be notified about, and the WebSocket stream that
+//! delivers the notifications.
+//!
+//! [`SubscriptionsService`] is reached as `api.subscriptions`.
+//!
+//! - **Managing subscriptions** — [`create`](SubscriptionsService::create),
+//!   [`list`](SubscriptionsService::list), [`filter`](SubscriptionsService::filter) and
+//!   [`delete`](SubscriptionsService::delete), over [`Subscription`]. There is no update or
+//!   single-get. `list` is a capped, unpaged sample; criteria live on `filter` and
+//!   [`SubscriptionFilterForm`], which carries only the `timeseries` criterion of the several the
+//!   endpoint accepts.
+//! - **Listening** — [`listen`](SubscriptionsService::listen) opens a WebSocket and returns a
+//!   [`SubscriptionListener`] multiplexing the named subscriptions' streams.
+//!
+//! The listener has to be driven: call [`next`](SubscriptionListener::next) in a loop and
+//! [`ack`](SubscriptionListener::ack) what you have processed. `next` is also what answers the
+//! server's pings and transparently re-establishes a dropped connection, so a listener that is not
+//! being polled is closed as idle after roughly 45 seconds — run heavy per-message work on another
+//! task. Anything left unacked is redelivered to the next listener on the same subscription.
+
 pub mod listen;
 mod test;
 

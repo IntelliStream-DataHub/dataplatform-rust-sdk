@@ -1,3 +1,24 @@
+//! Relationships between resources, as first-class objects — the `/edges` endpoints and the shapes
+//! they exchange.
+//!
+//! Edges normally come into being as a side effect of
+//! [`ResourceService::create`](crate::resources::ResourceService::create), which makes the nodes
+//! and their links in one call. [`EdgesService`] (`api.edges`) is for the rest: linking resources
+//! that already exist, reading an edge back, deleting one without touching its endpoints, and
+//! managing the relationship-type catalogue ([`types`](EdgesService::types) /
+//! [`create_types`](EdgesService::create_types), over [`RelationshipType`] and [`RelTypeForm`]).
+//!
+//! The module also holds the edge shapes the rest of the SDK exchanges: [`RelForm`] describes an
+//! edge you want created, [`EdgeProxy`] is a stored edge as the server returns it, and
+//! [`RelatedNode`] with [`RelationDirection`] is the node-centric view — "this node relates to that
+//! one, this way round" — that hangs off a node's `related_resources`.
+//!
+//! Deleting is the asymmetric part. [`EdgesService::delete`] refuses with **409** `would-strand`
+//! rather than cut a node's only route to the graph root, so an edge is separately deletable only
+//! when both endpoints stay reachable without it; otherwise it goes away with the resources it
+//! connects. That check reads a graph projection which lags the write, so a delete issued
+//! immediately after the edge was created can be wrongly *allowed*.
+
 #[cfg(test)]
 mod tests;
 
@@ -10,8 +31,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Server-assigned edge between two resources. Returned from `/resources/create`,
-/// `/resources/update`, `/resources/fetch-related`, `GET /functions`, etc. — always
-/// the response shape for graph operations.
+/// `/resources/update` and `/resources/fetch-related` — the response shape for graph
+/// operations.
 ///
 /// `relationship_type` is renamed from `type` because `type` is a Rust keyword.
 /// The wire field stays `"type"`.

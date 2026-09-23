@@ -1,3 +1,21 @@
+//! [`ResourceService`], the generic node service over `/resources`, and the types its calls take
+//! and answer.
+//!
+//! It is the one service that spans **every** node type — assets, timeseries, functions, data
+//! sets, policies and plain resources — so its reads answer the [`Node`] enum
+//! rather than one flat struct, each row in the shape of its own kind. Create nodes, and
+//! optionally the edges between them, with [`create`](ResourceService::create); read with
+//! [`get_by_id`](ResourceService::get_by_id), [`by_ids`](ResourceService::by_ids),
+//! [`list`](ResourceService::list), [`filter`](ResourceService::filter) and
+//! [`search`](ResourceService::search); change fields with [`update`](ResourceService::update),
+//! whose body is a [`ResourceUpdate`] naming one node plus the [`ResourceUpdateFields`] to apply.
+//!
+//! [`fetch_related`](ResourceService::fetch_related) is the graph read: bounded by a
+//! [`RelatedResourcesForm`], it walks outward from a starting node and answers a
+//! [`ResourceNetwork`] of nodes, edges and labels. Note that the [`Label`] in this module is that
+//! traversal's graph DTO, not the label entity — the entity is
+//! [`labels::Label`](crate::labels::Label).
+
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

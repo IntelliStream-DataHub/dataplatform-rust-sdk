@@ -1,3 +1,20 @@
+//! The response envelope every collection endpoint answers with, plus the id selectors and
+//! datapoint types the services share.
+//!
+//! [`DataWrapper<T>`] models the API's `{ "items": [...] }`: call
+//! [`get_items`](DataWrapper::get_items) for the rows and
+//! [`next_cursor`](DataWrapper::next_cursor) to continue a paged read. It doubles as a *request*
+//! body — [`IdAndExtId`] names one entity by id or external id, and the `byids`/`delete` methods
+//! accept anything that converts into a `DataWrapper<IdAndExtId>`, so a bare [`IdAndExtId`], a
+//! `Vec` of them, or a reference to either can be passed straight in. The entity types have the
+//! same conversions, so `&event` or `&events` is accepted wherever a create body is wanted.
+//!
+//! Datapoints live here because timeseries reads and writes share them:
+//! [`DatapointsCollection<T>`] is one series plus its points, carrying [`DatapointString`] on the
+//! way in and [`Datapoint`] on the way back. [`RetrieveFilter`] and [`DeleteFilter`] are the
+//! per-series windows for reading and deleting those points, and [`SearchAndFilterForm<F>`] is the
+//! body every `/search` endpoint takes.
+
 use crate::events::EventsService;
 use crate::files::FileService;
 use crate::http::{process_response, ResponseError};
@@ -677,6 +694,7 @@ impl<T: Identifiable> DataWrapper<T> {
     }
 }
 
+#[doc(hidden)]
 pub trait ApiServiceProvider {
     fn api_service(&self) -> &Weak<ApiService>;
 
@@ -954,6 +972,7 @@ impl ApiServiceProvider for crate::labels::LabelsService {
 }
 
 // A marker trait
+#[doc(hidden)]
 pub trait DataWrapperDeserialization
 where
     Self: Sized,

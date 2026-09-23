@@ -1,3 +1,20 @@
+//! Data sets — the container the rest of the platform hangs off, and the unit access is granted on.
+//!
+//! [`DatasetsService`] is reached as `api.datasets` and covers create, list, by-ids, filter,
+//! search, update and delete, all over [`Dataset`]. [`list`](DatasetsService::list) is a capped,
+//! unpaged sample of the tenant; criteria, ordering and cursor paging live on
+//! [`filter`](DatasetsService::filter).
+//!
+//! Because a data set is what read and write grants attach to, editing one is an operator action:
+//! [`update`](DatasetsService::update) requires the all-datasets write grant and answers **403**
+//! without it, even for a caller who may write the data set's *contents*. Two fields never come
+//! back populated — `connected_data_sets` is input-only, and `data_set_id` is always `None`, since
+//! a data set cannot belong to another one.
+//!
+//! [`policies`](DatasetsService::policies) is wired to the documented endpoint but has been
+//! observed answering with an empty body even where policies exist, so treat its result as
+//! unreliable rather than authoritative.
+
 #[cfg(test)]
 mod tests;
 
