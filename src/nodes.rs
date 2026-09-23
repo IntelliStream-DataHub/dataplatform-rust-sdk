@@ -1079,7 +1079,6 @@ mod tests {
         assert_eq!(Identifiable::id(&local), 0, "an unsaved node has no id");
     }
 
-    #[test]
     /// A bare `Resource` may wear the type-labels whose api model declares `isRoot`, and the
     /// idiom of building a typed node that way keeps working for them.
     #[test]
@@ -1130,6 +1129,7 @@ mod tests {
         assert_eq!(json["labels"], serde_json::json!(["DATASET"]));
     }
 
+    #[test]
     fn labels_canonicalize_the_way_the_api_does() {
         assert_eq!(to_snake_upper_cased("dataset"), "DATASET");
         // Case folds away, but camel case is not split — so `DataSet` is still the type-label and
