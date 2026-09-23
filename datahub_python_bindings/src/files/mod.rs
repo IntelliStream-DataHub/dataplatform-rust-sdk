@@ -2,7 +2,6 @@ pub mod async_service;
 pub mod sync_service;
 
 use crate::datetime::opt_py_datetime_to_utc;
-use crate::resources::PyResource;
 use chrono::{DateTime, Utc};
 use intellistream_datahub_sdk::files::{FileDownload, FileUpdate};
 use intellistream_datahub_sdk::generic::{INode, IdAndExtId};
@@ -10,7 +9,6 @@ use intellistream_datahub_sdk::{ApiService, FileUpload};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyType};
 use pyo3_async_runtimes::tokio::future_into_py;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 

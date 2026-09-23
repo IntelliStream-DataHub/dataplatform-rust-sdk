@@ -4,7 +4,6 @@ use crate::fields::{Field, MapField};
 use crate::generic::IdAndExtId;
 use crate::http::ResponseError;
 use crate::tests::cleanup::cleanup_datasets;
-use maplit::hashmap;
 use crate::tests::ids::unique_id;
 
 fn create_test_dataset() -> Vec<Dataset> {
@@ -52,7 +51,7 @@ async fn test_dataset_crud() -> Result<(), ResponseError> {
         true
     ));
 
-    let create_res = api_service.datasets.create(&test_dataset).await?;
+    api_service.datasets.create(&test_dataset).await?;
     let mut dataset_cleanup = cleanup_datasets(
         test_dataset
             .iter()

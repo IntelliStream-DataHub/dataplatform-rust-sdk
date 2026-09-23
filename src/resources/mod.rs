@@ -10,7 +10,7 @@ use crate::generic::{
 };
 use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
 use crate::nodes::Node;
-use crate::http::{process_response, ResponseError};
+use crate::http::ResponseError;
 use crate::relations::{EdgeProxy, RelForm, RelatedNode};
 use crate::ApiService;
 use chrono::{DateTime, Utc};
@@ -275,8 +275,6 @@ impl Resource {
 }
 impl GraphNode for Resource {}
 impl Identifiable for Resource {
-    //todo!()
-
     fn id(&self) -> u64 {
         self.id.unwrap_or(0)
     }

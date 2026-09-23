@@ -1,7 +1,6 @@
 use crate::PyEvent;
 use crate::PyIdCollection;
 use crate::datetime::py_datetime_to_utc;
-use crate::resources::PyResource;
 use chrono::{DateTime, Utc};
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use pyo3::prelude::*;

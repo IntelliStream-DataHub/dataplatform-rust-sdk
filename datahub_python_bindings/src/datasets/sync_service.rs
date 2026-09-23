@@ -2,11 +2,10 @@ use crate::datasets::{
     DatasetIdentifiable, PyDataset, PyDatasetUpdate,
 };
 use crate::resources::PyResource;
-use crate::{PyIdCollection};
 use intellistream_datahub_sdk::datasets::{Dataset, DatasetUpdate};
 use intellistream_datahub_sdk::generic::IdAndExtId;
-use intellistream_datahub_sdk::{ApiService, Resource};
-use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
+use intellistream_datahub_sdk::ApiService;
+use pyo3::{PyResult, Python, pyclass, pymethods};
 use std::sync::Arc;
 
 #[pyclass(module = "intellistream_datahub_sdk", name = "DatasetsServiceSync")]

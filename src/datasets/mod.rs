@@ -5,7 +5,7 @@ use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::fields::{Field, ListField, MapField};
 use crate::filters::{MetadataFilter, NodeFilter, TimeFilter};
 use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, SearchAndFilterForm};
-use crate::graph_data_wrapper::{GraphDataWrapper, GraphNode};
+use crate::graph_data_wrapper::GraphNode;
 use crate::http::ResponseError;
 use crate::resources::Resource;
 use crate::ApiService;
@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Weak};
+use std::sync::Weak;
 
 pub struct DatasetsService {
     pub(crate) api_service: Weak<ApiService>,
@@ -212,11 +212,7 @@ pub struct Dataset {
     pub created_time: Option<DateTime<Utc>>,
     pub last_updated_time: Option<DateTime<Utc>>,
 }
-impl DataHubEntity for Dataset {
-    fn ext_id(&self) -> &String {
-        &self.external_id
-    }
-}
+impl DataHubEntity for Dataset {}
 impl GraphNode for Dataset {}
 
 impl Dataset {

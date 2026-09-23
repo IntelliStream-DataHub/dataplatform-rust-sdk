@@ -2,7 +2,7 @@
 mod tests;
 
 use crate::buffer::DurableSpool;
-use crate::datahub::{to_snake_lower_cased_allow_start_with_digits, DataHubConfig};
+use crate::datahub::DataHubConfig;
 use crate::fields::{Field, ListField, MapField};
 use crate::filters::{EventFilter, EventFilterForm};
 use crate::generic::{
@@ -465,11 +465,7 @@ pub struct Event {
     pub source: Option<String>,
     pub event_time: DateTime<Utc>,
 }
-impl DataHubEntity for Event {
-    fn ext_id(&self) -> &String {
-        &self.external_id
-    }
-}
+impl DataHubEntity for Event {}
 
 impl Event {
     /// The three fields the server will not accept an event without, and nothing else — everything

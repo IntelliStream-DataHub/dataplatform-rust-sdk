@@ -185,7 +185,7 @@ The API wraps collections in `{ "items": [...] }`. `DataWrapper<T>` mirrors that
 
 ### Entity → request-body conversion
 
-`DataHubEntity` is a marker trait (`ext_id()` + `Clone + Serialize`) that unlocks generic `From` impls so a `T`, `&T`, `Vec<T>`, or `&Vec<T>` can be passed to service methods and auto-wrapped into `DataWrapper<T>`. Service methods accept `&I where for<'a> &'a I: Into<DataWrapper<Event>>` (see `EventsService::create`) — implement `DataHubEntity` on new entity types to get this ergonomics for free. `IdAndExtId` has its own parallel set of `From` impls for delete/byids endpoints.
+`DataHubEntity` is a marker trait (`Clone + Serialize`, no methods) that unlocks generic `From` impls so a `T`, `&T`, `Vec<T>`, or `&Vec<T>` can be passed to service methods and auto-wrapped into `DataWrapper<T>`. Service methods accept `&I where for<'a> &'a I: Into<DataWrapper<Event>>` (see `EventsService::create`) — implement `DataHubEntity` on new entity types to get this ergonomics for free. `IdAndExtId` has its own parallel set of `From` impls for delete/byids endpoints.
 
 ### Auth (`src/datahub.rs`)
 

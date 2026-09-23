@@ -132,11 +132,7 @@ impl Subscription {
     }
 }
 
-impl DataHubEntity for Subscription {
-    fn ext_id(&self) -> &String {
-        &self.external_id
-    }
-}
+impl DataHubEntity for Subscription {}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
