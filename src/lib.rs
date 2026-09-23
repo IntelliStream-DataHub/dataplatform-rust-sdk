@@ -172,18 +172,39 @@ pub use subscriptions::{
 use crate::functions::FunctionsService;
 //pub use filters::Filter;
 
+/// The client: one configured connection to a DataHub backend, with every API family on it.
+///
+/// Build one with [`create_api_service()`] and call through its fields — `api.events.create(…)`,
+/// `api.time_series.insert_datapoints(…)`. It is held in an [`Arc`] and every service borrows
+/// the same HTTP client and token cache, so clone the `Arc` freely rather than building a
+/// second one; a second client means a second token cache.
+///
+/// One `ApiService` is one tenant. Tenant identity rides in the access token's `organization`
+/// claim and there is no per-call override, so talking to two tenants means two clients, each
+/// with its own [`datahub::DataHubConfig`] and scope.
 pub struct ApiService {
     config: Box<DataHubConfig>,
+    /// Time series and their datapoints — see [`timeseries`].
     pub time_series: TimeSeriesService,
+    /// The unit catalogue — see [`mod@unit`].
     pub units: UnitsService,
+    /// Events — see [`events`].
     pub events: EventsService,
+    /// The generic node service, spanning every node type — see [`resources`].
     pub resources: ResourceService,
+    /// The typed `/assets` family — see [`assets`].
     pub assets: AssetsService,
+    /// Data sets — see [`datasets`].
     pub datasets: DatasetsService,
+    /// Files — see [`files`].
     pub files: FileService,
+    /// Subscriptions, including WebSocket listening — see [`subscriptions`].
     pub subscriptions: SubscriptionsService,
+    /// Function nodes — see [`functions`].
     pub functions: FunctionsService,
+    /// The label catalogue — see [`labels`].
     pub labels: LabelsService,
+    /// Relationship edges and their type catalogue — see [`relations`].
     pub edges: EdgesService,
     pub(crate) http_client: Client,
 }
@@ -209,6 +230,28 @@ pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
         .block_on(future)
 }
 
+/// Build an [`ApiService`] from the environment.
+///
+/// Loads a local `.env` file if there is one, then reads the process environment. It needs
+/// `BASE_URL`, plus either `TOKEN` or the OAuth2 client-credentials trio `CLIENT_ID` /
+/// `CLIENT_SECRET` / `TOKEN_URI`. [`datahub::DataHubConfig`] documents the rest, including the
+/// `SCOPE` a Keycloak Organizations realm needs and the RFC 7523 assertion flow.
+///
+/// ```no_run
+/// use intellistream_datahub_sdk::create_api_service;
+///
+/// # async fn run() {
+/// let api = create_api_service();
+/// let units = api.units.list().await.unwrap();
+/// # }
+/// ```
+///
+/// # Panics
+///
+/// Configuration is read eagerly, so a missing `BASE_URL` or an unusable credential set panics
+/// here rather than failing on the first call. Build the [`datahub::DataHubConfig`]
+/// yourself with [`DataHubConfig::from_env`](datahub::DataHubConfig::from_env), which returns a
+/// `Result`, and pass it to [`ApiService::new`].
 pub fn create_api_service() -> Arc<ApiService> {
     dotenv().ok(); // Reads the .env file
     let dataplatform_api: DataHubConfig /* Type */ = DataHubConfig::create_default();
