@@ -53,6 +53,7 @@ impl SubscriptionsService {
         }
     }
 
+    /// `POST /subscriptions/create` — create one or more subscriptions.
     pub async fn create<I>(&self, data: &I) -> Result<DataWrapper<Subscription>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<Subscription>>,
@@ -98,6 +99,10 @@ impl SubscriptionsService {
             .await
     }
 
+    /// `POST /subscriptions/delete` — delete subscriptions by id or external id.
+    ///
+    /// Close any [`SubscriptionListener`] on the subscription first; deleting one with a live
+    /// listener attached is refused.
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<Subscription>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,

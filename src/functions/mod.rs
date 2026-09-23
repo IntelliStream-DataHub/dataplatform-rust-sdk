@@ -54,6 +54,9 @@ impl FunctionsService {
         }
     }
 
+    /// `POST /functions/create` — create one or more function nodes.
+    ///
+    /// `name` is required by the server even though the field is `Option` here.
     pub async fn create<I>(&self, data: &I) -> Result<DataWrapper<Function>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<Function>>,

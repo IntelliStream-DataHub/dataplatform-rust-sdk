@@ -98,6 +98,10 @@ impl TimeSeriesService {
             .await
     }
 
+    /// `POST /timeseries/create` — create one or more series.
+    ///
+    /// A duplicate `external_id` answers a clean 409. See [`create_one`](Self::create_one) and
+    /// [`create_from_list`](Self::create_from_list) for the common shapes.
     pub async fn create(
         &self,
         json: &DataWrapper<TimeSeries>,
@@ -107,6 +111,7 @@ impl TimeSeriesService {
             .await
     }
 
+    /// [`create`](Self::create) for a single series.
     pub async fn create_one(
         &self,
         ts: &TimeSeries,
@@ -116,6 +121,7 @@ impl TimeSeriesService {
         self.create(&dw).await
     }
 
+    /// [`create`](Self::create) for a slice of series.
     pub async fn create_from_list(
         &self,
         ts_list: &Vec<TimeSeries>,
@@ -142,6 +148,10 @@ impl TimeSeriesService {
         self.execute_post_request(path, json).await
     }
 
+    /// `POST /timeseries/update` — partial update of one or more series.
+    ///
+    /// Each [`TimeSeriesUpdate`] names its target and carries only the fields it changes. `value_type`
+    /// is not among them: it is fixed at creation.
     pub async fn update(
         &self,
         json: &TimeSeriesUpdateCollection,
@@ -151,6 +161,7 @@ impl TimeSeriesService {
             .await
     }
 
+    /// `POST /timeseries/byids` — fetch series by id or external id, answering the subset it found.
     pub async fn by_ids(
         &self,
         json: &DataWrapper<IdAndExtId>,
@@ -197,6 +208,8 @@ impl TimeSeriesService {
         self.search(&SearchAndFilterForm::new(query)).await
     }
 
+    /// Insert a single datapoint into one series — [`insert_datapoints`](Self::insert_datapoints)
+    /// for a batch, which is what you want for anything but a one-off.
     pub async fn insert_datapoint(
         &self,
         id: Option<u64>,
@@ -451,6 +464,10 @@ impl TimeSeriesService {
             .await
     }
 
+    /// `POST /timeseries/data/list` — read datapoints for one or more series.
+    ///
+    /// Each [`RetrieveFilter`] names a series and a window, and may ask for `aggregates` at a
+    /// `granularity` instead of raw points. The window is half-open: `[start, end)`.
     pub async fn retrieve_datapoints(
         &self,
         json: &DataWrapper<RetrieveFilter>,
@@ -477,6 +494,7 @@ impl TimeSeriesService {
             .await
     }
 
+    /// The most recent datapoint of each named series.
     pub async fn retrieve_latest_datapoint(
         &self,
         json: &DataWrapper<IdAndExtId>,

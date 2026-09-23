@@ -108,6 +108,10 @@ impl ResourceService {
             .await
     }
 
+    /// `POST /resources/delete` — delete nodes by id or external id.
+    ///
+    /// Refused with **409** `would-strand` if it would cut a surviving node's only route to the graph
+    /// root; the problem's `blockedBy` names what is in the way.
     pub async fn delete<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
@@ -118,6 +122,10 @@ impl ResourceService {
         self.execute_post_request::<GraphDataWrapper<Resource>, _>(&url, &payload)
             .await
     }
+    /// `POST /resources/search` — full-text search across every node type.
+    ///
+    /// The phrase selects and the filter only narrows; results are ranked by `ts_rank` and tie-broken
+    /// on id. Answers each row as its own [`Node`] variant.
     pub async fn search(
         &self,
         payload: &SearchAndFilterForm<ResourceFilter>,

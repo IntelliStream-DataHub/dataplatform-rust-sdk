@@ -65,6 +65,13 @@ impl EventsService {
         }
     }
 
+    /// `POST /events/create` — create one or more events.
+    ///
+    /// Any event without an `id` is given a time-ordered UUID v7 before sending, so a retry carries
+    /// the same id and the server collapses the duplicate rather than storing it twice.
+    ///
+    /// With durable buffering enabled, a batch that cannot reach the server is spooled to disk and
+    /// this answers **202 with no items** instead of failing.
     pub async fn create<I>(&self, data: &I) -> Result<DataWrapper<Event>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<Event>>,
@@ -191,6 +198,7 @@ impl EventsService {
         }
     }
 
+    /// `POST /events/delete` — delete events by UUID.
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<Event>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<EventIdCollection>>,
@@ -222,11 +230,15 @@ impl EventsService {
             .await
     }
 
+    /// `POST /events/filter` — events matching [`EventFilterForm`], with sorting and keyset paging.
+    ///
+    /// Defaults to `eventTime` ascending. Echo the response's `next_cursor` back to walk the rest.
     pub async fn filter(&self, filter: &EventFilterForm) -> Result<DataWrapper<Event>, ResponseError> {
         let path = &format!("{}/filter", self.base_url);
         self.execute_post_request(path, &filter).await
     }
 
+    /// `POST /events/byids` — fetch events by UUID, answering the subset it found.
     pub async fn by_ids<I>(&self, id_collection: &I) -> Result<DataWrapper<Event>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<EventIdCollection>>,

@@ -554,6 +554,10 @@ impl DataHubConfig {
         auth_state.expire_time = None;
     }
 
+    /// The current bearer token, minting or refreshing it if the cached one is missing or expired.
+    ///
+    /// A `TOKEN` supplied through the environment is returned as-is and never refreshed — it is
+    /// assumed to be managed outside the SDK.
     pub async fn get_api_token(&self) -> Result<String, DataHubError> {
         {
             // lock scope. read and if expired refresh token

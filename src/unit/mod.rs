@@ -34,15 +34,18 @@ impl UnitsService {
         }
     }
 
+    /// Every unit in the catalogue. It is a small, slow-changing set, so fetching it whole is cheap.
     pub async fn list(&self) -> Result<DataWrapper<Unit>, ResponseError> {
         self.execute_get_request(&self.base_url, None::<&str>).await
     }
 
+    /// One unit by its external id, e.g. `temperature_deg_c`.
     pub async fn by_external_id(&self, value: &str) -> Result<DataWrapper<Unit>, ResponseError> {
         let path = &format!("{}/{value}", self.base_url, value = value);
         self.execute_get_request(path, None::<&str>).await
     }
 
+    /// Units by id or external id, answering the subset it found.
     pub async fn by_ids(
         &self,
         json: &DataWrapper<IdAndExtId>,

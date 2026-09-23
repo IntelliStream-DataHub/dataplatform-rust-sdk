@@ -47,6 +47,10 @@ impl FileService {
         }
     }
 
+    /// `PUT /files` — upload a file's contents, with its metadata in `X-Datahub-*` headers.
+    ///
+    /// The body is the raw bytes rather than a multipart form. Build the [`FileUpload`] first; it
+    /// reads the path eagerly and panics if it is not a readable regular file.
     pub async fn upload_file(
         &self,
         file_upload: FileUpload,
@@ -59,6 +63,7 @@ impl FileService {
             .await
     }
 
+    /// The top level of the file tree, as [`INode`]s — files and folders alike.
     pub async fn list_root_directory(&self) -> Result<DataWrapper<INode>, ResponseError> {
         // Create and send an HTTP GET request
         let full_path = format!("{}/list", self.base_url.as_str());
@@ -66,6 +71,7 @@ impl FileService {
             .await
     }
 
+    /// The contents of one folder, named by its path.
     pub async fn list_directory_by_path(
         &self,
         path: &str,
@@ -75,6 +81,10 @@ impl FileService {
             .await
     }
 
+    /// `POST /files/delete` — move files to the trash by id or external id.
+    ///
+    /// Soft: see [`list_trash`](Self::list_trash) for what is in there and
+    /// [`restore`](Self::restore) to bring one back.
     pub async fn delete(
         &self,
         id_collection: &DataWrapper<IdAndExtId>,

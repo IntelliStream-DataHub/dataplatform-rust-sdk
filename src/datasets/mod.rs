@@ -52,6 +52,9 @@ impl DatasetsService {
         }
     }
 
+    /// `POST /datasets/create` — create one or more data sets.
+    ///
+    /// Accepts a [`Dataset`], a `Vec` of them, or a reference to either.
     pub async fn create<I>(&self, data: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<Dataset>>,
@@ -62,6 +65,10 @@ impl DatasetsService {
             .await
     }
 
+    /// `POST /datasets/delete` — delete data sets by id or external id.
+    ///
+    /// A data set stands above everything that belongs to it, so this is refused while it still has
+    /// members.
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
@@ -102,6 +109,9 @@ impl DatasetsService {
         self.execute_post_request(path, filter).await
     }
 
+    /// `POST /datasets/byids` — fetch data sets by id or external id.
+    ///
+    /// Like every batch lookup, this answers 200 with the subset it found and silently omits the rest.
     pub async fn by_ids<I>(&self, id_collection: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
