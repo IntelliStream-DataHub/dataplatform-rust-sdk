@@ -167,7 +167,7 @@ impl ResourceService {
     ///
     /// The cheap "what have I got" read: no body, no criteria. Like every read under
     /// `/resources` it spans **every** node type and answers each row in the shape of its own
-    /// kind — see [`Node`](crate::nodes::Node) — and it is narrowed to the data sets you may read
+    /// kind — see [`crate::nodes::Node`] — and it is narrowed to the data sets you may read
     /// exactly as [`filter`](Self::filter) is.
     ///
     /// Resources are the bulk of a tenant, so treat this as a sample rather than an inventory: it

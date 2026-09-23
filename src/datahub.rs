@@ -24,7 +24,8 @@ pub const DEFAULT_BUFFER_DIR: &str = ".datahub-spool";
 /// Default number of datapoint insert requests in flight at once. Each carries up to 100 000 points,
 /// which the api holds in memory while it parses them, so this bounds what one insert costs its heap.
 pub const DEFAULT_DATAPOINT_INSERT_PARALLELISM: usize = 4;
-/// Scope sent with a token request when none is configured. See [`OAuthConfig::effective_scope`].
+/// Scope sent with a token request when none is configured. `SCOPE` adds to this rather than
+/// replacing it, so `SCOPE=organization:acme` asks for `openid organization:acme`.
 pub const DEFAULT_SCOPE: &str = "openid";
 /// RFC 7523 grant type: exchange an externally-issued JWT assertion for a token.
 const JWT_BEARER_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
