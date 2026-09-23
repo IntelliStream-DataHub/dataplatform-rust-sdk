@@ -57,7 +57,6 @@ def _client_credentials_kwargs(env):
         client_secret=client_secret,
         scope=env.get("SCOPE"),
         audience=env.get("AUDIENCE"),
-        project_name=env.get("PROJECT_NAME"),
     )
 
 
@@ -75,7 +74,6 @@ def _federated_kwargs(env):
         token_url=env["TOKEN_URI"],
         scope=env.get("SCOPE"),
         audience=env.get("AUDIENCE"),
-        project_name=env.get("PROJECT_NAME"),
         assertion=env.get("ASSERTION"),
         assertion_token_url=env.get("ASSERTION_TOKEN_URI"),
         assertion_client_id=env.get("ASSERTION_CLIENT_ID"),
