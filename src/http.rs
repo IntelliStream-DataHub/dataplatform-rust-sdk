@@ -21,6 +21,11 @@ use serde::de::DeserializeOwned;
 use std::fmt;
 use thiserror::Error;
 
+/// A failed API call: the status, the raw body, and the problem document behind it when there
+/// was one.
+///
+/// Also covers failures that never reached the server — a connect timeout, an unobtainable token —
+/// which arrive with no problem document.
 #[derive(Debug, Error, Clone)]
 pub struct ResponseError {
     pub(crate) status: StatusCode,

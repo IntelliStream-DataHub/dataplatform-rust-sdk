@@ -19,6 +19,7 @@ use std::clone::Clone;
 use std::collections::HashMap;
 use std::sync::Weak;
 
+/// Read-only access to the unit catalogue. Reached as `api.units`; see the [module docs](self).
 pub struct UnitsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -51,6 +52,8 @@ impl UnitsService {
     }
 }
 
+/// An engineering unit from the platform's catalogue, referenced by a series through
+/// `unit_external_id`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Unit {

@@ -59,6 +59,7 @@ struct SpoolDatapoint {
     value: String,
 }
 
+/// Time series and datapoint calls. Reached as `api.time_series`; see the [module docs](self).
 pub struct TimeSeriesService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -608,6 +609,9 @@ impl TimeSeriesFilterForm {
     }
 }
 
+/// A time series: the definition datapoints hang off, not the points themselves.
+///
+/// `value_type` fixes what its datapoints may hold and cannot be changed after creation.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct TimeSeries {
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
@@ -791,6 +795,7 @@ impl TimeSeriesUpdateFields {
     }
 }
 
+/// A partial update of one series: how to find it, plus only the fields being changed.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeriesUpdate {
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
@@ -800,6 +805,7 @@ pub struct TimeSeriesUpdate {
     pub update: TimeSeriesUpdateFields,
 }
 
+/// A batch of [`TimeSeriesUpdate`]s for one `POST /timeseries/update` call.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TimeSeriesUpdateCollection {
     items: Vec<TimeSeriesUpdate>,

@@ -51,6 +51,10 @@ const JWT_BEARER_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 /// (Keycloak "Signed JWT - Federated") instead of a client secret.
 const JWT_BEARER_CLIENT_ASSERTION: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
+/// The credential half of [`DataHubConfig`]: which OAuth2 flow to use and what to send with it.
+///
+/// Populated from the environment by [`DataHubConfig::from_env`]; the `ASSERTION*` fields select
+/// the RFC 7523 `jwt-bearer` exchange in place of plain client credentials.
 #[derive(Default, Deserialize, Debug, Clone)]
 pub struct OAuthConfig {
     #[serde(alias = "CLIENT_ID")]
@@ -153,6 +157,12 @@ pub(crate) struct AuthState {
     pub token: Option<oauth2::basic::BasicTokenResponse>,
     pub expire_time: Option<DateTime<Utc>>,
 }
+/// Base URL, credentials and the cached bearer token — everything an [`ApiService`](crate::ApiService)
+/// needs to talk to one backend as one tenant.
+///
+/// Build it with [`from_env`](Self::from_env) or [`from_envfile`](Self::from_envfile), adjust it
+/// with the setters, then hand it to [`ApiService::new`](crate::ApiService::new). Cloning is cheap
+/// and shares the token cache.
 #[derive(Debug, Clone)]
 pub struct DataHubConfig {
     pub(crate) config: Arc<OAuthConfig>,

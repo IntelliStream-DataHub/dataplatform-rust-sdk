@@ -14,6 +14,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// One scalar field of an update: absent (leave alone), set to a value, or explicitly cleared.
+///
+/// Build with [`Field::value`] or [`Field::null`]; the default is absent.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Field<T> {

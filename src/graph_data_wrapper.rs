@@ -22,6 +22,10 @@ use serde::{Deserialize, Serialize};
 use crate::generic::DataWrapperDeserialization;
 use crate::relations::EdgeProxy;
 
+/// Marker for the node types a [`GraphDataWrapper`] can carry.
+///
+/// Implementing it is what lets `&update` and `&vec_of_updates` convert into a request body, so
+/// they can be handed straight to `resources.update` and its siblings.
 pub trait GraphNode: Clone + Serialize {
     fn into_wrapper(self) -> GraphDataWrapper<Self> {
         GraphDataWrapper::from(&self)

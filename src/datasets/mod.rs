@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Weak;
 
+/// Data set CRUD, filtering and search. Reached as `api.datasets`; see the [module docs](self).
 pub struct DatasetsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -183,6 +184,10 @@ impl DatasetsService {
     }
 }
 
+/// A data set: the container entities belong to, and the unit read and write grants attach to.
+///
+/// `connected_data_sets` is input-only and `data_set_id` is always `None` on a read — a data set
+/// cannot belong to another one.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Dataset {

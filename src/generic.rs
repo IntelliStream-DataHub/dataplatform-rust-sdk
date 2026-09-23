@@ -37,6 +37,10 @@ use crate::subscriptions::SubscriptionsService;
 // object can be named three ways — {id, externalId}, {id, None}, {None, externalId}. A derived
 // (structural) equality would call those unequal, and a correct semantic equality is impossible
 // here without resolving against the backend. So the type simply isn't comparable.
+/// Names one entity by numeric `id`, by `external_id`, or by both — the selector the `byids` and
+/// `delete` endpoints take.
+///
+/// The backend resolves whichever side is missing and returns both.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IdAndExtId {
     // todo Implement this as an enum, would allow for better validation
@@ -73,6 +77,10 @@ impl From<&Vec<IdAndExtId>> for DataWrapper<IdAndExtId> {
     }
 }
 
+/// One datapoint on the way **in**: timestamp and value both as strings.
+///
+/// Strings because a datapoint's value type is per-series — a text series and a decimal series
+/// share this shape — and because a decimal must not go through an `f64` on the way to the wire.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatapointString {
     pub timestamp: String,
@@ -95,6 +103,8 @@ impl DatapointString {
     }
 }
 
+/// One datapoint on the way **out**: a parsed timestamp, the value, and the aggregate columns
+/// when the read asked for aggregates.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Datapoint {
     // Read from "isoTime" when deserializing, but emit "timestamp" on serialization
@@ -180,6 +190,9 @@ impl Datapoint {
     }
 }
 
+/// One series, named by `id` or `external_id`, plus its datapoints.
+///
+/// Carries [`DatapointString`] when writing and [`Datapoint`] when reading.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatapointEpoch {
     pub(crate) timestamp: i64,
@@ -427,6 +440,10 @@ impl DeleteFilter {
     }
 }
 
+/// The per-series window of a datapoint read: time range, `limit`, and optionally `aggregates`
+/// with a `granularity`.
+///
+/// Its setters are crate-internal; build one with `..Default::default()` and set the public fields.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RetrieveFilter {
@@ -569,11 +586,21 @@ impl<T: DataHubEntity> From<&T> for DataWrapper<T> {
     }
 }
 
+/// Implemented by entities that carry both a numeric `id` and an `external_id`, so a
+/// [`DataWrapper`] of them can be searched by either.
 pub trait Identifiable {
     fn id(&self) -> u64;
     fn external_id(&self) -> &str;
 }
 
+/// The `{ "items": [...] }` envelope every collection endpoint answers with.
+///
+/// Read the rows with [`get_items`](Self::get_items), and continue a paged read by echoing
+/// [`next_cursor`](Self::next_cursor) back as the next request's cursor. It doubles as a request
+/// body, which is why `&entity` and `&vec_of_entities` can be passed straight to `create`.
+///
+/// A non-2xx response is kept rather than thrown away: the body lands in `error_body` and the
+/// status in [`get_http_status_code`](Self::get_http_status_code).
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DataWrapper<T> {
     items: Vec<T>,
@@ -1035,6 +1062,7 @@ impl DataWrapperDeserialization for String {
     }
 }
 
+/// A node in the file tree — a file or a folder — as the `/files` endpoints return it.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct INode {
     #[serde(default, with = "crate::serde_helper::opt_string_id")]

@@ -380,6 +380,8 @@ impl PageRequest {
 }
 
 // Not PartialEq: holds `Option<EventFilter>`, which is non-comparable (see `IdAndExtId`).
+/// The request body of `POST /events/filter`: [`EventFilter`] criteria plus `limit`, `sort`,
+/// `cursor` and the `advancedFilter` expression.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct EventFilterForm {

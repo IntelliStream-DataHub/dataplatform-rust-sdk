@@ -46,6 +46,8 @@ use std::collections::HashMap;
 use std::sync::{Mutex, Weak};
 use uuid::Uuid;
 
+/// Event CRUD, filtering, search and the vocabulary endpoints. Reached as `api.events`; see the
+/// [module docs](self).
 pub struct EventsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -464,6 +466,10 @@ fn buffered_wrapper() -> DataWrapper<Event> {
 // Not PartialEq: it carries `Vec<IdAndExtId>`, which is intentionally non-comparable (see
 // `IdAndExtId`) — the same resource can be named as {id}, {externalId} or both. Same reasoning as
 // `EventFilter`.
+/// Something that happened, at a time.
+///
+/// Identified by a UUID rather than a numeric id. `external_id` is deliberately *not* unique: the
+/// events sharing one are the lifecycle of a single logical event.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Event {

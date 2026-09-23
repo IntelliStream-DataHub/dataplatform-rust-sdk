@@ -32,6 +32,7 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio_util::codec::{BytesCodec, FramedRead};
 
+/// File upload, download and the directory tree. Reached as `api.files`; see the [module docs](self).
 pub struct FileService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -358,6 +359,10 @@ impl FileUpdate {
     }
 }
 
+/// A file staged for upload: the local path plus the metadata that rides in `X-Datahub-*` headers.
+///
+/// [`new`](Self::new) inspects the path immediately and **panics** if it is not a readable regular
+/// file, so check it first if the path came from outside your program.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FileUpload {
     #[serde(rename = "externalId")]

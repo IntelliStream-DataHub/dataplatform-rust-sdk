@@ -34,6 +34,8 @@ use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Subscription management and WebSocket listening. Reached as `api.subscriptions`; see the
+/// [module docs](self).
 pub struct SubscriptionsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -124,6 +126,8 @@ impl SubscriptionsService {
     }
 }
 
+/// A named standing interest in a set of timeseries, which
+/// [`listen`](SubscriptionsService::listen) then streams datapoints for.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Subscription {
@@ -154,6 +158,8 @@ impl Subscription {
 
 impl DataHubEntity for Subscription {}
 
+/// Criteria for [`SubscriptionsService::filter`]. Currently only `timeseries`, a subset of what
+/// the endpoint accepts.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionFilter {
@@ -161,6 +167,7 @@ pub struct SubscriptionFilter {
     pub timeseries: Vec<IdAndExtId>,
 }
 
+/// The request body of `POST /subscriptions/filter`: [`SubscriptionFilter`] criteria plus paging.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionFilterForm {

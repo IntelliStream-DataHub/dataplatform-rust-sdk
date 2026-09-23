@@ -36,6 +36,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Weak;
 
+/// The generic node service, spanning every node type. Reached as `api.resources`; see the
+/// [module docs](self).
 pub struct ResourceService {
     api_service: Weak<ApiService>,
     base_url: String,
@@ -232,6 +234,10 @@ impl ResourceService {
             .await
     }
 }
+/// A plain graph node — one carrying none of the intrinsic type-labels.
+///
+/// The flat shape `/resources` answers with for an unlabelled node; a labelled one comes back as
+/// the matching [`Node`] variant instead.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Resource {
