@@ -14,6 +14,11 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 use uuid::Uuid;
 
+/// Awaitable twin of `EventsServiceSync`, reached as `client.events` on an
+/// `AsyncDataHubClient`.
+///
+/// Same methods, same arguments, same semantics — each returns an awaitable instead of
+/// blocking. `EventsServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EventsServiceAsync")]
 pub struct PyEventsServiceAsync {
     pub api_service: Arc<ApiService>,

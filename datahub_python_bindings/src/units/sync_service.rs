@@ -6,6 +6,11 @@ use pyo3::prelude::*;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
+/// The blocking `/units` surface — read-only access to the tenant's unit catalogue.
+///
+/// Reached as `client.units`. The catalogue is seeded server-side, so there is no create, update
+/// or delete here. A unit's `external_id` is the stable handle you put in
+/// `TimeSeries.unit_external_id`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "UnitServiceSync")]
 pub(crate) struct PyUnitServiceSync {
     pub(crate) api_service: Arc<ApiService>,
@@ -14,6 +19,10 @@ pub(crate) struct PyUnitServiceSync {
 
 #[pymethods]
 impl PyUnitServiceSync {
+    /// The whole catalogue, in one call.
+    ///
+    /// No `limit`, no filter, no paging — this is the only way to enumerate units, and the way
+    /// to find the `external_id` for a unit you want to reference.
     fn list(&self, py: Python<'_>) -> PyResult<Vec<PyUnit>> {
         let service = self.api_service.clone();
 
@@ -37,6 +46,11 @@ impl PyUnitServiceSync {
         Ok(py_units)
     }
 
+    /// Units by id or external id. Missing entries are omitted rather than raising.
+    ///
+    /// **Takes `IdCollection` objects only** — unlike every other `by_ids` in these bindings,
+    /// a bare `str` or `int` is a `TypeError`. Write
+    /// `units.by_ids([IdCollection(external_id="pressure_bar")])`.
     fn by_ids<'py>(&self, py: Python<'py>, input: Vec<PyIdCollection>) -> PyResult<Vec<PyUnit>> {
         let service = self.api_service.clone();
         let input_ids = input
@@ -60,6 +74,12 @@ impl PyUnitServiceSync {
             Ok(py_units)
         })
     }
+    /// One unit by external id.
+    ///
+    /// **Singular despite the name** — it takes one string, not a list, and answers with a list
+    /// of zero or one. A unit that does not exist is an empty list rather than an exception.
+    ///
+    /// The awaitable twin is spelled `by_external_id`, without the `s`.
     fn by_external_ids<'py>(&self, py: Python<'py>, input: &str) -> PyResult<Vec<PyUnit>> {
         let service = self.api_service.clone();
         py.detach(|| {

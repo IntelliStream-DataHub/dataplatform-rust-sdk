@@ -6,6 +6,15 @@ use intellistream_datahub_sdk::resources::ResourceUpdate;
 use pyo3::prelude::*;
 use std::sync::Arc;
 
+/// The blocking `/functions` surface.
+///
+/// Reached as `client.functions`. A function is a plain graph node distinguished only by its
+/// `FUNCTION` type-label; it carries no fields of its own.
+///
+/// **The api serves no `/byids`, `/filter` or `/search` for functions** — the only node type
+/// missing all three. `by_ids` works around that client-side (see there), and there is no
+/// function search at all: reach them through `client.resources.filter(node_type=["function"])`
+/// when you need criteria.
 #[pyclass(module = "intellistream_datahub_sdk", name = "FunctionsServiceSync")]
 pub struct PyFunctionsServiceSync {
     pub api_service: Arc<ApiService>,
@@ -14,6 +23,10 @@ pub struct PyFunctionsServiceSync {
 
 #[pymethods]
 impl PyFunctionsServiceSync {
+    /// Create functions, returning the echo with server-assigned ids.
+    ///
+    /// **`name` is optional here but non-null on the api**, so omitting it is a 400. Setting
+    /// `related_resources` locally has no effect either — the field is never sent.
     fn create(&self, py: Python<'_>, input: Vec<PyFunction>) -> PyResult<Vec<PyFunction>> {
         let fns: Vec<Function> = input.into_iter().map(Function::from).collect();
         let service = self.api_service.clone();
@@ -50,6 +63,15 @@ impl PyFunctionsServiceSync {
         })
     }
 
+    /// Functions by id or external id, matched on either.
+    ///
+    /// **There is no `/byids` endpoint behind this.** It fetches a listing of up to 10 000
+    /// functions and filters it in the client, so it costs one full listing per call whatever
+    /// the size of `input`, and **a tenant holding more than 10 000 functions silently misses
+    /// its oldest** — an existing function past the cap comes back simply absent, with no error.
+    ///
+    /// Unmatched ids are omitted rather than raising. Prefer `get_by_id` when you have a numeric
+    /// id: that one is a real endpoint.
     fn by_ids(
         &self,
         py: Python<'_>,
@@ -118,6 +140,10 @@ impl PyFunctionsServiceSync {
         ))
     }
 
+    /// Delete functions, and with them all of their relationships. Returns `None`.
+    ///
+    /// A delete that would strand a surviving node is refused with **409**
+    /// `problem_slug == "would-strand"`, the blockers listed under `problem["blockedBy"]`.
     fn delete(&self, py: Python<'_>, input: Vec<FunctionIdentifyable>) -> PyResult<()> {
         let ids: Vec<IdAndExtId> = input.into_iter().map(IdAndExtId::from).collect();
         let service = self.api_service.clone();

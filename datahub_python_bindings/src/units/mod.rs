@@ -6,33 +6,38 @@ pub mod async_service;
 pub mod general;
 pub mod sync_service;
 
-/// Represents a Unit in the Datahub unit system
+/// One entry of the DataHub unit catalogue — the shared vocabulary a timeseries points at
+/// through `unit_external_id`.
+///
+/// Referencing a catalogue entry rather than typing free text into `TimeSeries.unit` is what
+/// makes a series' unit comparable and convertible: `conversion` carries the factors to the
+/// other units of the same `quantity`. Units are read-only here — the catalogue is seeded
+/// server-side, so this class is what `units.list()` and `units.by_ids()` hand back.
 ///
 /// Parameters
-/// ---------
+/// ----------
 /// id: int
 ///     internal id of the unit
 /// external_id: str
-///     user provided external id of the unit
+///     user provided external id of the unit, e.g. `temperature_celsius`
 /// name: str
-///     name of the unit ie Celcius, Newton,
+///     name of the unit, e.g. Celsius, Newton
 /// long_name: str
-///     long name of the unit ie Temperature_Celsius, Force_Newton,
+///     long name of the unit, e.g. Temperature_Celsius, Force_Newton
 /// symbol: str
-///     symbol of the unit ie C, N,
+///     symbol of the unit, e.g. C, N
 /// description: str
 ///     description of the unit
 /// alias_names: list[str]
-///     alias names of the unit ie Pascal, Newton/Meter Squared,
+///     alias names of the unit, e.g. Pascal, Newton/Meter Squared
 /// quantity: str
-///     The quantity dimension of the unit ie Temperature, Mass, Energy-seconds
-/// conversion: dict[str,float]
-///     dict of conversion factors from this unit to other units
+///     the quantity dimension of the unit, e.g. Temperature, Mass, Energy-seconds
+/// conversion: dict[str, float]
+///     conversion factors from this unit to other units
 /// source: str
 ///     source of the unit
-/// source_reference:
+/// source_reference: str
 ///     url to the source of the unit
-///
 #[pyclass(module = "intellistream_datahub_sdk", name = "Unit")]
 #[derive(Clone)]
 pub struct PyUnit {

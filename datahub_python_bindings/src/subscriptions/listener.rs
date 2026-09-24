@@ -44,6 +44,10 @@ impl PySubscriptionListener {
     /// Wait for the next message. Returns None when the connection has been closed cleanly,
     /// raises on transport / deserialization errors. Equivalent to driving the iterator one
     /// step but without using StopIteration as the close signal.
+    /// Block until the next message. Returns `None` when the connection has closed cleanly, and
+    /// raises on a transport or deserialization error.
+    ///
+    /// The same thing iteration does, without using `StopIteration` as the close signal.
     fn next_message(&self, py: Python<'_>) -> PyResult<Option<PySubscriptionMessage>> {
         let listener = self.listener.clone();
         let runtime = self.runtime.clone();
@@ -62,6 +66,10 @@ impl PySubscriptionListener {
         })
     }
 
+    /// Acknowledge messages, marking them done.
+    ///
+    /// An unacked message is redelivered to the next listener on the same subscription, so
+    /// acking is what stops it coming back.
     fn ack(&self, py: Python<'_>, message_ids: Vec<String>) -> PyResult<()> {
         let listener = self.listener.clone();
         let runtime = self.runtime.clone();
@@ -78,6 +86,7 @@ impl PySubscriptionListener {
         })
     }
 
+    /// Negatively acknowledge messages, asking for them to be redelivered.
     fn nack(&self, py: Python<'_>, message_ids: Vec<String>) -> PyResult<()> {
         let listener = self.listener.clone();
         let runtime = self.runtime.clone();
@@ -94,6 +103,7 @@ impl PySubscriptionListener {
         })
     }
 
+    /// Add subscriptions to this open connection, without reconnecting.
     fn subscribe(&self, py: Python<'_>, external_ids: Vec<String>) -> PyResult<()> {
         let listener = self.listener.clone();
         let runtime = self.runtime.clone();
@@ -110,6 +120,7 @@ impl PySubscriptionListener {
         })
     }
 
+    /// Stop delivering the named subscriptions on this connection, leaving the rest running.
     fn unsubscribe(&self, py: Python<'_>, external_ids: Vec<String>) -> PyResult<()> {
         let listener = self.listener.clone();
         let runtime = self.runtime.clone();
@@ -126,6 +137,7 @@ impl PySubscriptionListener {
         })
     }
 
+    /// Replace the whole subscription set with `external_ids`.
     fn set_subscriptions(&self, py: Python<'_>, external_ids: Vec<String>) -> PyResult<()> {
         let listener = self.listener.clone();
         let runtime = self.runtime.clone();
@@ -142,6 +154,9 @@ impl PySubscriptionListener {
         })
     }
 
+    /// Close the socket. Iteration then stops and `next_message` returns `None`.
+    ///
+    /// The listener is also a context manager, which closes on exit.
     fn close(&self, py: Python<'_>) -> PyResult<()> {
         let listener = self.listener.clone();
         let runtime = self.runtime.clone();

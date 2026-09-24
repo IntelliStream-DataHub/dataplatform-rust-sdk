@@ -10,6 +10,11 @@ use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
+/// Awaitable twin of `DatasetsServiceSync`, reached as `client.datasets` on an
+/// `AsyncDataHubClient`.
+///
+/// Same methods, same arguments, same semantics — each returns an awaitable instead of
+/// blocking. `DatasetsServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DatasetsServiceAsync")]
 pub struct PyDatasetsServiceAsync {
     pub api_service: Arc<ApiService>,

@@ -17,6 +17,13 @@ pub mod general;
 pub mod listener;
 pub mod sync_service;
 
+/// A standing request for change notifications on a set of timeseries.
+///
+/// Create it with `subscriptions.create`, then open a socket for it with `subscriptions.listen`.
+/// Every referenced series must already exist, and a series still bound to a subscription cannot
+/// be deleted — drop the subscription first.
+///
+/// `id`, `date_created` and `last_updated` are server-set and read-only.
 #[pyclass(module = "intellistream_datahub_sdk", name = "Subscription")]
 #[derive(Clone)]
 pub struct PySubscription {
@@ -34,6 +41,8 @@ impl From<PySubscription> for Subscription {
     }
 }
 
+/// Criteria for `subscriptions.filter` — currently just `timeseries`, matching subscriptions
+/// that watch the named series.
 #[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionFilter")]
 #[derive(Clone, Default)]
 pub struct PySubscriptionFilter {
@@ -77,6 +86,10 @@ impl PySubscriptionFilter {
     }
 }
 
+/// A sort for `subscriptions.filter`: a `property` and an `order`.
+///
+/// Anything other than `"desc"` sorts ascending, and an unrecognised property falls back to the
+/// default rather than raising.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DataSort")]
 #[derive(Clone, Default)]
 pub struct PyDataSort {
@@ -117,6 +130,12 @@ impl PyDataSort {
     }
 }
 
+/// The prepared request body for `subscriptions.filter` — a `SubscriptionFilter` plus `limit`
+/// and `sort`.
+///
+/// Optional: `filter()` takes the same things as keywords. Passing both a `form` and any of the
+/// keywords raises `ValueError`. **Its `limit` defaults to 100**, where `list()` leaves the
+/// server's 1000.
 #[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionFilterForm")]
 #[derive(Clone)]
 pub struct PySubscriptionFilterForm {
@@ -232,6 +251,7 @@ impl From<SubscriptionTimeseriesId> for IdAndExtId {
 
 // -- WebSocket message wrappers ------------------------------------------------------------
 
+/// What happened to the thing a subscription message is about — created, updated, deleted.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EventAction")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "UPPERCASE")]
@@ -267,6 +287,7 @@ impl PyEventAction {
     }
 }
 
+/// What kind of thing a subscription message is about — a timeseries, its datapoints, and so on.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EventObject")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "UPPERCASE")]
@@ -314,6 +335,9 @@ impl PyEventObject {
     }
 }
 
+/// One datapoint as it arrives over the subscription socket, with its value as text.
+///
+/// `as_float()` parses it, and raises `ValueError` for a series whose values are not numeric.
 #[pyclass(module = "intellistream_datahub_sdk", name = "WsDatapoint")]
 #[derive(Clone)]
 pub struct PyWsDatapoint {
@@ -348,6 +372,8 @@ impl PyWsDatapoint {
     }
 }
 
+/// The datapoints of one series inside a subscription message, alongside the series' identity
+/// and the window they cover.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DataCollectionString")]
 #[derive(Clone)]
 pub struct PyDataCollectionString {
@@ -393,6 +419,8 @@ impl PyDataCollectionString {
     }
 }
 
+/// The payload of a subscription message: what happened (`event_action`), to what kind of thing
+/// (`event_object`), in which tenant, and the affected `items`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DataWrapperMessage")]
 #[derive(Clone)]
 pub struct PyDataWrapperMessage {
@@ -430,6 +458,11 @@ impl PyDataWrapperMessage {
     }
 }
 
+/// One message off the subscription socket.
+///
+/// `payload` is the content; `message_id` is what you hand to `ack()` or `nack()`. An unacked
+/// message is redelivered to the next listener on the same subscription, so acking is what marks
+/// it done.
 #[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionMessage")]
 #[derive(Clone)]
 pub struct PySubscriptionMessage {

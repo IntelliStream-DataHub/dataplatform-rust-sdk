@@ -166,6 +166,17 @@ impl From<ResourceIdentifiable> for IdAndExtId {
     }
 }
 
+/// A plain graph node — the node type with no intrinsic type-label of its own.
+///
+/// Give `name` or `external_id`; the missing one is derived from the other, and passing neither
+/// raises `ValueError`.
+///
+/// **`geolocation` is write-only on a plain resource**: the server accepts it and never echoes
+/// it, so it reads back as `None`. Assets do carry theirs — create the node with the `ASSET`
+/// label, or use `client.assets`, if the geometry needs to survive a round trip.
+///
+/// `related_resources` is filled only by the graph reads and the `/resources/create` echo; every
+/// flat read answers `[]`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "Resource", from_py_object)]
 #[derive(Clone)]
 pub struct PyResource {
@@ -420,7 +431,8 @@ impl PyResourceNetwork {
 #[pymethods]
 impl PyResourceNetwork {
     /// The nodes in the traversed sub-graph, each as its own class (`Asset`, `TimeSeries`,
-    /// `Dataset`, …). Typed but sparse — the graph carries only a subset of each node's columns.
+    /// `Dataset`, …), carrying what a flat read carries. Type-specific fields stay optional: a
+    /// node written before a field was projected reports it absent, which is not a default.
     #[getter]
     fn nodes(&self) -> Vec<crate::nodes::PyNode> {
         self.nodes.clone()

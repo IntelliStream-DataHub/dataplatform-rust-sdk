@@ -9,6 +9,14 @@ use intellistream_datahub_sdk::{ApiService, Resource};
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use std::sync::Arc;
 
+/// The blocking `/datasets` surface.
+///
+/// Reached as `client.datasets`. A data set is the unit access is granted on, and what every
+/// other node is scoped by — so it sits above the things that belong to it, both for permissions
+/// and for deletion.
+///
+/// Naming a data set in a filter covers everything beneath it in the `BELONGS_TO` hierarchy,
+/// the same expansion its ACL grant applies.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DatasetsServiceSync")]
 pub struct PyDatasetsServiceSync {
     pub api_service: Arc<ApiService>,
@@ -17,6 +25,11 @@ pub struct PyDatasetsServiceSync {
 
 #[pymethods]
 impl PyDatasetsServiceSync {
+    /// Create data sets, returning the echo with the server-assigned `id`s.
+    ///
+    /// A `data_set_id` set on the input is silently dropped: a data set inside a data set would
+    /// orphan its ACL grant. Build the hierarchy with an explicit `BELONGS_TO` edge instead —
+    /// `connected_data_sets` does not create one.
     fn create<'py>(&self, py: Python<'py>, input: Vec<PyDataset>) -> PyResult<Vec<PyDataset>> {
         let datasets: Vec<Dataset> = input.iter().cloned().map(Dataset::from).collect();
         let service = self.api_service.clone();
@@ -32,6 +45,10 @@ impl PyDatasetsServiceSync {
         Ok(py_res)
     }
 
+    /// Data sets by id or external id — a bare `int` is an id, a bare `str` an external id, and
+    /// a `Dataset` or `IdCollection` may carry both.
+    ///
+    /// Silently omits what it cannot find rather than raising.
     fn by_ids<'py>(
         &self,
         py: Python<'py>,
@@ -54,6 +71,10 @@ impl PyDatasetsServiceSync {
             .collect();
         Ok(py_res)
     }
+    /// Delete data sets. Returns `None`.
+    ///
+    /// **Does not cascade**, and is refused while anything still belongs to the data set. Delete
+    /// or re-home the contents first.
     fn delete<'py>(&self, py: Python<'py>, input: Vec<DatasetIdentifiable>) -> PyResult<()> {
         let service = self.api_service.clone();
         let input_ids = input
@@ -172,11 +193,10 @@ impl PyDatasetsServiceSync {
     /// action: this needs an all-datasets write grant and raises 403 without one, even for a
     /// caller who can write the dataset's contents.
     ///
-    /// **Do not combine a `metadata` change with `write_protected` / `deactivated` in one update.**
-    /// The server stores those flags as node metadata, so setting either in the same call as a
-    /// metadata delta silently drops the delta — 200, no error, half the change lost. Send two
-    /// updates. Their keys (`property:is_write_protected`, `property:is_deactivated`) are also
-    /// visible in `Dataset.metadata`.
+    /// Settable: `external_id`, `name`, `description`, `metadata` and `labels`. There is no
+    /// `policies` or `connected_data_sets` — the endpoint does not accept them, whatever a
+    /// `Dataset` can carry on create — and no `write_protected` / `deactivated`, both removed
+    /// server-side as inert. Changing `external_id` to one already taken is a **409**.
     fn update(&self, py: Python<'_>, input: Vec<PyDatasetUpdate>) -> PyResult<Vec<PyDataset>> {
         let service = self.api_service.clone();
         let updates: Vec<DatasetUpdate> = input.into_iter().map(DatasetUpdate::from).collect();

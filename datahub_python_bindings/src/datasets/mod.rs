@@ -21,6 +21,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
+/// A data set — the unit access is granted on, and what every other node is scoped by.
+///
+/// Granting someone a data set grants them everything beneath it in the `BELONGS_TO` hierarchy,
+/// and naming one in a filter's `data_set_id` matches its children too. That is also why a data
+/// set cannot itself belong to one: `data_set_id` is always `None` here and is dropped on create.
 #[pyclass(module = "intellistream_datahub_sdk", name = "Dataset", from_py_object)]
 #[derive(Clone)]
 pub struct PyDataset {
@@ -72,10 +77,30 @@ impl PyDataset {
 }
 #[pymethods]
 impl PyDataset {
-    /// Create a datasets entity.
+    /// Build a data set.
     ///
-    /// parameters
+    /// Parameters
     /// ----------
+    /// external_id : str
+    ///     Required. The caller-chosen identifier.
+    /// name : str | None
+    ///     Defaults to `external_id`. Note this runs the opposite way from `TimeSeries` and
+    ///     `Resource`, where a missing `external_id` is derived from the name.
+    /// id : int | None
+    ///     Server-assigned; leave unset when creating.
+    /// description : str | None
+    ///     Free text.
+    /// policies : list[str] | None
+    ///     Access policies this data set is associated with. Not settable through
+    ///     `DatasetUpdate`.
+    /// metadata : dict[str, str] | None
+    ///     Free-form key/value pairs; defaults to `{}`. A filter criterion.
+    /// connected_data_sets : list[int] | None
+    ///     **Input-only, and it does not build a hierarchy.** The api never populates it on a
+    ///     read, so it is empty on everything the server returns. To make one data set a child
+    ///     of another, create the edge explicitly — and mind the direction: the row is stored
+    ///     `from = parent, to = child`, even though the relationship is named `BELONGS_TO`.
+    ///     Reversing it produces no hierarchy and no error.
     #[new]
     #[pyo3(signature=(
         external_id,
@@ -283,7 +308,7 @@ impl PyDataset {
     /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
     /// (`-1`, the default, = the whole connected component); `relationship_types` filters which
     /// edge types to follow (`None` = all); `limit` caps the node count. Neighbour nodes are
-    /// modelled as `Resource`. Blocking; see [`neighbors_async`] for the awaitable variant.
+    /// typed as their own classes. Blocking; see [`neighbors_async`] for the awaitable variant.
     #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
     fn neighbors(
         &self,

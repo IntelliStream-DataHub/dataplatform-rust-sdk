@@ -213,7 +213,8 @@ macro_rules! node_navigation {
             /// (`-1`, the default, = the whole connected component); `relationship_types` filters
             /// which edge types to follow (`None` = all); `limit` caps the node count.
             ///
-            /// Nodes reached this way are typed but sparse — the graph stores only a subset of
+            /// Nodes reached this way are typed, and carry what a flat read carries. Type-specific
+            /// fields stay optional — absent is not a default. Unlike a flat read, this one
             /// each node's columns. Re-read one by id for its full field set.
             #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
             fn neighbors(

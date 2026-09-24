@@ -16,6 +16,16 @@ use pyo3::{PyResult, Python, pyclass, pymethods};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// The blocking `/resources` surface — the **generic node service**.
+///
+/// Reached as `client.resources`. Unlike the typed services beside it, every read here spans all
+/// six node types (asset, timeseries, function, resource, data set, policy) and answers each row
+/// as its own class, so `isinstance(node, TimeSeries)` works on what comes back and an object
+/// from `resources.filter()` behaves exactly like one from `timeseries.by_ids()`. Narrow with
+/// `node_type` when you want only some of them.
+///
+/// This is also the only service that creates nodes **and** the edges between them in one call.
+/// Edges between resources that already exist go through `client.edges` instead.
 #[pyclass(module = "intellistream_datahub_sdk", name = "ResourcesServiceSync")]
 pub struct PyResourcesServiceSync {
     pub api_service: Arc<ApiService>,
@@ -48,6 +58,26 @@ impl PyResourcesServiceSync {
     }
 
     #[pyo3(signature = (nodes, relations = None))]
+    /// Create nodes, and optionally the edges between them, in one call.
+    ///
+    /// `nodes` takes any of the six node classes; each is dispatched server-side by its own
+    /// type-labels. `relations` is a list of `RelForm`, creating edges among the nodes being
+    /// created; omit it for nodes alone.
+    ///
+    /// Returns a `GraphResult`: `.nodes` typed per row, `.relations` the created edges with their
+    /// server-assigned ids. This is one of the only two paths that populate a node's
+    /// `related_resources` — flat reads always answer `[]`.
+    ///
+    /// Things worth knowing:
+    ///
+    /// - `Dataset` and `Policy` nodes need the all-datasets manage grant (**403** without it),
+    ///   and their `data_set_id` is silently dropped.
+    /// - A duplicate `external_id` surfaces as a constraint violation, not the clean 409
+    ///   `timeseries.create` gives.
+    /// - An unknown `relationship_type`, or an unknown entry in `labels`, is **created on the
+    ///   fly** rather than rejected. Convenient, but a typo becomes a permanent catalogue entry,
+    ///   and relationship types cannot be deleted.
+    /// - A node carrying two type-labels is a 400 naming both.
     fn create<'py>(
         &self,
         py: Python<'py>,
@@ -70,6 +100,12 @@ impl PyResourcesServiceSync {
         Ok(PyGraphResult::from_wrapper(result, service.clone()))
     }
 
+    /// Nodes by id or external id, each typed as its own class.
+    ///
+    /// Accepts any node object, a bare `int` (id) or a bare `str` (external id). Silently omits
+    /// what it cannot find — contrast `get_by_id`, which raises on a miss.
+    ///
+    /// `related_resources` is empty on this path, as on every flat read.
     fn by_ids<'py>(
         &self,
         py: Python<'py>,
@@ -94,6 +130,15 @@ impl PyResourcesServiceSync {
             .collect();
         Ok(py_res)
     }
+    /// Delete nodes, and with them their relationships. Returns `None`.
+    ///
+    /// **Refuses to strand a node.** Deleting something that is another node's only route to the
+    /// graph root answers **409** with `problem_slug == "would-strand"`, naming the blockers in
+    /// `problem["blockedBy"]`. Include them in the same delete, or keep a connecting path.
+    ///
+    /// The check reads the graph projection, which lags the write — so deleting very soon after
+    /// creating gets the *wrong answer* rather than an error: the refusal does not fire and the
+    /// node is stranded. Leave a moment between the two.
     fn delete<'py>(&self, py: Python<'py>, input: Vec<ResourceIdentifiable>) -> PyResult<()> {
         let service = self.api_service.clone();
         let input_ids = input
@@ -110,6 +155,16 @@ impl PyResourcesServiceSync {
         Ok(())
     }
     #[pyo3(signature = (query, filter = None, limit = None))]
+    /// Free-text search across every node type, best match first.
+    ///
+    /// Rows come back typed as their own classes, as on every `/resources` read.
+    ///
+    /// `filter` takes the same criteria as `filter()` and only ever *removes* hits from the
+    /// phrase's — it cannot widen them, so omitting it returns them as found. `query` is
+    /// required, 3–140 characters.
+    ///
+    /// `limit` defaults to **100** and caps at **1000**; the `filter` endpoints use 1000/10000,
+    /// which is easy to conflate.
     fn search<'py>(
         &self,
         py: Python<'py>,

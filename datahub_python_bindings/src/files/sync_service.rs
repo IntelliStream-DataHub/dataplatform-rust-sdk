@@ -6,6 +6,14 @@ use intellistream_datahub_sdk::{ApiService, FileUpload};
 use pyo3::{PyResult, Python, pyclass, pymethods};
 use std::sync::Arc;
 
+/// The blocking `/files` surface — a file and folder tree of `INode`s.
+///
+/// Reached as `client.files`. Separate from the resource graph: files have their own hierarchy,
+/// their own ids, and their own `security_categories`. What ties the two together is an
+/// `INode`'s `related_resources`.
+///
+/// Deleting is a **soft** delete — the file moves to the trash, where `list_trash` finds it and
+/// `restore` brings it back.
 #[pyclass(module = "intellistream_datahub_sdk", name = "FilesServiceSync")]
 pub struct PyFilesServiceSync {
     pub api_service: Arc<ApiService>,
@@ -27,6 +35,16 @@ fn to_py_inodes(
 
 #[pymethods]
 impl PyFilesServiceSync {
+    /// Upload one file, described by a `FileUpload`. Returns the created `INode`s.
+    ///
+    /// The content is the raw `PUT` body — streamed, so a large file is not held in memory — and
+    /// every piece of metadata rides in `X-Datahub-*` headers. Leaving `mime_type` unset lets the
+    /// server detect it.
+    ///
+    /// **Local-file problems are `PanicException`, not `DataHubException`.** A path that does not
+    /// exist, is not a regular file, or cannot be opened raises a panic that derives from
+    /// `BaseException`, so a plain `except Exception` will not catch it. Check the path before
+    /// calling.
     fn upload_file<'py>(
         &self,
         py: Python<'py>,
@@ -50,6 +68,8 @@ impl PyFilesServiceSync {
         })
     }
 
+    /// The contents of the file tree's root. Takes no arguments — there is no limit and no
+    /// cursor on this endpoint.
     fn list_root_directory<'py>(&self, py: Python<'py>) -> PyResult<Vec<PyINode>> {
         let service = self.api_service.clone();
 
@@ -67,6 +87,12 @@ impl PyFilesServiceSync {
             Ok(py_units)
         })
     }
+    /// Move files to the trash. Returns `None`.
+    ///
+    /// **A soft delete**, not a purge: the node stays visible through `list_trash` and can be
+    /// brought back with `restore`. Its `external_id` is rewritten to
+    /// `DELETED_<checksum>_<id>_<epochMillis>` on the way, so the original external id is free
+    /// again immediately — and a trashed file can no longer be found under it.
     fn delete<'py>(&self, py: Python<'py>, input: Vec<PyFileIdentifiable>) -> PyResult<()> {
         let service = self.api_service.clone();
         let input_ids: Vec<IdAndExtId> = input.into_iter().map(|u| IdAndExtId::from(u)).collect();
@@ -81,6 +107,11 @@ impl PyFilesServiceSync {
         })
     }
 
+    /// The contents of one directory, named by its absolute path.
+    ///
+    /// **`path` must begin with `/`** — it is appended to the route as given, so `"/images"`
+    /// works and `"images"` silently addresses the wrong route. `""` is the root, the same as
+    /// `list_root_directory`.
     fn list_directory_by_path<'py>(&self, py: Python<'py>, path: &str) -> PyResult<Vec<PyINode>> {
         let service = self.api_service.clone();
 

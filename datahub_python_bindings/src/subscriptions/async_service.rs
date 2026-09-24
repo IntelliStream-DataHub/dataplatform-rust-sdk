@@ -12,6 +12,11 @@ use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
+/// Awaitable twin of `SubscriptionsServiceSync`, reached as `client.subscriptions` on an
+/// `AsyncDataHubClient`.
+///
+/// Same methods, same arguments, same semantics — each returns an awaitable instead of
+/// blocking. `SubscriptionsServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionsServiceAsync")]
 pub struct PySubscriptionsServiceAsync {
     pub api_service: Arc<ApiService>,

@@ -7,6 +7,14 @@ use intellistream_datahub_sdk::ApiService;
 use pyo3::{pyclass, pymethods, PyResult, Python};
 use std::sync::Arc;
 
+/// The blocking `/edges` surface — relationships between resources as first-class objects.
+///
+/// Reached as `client.edges`. Edges normally come into being through
+/// `resources.create(nodes, relations)`; this service is for linking resources that **already
+/// exist**, for reading one edge back, and for the relationship-type catalogue.
+///
+/// An edge is separately deletable only when both of its endpoints stay reachable without it —
+/// otherwise it goes away with the resources.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EdgesServiceSync")]
 pub struct PyEdgesServiceSync {
     pub api_service: Arc<ApiService>,

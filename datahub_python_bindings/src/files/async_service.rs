@@ -6,6 +6,11 @@ use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
+/// Awaitable twin of `FilesServiceSync`, reached as `client.files` on an
+/// `AsyncDataHubClient`.
+///
+/// Same methods, same arguments, same semantics — each returns an awaitable instead of
+/// blocking. `FilesServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "FilesServiceAsync")]
 pub struct PyFilesServiceAsync {
     pub api_service: Arc<ApiService>,

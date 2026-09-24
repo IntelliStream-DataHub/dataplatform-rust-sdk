@@ -11,6 +11,12 @@ use pyo3::{pyclass, pymethods, PyResult, Python};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// The blocking `/assets` surface — the `ASSET`-labelled corner of the resource graph.
+///
+/// Reached as `client.assets`. Every call is the generic `/resources` pipeline with the type
+/// pinned server-side, so the two cannot drift apart on ACLs or status codes. What differs is
+/// the shape that comes back: `Asset`, so `geolocation` and `is_root` are reachable without a
+/// type check.
 #[pyclass(module = "intellistream_datahub_sdk", name = "AssetsServiceSync")]
 pub struct PyAssetsServiceSync {
     pub api_service: Arc<ApiService>,

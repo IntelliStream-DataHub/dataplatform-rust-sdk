@@ -18,6 +18,12 @@ use std::sync::Arc;
 pub mod async_service;
 pub mod sync_service;
 
+/// A graph node representing a computation — a plain node distinguished only by its `FUNCTION`
+/// type-label, with no fields of its own.
+///
+/// `name` is optional on this constructor but required by the api, so a create without one is a
+/// 400. `related_resources` is always empty on anything the functions service returns; use
+/// `neighbors()` to read a function's edges.
 #[pyclass(module = "intellistream_datahub_sdk", name = "Function", from_py_object)]
 #[derive(Clone)]
 pub struct PyFunction {
@@ -150,9 +156,11 @@ impl PyFunction {
         self.inner.last_updated_time
     }
 
-    /// The nodes bound into this function (e.g. its input timeseries via PROCESSED_BY
-    /// edges). Populated by the server on `GET /functions`; the Python worker reads each
-    /// entry's `id` and `relationship_type == "PROCESSED_BY"` to build its routing map.
+    /// **Always empty.** Declared by the shared node base, but the api maps a function through
+    /// a transformer that never joins its edges in — so `list`, `get_by_id` and even the
+    /// `create` echo all answer `[]`. It is not sent on a write either.
+    ///
+    /// To read a function's edges, use `neighbors()` or the `edges` service.
     #[getter]
     fn related_resources(&self) -> Vec<PyRelatedNode> {
         self.inner
@@ -296,7 +304,7 @@ impl PyFunction {
     /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
     /// (`-1`, the default, = the whole connected component); `relationship_types` filters which
     /// edge types to follow (`None` = all); `limit` caps the node count. Neighbour nodes are
-    /// modelled as `Resource`. Blocking; see [`neighbors_async`] for the awaitable variant.
+    /// typed as their own classes. Blocking; see [`neighbors_async`] for the awaitable variant.
     #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
     fn neighbors(
         &self,

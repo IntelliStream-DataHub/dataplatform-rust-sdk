@@ -38,49 +38,53 @@ pub mod datapoints;
 pub mod general;
 pub mod sync_service;
 
-/// Python wrapper for Timeseries objects, represents contextualization data for timeseries
+/// A univariate series of `(timestamp, value)` datapoints, plus the metadata describing it.
 ///
-/// A timeseries is a univariate series of datapoints of the form (timestamp, value)
+/// The object is the *definition* — name, unit, value type, where it sits in the graph. The
+/// datapoints live behind it and are written and read through the service:
+/// `client.timeseries.insert_from_lists(...)` and `client.timeseries.retrieve_datapoints(...)`.
+///
+/// ```python
+/// ts = TimeSeries(name="Pump 1 pressure", value_type="float",
+///                 unit_external_id="pressure_bar")
+/// created = client.timeseries.create([ts])
+/// ```
 ///
 /// Parameters
 /// ----------
-/// units: str
-///     units of the timeseries, e.g. "a.u" or "mW"
-/// name: str | None
-///     user defined name of the timeseries, if not provided external_id will be used
-///     external id must be between 3 and 512 characters long.
-/// external_id: str | None
-///     unique user defined id.
-///     external id must be between 3 and 512 characters long.
-///     external ids must be unique for each timeseries
-///     the same external id can be used for other entities.
-///     if not provided a snakecase of the name will be used.
-/// id: int, default None
-///     internal id set by datahub
-/// value_type: {"bigint","float","text"}  ("decimal" is accepted as an alias for "float")
-///     String enumerator for the datatype of the timeseries
-/// metadata: dict, default None
-///     a dict[str,str] of user defined metadata for semi-structured data storage
-/// description: str, default None
-///     User defined description of the timeseries
-/// units: str, default None
-///     units of the timeseries, e.g. "a.u", "mW", "Liter/min this can be anything
-/// unit_external_id: str, default None
-///     External id for the units of the timeseries this is used to connecto to datahub units system.
-///     The units system will allow you to convert between units and easily convert between units-systems for unified storage.
+/// name : str | None
+///     User-facing name. Give at least one of `name` and `external_id`; passing neither raises
+///     `ValueError`. With only `name`, `external_id` becomes a snake-cased form of it.
+/// external_id : str | None
+///     Caller-chosen id, 3–512 characters, unique among timeseries. With only `external_id`,
+///     `name` is set to the same string. The same string may be reused by another entity type.
+/// value_type : {"bigint", "float", "text"}, default "bigint"
+///     Storage type of the values; `"decimal"` is an alias for `"float"`. Fixed at creation —
+///     see `ValueType`.
+/// metadata : dict[str, str] | None
+///     Free-form key/value pairs, and a filterable one: `timeseries.filter(metadata=...)`
+///     matches on them.
+/// description : str | None
+///     Free text. Searched by `timeseries.search`, alongside the name.
+/// unit : str | None
+///     The unit as free text, e.g. `"mW"` or `"Liter/min"`. Descriptive only.
+/// unit_external_id : str | None
+///     The unit as a catalogue entry, e.g. `"pressure_bar"` — see `Unit`. This is the one that
+///     makes a series convertible, so prefer it to `unit` where the catalogue has a match.
+///     Setting both keeps `unit` as written: the server does not reconcile the two.
+/// data_set_id : int | None
+///     The dataset this series belongs to. Datasets are what access is granted on, so this is
+///     also what decides who can read it.
+/// related_resources : list[RelatedNode] | None
+///     Other nodes to connect this series to. On create, each entry's id/external_id plus its
+///     `relationship_type` becomes an edge server-side.
+/// source : str | None
+///     Where the series came from, e.g. the name of the ingesting system. A filter criterion.
 ///
-/// data_set_id: int
-///     the id of the datasets this timeseries belongs to
-/// related_resources: list[RelatedNode]
-///     A list of other Datahub nodes connected to this timeseries. On create, each
-///     entry's id/external_id + relationship_type is turned into an edge server-side.
-///     RelatedNode
-///         relationship_type: str
-///             the type of relation, e.g. "derived_from" or "measures pressure of"
-///         id / external_id
-///             the connected node (a Timeseries, Dataset, Asset or Policy)
-///
-///
+/// Notes
+/// -----
+/// `id` is assigned by the server and is not a constructor argument; it is `None` until the
+/// series has been created.
 #[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeries", from_py_object)]
 #[derive(Clone)]
 pub struct PyTimeSeries {
@@ -150,7 +154,7 @@ impl PyTimeSeries {
     /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
     /// (`-1`, the default, = the whole connected component); `relationship_types` filters which
     /// edge types to follow (`None` = all); `limit` caps the node count. Neighbour nodes are
-    /// modelled as `Resource`. Blocking; see [`neighbors_async`] for the awaitable variant.
+    /// typed as their own classes. Blocking; see [`neighbors_async`] for the awaitable variant.
     #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
     fn neighbors(
         &self,
@@ -412,10 +416,16 @@ impl PyDeleteFilter {
 
 /// Enumerator for the datatype of a timeseries.
 ///
-/// 3 options are available: BigInt, Float, Text
-/// ("decimal" is accepted as an alias for Float and normalised to "float")
+/// The storage type of a timeseries' values, fixed when the series is created.
 ///
-/// from pyhton these can be passed directly as case-insensitive literal strings
+/// Three options: `"bigint"`, `"float"` and `"text"`. `"decimal"` is accepted as an alias for
+/// `"float"` and normalises to it, so a series created either way reads back as `"float"`.
+/// Matching is case-insensitive, and anywhere a `ValueType` is expected a plain string works
+/// just as well — `TimeSeries(external_id="p1", value_type="float")` needs no wrapper.
+///
+/// Note this is the *construction* catalogue. The `value_type` criterion on `TimeSeriesFilter`
+/// matches against the wider set the server stores (`BIGINT`, `FLOAT`, `FLOAT32`, `NUMERIC`,
+/// `DECIMAL32`, `TEXT`, `MIXED`), so a filter can name a type this class cannot create.
 #[pyclass(module = "intellistream_datahub_sdk", skip_from_py_object)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "camelCase")] // Ensures internal string representation is lowercase

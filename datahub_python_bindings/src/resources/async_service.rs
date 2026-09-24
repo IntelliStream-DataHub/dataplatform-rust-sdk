@@ -12,6 +12,11 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Awaitable twin of `ResourcesServiceSync`, reached as `client.resources` on an
+/// `AsyncDataHubClient`.
+///
+/// Same methods, same arguments, same semantics — each returns an awaitable instead of
+/// blocking. `ResourcesServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "ResourcesServiceAsync")]
 pub struct PyResourcesServiceAsync {
     pub api_service: Arc<ApiService>,

@@ -17,6 +17,14 @@ use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
+/// Awaitable twin of `TimeSeriesServiceSync`, reached as `client.timeseries` on an
+/// `AsyncDataHubClient`.
+///
+/// Same methods, same arguments, same semantics — each returns an awaitable instead of
+/// blocking. `TimeSeriesServiceSync` carries the per-method documentation.
+///
+/// Note `insert_datapoints_binary` and `insert_from_lists_binary` are sync-only; there is no
+/// awaitable binary ingest path yet.
 #[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeriesServiceAsync")]
 pub struct PyTimeSeriesServiceAsync {
     pub api_service: Arc<ApiService>,

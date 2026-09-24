@@ -12,6 +12,13 @@ use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 use std::sync::Arc;
 
+/// The blocking `/subscriptions` surface, plus the WebSocket listener.
+///
+/// Reached as `client.subscriptions`. A subscription binds a set of timeseries to a fan-out
+/// topic; `listen()` then opens a socket that streams the datapoints those series receive.
+///
+/// Note the two reads default differently: `list()` leaves the server's 1000, while `filter()`
+/// with no `limit` caps at **100**.
 #[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionsServiceSync")]
 pub struct PySubscriptionsServiceSync {
     pub api_service: Arc<ApiService>,
@@ -20,6 +27,11 @@ pub struct PySubscriptionsServiceSync {
 
 #[pymethods]
 impl PySubscriptionsServiceSync {
+    /// Create subscriptions, returning the echo with `id`, `date_created` and `last_updated`
+    /// filled in.
+    ///
+    /// **Every referenced timeseries must already exist** — a subscription naming one that does
+    /// not is a 400.
     fn create(&self, py: Python<'_>, input: Vec<PySubscription>) -> PyResult<Vec<PySubscription>> {
         let subs: Vec<Subscription> = input.into_iter().map(Subscription::from).collect();
         let service = self.api_service.clone();
@@ -83,6 +95,10 @@ impl PySubscriptionsServiceSync {
         })
     }
 
+    /// Delete subscriptions. Returns `None`.
+    ///
+    /// Also what unblocks a timeseries delete: a series still bound to a subscription cannot be
+    /// deleted, so drop the subscription first.
     fn delete(&self, py: Python<'_>, input: Vec<SubscriptionIdentifyable>) -> PyResult<()> {
         let ids: Vec<IdAndExtId> = input.into_iter().map(IdAndExtId::from).collect();
         let service = self.api_service.clone();

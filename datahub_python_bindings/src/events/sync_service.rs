@@ -14,6 +14,17 @@ use std::sync::Arc;
 use tokio::runtime;
 use uuid::Uuid;
 
+/// The blocking `/events` surface: event CRUD, filter and search, plus the vocabulary endpoints.
+///
+/// Reached as `client.events`. Events are not nodes — they are keyed by UUID rather than a
+/// numeric id, have no `name`, and carry an `event_time` saying when the thing happened, as
+/// distinct from the server-set `created_time` saying when it was recorded.
+///
+/// The `list_*` / `search_*` pairs answer "what values does this tenant actually use" for the
+/// four categorical fields, and are what a filter dropdown is built from. They read small
+/// server-side tables rather than scanning events, so they are cheap but lag the events slightly.
+///
+/// Events live in ClickHouse and settle after the call returns, so poll rather than assert once.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EventsServiceSync")]
 pub struct PyEventsServiceSync {
     pub api_service: Arc<ApiService>,
@@ -48,6 +59,19 @@ impl PyEventsServiceSync {
         })
     }
 
+    /// Create events, returning the server's echo of them.
+    ///
+    /// Any event without an `id` is stamped with a client-generated UUID v7 before the first
+    /// send, so a retry collapses onto the same row instead of duplicating. The stamp lands on
+    /// the returned objects — **your own `Event` instances still have `id is None`**, so read the
+    /// id off the result.
+    ///
+    /// `type` is required and must be 3–128 non-blank characters; a blank one is a 400 naming
+    /// the offending index.
+    ///
+    /// **With buffering enabled**, a send that cannot get through spools to disk and the call
+    /// returns an **empty list** rather than raising. An empty result therefore means "buffered",
+    /// not "nothing was created".
     fn create<'py>(&self, py: Python<'py>, input: Vec<PyEvent>) -> PyResult<Vec<PyEvent>> {
         let events: Vec<Event> = input.iter().cloned().map(Event::from).collect();
         //let payload = DataWrapper::from_vec(events);
@@ -67,6 +91,14 @@ impl PyEventsServiceSync {
         })
     }
 
+    /// Events by UUID or external id — a bare `uuid.UUID` is an id, a bare `str` an external id,
+    /// and an `Event` or `EventIdCollection` may carry either.
+    ///
+    /// Silently omits what it cannot find, so a shorter list back is how an unknown id is
+    /// reported. Use `get(uuid)` when you want a single event and `None` for a miss.
+    ///
+    /// One external id can answer with **several** events: an external id names the set of UUIDs
+    /// behind it, which together are the lifecycle of one logical event.
     fn by_ids<'py>(
         &self,
         py: Python<'py>,
@@ -90,6 +122,10 @@ impl PyEventsServiceSync {
             Ok(py_units)
         })
     }
+    /// Delete events by UUID or external id. Returns `None`.
+    ///
+    /// Also the second half of a re-key: an event's `external_id` and `event_time` cannot be
+    /// updated, so correcting either means creating a replacement and deleting the original.
     fn delete<'py>(&self, py: Python<'py>, input: Vec<EventIdentifyable>) -> PyResult<()> {
         let service = self.api_service.clone();
         let input_ids: Vec<EventIdCollection> =
@@ -111,6 +147,24 @@ impl PyEventsServiceSync {
                         limit=None, sort_by=None, sort_order=None, cursor=None,
                         advanced_filter=None))]
     #[allow(clippy::too_many_arguments)]
+    /// Events matching every criterion.
+    ///
+    /// Sorted by `event_time` **ascending** by default — the order the keyset cursor pages in.
+    /// For "what just happened", pass `sort_by="eventTime", sort_order="desc"`.
+    ///
+    /// `advanced_filter` additionally takes a boolean expression as a string, e.g.
+    /// `"type NOT LIKE 'pump' AND (subType = 'water' OR subType = 'gas')"`. It is parsed and
+    /// validated server-side, so an invalid one comes back as a 400 carrying an offset.
+    ///
+    /// Pass either a prepared `filter=` object or the individual criteria keywords — passing
+    /// both is a `TypeError`. Paging (`limit`, `sort_by`, `sort_order`, `cursor`) always lives
+    /// on the call rather than on the filter, so one filter can be reused across `filter()` and
+    /// `search()` without carrying a stale cursor.
+    ///
+    /// Returns a `Page`: list-like, plus `.next_cursor`, which is `None` on the last page. A
+    /// *full* page may still be the last, so a walk ends with one empty request.
+    ///
+    /// `limit` defaults to 1000 and caps at 10000 — above that is a 400, not a clamp.
     fn filter<'py>(
         &self,
         py: Python<'py>,
