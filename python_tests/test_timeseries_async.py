@@ -28,8 +28,10 @@ async def test_retrieve_datapoints(async_client,start,end,inserted_data,ts_float
     print(s)
 
     print(s.describe())
-    assert datapoints
-    assert np.allclose(s,test_data[start:end])
+    expected = test_data[start:end]
+    # `datapoints` is a dict, truthy even when its lists are empty, so check the points.
+    assert len(s) == len(expected), f"read {len(s)} datapoints in {start}..{end}, expected {len(expected)}"
+    assert np.allclose(s,expected)
 
 
 @pytest.mark.asyncio

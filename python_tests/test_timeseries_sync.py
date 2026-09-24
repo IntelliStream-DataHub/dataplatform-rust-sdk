@@ -57,8 +57,10 @@ def test_retrieve_datapoints(sync_client,start,end,inserted_data,ts_float,test_d
     print(s)
 
     print(s.describe())
-    assert datapoints
-    assert np.allclose(s,test_data[start:end])
+    expected = test_data[start:end]
+    # `datapoints` is a dict, truthy even when its lists are empty, so check the points.
+    assert len(s) == len(expected), f"read {len(s)} datapoints in {start}..{end}, expected {len(expected)}"
+    assert np.allclose(s,expected)
 def test_create_timeseries_invalid_value_type(sync_client):
     with pytest.raises(ValueError):
         invalid = intellistream_datahub_sdk.TimeSeries(name="test insert",value_type="invalid_string",unit="a.u")
