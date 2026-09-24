@@ -2,11 +2,11 @@ use crate::datetime::{opt_py_datetime_to_utc, py_datetime_to_utc};
 use crate::timeseries::PyTimeseriesIdentifiable;
 use chrono::{DateTime, Utc};
 use intellistream_datahub_sdk::generic::{
-    Datapoint, DatapointString, DatapointsCollection, IdAndExtId, Identifiable, RetrieveFilter,
+    Datapoint, DatapointString, DatapointsCollection, IdAndExtId, RetrieveFilter,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
-use pyo3::{Bound, Py, Python, pyclass, pymethods};
+use pyo3::{Bound, Python, pyclass, pymethods};
 
 #[pyclass(module = "intellistream_datahub_sdk", name = "DatapointsCollectionString")]
 #[derive(Clone, Debug)]

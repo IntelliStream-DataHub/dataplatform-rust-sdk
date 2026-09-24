@@ -1,17 +1,12 @@
 use crate::events::{
     EventIdentifyable, PyEventFilter, PyEvent, PyEventDimension, PyEventUpdate,
 };
-use crate::{PyIdCollection};
 use intellistream_datahub_sdk::events::{EventDimension, EventIdCollection, EventUpdate};
-use intellistream_datahub_sdk::filters::EventFilterForm;
-use intellistream_datahub_sdk::generic::DataWrapper;
 use intellistream_datahub_sdk::{
-    ApiService, Event, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection,
+    ApiService, Event,
 };
-use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
-use pyo3_async_runtimes::tokio::future_into_py;
+use pyo3::{PyResult, Python, pyclass, pymethods};
 use std::sync::Arc;
-use tokio::runtime;
 use uuid::Uuid;
 
 #[pyclass(module = "intellistream_datahub_sdk", name = "EventsServiceSync")]
@@ -96,8 +91,7 @@ impl PyEventsServiceSync {
             input.iter().map(|u| EventIdCollection::from(u.clone())).collect();
 
         py.detach(|| {
-            let result = self
-                .runtime
+            self.runtime
                 .block_on(service.events.delete(&input_ids))
                 .map_err(|e| crate::datahub_err(e))?;
 

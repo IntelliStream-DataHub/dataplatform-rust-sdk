@@ -5,9 +5,8 @@ pub(crate) mod sync_service;
 use crate::PyIdCollection;
 use crate::events::{PyEvent, PyTimeFilter};
 use crate::resources::PyResourceNetwork;
-use crate::{PyFieldBool, PyFieldStr, PyListFieldStr, PyMapField};
+use crate::{PyFieldStr, PyListFieldStr, PyMapField};
 use intellistream_datahub_sdk::filters::{EventFilter, EventFilterForm};
-use intellistream_datahub_sdk::datahub::to_snake_lower_cased_allow_start_with_digits;
 use intellistream_datahub_sdk::datasets::{
     DatasetFilter, Dataset, DatasetFilterForm, DatasetUpdate, DatasetUpdateFields,
 };
@@ -19,7 +18,6 @@ use pyo3::{Bound, PyResult, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[pyclass(module = "intellistream_datahub_sdk", name = "Dataset", from_py_object)]
 #[derive(Clone)]

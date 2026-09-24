@@ -234,20 +234,6 @@ impl RelTypeForm {
     }
 }
 
-impl crate::generic::DataHubEntity for RelTypeForm {
-    fn ext_id(&self) -> &String {
-        &self.name
-    }
-}
+impl crate::generic::DataHubEntity for RelTypeForm {}
 
-impl crate::generic::DataHubEntity for RelForm {
-    fn ext_id(&self) -> &String {
-        // Edges are identified by their endpoints, not by an external id of their own. The
-        // `From<T> for DataWrapper<T>` impls only need *some* borrow, and the from-side external
-        // id is the closest thing an edge form has to a name.
-        static EMPTY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-        self.from_external_id
-            .as_ref()
-            .unwrap_or_else(|| EMPTY.get_or_init(String::new))
-    }
-}
+impl crate::generic::DataHubEntity for RelForm {}

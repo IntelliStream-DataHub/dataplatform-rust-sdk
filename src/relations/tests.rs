@@ -623,9 +623,10 @@ mod live {
             Some(201),
             "creating relationships answers 201, not 200"
         );
-        let edge_id = created.get_items()[0]
-            .id
-            .expect("the new edge should have an id");
+        assert!(
+            created.get_items()[0].id.is_some(),
+            "the new edge should have an id"
+        );
 
         // The (start, end, type) triple is unique, so the same link again is a conflict.
         let dup = api.edges.create(&vec![form]).await;

@@ -458,24 +458,8 @@ impl RetrieveFilter {
         self
     }
 
-    pub(crate) fn add_aggregate(&mut self, aggregate: &str) -> &mut RetrieveFilter {
-        if self.aggregates.is_none() {
-            self.aggregates = Some(vec![]);
-        }
-        self.aggregates
-            .as_mut()
-            .unwrap()
-            .push(aggregate.to_string());
-        self
-    }
-
     pub(crate) fn set_granularity(&mut self, granularity: &str) -> &mut RetrieveFilter {
         self.granularity = Some(granularity.to_string());
-        self
-    }
-
-    pub(crate) fn set_id(&mut self, id: u64) -> &mut RetrieveFilter {
-        self.id = Some(id);
         self
     }
 
@@ -531,9 +515,9 @@ impl From<Vec<RetrieveFilter>> for DataWrapper<RetrieveFilter> {
         }
     }
 }
-pub(crate) trait DataHubEntity: Clone + Serialize {
-    fn ext_id(&self) -> &String;
-}
+/// Marker trait: implementing it unlocks the generic `From` impls that wrap a `T`, `&T`,
+/// `Vec<T>` or `&Vec<T>` into a `DataWrapper<T>` for a request body.
+pub(crate) trait DataHubEntity: Clone + Serialize {}
 impl<T: DataHubEntity> From<T> for DataWrapper<T> {
     fn from(value: T) -> Self {
         DataWrapper {
@@ -1026,13 +1010,8 @@ where
                 wrapper.set_http_status_code(status_code);
                 return Ok(wrapper);
             }
-            // For 2xx responses, we expect the body to be a valid DataWrapper<T>
-            // If body is empty, it's fine for `from_str` to fail and return an error
-            // Or, if you specifically want an empty wrapper for 2xx with empty body:
-            // let mut wrapper = DataWrapper::new();
-            // wrapper.set_http_status_code(status_code);
-            // return Ok(wrapper);
-            // However, typically a successful response with a body should be parsed.
+            // A 2xx with an empty body fails to parse here and surfaces as an error; the
+            // 204/empty cases are handled above, before this point.
             serde_json::from_str(body).map(|mut wrapper: DataWrapper<T>| {
                 wrapper.set_http_status_code(status_code);
                 wrapper

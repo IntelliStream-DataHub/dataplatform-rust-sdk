@@ -2,10 +2,9 @@ use crate::datasets::{
     DatasetIdentifiable, PyDataset, PyDatasetUpdate,
 };
 use crate::resources::PyResource;
-use crate::{DatahubIdentity, Identifiable, PyIdCollection};
 use intellistream_datahub_sdk::ApiService;
 use intellistream_datahub_sdk::datasets::{Dataset, DatasetUpdate};
-use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
+use intellistream_datahub_sdk::generic::IdAndExtId;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;

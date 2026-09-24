@@ -1,18 +1,17 @@
 use crate::timeseries::datapoints::{
-    PyDatapoint, PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
+    PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
 };
 use crate::timeseries::{
     PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate, PyTimeseriesIdentifiable,
 };
 use crate::{
-    DatahubIdentity, Identifiable, PyIdCollection, PyRetrieveFilter,
+    DatahubIdentity, Identifiable, PyRetrieveFilter,
 };
 use crate::datetime::py_datetime_to_utc;
 use intellistream_datahub_sdk::generic::{
     DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter,
 };
 use intellistream_datahub_sdk::{ApiService, TimeSeries, TimeSeriesUpdate, TimeSeriesUpdateCollection};
-use pyo3::prelude::*;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pymethods};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -236,7 +235,6 @@ impl PyTimeSeriesServiceAsync {
                 .insert_datapoints(&mut wrapper)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            let val = result.get_items().clone();
             Ok(result.get_items().clone())
         })
     }
@@ -274,7 +272,6 @@ impl PyTimeSeriesServiceAsync {
                 .insert_datapoints(&mut wrapper)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            let val = result.get_items().clone();
             Ok(result.get_items().clone())
         })
     }
@@ -309,7 +306,7 @@ impl PyTimeSeriesServiceAsync {
         let wrapper =
             DataWrapper::<DeleteFilter>::from_vec(input.into_iter().map(|f| f.into()).collect());
         future_into_py(py, async move {
-            let result = service
+            service
                 .time_series
                 .delete_datapoints(&wrapper)
                 .await

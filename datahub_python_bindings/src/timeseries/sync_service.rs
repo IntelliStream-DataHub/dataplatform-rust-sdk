@@ -4,10 +4,9 @@ use crate::timeseries::datapoints::{
     PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
 };
 use crate::{DatahubIdentity, Identifiable};
-use crate::{PyIdCollection, PyRetrieveFilter};
+use crate::PyRetrieveFilter;
 use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
 use intellistream_datahub_sdk::{ApiService, TimeSeriesUpdateCollection};
-use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
 
 #[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeriesServiceSync")]
@@ -96,8 +95,7 @@ impl PyTimeSeriesServiceSync {
         let wrapper = DataWrapper::from_vec(input_ids);
 
         py.detach(|| {
-            let result = self
-                .runtime
+            self.runtime
                 .block_on(service.time_series.delete(&wrapper))
                 .map_err(|e| crate::datahub_err(e))?;
 
@@ -331,7 +329,7 @@ impl PyTimeSeriesServiceSync {
                 .block_on(service.time_series.delete_datapoints(&wrapper))
         });
 
-        let result = result.map_err(|e| crate::datahub_err(e))?;
+        result.map_err(|e| crate::datahub_err(e))?;
 
         Ok(())
     }

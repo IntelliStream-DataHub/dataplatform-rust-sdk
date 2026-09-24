@@ -538,7 +538,6 @@ mod tests {
         result
     }
 
-    #[allow(dead_code)]
     fn _require_send<T: Send>(_: &T) {}
 
     // Compile-time check: the returned listener is Send so it can be moved to other tasks.

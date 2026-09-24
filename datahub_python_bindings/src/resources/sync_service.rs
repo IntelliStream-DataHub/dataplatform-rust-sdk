@@ -3,7 +3,6 @@ use crate::relations::{PyGraphResult, PyRelForm};
 use crate::resources::{PyResourceFilter, ResourceIdentifiable};
 use crate::resources::{PyResourceNetwork, PyResourceUpdate};
 use intellistream_datahub_sdk::resources::ResourceUpdate;
-use crate::resources::async_service::PyResourcesServiceAsync;
 use crate::{DataSetRef, StringOrList, opt_data_set_refs, opt_patterns};
 use intellistream_datahub_sdk::filters::NodeFilter;
 use intellistream_datahub_sdk::generic::IdAndExtId;

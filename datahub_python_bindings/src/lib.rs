@@ -12,7 +12,6 @@ pub mod timeseries;
 pub mod units;
 mod functions;
 
-use crate::datasets::PyDataset;
 use crate::datasets::async_service::PyDatasetsServiceAsync;
 use crate::datasets::sync_service::PyDatasetsServiceSync;
 use crate::files::async_service::PyFilesServiceAsync;
@@ -33,7 +32,7 @@ use crate::subscriptions::sync_service::PySubscriptionsServiceSync;
 use crate::timeseries::async_service::PyTimeSeriesServiceAsync;
 use crate::timeseries::datapoints::PyRetrieveFilter;
 use crate::timeseries::sync_service::PyTimeSeriesServiceSync;
-use crate::timeseries::{PyDeleteFilter, PyTimeSeries};
+use crate::timeseries::PyTimeSeries;
 use crate::units::PyUnit;
 use crate::assets::async_service::PyAssetsServiceAsync;
 use crate::assets::sync_service::PyAssetsServiceSync;
@@ -52,11 +51,9 @@ use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyType;
-use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use units::*;
 
 create_exception!(
     intellistream_datahub_sdk,
@@ -291,14 +288,14 @@ impl PySyncClient {
         }
     }
     #[classmethod]
-    fn from_env(py: Py<PyType>) -> PyResult<Self> {
+    fn from_env(_py: Py<PyType>) -> PyResult<Self> {
         Ok(Self {
             inner: ApiService::new(DataHubConfig::from_env().unwrap()),
             runtime: Arc::new(tokio::runtime::Runtime::new().unwrap()),
         })
     }
     #[classmethod]
-    fn from_envfile(py: Py<PyType>, path: Option<&str>) -> PyResult<Self> {
+    fn from_envfile(_py: Py<PyType>, path: Option<&str>) -> PyResult<Self> {
         Ok(Self {
             inner: ApiService::new(DataHubConfig::from_envfile(path).unwrap()),
             runtime: Arc::new(tokio::runtime::Runtime::new().unwrap()),
@@ -468,13 +465,13 @@ impl PyAsyncClient {
         }
     }
     #[classmethod]
-    fn from_env(py: Py<PyType>) -> PyResult<Self> {
+    fn from_env(_py: Py<PyType>) -> PyResult<Self> {
         Ok(Self {
             inner: ApiService::new(DataHubConfig::from_env().unwrap()),
         })
     }
     #[classmethod]
-    fn from_envfile(py: Py<PyType>, path: Option<&str>) -> PyResult<Self> {
+    fn from_envfile(_py: Py<PyType>, path: Option<&str>) -> PyResult<Self> {
         Ok(Self {
             inner: ApiService::new(DataHubConfig::from_envfile(path).unwrap()),
         })

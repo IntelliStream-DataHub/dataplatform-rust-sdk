@@ -9,24 +9,6 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use maplit::hashmap;
 use std::collections::HashMap;
 
-async fn delete_events(
-    api_service: &ApiService,
-    events: Vec<EventIdCollection>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let delete_result = api_service.events.delete(&events).await;
-    match delete_result {
-        Ok(events) => {
-            assert_eq!(events.length(), 0);
-        }
-        Err(e) => {
-            eprintln!("{:?}", e.get_message());
-            assert_eq!(e.status.as_u16(), 200);
-        }
-    }
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    Ok(())
-}
-
 fn create_test_events(dataset_id: u64) -> Vec<Event> {
     let unique_id: u64 = 7110;
     let total_events = 89;

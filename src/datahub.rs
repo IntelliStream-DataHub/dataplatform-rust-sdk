@@ -1,19 +1,18 @@
 use crate::errors::DataHubError;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use dotenv::from_path;
-use maplit::hashmap;
 use oauth2::basic::{BasicClient, BasicTokenResponse, BasicTokenType};
 use oauth2::{
     reqwest, AccessToken, ClientId, ClientSecret, EmptyExtraTokenFields, Scope, TokenResponse,
     TokenUrl,
 };
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::{default, env};
+use std::env;
 use tokio::sync::RwLock;
 
 /// Default durable-buffer time window applied when buffering is enabled without an explicit value.
@@ -133,7 +132,7 @@ impl OAuthConfig {
     }
 }
 #[derive(Default, Debug, Clone)]
-struct AuthState {
+pub(crate) struct AuthState {
     pub token: Option<oauth2::basic::BasicTokenResponse>,
     pub expire_time: Option<DateTime<Utc>>,
 }
@@ -443,10 +442,10 @@ impl DataHubConfig {
             .unwrap_or_else(|| PathBuf::from(DEFAULT_BUFFER_DIR))
     }
 
+    /// Uses the refresh token when present, otherwise makes a new client-credentials request.
     async fn refresh_token(
         &self,
     ) -> Result<Option<oauth2::basic::BasicTokenResponse>, DataHubError> {
-        /// will use refresh token if  present otherwise it will make a new client credentials request
         let refresh_token = {
             let authstate = self.auth_state.read().await;
             authstate

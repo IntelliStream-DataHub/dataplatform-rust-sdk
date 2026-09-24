@@ -1,17 +1,12 @@
 use crate::{DataSetRef, PyIdCollection, StringOrList, opt_data_set_refs, opt_patterns};
 use crate::datetime::opt_py_datetime_to_utc;
-use crate::timeseries::datapoints::{
-    PyDatapointString, PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
-    PyRetrieveFilter,
-};
-use crate::timeseries::{PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate};
 use crate::{PyFieldStr, PyFieldU64, PyListFieldIdCollection, PyMapField};
 use intellistream_datahub_sdk::filters::{EventFilter, DataSort, EventFilterForm, TimeFilter};
 use intellistream_datahub_sdk::events::{
     EventDimension, EventIdCollection, EventUpdate, EventUpdateFields,
 };
 use intellistream_datahub_sdk::generic::IdAndExtId;
-use intellistream_datahub_sdk::{ApiService, Event, TimeSeries};
+use intellistream_datahub_sdk::{ApiService, Event};
 use std::sync::Arc;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

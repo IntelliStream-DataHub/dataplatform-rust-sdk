@@ -248,8 +248,4 @@ impl Function {
     }
 }
 
-impl DataHubEntity for Function {
-    fn ext_id(&self) -> &String {
-        &self.external_id
-    }
-}
+impl DataHubEntity for Function {}

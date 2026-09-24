@@ -1,4 +1,4 @@
-use intellistream_datahub_sdk::{TimeSeries, Unit};
+use intellistream_datahub_sdk::Unit;
 use pyo3::{pyclass, pymethods};
 use std::collections::HashMap;
 

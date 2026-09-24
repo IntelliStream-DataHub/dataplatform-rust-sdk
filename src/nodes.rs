@@ -254,11 +254,7 @@ impl Asset {
 
 impl GraphNode for Asset {}
 
-impl crate::generic::DataHubEntity for Asset {
-    fn ext_id(&self) -> &String {
-        &self.external_id
-    }
-}
+impl crate::generic::DataHubEntity for Asset {}
 
 /// An access policy, as a node.
 ///
