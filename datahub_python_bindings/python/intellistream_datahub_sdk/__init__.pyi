@@ -2031,7 +2031,7 @@ class FileDownload:
     def __len__(self) -> int: ...
 
 
-FileIdentifiable = Union[INode, IdCollection, int, str]
+FileIdentifiable = Union[INode, "FileUpload", int, str]
 
 
 class FilesServiceSync:

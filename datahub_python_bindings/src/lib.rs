@@ -298,6 +298,7 @@ impl PySyncClient {
         })
     }
     #[classmethod]
+    #[pyo3(signature = (path=None))]
     fn from_envfile(py: Py<PyType>, path: Option<&str>) -> PyResult<Self> {
         Ok(Self {
             inner: ApiService::new(DataHubConfig::from_envfile(path).unwrap()),
@@ -474,6 +475,7 @@ impl PyAsyncClient {
         })
     }
     #[classmethod]
+    #[pyo3(signature = (path=None))]
     fn from_envfile(py: Py<PyType>, path: Option<&str>) -> PyResult<Self> {
         Ok(Self {
             inner: ApiService::new(DataHubConfig::from_envfile(path).unwrap()),
