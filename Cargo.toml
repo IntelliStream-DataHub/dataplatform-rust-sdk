@@ -21,10 +21,9 @@ exclude = [
 blocking = []
 
 # docs.rs builds with default features only, which would leave `blocking` undocumented even
-# though the README points callers at it. `docsrs` drives the `doc_cfg` badges in lib.rs.
+# though the README points callers at it.
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 maplit = "1"

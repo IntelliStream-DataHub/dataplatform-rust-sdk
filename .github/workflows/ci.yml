@@ -43,12 +43,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      # docs.rs builds on nightly with --cfg docsrs (see [package.metadata.docs.rs]), and
-      # doc_cfg is nightly-only, so matching it here is what makes this check meaningful.
-      - run: rustup toolchain install nightly --profile minimal
       # -D warnings is the point: a broken intra-doc link renders as dead text on docs.rs
       # rather than failing anything, so the reference rots silently without this.
-      - run: RUSTDOCFLAGS="--cfg docsrs -D warnings" cargo +nightly doc --no-deps --all-features
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
       # Only --doc: every other test in this crate needs a live backend. Doctests are the
       # examples in the documentation, and they are pure construction, so they run anywhere.
       - run: cargo test --doc --all-features

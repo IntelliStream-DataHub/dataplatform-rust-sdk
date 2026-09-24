@@ -93,10 +93,6 @@
 //! If you only need to make a handful of calls from a synchronous `main`, [`block_on`] runs
 //! a future on a self-contained runtime without taking a Tokio dependency of your own.
 
-// `doc_cfg` is nightly-only; docs.rs builds on nightly with `--cfg docsrs` (see Cargo.toml),
-// so stable builds simply skip the feature badges.
-#![cfg_attr(docsrs, feature(doc_cfg))]
-
 use dotenv::dotenv;
 use reqwest::Client;
 use reqwest::ClientBuilder;
@@ -117,7 +113,6 @@ pub use crate::relations::EdgesService;
 pub use crate::subscriptions::SubscriptionsService;
 
 #[cfg(feature = "blocking")]
-#[cfg_attr(docsrs, doc(cfg(feature = "blocking")))]
 pub mod blocking;
 pub mod assets;
 pub mod buffer;
