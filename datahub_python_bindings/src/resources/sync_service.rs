@@ -85,14 +85,10 @@ impl PyResourcesServiceSync {
 
         let result = result.map_err(|e| crate::datahub_err(e))?;
 
-        let py_res: Vec<crate::nodes::PyNode> = result
-            .nodes()
-            .as_ref()
-            .unwrap()
-            .iter()
-            .map(|ts| crate::nodes::PyNode::with_client(ts.clone(), service.clone()))
-            .collect();
-        Ok(py_res)
+        Ok(crate::nodes::PyNode::many(
+            result.nodes().unwrap_or_default(),
+            service.clone(),
+        ))
     }
     fn delete<'py>(&self, py: Python<'py>, input: Vec<ResourceIdentifiable>) -> PyResult<()> {
         let service = self.api_service.clone();
