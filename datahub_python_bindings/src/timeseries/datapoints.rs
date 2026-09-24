@@ -42,10 +42,6 @@ impl From<PyDatapointsCollectionDatapoints> for DatapointsCollection<Datapoint> 
 
 #[pymethods]
 impl PyDatapointsCollectionDatapoints {
-    //#[getter]
-    //pub fn datapoints(&self) -> Vec<PyDatapoint> {
-    //    self.inner.datapoints.iter().map(|dp| PyDatapoint { inner: dp.clone() }).collect()
-    //}
     pub fn get_datapoints(&self) -> Vec<PyDatapoint> {
         self.inner
             .datapoints
