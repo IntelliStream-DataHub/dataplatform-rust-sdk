@@ -94,8 +94,6 @@ pub struct OAuthConfig {
     #[serde(alias = "ASSERTION_GRANT")]
     pub(crate) assertion_grant: Option<String>,
 
-    #[serde(alias = "PROJECT_NAME")]
-    pub(crate) project_name: Option<String>,
 }
 
 impl OAuthConfig {
@@ -201,7 +199,6 @@ impl DataHubConfig {
         token_uri: Option<String>,
         client_id: Option<String>,
         client_secret: Option<String>,
-        project_name: Option<String>,
     ) -> DataHubConfig {
         let oauthconfig = OAuthConfig {
             client_id,
@@ -216,7 +213,6 @@ impl DataHubConfig {
             assertion_scope: None,
             assertion_audience: None,
             assertion_grant: None,
-            project_name,
         };
 
         // Oauth client will only be configured if all required fields are present
@@ -851,7 +847,6 @@ mod jwt_bearer_tests {
             Some(token_uri),
             Some("datahub-jwt-grant".to_string()),
             Some("kc-secret".to_string()),
-            None,
         )
     }
 
@@ -915,7 +910,6 @@ mod jwt_bearer_tests {
             Some(url),
             Some("datahub-exchange".to_string()),
             None,
-            None,
         );
         api.set_assertion("header.payload.signature");
         let token = api.get_api_token().await.unwrap();
@@ -952,7 +946,6 @@ mod jwt_bearer_tests {
             Some(url),
             None,
             None,
-            None,
         );
         api.set_assertion("header.payload.signature");
         api.set_assertion_grant("jwt-bearer");
@@ -978,7 +971,6 @@ mod jwt_bearer_tests {
             "http://127.0.0.1:1".to_string(),
             None,
             Some("http://127.0.0.1:1".to_string()),
-            None,
             None,
             None,
         );
