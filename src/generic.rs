@@ -164,6 +164,18 @@ impl Datapoint {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DatapointEpoch {
+    pub(crate) timestamp: i64,
+    pub(crate) value: f64,
+}
+
+impl DatapointEpoch {
+    fn from(timestamp: i64, value: f64) -> Self {
+        DatapointEpoch { timestamp, value }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatapointsCollection<T> {
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
     pub id: Option<u64>,
