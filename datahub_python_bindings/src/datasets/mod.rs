@@ -81,10 +81,6 @@ impl PyDataset {
         external_id,
         name=None,
         id=None,
-        //@NotNull
-        //@Size(min= 3, max = 256)
-        //@NotNull
-        //3, max = 512)
         description = None,
         policies= None,
         metadata= None,
