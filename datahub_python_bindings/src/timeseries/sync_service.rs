@@ -95,8 +95,7 @@ impl PyTimeSeriesServiceSync {
         let wrapper = DataWrapper::from_vec(input_ids);
 
         py.detach(|| {
-            let _result = self
-                .runtime
+            self.runtime
                 .block_on(service.time_series.delete(&wrapper))
                 .map_err(|e| crate::datahub_err(e))?;
 
@@ -330,7 +329,7 @@ impl PyTimeSeriesServiceSync {
                 .block_on(service.time_series.delete_datapoints(&wrapper))
         });
 
-        let _result = result.map_err(|e| crate::datahub_err(e))?;
+        result.map_err(|e| crate::datahub_err(e))?;
 
         Ok(())
     }

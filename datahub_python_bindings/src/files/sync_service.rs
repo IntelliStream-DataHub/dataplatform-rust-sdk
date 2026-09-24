@@ -72,8 +72,7 @@ impl PyFilesServiceSync {
         let input_ids: Vec<IdAndExtId> = input.into_iter().map(|u| IdAndExtId::from(u)).collect();
 
         py.detach(|| {
-            let _result = self
-                .runtime
+            self.runtime
                 .block_on(service.files.delete(&DataWrapper::from_vec(input_ids)))
                 .map_err(|e| crate::datahub_err(e))?;
 

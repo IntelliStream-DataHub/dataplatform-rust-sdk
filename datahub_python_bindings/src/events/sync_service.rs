@@ -91,8 +91,7 @@ impl PyEventsServiceSync {
             input.iter().map(|u| EventIdCollection::from(u.clone())).collect();
 
         py.detach(|| {
-            let _result = self
-                .runtime
+            self.runtime
                 .block_on(service.events.delete(&input_ids))
                 .map_err(|e| crate::datahub_err(e))?;
 

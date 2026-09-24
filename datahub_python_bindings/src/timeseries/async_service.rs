@@ -235,7 +235,6 @@ impl PyTimeSeriesServiceAsync {
                 .insert_datapoints(&mut wrapper)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            let _val = result.get_items().clone();
             Ok(result.get_items().clone())
         })
     }
@@ -273,7 +272,6 @@ impl PyTimeSeriesServiceAsync {
                 .insert_datapoints(&mut wrapper)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            let _val = result.get_items().clone();
             Ok(result.get_items().clone())
         })
     }
@@ -308,7 +306,7 @@ impl PyTimeSeriesServiceAsync {
         let wrapper =
             DataWrapper::<DeleteFilter>::from_vec(input.into_iter().map(|f| f.into()).collect());
         future_into_py(py, async move {
-            let _result = service
+            service
                 .time_series
                 .delete_datapoints(&wrapper)
                 .await
