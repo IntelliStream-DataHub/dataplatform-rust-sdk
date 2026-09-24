@@ -75,7 +75,7 @@ impl PyEdgesServiceAsync {
                 .delete(&ids)
                 .await
                 .map_err(crate::datahub_err)?;
-            Ok(())
+            Ok(Python::attach(|py| py.None()))
         })
     }
 
