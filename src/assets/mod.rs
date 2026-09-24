@@ -14,21 +14,6 @@ use std::sync::Weak;
 /// Client for the `/assets` endpoints — the typed view of the `ASSET`-labelled corner of the
 /// resource graph.
 ///
-/// Every call here is the generic `/resources` pipeline with the `ASSET` discriminator pinned
-/// server-side, so the two paths cannot drift apart on ACLs, naming policy or status codes. The
-/// difference is the shape that comes back: [`Asset`] rather than the polymorphic
-/// [`Node`](crate::nodes::Node), so `geolocation` and `is_root` are reachable without a match.
-///
-/// The filter and search bodies are the resource ones — [`ResourceFilterForm`] and
-/// [`SearchAndFilterForm<ResourceFilter>`] — because the api declares the same Java types on both
-/// endpoint families. A `node_type` set on either is **replaced**, not merged: the api pins
-/// `["asset"]` over whatever the caller asked for, since `node_type` entries OR together and
-/// leaving a caller's `["timeseries"]` in place would widen a request to `/assets` into a mixed
-/// query.
-///
-/// What it does *not* share with `/functions` is worth knowing: the api serves the same three
-/// reads there, but the SDK's [`FunctionsService`](crate::functions::FunctionsService) has not
-/// wired them yet and still filters a listing client-side.
 pub struct AssetsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -51,16 +36,6 @@ impl AssetsService {
 
     /// `POST /assets/create` — create one or more assets. Each needs a unique `external_id` and a
     /// `name`; both are required server-side.
-    ///
-    /// Unlike [`ResourceService::create`](crate::resources::ResourceService::create), the `ASSET`
-    /// type-label does not have to be set by the caller: the endpoint deserializes straight into
-    /// the api's `Asset`, whose constructor forces the label in. [`Asset::new`] leaves `labels`
-    /// unset for that reason, and any domain labels you do set are kept alongside it.
-    ///
-    /// Relations are not creatable here — this takes nodes only. Use
-    /// [`ResourceService::create`](crate::resources::ResourceService::create) to build assets and
-    /// the edges between them in one call, or [`EdgesService`](crate::relations::EdgesService) to
-    /// link assets that already exist.
     pub async fn create<I>(&self, data: &I) -> Result<DataWrapper<Asset>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<Asset>>,
@@ -71,12 +46,7 @@ impl AssetsService {
     }
 
     /// `GET /assets/{id}` — one asset by its numeric id.
-    ///
-    /// **404 does not mean the id is free.** A node that exists but is not an asset, and an asset
-    /// the caller may not read, are both reported as missing — the api hides existence rather than
-    /// answering 403. So a 404 here says "not an asset you can read", nothing more.
-    ///
-    /// Unlike [`by_ids`](Self::by_ids), which omits what it cannot find, this is an error.
+    /// Errors: 404 on a missing or inaccessible asset. 
     pub async fn get_by_id(&self, id: u64) -> Result<DataWrapper<Asset>, ResponseError> {
         let path = &format!("{}/{}", self.base_url, id);
         self.execute_get_request::<DataWrapper<Asset>, ()>(path, None)
@@ -97,22 +67,21 @@ impl AssetsService {
             .await
     }
 
-    /// `GET /assets?limit=N` — the first `limit` assets you may read, newest created first.
+    /// `GET /assets?limit=N` 
     ///
     /// `None` sends no `limit` and leaves the server's default of 1000 in place; the maximum is
-    /// 10000, above which the server answers 400 rather than clamping.
+    /// 10000, above which the server answers 400 rather than clamping. Newest created first.
     ///
-    /// Assets are the bulk of a tenant, so this is a sample rather than an inventory, and there is
-    /// no paging: the api nulls `next_cursor` here deliberately, because a walk needs a `sort` and
-    /// a `cursor` and both live in a request body. Narrow with [`filter`](Self::filter) rather
-    /// than raising the number.
+    ///  There is no paging: the api nulls `next_cursor` here deliberately, because a walk needs a `sort` and
+    ///  a `cursor` and both live in a request body. Narrow with [`filter`](Self::filter) rather
+    ///  than raising the number.
     pub async fn list(&self, limit: Option<u64>) -> Result<DataWrapper<Asset>, ResponseError> {
         let query = limit.map(|limit| [("limit", limit)]);
         self.execute_get_request::<DataWrapper<Asset>, _>(&self.base_url, query.as_ref())
             .await
     }
 
-    /// `POST /assets/filter` — the structured query, narrowed to assets.
+    /// `POST /assets/filter` 
     ///
     /// Takes the resource filter body unchanged, so [`ResourceFilter::is_root`] and
     /// [`ResourceFilter::data_set_id`] are available here and the shared
