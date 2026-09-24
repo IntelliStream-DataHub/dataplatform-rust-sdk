@@ -361,7 +361,7 @@ class TimeSeries:
         self,
         external_id: str,
         name: str | None = None,
-        value_type: str | ValueType | None = None,
+        value_type: str | None = None,
         unit: str | None = None,
         unit_external_id: str | None = None,
         description: str | None = None,
@@ -410,7 +410,7 @@ class TimeSeries:
     @property
     def value_type(self) -> str | None: ...
     @value_type.setter
-    def value_type(self, value: str | ValueType) -> None: ...
+    def value_type(self, value: str) -> None: ...
     @property
     def metadata(self) -> dict[str, str] | None: ...
     @metadata.setter
@@ -519,11 +519,6 @@ class DeleteFilter:
     def inclusive_begin(self) -> datetime.datetime | None: ...
     @property
     def exclusive_end(self) -> datetime.datetime | None: ...
-
-
-class ValueType:
-    def __init__(self, value: str) -> None: ...
-    def __repr__(self) -> str: ...
 
 
 class Datapoint:

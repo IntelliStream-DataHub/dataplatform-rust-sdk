@@ -416,6 +416,9 @@ impl PyDeleteFilter {
 /// ("decimal" is accepted as an alias for Float and normalised to "float")
 ///
 /// from pyhton these can be passed directly as case-insensitive literal strings
+///
+/// Not exported to Python on purpose: it only validates what a caller passes, so the stub types
+/// `value_type` as a plain `str`.
 #[pyclass(module = "intellistream_datahub_sdk", skip_from_py_object)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "camelCase")] // Ensures internal string representation is lowercase
