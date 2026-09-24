@@ -239,6 +239,7 @@ impl From<PyDatapoint> for Datapoint {
 #[pymethods]
 impl PyDatapoint {
     #[new]
+    #[pyo3(signature = (timestamp, value=None, min=None, max=None, average=None, sum=None))]
     pub fn new(
         timestamp: &Bound<'_, PyAny>,
         value: Option<f64>,
