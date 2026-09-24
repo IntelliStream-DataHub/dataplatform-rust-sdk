@@ -646,18 +646,17 @@ mod live {
     /// Re-registering a relationship type that already exists must conflict, the way every other
     /// duplicate in this API does.
     ///
-    /// **Currently red, on purpose.** `EdgeService.saveRelationshipType` has no find-or-create: it
-    /// builds a fresh entity and saves it unconditionally, so a duplicate name collides on
-    /// `relationship_hash_key` at *commit* time — after the handler has returned. The
-    /// `DataIntegrityViolationException` escapes past the handler's `catch`, and the caller gets a
-    /// **200 with an empty body**: the status of a success with the body of a crash.
+    /// **A regression guard.** This was red on purpose for a while:
+    /// `EdgeService.saveRelationshipType` has no find-or-create, so a duplicate name collided on
+    /// `relationship_hash_key` at *commit* time — after the handler had returned. The
+    /// `DataIntegrityViolationException` escaped past the handler's `catch` and the caller got a
+    /// **200 with an empty body**: the status of a success with the body of a crash. It is now
+    /// mapped to **409** `duplicate`, naming `name` in `fields`, like `POST /edges/create` on a
+    /// duplicate edge.
     ///
-    /// The batch case is the damaging one. `createRelationshipTypes` saves every form in one
+    /// The batch case is still worth knowing: `createRelationshipTypes` saves every form in one
     /// transaction, so a single duplicate rolls the whole thing back — valid new types in the same
-    /// request are discarded too, and the response still says 200. Nothing tells the caller.
-    ///
-    /// This test encodes the intended behaviour (409, like `POST /edges/create` on a duplicate
-    /// edge) and will pass once the server-side fix lands.
+    /// request are discarded too, now with a 409 rather than a silent 200.
     #[tokio::test]
     async fn test_duplicate_relationship_type_conflicts() -> Result<(), Box<dyn std::error::Error>>
     {

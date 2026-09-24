@@ -89,8 +89,9 @@ impl ResponseError {
 
     /// The RFC 9457 problem document the server explained itself with, or `None` when it did not.
     ///
-    /// `None` covers every body that is not a problem — an empty 401, a plain-text refusal, Spring
-    /// Boot's whitelabel error JSON — and every error raised before a response existed. So this
+    /// `None` covers every body that is not a problem — an empty body, a plain-text refusal,
+    /// Spring Boot's whitelabel error JSON — and every error raised before a response existed
+    /// (a connect failure, a client-side refusal, an unobtainable token). So this
     /// answers "did the api explain this failure in the documented way", which is the question a
     /// caller wants; [`get_message`](Self::get_message) keeps the raw body either way.
     ///

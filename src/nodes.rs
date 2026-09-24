@@ -19,11 +19,13 @@
 //! - **Flat reads** (`get_by_id`, `by_ids`, `filter`, `search`) are fully populated *except*
 //!   `related_resources`, which is always empty — the api does not join the edges in.
 //! - **Graph reads** ([`ResourceService::fetch_related`](crate::resources::ResourceService::fetch_related),
-//!   `fetch_nearest`) are typed, and now very nearly 1-1 with a flat read: a [`TimeSeries`]
-//!   from there carries its `unit`, `unit_external_id` and `value_type`. The one field still
-//!   lost is **`metadata`**, which the api writes to Neo4j as flattened `metadata_*` properties
-//!   and never reassembles on the way out, so it is silently empty rather than absent.
-//!   `related_resources` runs the other way — populated here, always `[]` on a flat read.
+//!   `fetch_nearest`) are typed and 1-1 with a flat read: a [`TimeSeries`] from there carries its
+//!   `unit`, `unit_external_id` and `value_type`, and **`metadata`** too — the api writes it to
+//!   Neo4j as flattened `metadata_*` properties and now strips the prefix back off on the way
+//!   out. Assert this by diffing against a flat read rather than by naming fields; the projection
+//!   has filled in gradually. `related_resources` runs the other way — populated here, always
+//!   `[]` on a flat read. An asset's geometry is reconstructed as a Point, so a stored Polygon
+//!   comes back wrong.
 //!   Type-specific fields stay `Option` regardless: a node written before a given field was
 //!   projected reports it absent, and absent must not read as a default.
 //! - **Policies** never carry `value`, `template_id` or `data_set_id` on any read — the api's
@@ -185,7 +187,8 @@ pub fn to_snake_upper_cased(s: &str) -> String {
 ///
 /// Field-identical to [`Resource`] plus a meaningful `geolocation`: the api models both on the
 /// same node base and distinguishes them only by the `ASSET` type-label. `geolocation` is the one
-/// practical difference, since a plain resource accepts it on write but never echoes it back.
+/// practical difference — only an asset declares it, so a plain resource create carrying one is a
+/// 400 naming it as an unknown field.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Asset {
@@ -418,8 +421,7 @@ impl Node {
         on_node!(self, n => n.source.as_deref())
     }
 
-    /// The node's metadata map. Empty rather than absent on a node read through the graph — that
-    /// path does not carry the column at all.
+    /// The node's metadata map, carried on both the flat and the graph read paths.
     pub fn metadata(&self) -> Option<&HashMap<String, String>> {
         match self {
             Node::Asset(n) => n.metadata.as_ref(),

@@ -78,7 +78,8 @@ pub struct NodeFilter {
 /// [`external_id`](Self::external_id), [`source`](Self::source), [`metadata`](Self::metadata),
 /// [`created_time`](Self::created_time), [`last_updated_time`](Self::last_updated_time) and
 /// [`data_set_id`](Self::data_set_id) carry the same names and semantics they have there —
-/// including the `*` / `%` wildcards and the case-insensitive, OR-within-a-list matching.
+/// including the `*` / `%` wildcards and the OR-within-a-list matching. The one divergence is
+/// that a literal [`external_id`](Self::external_id) entry matches case-sensitively here.
 ///
 /// Note the filter has no `id` field. Events are keyed by a UUID; use
 /// [`EventsService::by_ids`](crate::events::EventsService::by_ids) to look one up.
@@ -87,8 +88,12 @@ pub struct NodeFilter {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct EventFilter {
-    /// Events matching any of these external ids — literal or wildcard, exactly as
-    /// [`NodeFilter::external_id`]. Replaced the old single-valued `externalIdPrefix`:
+    /// Events matching any of these external ids, literal or wildcard.
+    ///
+    /// **Not quite [`NodeFilter::external_id`]:** a literal entry here matches
+    /// **case-sensitively**. Event writers hash the external id verbatim, while the node filters
+    /// lowercase before hashing and so match either case. A wildcard entry goes through `ILIKE`
+    /// instead and is case-insensitive on both. Replaced the old single-valued `externalIdPrefix`:
     /// `"work_order_*"` says the same thing and composes with exact ids in one list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<Vec<String>>,
@@ -415,10 +420,10 @@ impl EventFilterForm {
     /// one. An unreadable cursor is refused with a 400.
     ///
     /// Send it with the **same** [`sort`](Self::set_sort) that produced it: a cursor is a position
-    /// in one particular order, and continuing it under another is a **400** rather than a page
-    /// that is quietly short. Sorting by `subType` or `status` cannot be paged at all — those
-    /// columns may be null, and a keyset boundary on them would skip the events that have no
-    /// value — so a cursor sent with either is refused.
+    /// in one particular order, and continuing it under another is a **400** naming both sorts,
+    /// rather than a page that is quietly short. The nullable event sorts `subType` and `status`
+    /// page like any other — the keyset predicate handles the null block explicitly, so a null is
+    /// a position rather than a missing one.
     pub fn set_cursor(&mut self, cursor: impl Into<String>) -> &mut Self {
         self.cursor = Some(cursor.into());
         self
@@ -431,12 +436,14 @@ impl EventFilterForm {
     pub fn sort(&self) -> Option<&DataSort> {
         self.sort.as_ref()
     }
-    /// Order the result page. Ignored when a [cursor](Self::set_cursor) is set.
+    /// Order the result page. A [cursor](Self::set_cursor) must be sent with the sort that
+    /// produced it, so this is honoured rather than overridden — a mismatch is a **400**.
     pub fn set_sort(&mut self, sort: DataSort) -> &mut Self {
         self.sort = Some(sort);
         self
     }
-    /// Drop the ordering, letting the backend return the page in no particular order.
+    /// Drop the ordering, falling back to the server default of `eventTime` ascending with an
+    /// `id` tie-break. Never "no order": the query always emits an `ORDER BY`.
     pub fn clear_sort(&mut self) -> &mut Self {
         self.sort = None;
         self
@@ -736,9 +743,9 @@ mod tests {
 
 /// The sort and cursor half of the request bodies, which the four filter endpoints share.
 ///
-/// Kept separate from the criteria tests above because these are the fields a *wrong* shape breaks
-/// silently: an unknown sort property falls back to the default rather than erroring, and an
-/// unreadable cursor restarts the walk from page one. Neither raises anything a caller would see.
+/// Kept separate from the criteria tests above because the two fields fail in opposite ways: an
+/// unknown sort property falls back to the default rather than erroring, so it is silent, while an
+/// unreadable cursor — or one continued under a different sort — is a **400** naming the field.
 #[cfg(test)]
 mod paging_serde {
     use super::*;

@@ -40,8 +40,9 @@ pub struct EdgeProxy {
 
 /// Request-side edge form, mirroring server-side `RelForm`. Used when creating
 /// resources with relations. The server snake-uppercases `relationship_type`
-/// (e.g. `"flows_to"` -> `"FLOWS_TO"`) and snake-lowercases external ids before
-/// persisting, so callers can pass either case.
+/// (e.g. `"flows_to"` -> `"FLOWS_TO"`). External ids are stored **verbatim** — what you send is
+/// what reads back, byte for byte — but they are hashed lowercased for lookup, so either case
+/// resolves to the same node.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RelForm {
@@ -175,7 +176,9 @@ impl RelForm {
 /// A relationship type in the tenant's catalogue (`GET /edges/types`).
 ///
 /// Types are normally created on demand the first time a name is used; this is what one looks
-/// like once stored. `hash` is the server's lookup key for the normalised name.
+/// like once stored. Only `id`, `name`, `description` and `i18n_code` cross the wire: the server
+/// hides `hash`, `date_created` and `last_updated`, so those three are always at their defaults
+/// here however the stored row looks.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RelationshipType {

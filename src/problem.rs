@@ -1,11 +1,11 @@
 //! RFC 9457 `application/problem+json` — the shape the api describes a failure in.
 //!
-//! The api is converging every refusal on this one document (its `Problems` helper is the single
-//! place that builds them). Until that lands a caller meets three kinds of body, so
-//! [`ProblemDetail`] is deliberately lenient about what it is handed:
+//! The api has converged every refusal on this one document — its `Problems` helper is the single
+//! place that builds them, so every refusal now carries a `type`. [`ProblemDetail`] stays
+//! deliberately lenient about what it is handed, because a caller can still meet:
 //!
 //! - a full problem — `type`, `title`, `status`, `detail`, `instance`, plus extension members;
-//! - a bare Spring `ProblemDetail` with **no `type`** (today's `GET /resources/{id}` 404);
+//! - a bare `ProblemDetail` with **no `type`**, from an older api or a service in front of it;
 //! - not a problem at all — Spring Boot's whitelabel `{"timestamp","status","error","trace"}`, a
 //!   success-shaped `{"items":[…]}` envelope, the legacy `{"error":{…}}` wrapper, plain text, or
 //!   nothing. `src/problem_integration.rs` has the full catalogue of what answers what.
@@ -36,7 +36,8 @@ use serde_json::{Map, Value};
 /// caller cannot otherwise tell a problem the api typed from one it did not.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProblemDetail {
-    /// The stable identifier for *what kind* of failure this is. Absent on the api's bare 404s.
+    /// The stable identifier for *what kind* of failure this is. Every refusal the api mints
+    /// carries one; `None` means the body was not typed, not that the failure had no kind.
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub type_uri: Option<String>,
 

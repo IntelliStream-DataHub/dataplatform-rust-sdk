@@ -23,12 +23,12 @@
 //! - **`Accept` must be `application/json, text/event-stream`, byte for byte.** The transport
 //!   compares it with `MediaType.equals`, so offering only `application/json` is a bare 400 with
 //!   nothing pointing at the header.
-//! - **The response must not be double-encoded.** The envelope has regressed to being written as a
-//!   `String` which Spring then serializes *as JSON*, so the body is a quoted, escaped document and
-//!   the obvious `parse(body)["result"]` yields a string. [`unwrap_envelope`] rejects that rather
-//!   than parsing twice: accommodating it would leave the suite green against a wire format no
-//!   conformant client can read. While it is present, every test here fails — which is the honest
-//!   report, because no tool is reachable.
+//! - **The response must not be double-encoded.** The envelope was once written as a `String`
+//!   which Spring then serialized *as JSON*, so the body was a quoted, escaped document and the
+//!   obvious `parse(body)["result"]` yielded a string. [`unwrap_envelope`] rejects that rather
+//!   than parsing twice: accommodating it would have left the suite green against a wire format
+//!   no conformant client can read. `StrictJacksonJsonHttpMessageConverter` now declines to
+//!   read or write `CharSequence`/`byte[]` at all, which closes both directions.
 //!
 //! # Every tool is driven once
 //!
@@ -43,19 +43,23 @@
 //! reference data, and a relationship type cannot be deleted once created (see AGENTS.md) — minting
 //! a set per test would grow the tenant's catalogue on every run.
 //!
-//! # Tests that are red on purpose
+//! # Tests that were red on purpose
 //!
-//! One encodes intended behaviour the api does not yet provide, in the same spirit as
-//! `test_duplicate_relationship_type_conflicts`: it stays red until the server-side fix lands
-//! rather than being softened to match the bug.
+//! Nothing here is red today. Four assertions were written against intended behaviour the api did
+//! not yet provide — red rather than softened to match the bug — and all four have landed. They
+//! stay on as regression guards:
 //!
-//! - [`mcp_response_is_a_json_object`] — whenever the double-encoding regression is present. It names
-//!   the fault directly; [`unwrap_envelope`] independently fails every other test for the same cause.
-//!
-//! Two others were red here and have been resolved server-side, the tests staying on as regression
-//! guards: `unitExternalId` as an alternative to `unit` on `timeseries_create`, and renaming an
-//! event by UUID — which the api settled by removing `newExternalId` from `event_update` outright,
-//! an event's externalId being its identity rather than a property (see [`EventUpdateFields`]).
+//! - [`mcp_response_is_a_json_object`] and [`mcp_accepts_application_json`] — the two directions of
+//!   the double-encoding fault above. Reading, the converter was asked to bind an object *into* a
+//!   `String` and refused, so `POST /mcp` answered **500** on the spec-mandated
+//!   `Content-Type: application/json` and locked out every off-the-shelf client. Writing, it
+//!   escaped the envelope. Note the api's own `McpEndpointTest` asserts only on the security gate,
+//!   so neither direction was covered there; `StrictJacksonConverterBoundaryTest` and
+//!   `StrictJacksonJsonHttpMessageConverterTest` now cover them server-side.
+//! - `unitExternalId` as an alternative to `unit` on `timeseries_create`.
+//! - Renaming an event by UUID — which the api settled by removing `newExternalId` from
+//!   `event_update` outright, an event's externalId being its identity rather than a property (see
+//!   [`EventUpdateFields`]). That test is gone rather than green: there is no rename to assert on.
 //!
 //! [`EventUpdateFields`]: crate::events::EventUpdateFields
 

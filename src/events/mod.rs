@@ -205,8 +205,11 @@ impl EventsService {
             .await
     }
 
-    /// Look up a single event by its UUID `id` (`GET /events/{id}`). The result is an empty
-    /// `items` if no event with that id exists (or it belongs to a tenant you can't read).
+    /// Look up a single event by its UUID `id` (`GET /events/{id}`).
+    ///
+    /// A miss is a **404** carrying a `not-found` problem, not an empty `items`. An event outside
+    /// the caller's readable datasets answers the same way, so a 404 says "not an event you can
+    /// read" and never leaks that the id exists.
     pub async fn get(&self, id: &Uuid) -> Result<DataWrapper<Event>, ResponseError> {
         let path = &format!("{}/{}", self.base_url, id);
         self.execute_get_request(path, None::<&str>).await
@@ -227,9 +230,14 @@ impl EventsService {
             .await
     }
 
-    /// Free-text search over event descriptions (`POST /events/search`). Matching is fuzzy and
-    /// word-aware; results are ranked by relevance. For structured filters (time ranges, types,
-    /// related resources) use [`filter`](Self::filter) instead — it is faster and more predictable.
+    /// Free-text search over events (`POST /events/search`).
+    ///
+    /// A plain case-insensitive **substring** match — not fuzzy, not word-aware — across
+    /// `externalId`, `description` and the metadata *values*. Events live in ClickHouse rather
+    /// than the node table and have no full-text index, so results are **not ranked**: they come
+    /// back newest first by `eventTime`, unlike the three node searches. For structured filters
+    /// (time ranges, types, related resources) use [`filter`](Self::filter) instead — it is faster
+    /// and more predictable.
     pub async fn search(
         &self,
         search: &SearchAndFilterForm<EventFilter>,

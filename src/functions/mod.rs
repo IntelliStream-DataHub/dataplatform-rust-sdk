@@ -67,8 +67,8 @@ impl FunctionsService {
     /// more. A node of another type is not a function and is reported the same way.
     ///
     /// Unlike [`by_ids`](Self::by_ids), which omits what it cannot find, this is an error. Prefer
-    /// it to `by_ids` when you already have the numeric id: `by_ids` has no endpoint behind it and
-    /// pages the whole listing to filter client-side.
+    /// it to `by_ids` when you already have the numeric id: `by_ids` does not yet call the api's
+    /// `/functions/byids` and pages the whole listing to filter client-side.
     pub async fn get_by_id(&self, id: u64) -> Result<DataWrapper<Function>, ResponseError> {
         let path = &format!("{}/{}", self.base_url, id);
         self.execute_get_request::<DataWrapper<Function>, ()>(path, None)
@@ -105,14 +105,15 @@ impl FunctionsService {
             .await
     }
 
-    /// Look up functions by id or externalId. The backend has no `/byids` endpoint for
-    /// functions — nor `/filter` or `/search`, which every other node type has — so this is
-    /// implemented client-side by listing and filtering.
+    /// Look up functions by id or externalId, implemented client-side by listing and filtering.
+    ///
+    /// **The SDK has not wired the real endpoint yet.** The api grew `/functions/byids`,
+    /// `/functions/filter` and `/functions/search` in platform #131, which is what this should
+    /// call; until it does, the client-side walk stands.
     ///
     /// It asks for the largest page the api allows, because a client-side filter can only match
-    /// what the listing returned. That listing used to be uncapped; a tenant past 10000 functions
-    /// now silently misses the oldest ones here, and needs a real `/byids` endpoint rather than
-    /// a bigger number.
+    /// what the listing returned — so a tenant past 10000 functions silently misses the oldest
+    /// ones here. The fix is to call `/functions/byids`, not to ask for a bigger page.
     pub async fn by_ids(
         &self,
         ids: &[IdAndExtId],

@@ -73,8 +73,9 @@ impl DatasetsService {
     /// `POST /datasets/filter` — datasets matching [`DatasetFilterForm`], newest first.
     ///
     /// Every criterion on the filter is honoured server-side. Results are capped by the form's
-    /// `limit` (default 100, max 10000) and there is no paging, so a filter broad enough to exceed
-    /// the cap is silently truncated — narrow it rather than trying to page.
+    /// `limit` (default 100 on the form, 1000 server-side when unset; max 10000). A broader match
+    /// than the cap is paged, not truncated: set [`sort`](DatasetFilterForm) and echo the
+    /// envelope's `next_cursor` back as `cursor` to walk it, under that same `sort`.
     pub async fn filter(
         &self,
         filter: &DatasetFilterForm,
@@ -102,8 +103,7 @@ impl DatasetsService {
     /// scored before `limit` applies.
     ///
     /// The whole form reaches the server: `filter` narrows the phrase's hits and can never widen
-    /// them. No match is an empty item list, not an error — the 404 the OpenAPI annotation still
-    /// advertises was removed server-side.
+    /// them. No match is an empty item list, not an error.
     ///
     /// `query` is validated at 3–140 characters and nothing else. It used to be held to
     /// `^[\p{IsLatin}\p{Zs}\p{Nd}]+` as well, which rejected every snake_case external id and
