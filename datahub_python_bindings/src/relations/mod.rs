@@ -275,9 +275,8 @@ impl PyRelForm {
 
     /// An edge between two nodes named by external id.
     ///
-    /// Direction matters and is not implied by the type name: the edge runs *from* the first
-    /// argument *to* the second. A dataset hierarchy is stored `from = parent, to = child`
-    /// under `BELONGS_TO`; reversing it produces no hierarchy and no error.
+    /// Runs *from* the first *to* the second. A dataset hierarchy is `from = parent, to = child`;
+    /// reversed, it silently builds nothing.
     #[classmethod]
     #[pyo3(name = "by_external_ids")]
     fn by_external_ids(
@@ -291,8 +290,7 @@ impl PyRelForm {
         }
     }
 
-    /// An edge between two nodes named by numeric id. Runs *from* the first *to* the second —
-    /// see `by_external_ids` on why the direction matters.
+    /// An edge between two nodes named by numeric id, *from* the first *to* the second.
     #[classmethod]
     #[pyo3(name = "by_ids")]
     fn by_ids(

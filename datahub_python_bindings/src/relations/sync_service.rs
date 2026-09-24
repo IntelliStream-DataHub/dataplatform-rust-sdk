@@ -9,12 +9,10 @@ use std::sync::Arc;
 
 /// The blocking `/edges` surface — relationships between resources as first-class objects.
 ///
-/// Reached as `client.edges`. Edges normally come into being through
-/// `resources.create(nodes, relations)`; this service is for linking resources that **already
-/// exist**, for reading one edge back, and for the relationship-type catalogue.
+/// Reached as `client.edges`. For linking nodes that already exist; `resources.create` creates
+/// nodes and edges together.
 ///
-/// An edge is separately deletable only when both of its endpoints stay reachable without it —
-/// otherwise it goes away with the resources.
+/// An edge can be deleted only when both endpoints stay reachable without it.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EdgesServiceSync")]
 pub struct PyEdgesServiceSync {
     pub api_service: Arc<ApiService>,
@@ -24,9 +22,6 @@ pub struct PyEdgesServiceSync {
 #[pymethods]
 impl PyEdgesServiceSync {
     /// One relationship by numeric id, or `None` if no edge has that id.
-    ///
-    /// The server answers an unknown id with 404; that is absorbed into `None` here, matching the
-    /// other `get()` methods in these bindings. Any other error still raises.
     fn get(&self, py: Python<'_>, id: u64) -> PyResult<Option<PyEdgeProxy>> {
         let service = self.api_service.clone();
         py.detach(|| {
@@ -35,8 +30,7 @@ impl PyEdgesServiceSync {
         })
     }
 
-    /// Several relationships plus the resources they connect, as a `GraphResult` — `nodes` holds
-    /// both endpoints of each edge and `relations` the edges, so no follow-up call is needed.
+    /// Several relationships plus both endpoints of each, as a `GraphResult`.
     fn by_ids(&self, py: Python<'_>, input: Vec<EdgeIdentifiable>) -> PyResult<PyGraphResult> {
         let service = self.api_service.clone();
         let ids: Vec<IdAndExtId> = input.into_iter().map(IdAndExtId::from).collect();
@@ -48,8 +42,7 @@ impl PyEdgesServiceSync {
         Ok(PyGraphResult::from_wrapper(wrapper, service))
     }
 
-    /// Link resources that already exist. To create the resources *and* their links together, use
-    /// `resources.create(nodes, relations)` instead.
+    /// Link resources that already exist.
     ///
     /// All-or-nothing: if any relation in the batch fails, none are created. A relation targeting
     /// a dataset must use `BELONGS_TO`; a timeseries cannot be linked to a second dataset; you
@@ -102,10 +95,8 @@ impl PyEdgesServiceSync {
 
     /// Register relationship type names up front. Names normalise to uppercase snake case.
     ///
-    /// A name that already exists currently makes the server fail silently — it answers 200 with
-    /// an empty body, and in a batch the valid new types are rolled back alongside the duplicate.
-    /// Treat an empty result as "something already existed and nothing was created", and use
-    /// `types()` to read the real state.
+    /// A name that already exists makes the server answer 200 with an empty body and roll back the
+    /// whole batch; check `types()`.
     fn create_types(
         &self,
         py: Python<'_>,

@@ -7,9 +7,7 @@ use std::sync::Arc;
 
 /// The blocking `/labels` surface — the tenant's label dictionary.
 ///
-/// Reached as `client.labels`. A label is a dictionary row rather than an entity: the server
-/// creates one on first use, so tagging a resource with a new name needs no seeding here, and a
-/// label cannot be deleted while anything still carries it.
+/// Reached as `client.labels`. The server creates a label on first use.
 #[pyclass(module = "intellistream_datahub_sdk", name = "LabelsServiceSync")]
 pub struct PyLabelsServiceSync {
     pub api_service: Arc<ApiService>,
@@ -26,8 +24,7 @@ impl PyLabelsServiceSync {
         Ok(result.get_items().iter().map(|l| PyLabel { inner: l.clone() }).collect())
     }
 
-    /// A single label by numeric id, or `None` if it doesn't exist (the server answers an
-    /// unknown id with 404; that is absorbed into `None`).
+    /// A single label by numeric id, or `None` if it doesn't exist.
     fn get<'py>(&self, py: Python<'py>, id: u64) -> PyResult<Option<PyLabel>> {
         let service = self.api_service.clone();
         let result = py.detach(|| self.runtime.block_on(service.labels.get(id)));
@@ -57,10 +54,8 @@ impl PyLabelsServiceSync {
 
     /// Delete labels by `Label`, numeric id, or name.
     ///
-    /// Refused with **400** while any resource still carries the label — drop it from those
-    /// resources first, with `resources.update` and `labels.remove`. The problem's `fields`
-    /// name the label and the node still holding it. An intrinsic type-label (`ASSET`,
-    /// `TIMESERIES`, …) is refused the same way: those are reserved, attached or not.
+    /// Refused with **400** while any resource still carries the label, and always for an intrinsic
+    /// type-label (`ASSET`, `TIMESERIES`, …).
     fn delete<'py>(&self, py: Python<'py>, input: Vec<LabelIdentifiable>) -> PyResult<()> {
         let service = self.api_service.clone();
         let ids: Vec<IdAndExtId> = input.into_iter().map(IdAndExtId::from).collect();

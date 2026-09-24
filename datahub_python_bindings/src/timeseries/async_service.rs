@@ -20,11 +20,7 @@ use std::sync::Arc;
 /// Awaitable twin of `TimeSeriesServiceSync`, reached as `client.timeseries` on an
 /// `AsyncDataHubClient`.
 ///
-/// Same methods, same arguments, same semantics — each returns an awaitable instead of
-/// blocking. `TimeSeriesServiceSync` carries the per-method documentation.
-///
-/// Note `insert_datapoints_binary` and `insert_from_lists_binary` are sync-only; there is no
-/// awaitable binary ingest path yet.
+/// The binary ingest methods are sync-only.
 #[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeriesServiceAsync")]
 pub struct PyTimeSeriesServiceAsync {
     pub api_service: Arc<ApiService>,
@@ -32,9 +28,8 @@ pub struct PyTimeSeriesServiceAsync {
 
 #[pymethods]
 impl PyTimeSeriesServiceAsync {
-    /// The first `limit` series in the tenant, newest created first. `limit` defaults to the
-    /// server's 1000 and may not exceed 10000; there is no paging, so a bigger tenant is truncated
-    /// rather than paged — use `filter` to narrow instead.
+    /// The first `limit` series in the tenant, newest created first. `limit` defaults to 1000 and
+    /// may not exceed 10000. No paging; narrow with `filter`.
     #[pyo3(signature = (limit=None))]
     fn list<'p>(&self, py: Python<'p>, limit: Option<u64>) -> PyResult<Bound<'p, PyAny>> {
         let service = self.api_service.clone();

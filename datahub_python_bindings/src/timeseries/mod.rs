@@ -40,10 +40,6 @@ pub mod sync_service;
 
 /// A univariate series of `(timestamp, value)` datapoints, plus the metadata describing it.
 ///
-/// The object is the *definition* — name, unit, value type, where it sits in the graph. The
-/// datapoints live behind it and are written and read through the service:
-/// `client.timeseries.insert_from_lists(...)` and `client.timeseries.retrieve_datapoints(...)`.
-///
 /// ```python
 /// ts = TimeSeries(name="Pump 1 pressure", value_type="float",
 ///                 unit_external_id="pressure_bar")
@@ -56,35 +52,30 @@ pub mod sync_service;
 ///     User-facing name. Give at least one of `name` and `external_id`; passing neither raises
 ///     `ValueError`. With only `name`, `external_id` becomes a snake-cased form of it.
 /// external_id : str | None
-///     Caller-chosen id, 3–512 characters, unique among timeseries. With only `external_id`,
-///     `name` is set to the same string. The same string may be reused by another entity type.
+///     3–512 characters, unique among timeseries. With only `external_id`, `name` is set to the
+///     same string.
 /// value_type : {"bigint", "float", "text"}, default "bigint"
 ///     Storage type of the values; `"decimal"` is an alias for `"float"`. Fixed at creation —
 ///     see `ValueType`.
 /// metadata : dict[str, str] | None
-///     Free-form key/value pairs, and a filterable one: `timeseries.filter(metadata=...)`
-///     matches on them.
+///     Free-form key/value pairs.
 /// description : str | None
-///     Free text. Searched by `timeseries.search`, alongside the name.
+///     Free text.
 /// unit : str | None
-///     The unit as free text, e.g. `"mW"` or `"Liter/min"`. Descriptive only.
+///     The unit as free text, e.g. `"mW"`.
 /// unit_external_id : str | None
-///     The unit as a catalogue entry, e.g. `"pressure_bar"` — see `Unit`. This is the one that
-///     makes a series convertible, so prefer it to `unit` where the catalogue has a match.
-///     Setting both keeps `unit` as written: the server does not reconcile the two.
+///     The unit as a catalogue entry, e.g. `"pressure_bar"`. Setting both keeps `unit` as written;
+///     the two are not reconciled.
 /// data_set_id : int | None
-///     The dataset this series belongs to. Datasets are what access is granted on, so this is
-///     also what decides who can read it.
+///     The dataset this series belongs to.
 /// related_resources : list[RelatedNode] | None
-///     Other nodes to connect this series to. On create, each entry's id/external_id plus its
-///     `relationship_type` becomes an edge server-side.
+///     Other nodes to connect this series to; each becomes an edge on create.
 /// source : str | None
-///     Where the series came from, e.g. the name of the ingesting system. A filter criterion.
+///     Where the series came from.
 ///
 /// Notes
 /// -----
-/// `id` is assigned by the server and is not a constructor argument; it is `None` until the
-/// series has been created.
+/// `id` is assigned by the server.
 #[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeries", from_py_object)]
 #[derive(Clone)]
 pub struct PyTimeSeries {
@@ -150,11 +141,10 @@ impl From<PyTimeSeries> for PyIdCollection {
 /// a client); calling these on a locally-constructed `TimeSeries` raises a clear error.
 #[pymethods]
 impl PyTimeSeries {
-    /// Walk the graph from this timeseries and return the connected sub-graph (its `nodes`, the
-    /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
-    /// (`-1`, the default, = the whole connected component); `relationship_types` filters which
-    /// edge types to follow (`None` = all); `limit` caps the node count. Neighbour nodes are
-    /// typed as their own classes. Blocking; see [`neighbors_async`] for the awaitable variant.
+    /// Walk the graph from this timeseries and return the connected sub-graph.
+    ///
+    /// `depth` bounds the hops (`-1`, the default, is unbounded); `relationship_types`
+    /// filters the edge types followed; `limit` caps the node count.
     #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
     fn neighbors(
         &self,
@@ -222,7 +212,7 @@ impl From<PyTimeseriesIdentifiable> for IdAndExtId {
         }
     }
 }
-/// Python wrapper for TimeseriesUpdate, represents a request for change to a timeseries
+/// A partial update for one timeseries.
 ///
 /// Parameters
 /// ----------
@@ -335,13 +325,8 @@ impl PyTimeSeriesUpdate {
 
 /// One series, and the window of datapoints to remove from it, for `delete_datapoints`.
 ///
-/// Both bounds are optional and the window is half-open, so:
-/// give both to clear the window between them, `inclusive_begin` alone to clear everything from
-/// that instant onward, `exclusive_end` alone to clear everything before it, and neither to clear
-/// every datapoint of the series while keeping its definition, edges and subscriptions.
-///
-/// The purge is asynchronous: the call returns once the request is accepted, and a read straight
-/// afterwards can still see the datapoints. It cannot be undone.
+/// Both bounds are optional and the window is half-open; with neither, every datapoint of the
+/// series is cleared.
 ///
 /// Parameters
 /// ----------
@@ -414,18 +399,10 @@ impl PyDeleteFilter {
     }
 }
 
-/// Enumerator for the datatype of a timeseries.
-///
 /// The storage type of a timeseries' values, fixed when the series is created.
 ///
-/// Three options: `"bigint"`, `"float"` and `"text"`. `"decimal"` is accepted as an alias for
-/// `"float"` and normalises to it, so a series created either way reads back as `"float"`.
-/// Matching is case-insensitive, and anywhere a `ValueType` is expected a plain string works
-/// just as well — `TimeSeries(external_id="p1", value_type="float")` needs no wrapper.
-///
-/// Note this is the *construction* catalogue. The `value_type` criterion on `TimeSeriesFilter`
-/// matches against the wider set the server stores (`BIGINT`, `FLOAT`, `FLOAT32`, `NUMERIC`,
-/// `DECIMAL32`, `TEXT`, `MIXED`), so a filter can name a type this class cannot create.
+/// `"bigint"`, `"float"` or `"text"`; `"decimal"` is an alias for `"float"`. A plain string works
+/// wherever a `ValueType` is expected.
 #[pyclass(module = "intellistream_datahub_sdk", skip_from_py_object)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "camelCase")] // Ensures internal string representation is lowercase
@@ -533,9 +510,7 @@ pub(crate) fn lists_to_collection(
 /// timeseriess returned by the API; calling on a locally-constructed one raises.
 #[pymethods]
 impl PyTimeSeries {
-    /// Fetch events whose `related_resources` include this
-    /// timeseries (matched by graph-node id when present, else external id), via `events.filter`.
-    /// `limit` caps the results (default 100). Blocking; see [`related_events_async`].
+    /// Events whose `related_resources` include this timeseries. `limit` caps the results.
     #[pyo3(signature = (limit=100))]
     fn related_events(&self, py: Python<'_>, limit: u64) -> PyResult<Vec<PyEvent>> {
         let service = self.client.clone().ok_or_else(crate::missing_client_err)?;

@@ -97,8 +97,7 @@ impl PyTimeSeries {
     pub fn set_labels(&mut self, value: Option<Vec<String>>) {
         self.inner.labels = value;
     }
-    /// Always `"timeseries"`. Present on every node class so data-driven code can dispatch
-    /// without an `isinstance` ladder.
+    /// Always `"timeseries"`.
     #[getter]
     pub fn node_type(&self) -> &'static str {
         crate::nodes::node_type_name(intellistream_datahub_sdk::nodes::NodeType::TimeSeries)

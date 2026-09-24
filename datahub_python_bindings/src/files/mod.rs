@@ -16,12 +16,9 @@ use std::sync::Arc;
 
 /// One entry in the file tree — a file or a folder.
 ///
-/// The file hierarchy is separate from the resource graph: `INode`s have their own ids, their
-/// own `path`, and their own `security_categories`. What ties the two together is
-/// `related_resources`, whose ids `related_resource_nodes()` resolves to node objects.
+/// Separate from the resource graph; `related_resources` is what links the two.
 ///
-/// A soft-deleted file keeps its row but has its `external_id` rewritten to
-/// `DELETED_<checksum>_<id>_<epochMillis>`, which is why `restore` wants the numeric id.
+/// A soft-deleted file has its `external_id` rewritten, so `restore` takes the numeric id.
 #[pyclass(module = "intellistream_datahub_sdk", name = "INode", from_py_object)]
 #[derive(Clone)]
 pub struct PyINode {
@@ -273,12 +270,8 @@ impl PyINode {
 /// Describes one file to upload: where to read it from locally, where to put it remotely, and
 /// the metadata to attach.
 ///
-/// `from_path` is the short form for a file that should keep its own name;
-/// `new_with_destination_path` places it somewhere else in the tree.
-///
-/// **Construction touches the filesystem and panics on failure** — a missing path, a
-/// non-regular file or an unreadable name raises `PanicException`, which derives from
-/// `BaseException` and so is not caught by `except Exception`. Check the path first.
+/// **Construction reads the filesystem and panics on failure**: a bad path raises `PanicException`,
+/// which `except Exception` does not catch.
 ///
 /// Leave `mime_type` unset to have the server detect it.
 #[pyclass(module = "intellistream_datahub_sdk", name = "FileUpload", from_py_object)]
@@ -352,17 +345,13 @@ impl PyFileUpload {
     }
     #[classmethod]
     /// Upload a local file, keeping its own name, into the root of the tree.
-    ///
-    /// Touches the filesystem: a missing or unreadable path raises `PanicException`, which
-    /// `except Exception` does not catch.
     pub fn from_path(_py: Py<PyType>, path: &str) -> PyResult<Self> {
         Ok(Self {
             inner: FileUpload::new(path),
         })
     }
     #[classmethod]
-    /// Upload a local file to a chosen path in the tree, rather than to the root under its own
-    /// name. Same filesystem caveat as `from_path`.
+    /// Upload a local file to a chosen path in the tree.
     pub fn new_with_destination_path(
         _py: Py<PyType>,
         path: &str,

@@ -226,16 +226,8 @@ fn build_buffered_config(
 /// client.timeseries.insert_from_lists(timestamps, values, ts="pump_1_pressure")
 /// ```
 ///
-/// The services are `timeseries`, `assets`, `resources`, `datasets`, `events`, `files`,
-/// `functions`, `labels`, `units`, `subscriptions` and `edges`. Each is a property, cheap to
-/// read and safe to hold on to.
-///
-/// One client is meant to be shared: it owns a Tokio runtime and a `reqwest` pool, so building
-/// one per call throws both away. Calling it from inside a running event loop blocks that loop
-/// for the duration of the request — use `AsyncDataHubClient` there.
-///
-/// Every call raises `DataHubException` on an API error; the status is on `.status_code` and,
-/// when the API answered with an RFC 9457 problem document, `.problem_slug` is what to branch on.
+/// Share one client rather than building one per call. Inside a running event loop, use
+/// `AsyncDataHubClient`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DataHubClient")]
 pub struct PySyncClient {
     inner: Arc<ApiService>,
@@ -243,39 +235,23 @@ pub struct PySyncClient {
 }
 #[pymethods]
 impl PySyncClient {
-    /// `base_url` is the API root (e.g. `"http://localhost:8081"`). Authentication is either a
-    /// ready-made `token`, used as-is and assumed to be refreshed elsewhere, or the OAuth2
-    /// client-credentials trio `client_id` / `client_secret` / `token_url`, which the SDK
-    /// exchanges and re-exchanges as it expires. Supplying neither is not an error here — the
-    /// first call is, raising `DataHubException` with `status_code == 401`.
+    /// `base_url` is the API root. Authenticate with a ready-made `token` (used as-is, never
+    /// refreshed) or the OAuth2 trio `client_id` / `client_secret` / `token_url`. Supplying neither
+    /// fails on the first call, with a 401.
     ///
-    /// Durable ingest buffering (off by default): when the API is unreachable, datapoint and
-    /// event ingestion spools to disk and is flushed on a later call. Enable it with
-    /// `enable_buffering=True` or by setting `buffer_retention_secs` / `buffer_max_bytes`
-    /// (unset bounds default to 72h / 5 GiB). `buffer_dir` defaults to `.datahub-spool`.
-    /// `from_env`/`from_envfile` read ENABLE_BUFFERING / BUFFER_RETENTION_SECS /
-    /// BUFFER_MAX_BYTES / BUFFER_DIR from the environment instead.
+    /// Buffering (off by default) spools datapoint and event ingestion to disk when the API is
+    /// unreachable and flushes it on a later call. Enable it with `enable_buffering=True` or by
+    /// setting `buffer_retention_secs` / `buffer_max_bytes` (defaults 72h / 5 GiB). `buffer_dir`
+    /// defaults to `.datahub-spool`.
     ///
-    /// `scope` and `audience` (env: SCOPE / AUDIENCE) are added to the token request only when
-    /// set. Against a DataHub realm using Keycloak Organizations, `scope` is required: use
-    /// `organization:*`, or `organization:<alias>` to pin one tenant. That claim comes from a
-    /// dynamic client scope, so without a selector the token carries no tenant and every call
-    /// fails `401 invalid_token`. Not needed where the realm produces the `organization` claim
-    /// with a protocol mapper. Entra ID instead requires `api://<app-id-uri>/.default`, Auth0
-    /// requires an audience.
+    /// `scope` and `audience` are added to the token request when set. Against a realm using
+    /// Keycloak Organizations, `scope` is required — `organization:*`, or `organization:<alias>`
+    /// for one tenant — or every call fails `401 invalid_token`.
     ///
-    /// Setting an assertion source switches the token request to the RFC 7523 `jwt-bearer`
-    /// grant, which exchanges a JWT issued by one provider for a token from another — how an
-    /// Entra ID service principal reaches a Keycloak-backed API. Either pass a ready-made
-    /// `assertion` (env: ASSERTION), or all three of `assertion_client_id` /
-    /// `assertion_client_secret` / `assertion_token_url` (env: ASSERTION_CLIENT_ID /
-    /// ASSERTION_CLIENT_SECRET / ASSERTION_TOKEN_URI) to have the SDK fetch one, narrowed by
-    /// `assertion_scope` / `assertion_audience` (env: ASSERTION_SCOPE / ASSERTION_AUDIENCE).
-    /// With no `client_secret`, `assertion_grant` picks the federated grant (env:
-    /// ASSERTION_GRANT): `"client_credentials"` (default, service-account identity) or
-    /// `"jwt-bearer"` (identity chaining). `client_id` / `client_secret` / `token_url` then
-    /// describe the client performing the exchange. The assertion is re-fetched per exchange
-    /// rather than cached, because providers commonly reject a replayed one.
+    /// An assertion source switches to the RFC 7523 `jwt-bearer` exchange: pass a ready-made
+    /// `assertion`, or `assertion_client_id` / `assertion_client_secret` / `assertion_token_url`
+    /// for the SDK to fetch one. With no `client_secret`, `assertion_grant` picks
+    /// `"client_credentials"` (default) or `"jwt-bearer"`. See `docs/entra-federated-auth.md`.
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
@@ -347,15 +323,10 @@ impl PySyncClient {
     }
     /// Build a client from the process environment alone.
     ///
-    /// `BASE_URL` is required. For credentials, set either `TOKEN` or all three of `CLIENT_ID`,
-    /// `CLIENT_SECRET` and `TOKEN_URI` — the OAuth2 client is only configured when the whole
-    /// trio is present, so a partial set is accepted here and every call then fails with a 401.
-    /// The optional ones are `PROJECT_NAME`, `SCOPE`, `AUDIENCE`, the `ASSERTION*` family, and
-    /// the buffering four (`ENABLE_BUFFERING`, `BUFFER_RETENTION_SECS`, `BUFFER_MAX_BYTES`,
-    /// `BUFFER_DIR`).
-    ///
-    /// Nothing is read from a `.env` file here — only variables already exported into the
-    /// process. Use `from_envfile` to load one.
+    /// `BASE_URL` is required, plus either `TOKEN` or all three of `CLIENT_ID`, `CLIENT_SECRET` and
+    /// `TOKEN_URI` — a partial trio is accepted here and every call then fails with a 401.
+    /// Optional: `SCOPE`, `AUDIENCE`, the `ASSERTION*` family, and `ENABLE_BUFFERING`,
+    /// `BUFFER_RETENTION_SECS`, `BUFFER_MAX_BYTES`, `BUFFER_DIR`.
     #[classmethod]
     fn from_env(py: Py<PyType>) -> PyResult<Self> {
         Ok(Self {
@@ -365,10 +336,8 @@ impl PySyncClient {
     }
     /// Load a `.env` file, then build the client from the environment as `from_env` does.
     ///
-    /// `path` names the file; omitted, it searches for a `.env` from the working directory
-    /// upwards. Variables already exported win over the file's, which is what lets one shell
-    /// variable override a checked-out default — a stray `TOKEN` in the shell will shadow the
-    /// file's OAuth2 settings.
+    /// Without `path`, searches upwards from the working directory. Variables already exported win
+    /// over the file's — a stray `TOKEN` in the shell shadows the file's OAuth2 settings.
     #[classmethod]
     fn from_envfile(py: Py<PyType>, path: Option<&str>) -> PyResult<Self> {
         Ok(Self {
@@ -472,13 +441,7 @@ impl PySyncClient {
 /// series = await client.timeseries.filter(name=["Pump*"], limit=100)
 /// ```
 ///
-/// Same constructor, same arguments, same service names — the only difference is that each
-/// service is the `…ServiceAsync` twin, so `client.timeseries` is a `TimeSeriesServiceAsync`.
-/// Semantics, defaults and error behaviour are identical; the sync classes carry the detailed
-/// per-method documentation.
-///
-/// Use this inside a running event loop: `DataHubClient` would block the loop for the length of
-/// each request.
+/// Same constructor and services; the sync classes carry the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "AsyncDataHubClient")]
 struct PyAsyncClient {
     inner: Arc<ApiService>,
@@ -648,10 +611,7 @@ impl PyAsyncClient {
 
 /// Names one entity by numeric `id`, by `external_id`, or by both.
 ///
-/// The API accepts either identifier almost everywhere, and this is the explicit spelling of
-/// that choice. Most calls also take a bare `int` or `str` and wrap it for you; reach for
-/// `IdCollection` when you want to pass both sides at once, or when the surrounding list mixes
-/// the two.
+/// Most calls also take a bare `int` or `str`.
 ///
 /// ```python
 /// client.timeseries.by_ids([IdCollection(external_id="pump_1"), 42, "pump_2"])
@@ -716,8 +676,8 @@ impl PyIdCollection {
 ///     page = client.timeseries.filter(limit=100, sort_by="name", cursor=page.next_cursor)
 /// ```
 ///
-/// `next_cursor` is `None` on the last page. A *full* page may still be the last one — the server
-/// does not count the rows twice — so a walk ends with one request that comes back empty.
+/// `next_cursor` is `None` on the last page. A *full* page may still be the last, so a walk ends
+/// with one empty request.
 ///
 /// It is not a `list` subclass, so `isinstance(page, list)` is `False`; use `page.items` for a real
 /// list when something demands one.
@@ -885,14 +845,8 @@ pub(crate) fn search_form<F>(
 
 /// Reusable criteria for `timeseries.filter` and for the `filter` of `timeseries.search`.
 ///
-/// Building one is optional — `filter()` and `search()` take the same criteria as keyword
-/// arguments, and that is the shorter spelling for a one-off query. Construct a
-/// `TimeSeriesFilter` when the same criteria are used more than once, and pass it as `filter=`.
-/// Passing both a `filter=` object and loose keywords is a `TypeError`.
-///
-/// Criteria only: paging (`limit`, `sort_by`, `sort_order`, `cursor`) lives on the call, so one
-/// filter can be reused across `filter()` and `search()` without carrying a stale cursor into
-/// the next use.
+/// Optional: `filter()` and `search()` take the same criteria as keywords. Passing both is a
+/// `TypeError`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeriesFilter", from_py_object)]
 #[derive(Clone, Default)]
 pub struct PyTimeSeriesFilter {
@@ -1109,9 +1063,7 @@ impl DatahubIdentity for Identifiable {
 
 /// A list-valued field of an update: either replaced wholesale or edited in place.
 ///
-/// An update is a *replace* (`set`) or a *delta* (`delta`), never both — the two constructors
-/// make the illegal mix unrepresentable, which is why there is no bare initializer. Leaving the
-/// field off the update entirely is the third option, and means "leave it alone".
+/// Build it with `set` (replace) or `delta` (add/remove). Omitting the field leaves it alone.
 ///
 /// ```python
 /// ResourceUpdate(resource="pump_1", labels=ListFieldStr.delta(add=["CRITICAL"]))
@@ -1221,10 +1173,6 @@ impl PyMapField {
 }
 /// A scalar field of an update: `FieldStr(value)` writes it, `FieldStr(set_null=True)` clears it,
 /// and leaving the field off the update leaves it untouched.
-///
-/// Those three states are why this wrapper exists — a bare `None` could not tell "don't touch"
-/// apart from "set to null". Most update constructors also accept a bare `str` and wrap it as
-/// a write for you; the explicit form is what you need for the clear.
 #[pyclass(module = "intellistream_datahub_sdk", name = "FieldStr")]
 #[derive(Clone, Debug)]
 pub struct PyFieldStr(Field<String>);
@@ -1260,10 +1208,6 @@ impl PyFieldStr {
 
 /// A scalar field of an update: `FieldU64(value)` writes it, `FieldU64(set_null=True)` clears it,
 /// and leaving the field off the update leaves it untouched.
-///
-/// Those three states are why this wrapper exists — a bare `None` could not tell "don't touch"
-/// apart from "set to null". Most update constructors also accept a bare `int` and wrap it as
-/// a write for you; the explicit form is what you need for the clear.
 #[pyclass(module = "intellistream_datahub_sdk", name = "FieldU64")]
 #[derive(Clone, Debug)]
 pub struct PyFieldU64(Field<u64>);
@@ -1299,10 +1243,6 @@ impl PyFieldU64 {
 
 /// A scalar field of an update: `FieldBool(value)` writes it, `FieldBool(set_null=True)` clears it,
 /// and leaving the field off the update leaves it untouched.
-///
-/// Those three states are why this wrapper exists — a bare `None` could not tell "don't touch"
-/// apart from "set to null". Most update constructors also accept a bare `bool` and wrap it as
-/// a write for you; the explicit form is what you need for the clear.
 #[pyclass(module = "intellistream_datahub_sdk", name = "FieldBool", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyFieldBool(Field<bool>);

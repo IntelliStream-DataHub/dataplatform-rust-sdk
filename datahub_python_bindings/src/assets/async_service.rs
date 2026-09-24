@@ -14,9 +14,6 @@ use std::sync::Arc;
 
 /// Awaitable twin of `AssetsServiceSync`, reached as `client.assets` on an
 /// `AsyncDataHubClient`.
-///
-/// Same methods, same arguments, same semantics — each returns an awaitable instead of
-/// blocking. `AssetsServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "AssetsServiceAsync")]
 pub struct PyAssetsServiceAsync {
     pub api_service: Arc<ApiService>,

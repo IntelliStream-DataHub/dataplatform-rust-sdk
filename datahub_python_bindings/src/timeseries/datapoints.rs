@@ -10,8 +10,7 @@ use pyo3::{Bound, Py, Python, pyclass, pymethods};
 
 /// The write side: datapoints for one series, ready for `insert_datapoints`.
 ///
-/// Opaque once built — it exposes no members. Passing a `TimeSeries` as `ts` also carries that
-/// series' `unit` and `unit_external_id` along; naming it by id or external id leaves both unset.
+/// Opaque once built.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DatapointsCollectionString")]
 #[derive(Clone, Debug)]
 pub struct PyDatapointsCollectionString {
@@ -31,12 +30,7 @@ impl From<PyDatapointsCollectionString> for DatapointsCollection<DatapointString
 /// The read side: the datapoints of one series, as `retrieve_datapoints` and
 /// `retrieve_latest_datapoints` return them.
 ///
-/// `get_datapoints()` gives the `Datapoint` objects, `as_dict()` the two parallel lists
-/// `{"timestamps": [...], "values": [...]}`, and `len()` the count. **`as_dict()` reads only
-/// `value`**, so after an aggregate read every entry in `"values"` is `None` — use
-/// `get_datapoints()` there.
-///
-/// `next_cursor` continues a paged read, and is `None` when the result fit in one page.
+/// **`as_dict()` reads only `value`**, so after an aggregate read use `get_datapoints()`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DatapointsCollectionDatapoints")]
 #[derive(Clone, Debug)]
 pub struct PyDatapointsCollectionDatapoints {
@@ -59,8 +53,7 @@ impl PyDatapointsCollectionDatapoints {
     //pub fn datapoints(&self) -> Vec<PyDatapoint> {
     //    self.inner.datapoints.iter().map(|dp| PyDatapoint { inner: dp.clone() }).collect()
     //}
-    /// The datapoints as `Datapoint` objects — the form to use after an aggregate read, where
-    /// `as_dict()` cannot reach `min`/`max`/`average`.
+    /// The datapoints as `Datapoint` objects.
     pub fn get_datapoints(&self) -> Vec<PyDatapoint> {
         self.inner
             .datapoints
@@ -81,11 +74,9 @@ impl PyDatapointsCollectionDatapoints {
         self.inner.id
     }
 
-    /// The datapoints as two parallel lists, `{"timestamps": [...], "values": [...]}` — the
-    /// shape a DataFrame is built from.
+    /// The datapoints as two parallel lists, `{"timestamps": [...], "values": [...]}`.
     ///
-    /// **Reads only `value`**, so after an aggregate read every entry in `"values"` is `None`.
-    /// Use `get_datapoints()` there.
+    /// **Reads only `value`**, so it is all `None` after an aggregate read.
     fn as_dict<'py>(&self, py: Python<'py>) -> PyResult<pyo3::Bound<'py, PyDict>> {
         let timestamps: Vec<DateTime<chrono::Utc>> = self
             .inner
@@ -104,13 +95,9 @@ impl PyDatapointsCollectionDatapoints {
     }
 }
 
-/// One datapoint on the way *in*, as a `(timestamp, value)` pair with the value carried as text
-/// so it can stand in for any of the series value types.
+/// One datapoint on the way *in*, its value carried as text.
 ///
-/// Build it from an aware `datetime` plus a string, or through `from_int` / `from_float`.
-///
-/// **The `timestamp` property reads back as a string of epoch milliseconds**, not the `datetime`
-/// you passed. Both properties are settable and neither is validated.
+/// **`timestamp` reads back as a string of epoch milliseconds**, not a `datetime`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DatapointString")]
 #[derive(Clone)]
 pub struct PyDatapointString {
@@ -172,15 +159,12 @@ impl PyDatapointString {
 
 /// What to read from one series: the window, how much, and whether to aggregate.
 ///
-/// `ts` is required and names the series. **The window is half-open — `start` is included,
-/// `end` is excluded** — unlike `TimeFilter`, which is inclusive at both ends.
+/// **The window is half-open — `start` included, `end` excluded** — unlike `TimeFilter`.
 ///
-/// Setting `aggregates` (e.g. `["avg", "min", "max"]`) together with a `granularity` (e.g.
-/// `"1d"`) buckets the read: the datapoints then carry `min`/`max`/`average` and their `value`
-/// is `None`, and each timestamp is the *start* of its bucket.
+/// With `aggregates` and a `granularity`, datapoints carry `min`/`max`/`average` with `value`
+/// `None`, each timestamped at the *start* of its bucket.
 ///
-/// Every field is read-only once constructed — build a new filter to change one. Carry
-/// `next_cursor` from the previous page into `cursor` to continue, passing the same `limit`.
+/// Continue a paged read by passing the previous `next_cursor` as `cursor`, with the same `limit`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "RetrieveFilter")]
 #[derive(Clone)]
 pub struct PyRetrieveFilter {
@@ -261,11 +245,7 @@ impl PyRetrieveFilter {
 }
 /// One datapoint on the way *out*, from `DatapointsCollectionDatapoints.get_datapoints()`.
 ///
-/// Which fields are filled depends on the read: a raw read fills `value`; an aggregate read
-/// fills `min`, `max` and `average` and leaves `value` as `None`. **`None` means "the endpoint
-/// did not return it", never zero.**
-///
-/// `timestamp` is an aware UTC `datetime`.
+/// A raw read fills `value`; an aggregate read fills `min`, `max` and `average`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "Datapoint")]
 #[derive(Clone)]
 pub struct PyDatapoint {

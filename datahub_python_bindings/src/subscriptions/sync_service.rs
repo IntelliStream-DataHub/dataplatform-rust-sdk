@@ -14,11 +14,10 @@ use std::sync::Arc;
 
 /// The blocking `/subscriptions` surface, plus the WebSocket listener.
 ///
-/// Reached as `client.subscriptions`. A subscription binds a set of timeseries to a fan-out
-/// topic; `listen()` then opens a socket that streams the datapoints those series receive.
+/// Reached as `client.subscriptions`. `listen()` opens a socket streaming the datapoints the
+/// subscribed series receive.
 ///
-/// Note the two reads default differently: `list()` leaves the server's 1000, while `filter()`
-/// with no `limit` caps at **100**.
+/// `list()` defaults to 1000 rows, `filter()` to **100**.
 #[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionsServiceSync")]
 pub struct PySubscriptionsServiceSync {
     pub api_service: Arc<ApiService>,
@@ -30,8 +29,7 @@ impl PySubscriptionsServiceSync {
     /// Create subscriptions, returning the echo with `id`, `date_created` and `last_updated`
     /// filled in.
     ///
-    /// **Every referenced timeseries must already exist** — a subscription naming one that does
-    /// not is a 400.
+    /// **Every referenced timeseries must already exist**, or it is a 400.
     fn create(&self, py: Python<'_>, input: Vec<PySubscription>) -> PyResult<Vec<PySubscription>> {
         let subs: Vec<Subscription> = input.into_iter().map(Subscription::from).collect();
         let service = self.api_service.clone();
@@ -49,9 +47,8 @@ impl PySubscriptionsServiceSync {
         })
     }
 
-    /// Subscriptions in the tenant, newest first. `limit` defaults to the server's 1000 and may
-    /// not exceed 10000; there is no paging, so a bigger tenant is truncated rather than paged —
-    /// use `filter` to narrow instead.
+    /// Subscriptions in the tenant, newest first. `limit` defaults to 1000 and may not exceed
+    /// 10000. No paging; narrow with `filter`.
     #[pyo3(signature = (limit = None))]
     fn list(&self, py: Python<'_>, limit: Option<u64>) -> PyResult<Vec<PySubscription>> {
         let service = self.api_service.clone();
@@ -96,9 +93,6 @@ impl PySubscriptionsServiceSync {
     }
 
     /// Delete subscriptions. Returns `None`.
-    ///
-    /// Also what unblocks a timeseries delete: a series still bound to a subscription cannot be
-    /// deleted, so drop the subscription first.
     fn delete(&self, py: Python<'_>, input: Vec<SubscriptionIdentifyable>) -> PyResult<()> {
         let ids: Vec<IdAndExtId> = input.into_iter().map(IdAndExtId::from).collect();
         let service = self.api_service.clone();
@@ -111,8 +105,7 @@ impl PySubscriptionsServiceSync {
     }
 
     /// Open a WebSocket listener multiplexing the named subscriptions. The ids seed the initial
-    /// set (may be empty — add more with .subscribe()). Returns a SubscriptionListener you can
-    /// iterate or call .next_message() / .ack() / .subscribe() / .close() on.
+    /// set (may be empty — add more with .subscribe()). Returns a `SubscriptionListener`.
     fn listen(
         &self,
         py: Python<'_>,

@@ -161,9 +161,7 @@ macro_rules! node_navigation {
 
         #[pymethods]
         impl $ty {
-            /// Fetch the events whose `related_resources` include this node (matched by graph-node
-            /// id when present, else external id). `limit` caps the results. Blocking; see
-            /// `related_events_async`.
+            /// Events whose `related_resources` include this node. `limit` caps the results.
             #[pyo3(signature = (limit=100))]
             fn related_events(&self, py: Python<'_>, limit: u64) -> PyResult<Vec<PyEvent>> {
                 let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
@@ -208,14 +206,10 @@ macro_rules! node_navigation {
 
         #[pymethods]
         impl $ty {
-            /// Walk the graph from this node and return the connected sub-graph (its `nodes`, the
-            /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
-            /// (`-1`, the default, = the whole connected component); `relationship_types` filters
-            /// which edge types to follow (`None` = all); `limit` caps the node count.
+            /// Walk the graph from this node and return the connected sub-graph.
             ///
-            /// Nodes reached this way are typed, and carry what a flat read carries. Type-specific
-            /// fields stay optional — absent is not a default. Unlike a flat read, this one
-            /// each node's columns. Re-read one by id for its full field set.
+            /// `depth` bounds the hops (`-1`, the default, is unbounded); `relationship_types`
+            /// filters the edge types followed; `limit` caps the node count.
             #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
             fn neighbors(
                 &self,
@@ -358,8 +352,7 @@ impl PyAsset {
         })
     }
 
-    /// Always `"asset"`. Present on every node class so data-driven code can dispatch without
-    /// an `isinstance` ladder.
+    /// Always `"asset"`.
     #[getter]
     pub fn node_type(&self) -> &'static str {
         node_type_name(NodeType::Asset)

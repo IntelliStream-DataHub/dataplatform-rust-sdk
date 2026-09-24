@@ -13,8 +13,7 @@ use std::collections::HashMap;
 #[pymethods]
 impl PyTimeSeries {
     #[staticmethod]
-    /// Build a `TimeSeries` from a flat `dict[str, str]` of field names to values — the shape a
-    /// CSV row or a config file arrives in.
+    /// Build a `TimeSeries` from a flat `dict[str, str]` of field names to values.
     pub fn from_dict(dict: HashMap<String, String>) -> PyTimeSeries {
         PyTimeSeries {
             inner: TimeSeries::from_dict(dict),

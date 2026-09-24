@@ -10,9 +10,6 @@ use std::sync::Arc;
 
 /// Awaitable twin of `EdgesServiceSync`, reached as `client.edges` on an
 /// `AsyncDataHubClient`.
-///
-/// Same methods, same arguments, same semantics — each returns an awaitable instead of
-/// blocking. `EdgesServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EdgesServiceAsync")]
 pub struct PyEdgesServiceAsync {
     pub api_service: Arc<ApiService>,

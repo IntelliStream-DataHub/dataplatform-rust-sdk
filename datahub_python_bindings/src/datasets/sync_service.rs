@@ -11,12 +11,7 @@ use std::sync::Arc;
 
 /// The blocking `/datasets` surface.
 ///
-/// Reached as `client.datasets`. A data set is the unit access is granted on, and what every
-/// other node is scoped by — so it sits above the things that belong to it, both for permissions
-/// and for deletion.
-///
-/// Naming a data set in a filter covers everything beneath it in the `BELONGS_TO` hierarchy,
-/// the same expansion its ACL grant applies.
+/// Reached as `client.datasets`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DatasetsServiceSync")]
 pub struct PyDatasetsServiceSync {
     pub api_service: Arc<ApiService>,
@@ -27,9 +22,8 @@ pub struct PyDatasetsServiceSync {
 impl PyDatasetsServiceSync {
     /// Create data sets, returning the echo with the server-assigned `id`s.
     ///
-    /// A `data_set_id` set on the input is silently dropped: a data set inside a data set would
-    /// orphan its ACL grant. Build the hierarchy with an explicit `BELONGS_TO` edge instead —
-    /// `connected_data_sets` does not create one.
+    /// A `data_set_id` on the input is silently dropped. Build a hierarchy with an explicit
+    /// `BELONGS_TO` edge; `connected_data_sets` does not create one.
     fn create<'py>(&self, py: Python<'py>, input: Vec<PyDataset>) -> PyResult<Vec<PyDataset>> {
         let datasets: Vec<Dataset> = input.iter().cloned().map(Dataset::from).collect();
         let service = self.api_service.clone();
@@ -90,9 +84,8 @@ impl PyDatasetsServiceSync {
         Ok(())
     }
 
-    /// Datasets in the tenant, newest first. `limit` defaults to the server's 1000 and may not
-    /// exceed 10000; there is no paging, so a bigger tenant is truncated rather than paged —
-    /// use `filter` to narrow instead.
+    /// Datasets in the tenant, newest first. `limit` defaults to 1000 and may not exceed 10000. No
+    /// paging; narrow with `filter`.
     #[pyo3(signature = (limit = None))]
     fn list(&self, py: Python<'_>, limit: Option<u64>) -> PyResult<Vec<PyDataset>> {
         let service = self.api_service.clone();
@@ -189,14 +182,11 @@ impl PyDatasetsServiceSync {
 
     /// Apply partial updates, returning the datasets as they stand afterwards.
     ///
-    /// A dataset is the unit access is granted on, so the server treats editing one as an operator
-    /// action: this needs an all-datasets write grant and raises 403 without one, even for a
-    /// caller who can write the dataset's contents.
+    /// Needs an all-datasets write grant (**403** without), even for a caller who can write the
+    /// dataset's contents.
     ///
-    /// Settable: `external_id`, `name`, `description`, `metadata` and `labels`. There is no
-    /// `policies` or `connected_data_sets` — the endpoint does not accept them, whatever a
-    /// `Dataset` can carry on create — and no `write_protected` / `deactivated`, both removed
-    /// server-side as inert. Changing `external_id` to one already taken is a **409**.
+    /// Settable: `external_id`, `name`, `description`, `metadata` and `labels`. Changing
+    /// `external_id` to one already taken is a **409**.
     fn update(&self, py: Python<'_>, input: Vec<PyDatasetUpdate>) -> PyResult<Vec<PyDataset>> {
         let service = self.api_service.clone();
         let updates: Vec<DatasetUpdate> = input.into_iter().map(DatasetUpdate::from).collect();
@@ -216,9 +206,8 @@ impl PyDatasetsServiceSync {
 
     /// The access policies a dataset can be associated with, as `Resource`s.
     ///
-    /// **Known to come back empty even when policies exist** — the server answers 200 with no body
-    /// at all. That is a server-side bug, not something these bindings can work around, so treat
-    /// an empty result as "unknown" rather than "none".
+    /// **Can come back empty even when policies exist** (a server bug), so an empty result means
+    /// "unknown".
     fn policies(&self, py: Python<'_>) -> PyResult<Vec<PyResource>> {
         let service = self.api_service.clone();
         py.detach(|| {

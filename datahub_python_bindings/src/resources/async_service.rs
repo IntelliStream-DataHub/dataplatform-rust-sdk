@@ -14,9 +14,6 @@ use std::sync::Arc;
 
 /// Awaitable twin of `ResourcesServiceSync`, reached as `client.resources` on an
 /// `AsyncDataHubClient`.
-///
-/// Same methods, same arguments, same semantics — each returns an awaitable instead of
-/// blocking. `ResourcesServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "ResourcesServiceAsync")]
 pub struct PyResourcesServiceAsync {
     pub api_service: Arc<ApiService>,
@@ -24,13 +21,10 @@ pub struct PyResourcesServiceAsync {
 
 #[pymethods]
 impl PyResourcesServiceAsync {
-    /// The first `limit` nodes in the tenant, newest created first — the cheap "what have I got"
-    /// read, with no criteria and no paging.
+    /// The first `limit` nodes in the tenant, newest created first.
     ///
-    /// Spans every node type and answers each row as its own class, exactly as `filter` does, so
-    /// `isinstance(node, TimeSeries)` works on what comes back. `limit` defaults to the server's
-    /// 1000 and may not exceed 10000; a `Page` is not returned because there is no cursor to
-    /// continue with — narrow with `filter` instead of raising the number.
+    /// Each row is its own class. `limit` defaults to 1000 and may not exceed 10000. No paging;
+    /// narrow with `filter`.
     #[pyo3(signature = (limit = None))]
     fn list<'py>(&self, py: Python<'py>, limit: Option<u64>) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
@@ -158,13 +152,7 @@ impl PyResourcesServiceAsync {
     /// fields to change; every field it can set is shared by all node types, so one update form
     /// covers them all.
     ///
-    /// **The echo is typed**, like every other read here: `.nodes` holds each node as its own
-    /// class, so a timeseries comes back as `TimeSeries` carrying its `unit` and an asset as
-    /// `Asset` carrying its `geo_location`. The `labels` reflect what the server stored, intrinsic
-    /// type-label included.
-    ///
-    /// This used to answer with a plain `Resource` whatever the node's real type. The api's
-    /// node-update refactor made the pipeline per-type and the echo followed.
+    /// **The echo is typed**: `.nodes` holds each node as its own class.
     fn update<'py>(
         &self,
         py: Python<'py>,

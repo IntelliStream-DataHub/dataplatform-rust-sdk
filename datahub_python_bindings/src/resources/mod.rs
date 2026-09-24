@@ -50,8 +50,7 @@ use intellistream_datahub_sdk::resources::{ResourceUpdate, ResourceUpdateFields}
 
 /// One resource's update for `resources.update`. Target the resource by a `Resource`, its numeric
 /// id, or its external id; every field is optional and uses the same wrappers as elsewhere
-/// (`FieldStr` for scalars, `ListFieldStr` for labels, `MapField` for metadata). Mirrors
-/// `TimeSeriesUpdate`.
+/// (`FieldStr` for scalars, `ListFieldStr` for labels, `MapField` for metadata).
 #[pyclass(module = "intellistream_datahub_sdk", name = "ResourceUpdate")]
 #[derive(Clone)]
 pub struct PyResourceUpdate {
@@ -171,9 +170,8 @@ impl From<ResourceIdentifiable> for IdAndExtId {
 /// Give `name` or `external_id`; the missing one is derived from the other, and passing neither
 /// raises `ValueError`.
 ///
-/// **`geolocation` is write-only on a plain resource**: the server accepts it and never echoes
-/// it, so it reads back as `None`. Assets do carry theirs — create the node with the `ASSET`
-/// label, or use `client.assets`, if the geometry needs to survive a round trip.
+/// **`geolocation` is write-only on a plain resource** and reads back as `None`; use an `Asset` to
+/// keep it.
 ///
 /// `related_resources` is filled only by the graph reads and the `/resources/create` echo; every
 /// flat read answers `[]`.
@@ -280,8 +278,7 @@ impl PyResource {
             client: None,
         })
     }
-    /// Always `"resource"`. Present on every node class so data-driven code can dispatch without
-    /// an `isinstance` ladder.
+    /// Always `"resource"`.
     #[getter]
     pub fn node_type(&self) -> &'static str {
         crate::nodes::node_type_name(intellistream_datahub_sdk::nodes::NodeType::Resource)
@@ -430,9 +427,7 @@ impl PyResourceNetwork {
 
 #[pymethods]
 impl PyResourceNetwork {
-    /// The nodes in the traversed sub-graph, each as its own class (`Asset`, `TimeSeries`,
-    /// `Dataset`, …), carrying what a flat read carries. Type-specific fields stay optional: a
-    /// node written before a field was projected reports it absent, which is not a default.
+    /// The nodes in the traversed sub-graph, each as its own class.
     #[getter]
     fn nodes(&self) -> Vec<crate::nodes::PyNode> {
         self.nodes.clone()
@@ -451,11 +446,10 @@ impl PyResourceNetwork {
 /// a client); calling these on a locally-constructed `Resource` raises a clear error.
 #[pymethods]
 impl PyResource {
-    /// Walk the graph from this resource and return the connected sub-graph (its `nodes`, the
-    /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
-    /// (`-1`, the default, = the whole connected component); `relationship_types` filters which
-    /// edge types to follow (`None` = all); `limit` caps the node count. Blocking; see
-    /// [`neighbors_async`] for the awaitable variant.
+    /// Walk the graph from this resource and return the connected sub-graph.
+    ///
+    /// `depth` bounds the hops (`-1`, the default, is unbounded); `relationship_types`
+    /// filters the edge types followed; `limit` caps the node count.
     #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
     fn neighbors(
         &self,
@@ -501,9 +495,7 @@ impl PyResource {
 /// resources returned by the API; calling on a locally-constructed one raises.
 #[pymethods]
 impl PyResource {
-    /// Fetch events whose `related_resources` include this
-    /// resource (matched by graph-node id when present, else external id), via `events.filter`.
-    /// `limit` caps the results (default 100). Blocking; see [`related_events_async`].
+    /// Events whose `related_resources` include this resource. `limit` caps the results.
     #[pyo3(signature = (limit=100))]
     fn related_events(&self, py: Python<'_>, limit: u64) -> PyResult<Vec<PyEvent>> {
         let service = self.client.clone().ok_or_else(crate::missing_client_err)?;

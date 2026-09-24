@@ -8,9 +8,6 @@ use std::sync::Arc;
 
 /// Awaitable twin of `FilesServiceSync`, reached as `client.files` on an
 /// `AsyncDataHubClient`.
-///
-/// Same methods, same arguments, same semantics — each returns an awaitable instead of
-/// blocking. `FilesServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "FilesServiceAsync")]
 pub struct PyFilesServiceAsync {
     pub api_service: Arc<ApiService>,
@@ -170,9 +167,7 @@ impl PyFilesServiceAsync {
         })
     }
 
-    /// Restore soft-deleted files. Identify each by numeric id: the trashed
-    /// `DELETED_..._<epochMillis>` external id does not round-trip through the server's
-    /// lowercasing hash, so that route answers 404. See `FileService::restore` in the SDK.
+    /// Restore soft-deleted files, identified by numeric id; the trashed external id answers 404.
     fn restore<'py>(
         &self,
         py: Python<'py>,

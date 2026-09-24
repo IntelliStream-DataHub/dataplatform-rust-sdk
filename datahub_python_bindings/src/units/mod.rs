@@ -9,10 +9,7 @@ pub mod sync_service;
 /// One entry of the DataHub unit catalogue — the shared vocabulary a timeseries points at
 /// through `unit_external_id`.
 ///
-/// Referencing a catalogue entry rather than typing free text into `TimeSeries.unit` is what
-/// makes a series' unit comparable and convertible: `conversion` carries the factors to the
-/// other units of the same `quantity`. Units are read-only here — the catalogue is seeded
-/// server-side, so this class is what `units.list()` and `units.by_ids()` hand back.
+/// Read-only: the catalogue is seeded server-side.
 ///
 /// Parameters
 /// ----------

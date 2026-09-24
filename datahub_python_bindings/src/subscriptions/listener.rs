@@ -8,9 +8,8 @@ use tokio::sync::Mutex;
 
 type SharedListener = Arc<Mutex<Option<SubscriptionListener>>>;
 
-/// Synchronous Python wrapper around the Rust `SubscriptionListener`. Iterating drives the
-/// underlying WebSocket: `for msg in listener:` blocks until the next message or returns when
-/// the connection closes cleanly.
+/// A WebSocket listener: `for msg in listener:` blocks until the next message and ends when the
+/// connection closes.
 #[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionListener")]
 pub struct PySubscriptionListener {
     pub(crate) listener: SharedListener,
@@ -41,13 +40,9 @@ impl PySubscriptionListener {
         })
     }
 
-    /// Wait for the next message. Returns None when the connection has been closed cleanly,
-    /// raises on transport / deserialization errors. Equivalent to driving the iterator one
-    /// step but without using StopIteration as the close signal.
-    /// Block until the next message. Returns `None` when the connection has closed cleanly, and
-    /// raises on a transport or deserialization error.
-    ///
-    /// The same thing iteration does, without using `StopIteration` as the close signal.
+    /// Wait for the next message. Returns None when the connection has been closed cleanly, raises
+    /// on transport / deserialization errors. Block until the next message. Returns `None` when the
+    /// connection has closed cleanly, and raises on a transport or deserialization error.
     fn next_message(&self, py: Python<'_>) -> PyResult<Option<PySubscriptionMessage>> {
         let listener = self.listener.clone();
         let runtime = self.runtime.clone();
@@ -68,8 +63,7 @@ impl PySubscriptionListener {
 
     /// Acknowledge messages, marking them done.
     ///
-    /// An unacked message is redelivered to the next listener on the same subscription, so
-    /// acking is what stops it coming back.
+    /// An unacked message is redelivered.
     fn ack(&self, py: Python<'_>, message_ids: Vec<String>) -> PyResult<()> {
         let listener = self.listener.clone();
         let runtime = self.runtime.clone();
@@ -155,8 +149,6 @@ impl PySubscriptionListener {
     }
 
     /// Close the socket. Iteration then stops and `next_message` returns `None`.
-    ///
-    /// The listener is also a context manager, which closes on exit.
     fn close(&self, py: Python<'_>) -> PyResult<()> {
         let listener = self.listener.clone();
         let runtime = self.runtime.clone();

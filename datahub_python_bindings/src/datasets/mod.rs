@@ -23,9 +23,8 @@ use uuid::Uuid;
 
 /// A data set — the unit access is granted on, and what every other node is scoped by.
 ///
-/// Granting someone a data set grants them everything beneath it in the `BELONGS_TO` hierarchy,
-/// and naming one in a filter's `data_set_id` matches its children too. That is also why a data
-/// set cannot itself belong to one: `data_set_id` is always `None` here and is dropped on create.
+/// A grant or a filter on a data set covers everything beneath it in the `BELONGS_TO` hierarchy.
+/// `data_set_id` is always `None` here and is dropped on create.
 #[pyclass(module = "intellistream_datahub_sdk", name = "Dataset", from_py_object)]
 #[derive(Clone)]
 pub struct PyDataset {
@@ -84,8 +83,7 @@ impl PyDataset {
     /// external_id : str
     ///     Required. The caller-chosen identifier.
     /// name : str | None
-    ///     Defaults to `external_id`. Note this runs the opposite way from `TimeSeries` and
-    ///     `Resource`, where a missing `external_id` is derived from the name.
+    ///     Defaults to `external_id`.
     /// id : int | None
     ///     Server-assigned; leave unset when creating.
     /// description : str | None
@@ -96,11 +94,8 @@ impl PyDataset {
     /// metadata : dict[str, str] | None
     ///     Free-form key/value pairs; defaults to `{}`. A filter criterion.
     /// connected_data_sets : list[int] | None
-    ///     **Input-only, and it does not build a hierarchy.** The api never populates it on a
-    ///     read, so it is empty on everything the server returns. To make one data set a child
-    ///     of another, create the edge explicitly — and mind the direction: the row is stored
-    ///     `from = parent, to = child`, even though the relationship is named `BELONGS_TO`.
-    ///     Reversing it produces no hierarchy and no error.
+    ///     **Input-only, and it does not build a hierarchy.** Create a `BELONGS_TO` edge
+    ///     `from = parent, to = child` instead; reversed, it silently builds nothing.
     #[new]
     #[pyo3(signature=(
         external_id,
@@ -227,8 +222,7 @@ impl PyDataset {
             .map(crate::relations::PyRelatedNode::from)
             .collect()
     }
-    /// Always `"dataset"`. Present on every node class so data-driven code can dispatch without
-    /// an `isinstance` ladder.
+    /// Always `"dataset"`.
     #[getter]
     pub fn node_type(&self) -> &'static str {
         crate::nodes::node_type_name(intellistream_datahub_sdk::nodes::NodeType::Dataset)
@@ -304,11 +298,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// client); calling these on a locally-constructed `Dataset` raises a clear error.
 #[pymethods]
 impl PyDataset {
-    /// Walk the graph from this dataset and return the connected sub-graph (its `nodes`, the
-    /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
-    /// (`-1`, the default, = the whole connected component); `relationship_types` filters which
-    /// edge types to follow (`None` = all); `limit` caps the node count. Neighbour nodes are
-    /// typed as their own classes. Blocking; see [`neighbors_async`] for the awaitable variant.
+    /// Walk the graph from this dataset and return the connected sub-graph.
+    ///
+    /// `depth` bounds the hops (`-1`, the default, is unbounded); `relationship_types`
+    /// filters the edge types followed; `limit` caps the node count.
     #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
     fn neighbors(
         &self,
@@ -354,9 +347,7 @@ impl PyDataset {
 /// datasets returned by the API; calling on a locally-constructed one raises.
 #[pymethods]
 impl PyDataset {
-    /// Fetch events whose `related_resources` include this
-    /// dataset (matched by graph-node id when present, else external id), via `events.filter`.
-    /// `limit` caps the results (default 100). Blocking; see [`related_events_async`].
+    /// Events whose `related_resources` include this dataset. `limit` caps the results.
     #[pyo3(signature = (limit=100))]
     fn related_events(&self, py: Python<'_>, limit: u64) -> PyResult<Vec<PyEvent>> {
         let service = self.client.clone().ok_or_else(crate::missing_client_err)?;
@@ -566,12 +557,10 @@ pub fn dataset_filter_form(
 
 /// A partial update for one dataset, mirroring the server's update form.
 ///
-/// `dataset` names the target — a `Dataset`, an `IdCollection`, an external id or a numeric id.
-/// Every other argument is a field wrapper and only the ones you pass are sent; anything omitted
-/// is left untouched.
+/// `dataset` names the target by `Dataset`, `IdCollection`, external id or id. Omitted fields are
+/// left untouched.
 ///
-/// There is deliberately no `policies` or `connected_data_sets` here: the update endpoint does not
-/// accept them, whatever a `Dataset` can carry on create.
+/// `policies` and `connected_data_sets` cannot be updated.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DatasetUpdate", from_py_object)]
 #[derive(Clone)]
 pub struct PyDatasetUpdate {

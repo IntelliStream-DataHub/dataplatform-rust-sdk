@@ -19,11 +19,8 @@ pub mod sync_service;
 
 /// A standing request for change notifications on a set of timeseries.
 ///
-/// Create it with `subscriptions.create`, then open a socket for it with `subscriptions.listen`.
-/// Every referenced series must already exist, and a series still bound to a subscription cannot
-/// be deleted — drop the subscription first.
-///
-/// `id`, `date_created` and `last_updated` are server-set and read-only.
+/// Every referenced series must already exist, and a series bound to a subscription cannot be
+/// deleted.
 #[pyclass(module = "intellistream_datahub_sdk", name = "Subscription")]
 #[derive(Clone)]
 pub struct PySubscription {
@@ -88,8 +85,7 @@ impl PySubscriptionFilter {
 
 /// A sort for `subscriptions.filter`: a `property` and an `order`.
 ///
-/// Anything other than `"desc"` sorts ascending, and an unrecognised property falls back to the
-/// default rather than raising.
+/// Anything other than `"desc"` sorts ascending; an unknown property falls back to the default.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DataSort")]
 #[derive(Clone, Default)]
 pub struct PyDataSort {
@@ -133,9 +129,8 @@ impl PyDataSort {
 /// The prepared request body for `subscriptions.filter` — a `SubscriptionFilter` plus `limit`
 /// and `sort`.
 ///
-/// Optional: `filter()` takes the same things as keywords. Passing both a `form` and any of the
-/// keywords raises `ValueError`. **Its `limit` defaults to 100**, where `list()` leaves the
-/// server's 1000.
+/// Optional: `filter()` takes the same as keywords; passing both raises `ValueError`. **`limit`
+/// defaults to 100.**
 #[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionFilterForm")]
 #[derive(Clone)]
 pub struct PySubscriptionFilterForm {
@@ -360,8 +355,7 @@ impl PyWsDatapoint {
     fn value(&self) -> &str {
         &self.inner.value
     }
-    /// Parse the value as a float. Raises ValueError if the value isn't numeric (e.g. for
-    /// string-typed timeseries that share this delivery channel).
+    /// Parse the value as a float. Raises `ValueError` if the value isn't numeric.
     fn as_float(&self) -> PyResult<f64> {
         f64::from_str(&self.inner.value).map_err(|e| {
             PyValueError::new_err(format!(
@@ -460,9 +454,7 @@ impl PyDataWrapperMessage {
 
 /// One message off the subscription socket.
 ///
-/// `payload` is the content; `message_id` is what you hand to `ack()` or `nack()`. An unacked
-/// message is redelivered to the next listener on the same subscription, so acking is what marks
-/// it done.
+/// Hand `message_id` to `ack()` or `nack()`; an unacked message is redelivered.
 #[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionMessage")]
 #[derive(Clone)]
 pub struct PySubscriptionMessage {

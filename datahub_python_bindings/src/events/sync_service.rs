@@ -16,15 +16,10 @@ use uuid::Uuid;
 
 /// The blocking `/events` surface: event CRUD, filter and search, plus the vocabulary endpoints.
 ///
-/// Reached as `client.events`. Events are not nodes — they are keyed by UUID rather than a
-/// numeric id, have no `name`, and carry an `event_time` saying when the thing happened, as
-/// distinct from the server-set `created_time` saying when it was recorded.
+/// Reached as `client.events`.
 ///
-/// The `list_*` / `search_*` pairs answer "what values does this tenant actually use" for the
-/// four categorical fields, and are what a filter dropdown is built from. They read small
-/// server-side tables rather than scanning events, so they are cheap but lag the events slightly.
-///
-/// Events live in ClickHouse and settle after the call returns, so poll rather than assert once.
+/// The `list_*` / `search_*` pairs return the values in use for the four categorical fields. They
+/// are cheap but lag the events slightly.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EventsServiceSync")]
 pub struct PyEventsServiceSync {
     pub api_service: Arc<ApiService>,
@@ -35,14 +30,10 @@ pub struct PyEventsServiceSync {
 impl PyEventsServiceSync {
     /// A criteria-free page of the tenant's events.
     ///
-    /// **The oldest `limit` events, not the newest.** It runs the event filter with an empty body,
-    /// whose default sort is `eventTime` ascending — the order the cursor pages in. The node
-    /// listings beside it (`resources.list`, `timeseries.list`, `datasets.list`) really are
-    /// newest-first; events are the one member of the family that reads the other way round. For
-    /// "what just happened", use `filter(sort_by="eventTime", sort_order="desc")`.
+    /// **The oldest `limit` events, not the newest.** For the newest, use
+    /// `filter(sort_by="eventTime", sort_order="desc")`.
     ///
-    /// `limit` defaults to the server's 1000 and may not exceed 10000. A plain list is returned
-    /// rather than a `Page`: there is no cursor to continue with.
+    /// `limit` defaults to 1000 and may not exceed 10000. No paging.
     #[pyo3(signature = (limit = None))]
     fn list(&self, py: Python<'_>, limit: Option<u64>) -> PyResult<Vec<PyEvent>> {
         let service = self.api_service.clone();
@@ -61,17 +52,13 @@ impl PyEventsServiceSync {
 
     /// Create events, returning the server's echo of them.
     ///
-    /// Any event without an `id` is stamped with a client-generated UUID v7 before the first
-    /// send, so a retry collapses onto the same row instead of duplicating. The stamp lands on
-    /// the returned objects — **your own `Event` instances still have `id is None`**, so read the
-    /// id off the result.
+    /// Events without an `id` get a UUID v7 on the *returned* objects — **your own `Event`
+    /// instances still have `id is None`**.
     ///
-    /// `type` is required and must be 3–128 non-blank characters; a blank one is a 400 naming
-    /// the offending index.
+    /// `type` is required, 3–128 characters.
     ///
-    /// **With buffering enabled**, a send that cannot get through spools to disk and the call
-    /// returns an **empty list** rather than raising. An empty result therefore means "buffered",
-    /// not "nothing was created".
+    /// **With buffering enabled**, a send that cannot get through is spooled and the call returns
+    /// an empty list rather than raising.
     fn create<'py>(&self, py: Python<'py>, input: Vec<PyEvent>) -> PyResult<Vec<PyEvent>> {
         let events: Vec<Event> = input.iter().cloned().map(Event::from).collect();
         //let payload = DataWrapper::from_vec(events);
@@ -94,11 +81,9 @@ impl PyEventsServiceSync {
     /// Events by UUID or external id — a bare `uuid.UUID` is an id, a bare `str` an external id,
     /// and an `Event` or `EventIdCollection` may carry either.
     ///
-    /// Silently omits what it cannot find, so a shorter list back is how an unknown id is
-    /// reported. Use `get(uuid)` when you want a single event and `None` for a miss.
+    /// Silently omits what it cannot find.
     ///
-    /// One external id can answer with **several** events: an external id names the set of UUIDs
-    /// behind it, which together are the lifecycle of one logical event.
+    /// One external id can answer with **several** events.
     fn by_ids<'py>(
         &self,
         py: Python<'py>,
@@ -123,9 +108,6 @@ impl PyEventsServiceSync {
         })
     }
     /// Delete events by UUID or external id. Returns `None`.
-    ///
-    /// Also the second half of a re-key: an event's `external_id` and `event_time` cannot be
-    /// updated, so correcting either means creating a replacement and deleting the original.
     fn delete<'py>(&self, py: Python<'py>, input: Vec<EventIdentifyable>) -> PyResult<()> {
         let service = self.api_service.clone();
         let input_ids: Vec<EventIdCollection> =
@@ -149,22 +131,13 @@ impl PyEventsServiceSync {
     #[allow(clippy::too_many_arguments)]
     /// Events matching every criterion.
     ///
-    /// Sorted by `event_time` **ascending** by default — the order the keyset cursor pages in.
-    /// For "what just happened", pass `sort_by="eventTime", sort_order="desc"`.
+    /// Sorted by `event_time` **ascending** by default.
     ///
-    /// `advanced_filter` additionally takes a boolean expression as a string, e.g.
-    /// `"type NOT LIKE 'pump' AND (subType = 'water' OR subType = 'gas')"`. It is parsed and
-    /// validated server-side, so an invalid one comes back as a 400 carrying an offset.
+    /// `advanced_filter` takes a boolean expression, e.g.
+    /// `"type NOT LIKE 'pump' AND (subType = 'water' OR subType = 'gas')"`.
     ///
-    /// Pass either a prepared `filter=` object or the individual criteria keywords — passing
-    /// both is a `TypeError`. Paging (`limit`, `sort_by`, `sort_order`, `cursor`) always lives
-    /// on the call rather than on the filter, so one filter can be reused across `filter()` and
-    /// `search()` without carrying a stale cursor.
-    ///
-    /// Returns a `Page`: list-like, plus `.next_cursor`, which is `None` on the last page. A
-    /// *full* page may still be the last, so a walk ends with one empty request.
-    ///
-    /// `limit` defaults to 1000 and caps at 10000 — above that is a 400, not a clamp.
+    /// Takes either a prepared `filter=` or the criteria as keywords, not both. Returns a `Page`;
+    /// `limit` defaults to 1000, and above 10000 is a 400.
     fn filter<'py>(
         &self,
         py: Python<'py>,
@@ -243,7 +216,7 @@ impl PyEventsServiceSync {
         })
     }
 
-    /// Free-text search over event descriptions, ranked by relevance.
+    /// Free-text search over events, newest first.
     #[pyo3(signature = (query, filter = None, limit = None))]
     fn search(
         &self,

@@ -12,9 +12,6 @@ use std::sync::Arc;
 
 /// Awaitable twin of `DatasetsServiceSync`, reached as `client.datasets` on an
 /// `AsyncDataHubClient`.
-///
-/// Same methods, same arguments, same semantics — each returns an awaitable instead of
-/// blocking. `DatasetsServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "DatasetsServiceAsync")]
 pub struct PyDatasetsServiceAsync {
     pub api_service: Arc<ApiService>,
@@ -193,9 +190,8 @@ impl PyDatasetsServiceAsync {
 
     /// Apply partial updates, returning the datasets as they stand afterwards.
     ///
-    /// A dataset is the unit access is granted on, so the server treats editing one as an operator
-    /// action: this needs an all-datasets write grant and raises 403 without one, even for a
-    /// caller who can write the dataset's contents.
+    /// Needs an all-datasets write grant (**403** without), even for a caller who can write the
+    /// dataset's contents.
     ///
     /// **Do not combine a `metadata` change with `write_protected` / `deactivated` in one update.**
     /// The server stores those flags as node metadata, so setting either in the same call as a
@@ -226,9 +222,8 @@ impl PyDatasetsServiceAsync {
 
     /// The access policies a dataset can be associated with, as `Resource`s.
     ///
-    /// **Known to come back empty even when policies exist** — the server answers 200 with no body
-    /// at all. That is a server-side bug, not something these bindings can work around, so treat
-    /// an empty result as "unknown" rather than "none".
+    /// **Can come back empty even when policies exist** (a server bug), so an empty result means
+    /// "unknown".
     fn policies<'p>(&self, py: Python<'p>) -> PyResult<Bound<'p, PyAny>> {
         let service = self.api_service.clone();
         future_into_py(py, async move {

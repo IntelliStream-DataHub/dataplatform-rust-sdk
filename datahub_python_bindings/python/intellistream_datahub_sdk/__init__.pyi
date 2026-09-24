@@ -41,10 +41,7 @@ SortBy = Union[str, Sequence[str]]
 class Page(Sequence[Any]):
     """One page of a filter result: the rows, plus where to continue from.
 
-    Behaves as a list — ``len()``, indexing, slicing, iteration, ``in`` and ``==`` against a plain
-    list all work — so code written before paging existed keeps working. What it adds is
-    ``next_cursor``, the only way to reach the next page: the api hands out an opaque cursor and
-    does not accept one a caller assembled.
+    Behaves as a list, plus ``next_cursor``, the only way to reach the next page.
 
     The whole loop is::
 
@@ -57,8 +54,8 @@ class Page(Sequence[Any]):
             page = client.timeseries.filter(
                 limit=100, sort_by="name", cursor=page.next_cursor)
 
-    ``next_cursor`` is ``None`` on the last page. A *full* page may still be the last one — the
-    server does not count the rows twice — so a walk ends with one request that comes back empty.
+    ``next_cursor`` is ``None`` on the last page. A *full* page may still be the last, so a walk
+    ends with one empty request.
 
     Not a ``list`` subclass, so ``isinstance(page, list)`` is ``False``; use ``page.items`` when
     something demands a real list.
@@ -122,17 +119,8 @@ class DataHubClient:
         series = client.timeseries.filter(name=["Pump*"], limit=100)
         client.timeseries.insert_from_lists(timestamps, values, ts="pump_1_pressure")
 
-    The services are ``timeseries``, ``assets``, ``resources``, ``datasets``, ``events``,
-    ``files``, ``functions``, ``labels``, ``units``, ``subscriptions`` and ``edges``. Each is a
-    property, cheap to read and safe to hold on to.
-
-    One client is meant to be shared: it owns a Tokio runtime and a ``reqwest`` pool, so
-    building one per call throws both away. Calling it from inside a running event loop blocks
-    that loop for the duration of the request — use ``AsyncDataHubClient`` there.
-
-    Every call raises ``DataHubException`` on an API error; the status is on ``.status_code``
-    and, when the API answered with an RFC 9457 problem document, ``.problem_slug`` is what to
-    branch on.
+    Share one client rather than building one per call. Inside a running event loop, use
+    ``AsyncDataHubClient``.
     """
     def __init__(
         self,
@@ -156,56 +144,41 @@ class DataHubClient:
         assertion_audience: str | None = None,
         assertion_grant: str | None = None,
     ) -> None:
-        """Durable ingest buffering (off by default): when the API is unreachable, datapoint and
-        event ingestion spools to disk and is flushed on a later call. Enable it with
-        `enable_buffering=True` or by setting `buffer_retention_secs` / `buffer_max_bytes`
-        (unset bounds default to 72h / 5 GiB). `buffer_dir` defaults to `.datahub-spool`.
-        `from_env`/`from_envfile` read ENABLE_BUFFERING / BUFFER_RETENTION_SECS /
-        BUFFER_MAX_BYTES / BUFFER_DIR from the environment instead.
+        """``base_url`` is the API root. Authenticate with a ready-made ``token`` (used as-is, never
+        refreshed) or the OAuth2 trio ``client_id`` / ``client_secret`` / ``token_url``. Supplying
+        neither fails on the first call, with a 401.
 
-        `scope` and `audience` (env: SCOPE / AUDIENCE) are added to the token request only when
-        set. Against a DataHub realm using Keycloak Organizations, `scope` is required: use
-        `organization:*`, or `organization:<alias>` to pin one tenant. That claim comes from a
-        dynamic client scope, so without a selector the token carries no tenant and every call
-        fails `401 invalid_token`. Not needed where the realm produces the `organization` claim
-        with a protocol mapper. Entra ID instead requires `api://<app-id-uri>/.default`, Auth0
-        requires an audience.
+        Buffering (off by default) spools datapoint and event ingestion to disk when the API is
+        unreachable and flushes it on a later call. Enable it with ``enable_buffering=True`` or by
+        setting ``buffer_retention_secs`` / ``buffer_max_bytes`` (defaults 72h / 5 GiB).
+        ``buffer_dir`` defaults to ``.datahub-spool``.
 
-        Setting an assertion source switches the token request to the RFC 7523 `jwt-bearer`
-        grant, which exchanges a JWT issued by one provider for a token from another — how an
-        Entra ID service principal reaches a Keycloak-backed API. Either pass a ready-made
-        `assertion` (env: ASSERTION), or all three of `assertion_client_id` /
-        `assertion_client_secret` / `assertion_token_url` (env: ASSERTION_CLIENT_ID /
-        ASSERTION_CLIENT_SECRET / ASSERTION_TOKEN_URI) to have the SDK fetch one, narrowed by
-        `assertion_scope` / `assertion_audience` (env: ASSERTION_SCOPE / ASSERTION_AUDIENCE).
-        With no `client_secret`, `assertion_grant` picks the federated grant (env: ASSERTION_GRANT):
-        "client_credentials" (default, service-account identity) or "jwt-bearer" (identity chaining).
-        `client_id` / `client_secret` / `token_url` then describe the client performing the
-        exchange. The assertion is re-fetched per exchange rather than cached."""
+        ``scope`` and ``audience`` are added to the token request when set. Against a realm using
+        Keycloak Organizations, ``scope`` is required — ``organization:*``, or
+        ``organization:<alias>`` for one tenant — or every call fails ``401 invalid_token``.
+
+        An assertion source switches to the RFC 7523 ``jwt-bearer`` exchange: pass a ready-made
+        ``assertion``, or ``assertion_client_id`` / ``assertion_client_secret`` /
+        ``assertion_token_url`` for the SDK to fetch one. With no ``client_secret``,
+        ``assertion_grant`` picks ``"client_credentials"`` (default) or ``"jwt-bearer"``. See
+        ``docs/entra-federated-auth.md``.
+        """
         ...
     @classmethod
     def from_env(cls) -> DataHubClient:
         """Build a client from the process environment alone.
 
-        ``BASE_URL`` is required. For credentials, set either ``TOKEN`` or all three of
-        ``CLIENT_ID``, ``CLIENT_SECRET`` and ``TOKEN_URI`` — the OAuth2 client is only
-        configured when the whole trio is present, so a partial set is accepted here and every
-        call then fails with a 401. The optional ones are ``PROJECT_NAME``, ``SCOPE``,
-        ``AUDIENCE``, the
-        ``ASSERTION*`` family, and the buffering four (``ENABLE_BUFFERING``,
-        ``BUFFER_RETENTION_SECS``, ``BUFFER_MAX_BYTES``, ``BUFFER_DIR``).
-
-        Nothing is read from a ``.env`` file here — only variables already exported into the
-        process. Use ``from_envfile`` to load one.
+        ``BASE_URL`` is required, plus either ``TOKEN`` or all three of ``CLIENT_ID``,
+        ``CLIENT_SECRET`` and ``TOKEN_URI`` — a partial trio is accepted here and every call then
+        fails with a 401. Optional: ``SCOPE``, ``AUDIENCE``, the ``ASSERTION*`` family, and
+        ``ENABLE_BUFFERING``, ``BUFFER_RETENTION_SECS``, ``BUFFER_MAX_BYTES``, ``BUFFER_DIR``.
         """
     @classmethod
     def from_envfile(cls, path: str | None = None) -> DataHubClient:
         """Load a ``.env`` file, then build the client from the environment as ``from_env`` does.
 
-        ``path`` names the file; omitted, it searches for a ``.env`` from the working directory
-        upwards. Variables already exported win over the file's, which is what lets one shell
-        variable override a checked-out default — a stray ``TOKEN`` in the shell will shadow the
-        file's OAuth2 settings.
+        Without ``path``, searches upwards from the working directory. Variables already exported
+        win over the file's — a stray ``TOKEN`` in the shell shadows the file's OAuth2 settings.
         """
     @property
     def timeseries(self) -> TimeSeriesServiceSync: ...
@@ -238,13 +211,7 @@ class AsyncDataHubClient:
         client = AsyncDataHubClient.from_envfile()
         series = await client.timeseries.filter(name=["Pump*"], limit=100)
 
-    Same constructor, same arguments, same service names — the only difference is that each
-    service is the ``…ServiceAsync`` twin, so ``client.timeseries`` is a
-    ``TimeSeriesServiceAsync``. Semantics, defaults and error behaviour are identical; the sync
-    classes carry the detailed per-method documentation.
-
-    Use this inside a running event loop: ``DataHubClient`` would block the loop for the length
-    of each request.
+    Same constructor and services; the sync classes carry the per-method documentation.
     """
     def __init__(
         self,
@@ -313,21 +280,16 @@ class TimeSeriesFilter:
     """AND-combined criteria for ``timeseries.filter`` (``POST /timeseries/filter``) and the
     ``filter`` of ``timeseries.search``.
 
-    Criteria only: ``limit``, ``sort_by``, ``sort_order`` and ``cursor`` are arguments of the
-    call, not fields here, so one filter can be reused across ``filter()`` and ``search()`` and
-    paged differently each time.
+    Criteria only: paging is given on the call.
 
     ``external_id``, ``name``, ``source``, ``unit`` and ``unit_external_id`` are pattern
-    lists — see ``PatternList``. Each is singular because each also takes a bare string, though a
-    list is always accepted. ``labels`` keeps its plural: its entries must **all** be present, and
-    so must every ``metadata`` entry, where a ``None`` value matches the key alone. ``value_type``
-    is matched exactly (case-insensitively) against ``BIGINT``, ``FLOAT``, ``FLOAT32``,
-    ``NUMERIC``, ``DECIMAL32``, ``TEXT``, ``MIXED``.
+    lists — see ``PatternList``. Every ``labels`` and ``metadata`` entry must be present; a
+    ``None`` metadata value matches the key alone. ``value_type`` matches exactly,
+    case-insensitively.
 
-    ``data_set_id`` expands down the dataset hierarchy server-side, so a master dataset matches
-    the timeseries of its child datasets too. **``None`` and ``[]`` differ here**: ``None`` places
-    no restriction, ``[]`` narrows to no datasets and matches nothing. Every other list places no
-    restriction when empty.
+    ``data_set_id`` covers child datasets too. **``None`` and ``[]`` differ here**: ``None``
+    places no restriction, ``[]`` matches nothing. Every other list places no restriction when
+    empty.
 
     """
     def __init__(
@@ -352,10 +314,6 @@ class TimeSeriesFilter:
 class FieldStr:
     """A scalar field of an update: ``FieldStr(value)`` writes it, ``FieldStr(set_null=True)``
     clears it, and leaving the field off the update leaves it untouched.
-
-    Those three states are why this wrapper exists — a bare ``None`` could not tell "don't
-    touch" apart from "set to null". Most update constructors also accept a bare ``str`` and
-    wrap it as a write for you; the explicit form is what you need for the clear.
     """
     def __init__(self, value: str | None = None, set_null: bool = False) -> None:
         """Pass ``value`` to write it, or ``set_null=True`` to clear the field."""
@@ -368,10 +326,6 @@ class FieldStr:
 class FieldU64:
     """A scalar field of an update: ``FieldU64(value)`` writes it, ``FieldU64(set_null=True)``
     clears it, and leaving the field off the update leaves it untouched.
-
-    Those three states are why this wrapper exists — a bare ``None`` could not tell "don't
-    touch" apart from "set to null". Most update constructors also accept a bare ``int`` and
-    wrap it as a write for you; the explicit form is what you need for the clear.
     """
     def __init__(self, value: int | None = None, set_null: bool = False) -> None:
         """Pass ``value`` to write it, or ``set_null=True`` to clear the field."""
@@ -384,10 +338,6 @@ class FieldU64:
 class FieldBool:
     """A scalar field of an update: ``FieldBool(value)`` writes it, ``FieldBool(set_null=True)``
     clears it, and leaving the field off the update leaves it untouched.
-
-    Those three states are why this wrapper exists — a bare ``None`` could not tell "don't
-    touch" apart from "set to null". Most update constructors also accept a bare ``bool`` and
-    wrap it as a write for you; the explicit form is what you need for the clear.
     """
     def __init__(self, value: bool | None = None, set_null: bool = False) -> None:
         """Pass ``value`` to write it, or ``set_null=True`` to clear the field."""
@@ -410,10 +360,7 @@ class FieldGeoJson:
 class ListFieldStr:
     """A list-valued field of an update: either replaced wholesale or edited in place.
 
-    An update is a *replace* (``set``) or a *delta* (``delta``), never both — the two
-    constructors make the illegal mix unrepresentable, which is why there is no bare
-    initializer. Leaving the field off the update entirely is the third option, and means "leave
-    it alone".
+    Build it with ``set`` (replace) or ``delta`` (add/remove). Omitting the field leaves it alone.
 
     For example::
 
@@ -463,11 +410,7 @@ class MapField:
 
 class TimeSeries:
     """A univariate series of ``(timestamp, value)`` datapoints, plus the metadata describing it.
-
-    The object is the *definition* — name, unit, value type, where it sits in the graph. The
-    datapoints live behind it and are written and read through the service:
-    ``client.timeseries.insert_from_lists(...)`` and
-    ``client.timeseries.retrieve_datapoints(...)``. For example::
+    For example::
 
         ts = TimeSeries(name="Pump 1 pressure", value_type="float",
                         unit_external_id="pressure_bar")
@@ -479,35 +422,30 @@ class TimeSeries:
         User-facing name. Give at least one of ``name`` and ``external_id``; passing neither raises
         ``ValueError``. With only ``name``, ``external_id`` becomes a snake-cased form of it.
     external_id : str | None
-        Caller-chosen id, 3–512 characters, unique among timeseries. With only ``external_id``,
-        ``name`` is set to the same string. The same string may be reused by another entity type.
+        3–512 characters, unique among timeseries. With only ``external_id``, ``name`` is set to the
+        same string.
     value_type : {"bigint", "float", "text"}, default "bigint"
         Storage type of the values; ``"decimal"`` is an alias for ``"float"``. Fixed at creation —
         see ``ValueType``.
     metadata : dict[str, str] | None
-        Free-form key/value pairs, and a filterable one: ``timeseries.filter(metadata=...)``
-        matches on them.
+        Free-form key/value pairs.
     description : str | None
-        Free text. Searched by ``timeseries.search``, alongside the name.
+        Free text.
     unit : str | None
-        The unit as free text, e.g. ``"mW"`` or ``"Liter/min"``. Descriptive only.
+        The unit as free text, e.g. ``"mW"``.
     unit_external_id : str | None
-        The unit as a catalogue entry, e.g. ``"pressure_bar"`` — see ``Unit``. This is the one that
-        makes a series convertible, so prefer it to ``unit`` where the catalogue has a match.
-        Setting both keeps ``unit`` as written: the server does not reconcile the two.
+        The unit as a catalogue entry, e.g. ``"pressure_bar"``. Setting both keeps ``unit`` as
+        written; the two are not reconciled.
     data_set_id : int | None
-        The dataset this series belongs to. Datasets are what access is granted on, so this is
-        also what decides who can read it.
+        The dataset this series belongs to.
     related_resources : list[RelatedNode] | None
-        Other nodes to connect this series to. On create, each entry's id/external_id plus its
-        ``relationship_type`` becomes an edge server-side.
+        Other nodes to connect this series to; each becomes an edge on create.
     source : str | None
-        Where the series came from, e.g. the name of the ingesting system. A filter criterion.
+        Where the series came from.
 
     Notes
     -----
-    ``id`` is assigned by the server and is not a constructor argument; it is ``None`` until the
-    series has been created.
+    ``id`` is assigned by the server.
     """
     def __init__(
         self,
@@ -523,16 +461,11 @@ class TimeSeries:
         source: str | None = None,
     ) -> None:
         """Give at least one of ``name`` and ``external_id``; neither raises ``ValueError``.
-
-        With only ``name``, the external id becomes a snake-cased form of it. With only
-        ``external_id``, the name is set to the same string. ``id`` is assigned by the server and
-        is not a constructor argument.
         """
     @property
     def node_type(self) -> str:
         """This node's type as a string ("asset", "timeseries", "function", "resource",
-        "dataset", "policy"). Present on every node class, for dispatching from data rather
-        than with an isinstance ladder."""
+        "dataset", "policy")."""
     @property
     def labels(self) -> list[str] | None:
         """Always includes the intrinsic "TIMESERIES" type-label."""
@@ -587,12 +520,10 @@ class TimeSeries:
         relationship_types: list[str] | None = None,
         limit: int = 5000,
     ) -> ResourceNetwork:
-        """Walk the graph from this timeseries and return the connected sub-graph (its ``nodes``,
-        the ``edges`` between them, and their ``labels``). ``depth`` bounds the traversal in
-        hops (``-1``, the default, = the whole connected component); ``relationship_types``
-        filters which edge types to follow (``None`` = all); ``limit`` caps the node count.
-        Neighbour nodes are typed as their own classes. Blocking; see ``neighbors_async`` for
-        the awaitable variant.
+        """Walk the graph from this timeseries and return the connected sub-graph.
+
+        ``depth`` bounds the hops (``-1``, the default, is unbounded); ``relationship_types``
+        filters the edge types followed; ``limit`` caps the node count.
         """
     async def neighbors_async(
         self,
@@ -602,9 +533,7 @@ class TimeSeries:
     ) -> ResourceNetwork:
         """Awaitable variant of ``neighbors``."""
     def related_events(self, limit: int = 100) -> list[Event]:
-        """Fetch events whose ``related_resources`` include this timeseries (matched by graph-node
-        id when present, else external id), via ``events.filter``. ``limit`` caps the results
-        (default 100). Blocking; see ``related_events_async``.
+        """Events whose ``related_resources`` include this timeseries. ``limit`` caps the results.
         """
     async def related_events_async(self, limit: int = 100) -> list[Event]:
         """Awaitable variant of ``related_events``."""
@@ -644,7 +573,7 @@ class RelatedNode:
 
 
 class TimeSeriesUpdate:
-    """Python wrapper for TimeseriesUpdate, represents a request for change to a timeseries
+    """A partial update for one timeseries.
 
     Parameters
     ----------
@@ -687,13 +616,8 @@ class TimeSeriesUpdate:
 class DeleteFilter:
     """One series, and the window of datapoints to remove from it, for ``delete_datapoints``.
 
-    Both bounds are optional and the window is half-open, so: give both to clear the window
-    between them, ``inclusive_begin`` alone to clear everything from that instant onward,
-    ``exclusive_end`` alone to clear everything before it, and neither to clear every datapoint
-    of the series while keeping its definition, edges and subscriptions.
-
-    The purge is asynchronous: the call returns once the request is accepted, and a read
-    straight afterwards can still see the datapoints. It cannot be undone.
+    Both bounds are optional and the window is half-open; with neither, every datapoint of the
+    series is cleared.
 
     Parameters
     ----------
@@ -728,20 +652,10 @@ class DeleteFilter:
 
 
 class ValueType:
-    """Enumerator for the datatype of a timeseries.
+    """The storage type of a timeseries' values, fixed when the series is created.
 
-    The storage type of a timeseries' values, fixed when the series is created.
-
-    Three options: ``"bigint"``, ``"float"`` and ``"text"``. ``"decimal"`` is accepted as an
-    alias for ``"float"`` and normalises to it, so a series created either way reads back as
-    ``"float"``. Matching is case-insensitive, and anywhere a ``ValueType`` is expected a plain
-    string works just as well — ``TimeSeries(external_id="p1", value_type="float")`` needs no
-    wrapper.
-
-    Note this is the *construction* catalogue. The ``value_type`` criterion on
-    ``TimeSeriesFilter`` matches against the wider set the server stores (``BIGINT``, ``FLOAT``,
-    ``FLOAT32``, ``NUMERIC``, ``DECIMAL32``, ``TEXT``, ``MIXED``), so a filter can name a type
-    this class cannot create.
+    ``"bigint"``, ``"float"`` or ``"text"``; ``"decimal"`` is an alias for ``"float"``. A plain
+    string works wherever a ``ValueType`` is expected.
     """
     def __init__(self, value: str) -> None: ...
     def __repr__(self) -> str: ...
@@ -750,11 +664,7 @@ class ValueType:
 class Datapoint:
     """One datapoint on the way *out*, from ``DatapointsCollectionDatapoints.get_datapoints()``.
 
-    Which fields are filled depends on the read: a raw read fills ``value``; an aggregate read
-    fills ``min``, ``max`` and ``average`` and leaves ``value`` as ``None``. **``None`` means
-    "the endpoint did not return it", never zero.**
-
-    ``timestamp`` is an aware UTC ``datetime``.
+    A raw read fills ``value``; an aggregate read fills ``min``, ``max`` and ``average``.
     """
     def __init__(
         self,
@@ -781,13 +691,9 @@ class Datapoint:
 
 
 class DatapointString:
-    """One datapoint on the way *in*, as a ``(timestamp, value)`` pair with the value carried as
-    text so it can stand in for any of the series value types.
+    """One datapoint on the way *in*, its value carried as text.
 
-    Build it from an aware ``datetime`` plus a string, or through ``from_int`` / ``from_float``.
-
-    **The ``timestamp`` property reads back as a string of epoch milliseconds**, not the
-    ``datetime`` you passed. Both properties are settable and neither is validated.
+    **``timestamp`` reads back as a string of epoch milliseconds**, not a ``datetime``.
     """
     def __init__(self, ts: datetime.datetime, value: str) -> None: ...
     @classmethod
@@ -809,11 +715,7 @@ class DatapointString:
 class DatapointsCollectionString:
     """The write side: datapoints for one series, ready for ``timeseries.insert_datapoints``.
 
-    Opaque once built — it carries no readable members. Use ``DatapointsCollectionDatapoints``,
-    which is what the read calls hand back, when you need to get at values.
-
-    Passing a ``TimeSeries`` as ``ts`` also carries that series' ``unit`` and
-    ``unit_external_id`` along; naming it by id or external id leaves both unset.
+    Opaque once built.
     """
     def __init__(
         self,
@@ -826,23 +728,15 @@ class DatapointsCollectionDatapoints:
     """The read side: the datapoints of one series, as ``retrieve_datapoints`` and
     ``retrieve_latest_datapoints`` return them.
 
-    ``get_datapoints()`` gives the ``Datapoint`` objects, ``as_dict()`` the two parallel lists
-    ``{"timestamps": [...], "values": [...]}``, and ``len()`` the count. **``as_dict()`` reads
-    only ``value``**, so after an aggregate read every entry in ``"values"`` is ``None`` — use
-    ``get_datapoints()`` there.
-
-    ``next_cursor`` continues a paged read, and is ``None`` when the result fit in one page.
+    **``as_dict()`` reads only ``value``**, so after an aggregate read use ``get_datapoints()``.
     """
     def get_datapoints(self) -> list[Datapoint]:
-        """The datapoints as ``Datapoint`` objects — the form to use after an aggregate read, where
-        ``as_dict()`` cannot reach ``min``/``max``/``average``.
+        """The datapoints as ``Datapoint`` objects.
         """
     def as_dict(self) -> dict[str, Any]:
-        """The datapoints as two parallel lists, ``{"timestamps": [...], "values": [...]}`` — the
-        shape a DataFrame is built from.
+        """The datapoints as two parallel lists, ``{"timestamps": [...], "values": [...]}``.
 
-        **Reads only ``value``**, so after an aggregate read every entry in ``"values"`` is
-        ``None``. Use ``get_datapoints()`` there.
+        **Reads only ``value``**, so it is all ``None`` after an aggregate read.
         """
     def __len__(self) -> int: ...
     @property
@@ -854,15 +748,12 @@ class DatapointsCollectionDatapoints:
 class RetrieveFilter:
     """What to read from one series: the window, how much, and whether to aggregate.
 
-    ``ts`` is required and names the series. **The window is half-open — ``start`` is included,
-    ``end`` is excluded** — unlike ``TimeFilter``, which is inclusive at both ends.
+    **The window is half-open — ``start`` included, ``end`` excluded** — unlike ``TimeFilter``.
 
-    Setting ``aggregates`` (e.g. ``["avg", "min", "max"]``) together with a ``granularity``
-    (e.g. ``"1d"``) buckets the read: the datapoints then carry ``min``/``max``/``average`` and
-    their ``value`` is ``None``, and each timestamp is the *start* of its bucket.
+    With ``aggregates`` and a ``granularity``, datapoints carry ``min``/``max``/``average`` with
+    ``value`` ``None``, each timestamped at the *start* of its bucket.
 
-    Every field is read-only once constructed — build a new filter to change one. Carry
-    ``next_cursor`` from the previous page into ``cursor`` to continue, passing the same
+    Continue a paged read by passing the previous ``next_cursor`` as ``cursor``, with the same
     ``limit``.
     """
     def __init__(
@@ -893,55 +784,36 @@ class TimeSeriesServiceSync:
     """The blocking ``/timeseries`` surface: the series definitions, and the datapoints behind
     them.
 
-    Reached as ``client.timeseries``. Two halves worth keeping apart — ``create`` / ``by_ids`` /
-    ``list`` / ``filter`` / ``search`` / ``update`` / ``delete`` operate on the *definitions*,
-    while ``insert_datapoints`` / ``insert_from_lists`` / ``retrieve_datapoints`` /
-    ``retrieve_latest_datapoints`` / ``delete_datapoints`` operate on the values.
+    Reached as ``client.timeseries``.
 
-    Datapoints land in ClickHouse and settle after the call returns, so a read straight after a
-    write can come back short. Poll rather than assert once.
+    A read straight after a write can come back short.
     """
     def list(self, limit: int | None = None) -> list[TimeSeries]:
         """The first ``limit`` series in the tenant, newest created first. ``limit`` defaults to
-        the server's 1000 and may not exceed 10000; there is no paging, so a bigger tenant is
-        truncated rather than paged — use ``filter`` to narrow instead.
+        1000 and may not exceed 10000. No paging; narrow with ``filter``.
         """
     def create(self, input: list[TimeSeries]) -> list[TimeSeries]:
         """Create series definitions, returning the server's echo of them.
 
-        The echoed objects carry a client, so ``neighbors()`` and the other navigation methods
-        work on them — locally built ones raise instead. A duplicate ``external_id`` is a
-        **409**.
-
-        This creates the definition only; the datapoints go in separately with
-        ``insert_from_lists`` or ``insert_datapoints``.
+        Navigation such as ``neighbors()`` works on the returned objects, not on locally built ones.
+        A duplicate ``external_id`` is a **409**.
         """
     def by_ids(self, input: list[Identifiable]) -> list[TimeSeries]:
         """Series by id or external id — a bare ``int`` is an id, a bare ``str`` an external id,
         and a ``TimeSeries`` or ``IdCollection`` may carry both.
 
-        Batch lookups answer with the subset that was found, so a shorter list back is the
-        normal way an unknown id is reported. Match on ``external_id`` rather than on position.
+        Silently omits what it cannot find; match on ``external_id``, not position.
         """
     def delete(self, input: list[Identifiable]) -> None:
         """Delete series definitions **and their datapoints**. Returns ``None``.
 
-        The definition is gone when the call returns; the datapoints are purged afterwards.
-        Nothing can read them in between, because every read resolves the series first.
-
-        Remove any subscription or edge pointing at the series first — the api refuses to strand
-        one. To empty a series but keep its definition, edges and subscriptions, use
-        ``delete_datapoints`` with both bounds left as ``None``.
+        Remove any subscription or edge pointing at the series first. To empty a series but keep it,
+        use ``delete_datapoints``.
         """
     def update(self, input: list[TimeSeriesUpdate]) -> list[TimeSeries]:
         """Apply partial updates, returning the series as they stand afterwards.
 
-        Each ``TimeSeriesUpdate`` names one series and carries only the fields to change;
-        anything it leaves out is untouched.
-
-        **There is no ``value_type`` on the update form.** A series' storage type is fixed at
-        creation — re-typing it would invalidate the datapoints already stored. Create a new
-        series and re-ingest instead.
+        ``value_type`` cannot be updated.
         """
     def search(
         self,
@@ -951,10 +823,7 @@ class TimeSeriesServiceSync:
     ) -> list[TimeSeries]:
         """Free-text search for ``query``, ranked by relevance.
 
-        ``filter`` takes the same criteria as ``filter()`` and only ever removes hits from the
-        phrase's — it cannot widen them, so omitting it returns them as found. ``limit`` caps what
-        survives, defaulting to 100 and capping at 1000; the ``filter`` endpoints use 1000/10000,
-        which is easy to conflate.
+        ``filter`` narrows the hits, never widens them. ``limit`` defaults to 100 and caps at 1000.
         """
     def filter(
         self,
@@ -977,27 +846,20 @@ class TimeSeriesServiceSync:
         sort_order: str | None = None,
         cursor: str | None = None,
     ) -> Page:
-        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
-        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
-        reused across calls.
+        """Pass either ``filter=`` or the criteria as keywords, not both. Returns a ``Page``;
+        ``limit`` defaults to 1000, and above 10000 is a 400.
         """
 
     def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]:
         """Write datapoints, one ``DatapointsCollectionString`` per series.
 
-        **Returns an empty list, always** — the api answers a successful write with 204 and no
-        body, and a buffered write with 202 and no body. So the return value tells you nothing;
-        what tells you the write failed is the exception.
+        **Always returns an empty list**; a failure raises.
 
-        Large batches are cut into chunks of at most 100 000 datapoints and sent concurrently. A
-        chunk that is refused raises, and the chunks after it are not sent — so a failed call
-        can leave part of the batch written. Re-sending is safe: datapoints are keyed by
-        ``(series, timestamp)`` and a repeat replaces rather than duplicates.
+        Large batches are sent in chunks, so a failed call can leave part of the batch written.
+        Re-sending is safe: a repeated ``(series, timestamp)`` replaces.
 
-        **With buffering enabled** (see ``DataHubClient``), a write that cannot get through
-        spools to disk and returns normally. Nothing in the return value distinguishes that from
-        a confirmed write, and 401/403 are buffered too, so an expired credential also looks
-        like success here.
+        **With buffering enabled**, a write that cannot get through — a 401/403 included — is
+        spooled and looks like success.
         """
     def insert_datapoints_binary(
         self,
@@ -1014,8 +876,7 @@ class TimeSeriesServiceSync:
         ts: Identifiable,
         zstd_level: int | None = None,
     ) -> list[str]:
-        """The binary twin of ``insert_from_lists``: parallel timestamp and value sequences for one
-        series, which is the shape a DataFrame column pair arrives in.
+        """The binary twin of ``insert_from_lists``.
         """
     def insert_from_lists(
         self,
@@ -1023,60 +884,40 @@ class TimeSeriesServiceSync:
         values: list[float],
         ts: Identifiable,
     ) -> list[str]:
-        """Write datapoints for a single series from parallel ``timestamps`` and ``values`` lists —
-        the shape a DataFrame column pair arrives in.
+        """Write datapoints for a single series from parallel ``timestamps`` and ``values`` lists.
 
-        ``ts`` names the series by external id, numeric id, or a ``TimeSeries``. Timestamps must
-        be timezone-aware; a naive one raises ``TypeError``.
+        Timestamps must be timezone-aware.
 
-        **The two lists are zipped, and a length mismatch is not an error** — the tail of the
-        longer one is silently dropped. Check ``len(timestamps) == len(values)`` yourself. (The
-        binary twin, ``insert_from_lists_binary``, does raise.)
+        **A length mismatch is not an error**: the tail of the longer list is silently dropped.
 
-        Otherwise identical to ``insert_datapoints``, including the empty return and the
-        buffering behaviour.
+        Otherwise as ``insert_datapoints``.
         """
     def retrieve_datapoints(self, input: RetrieveFilter) -> list[DatapointsCollectionDatapoints]:
         """Read datapoints for **one** series.
 
-        Takes a single ``RetrieveFilter``, not a list, and answers with a list holding at most
-        one collection — so the idiom is ``client.timeseries.retrieve_datapoints(rf)[0]``, and
-        an unmatched read can give you an empty list.
+        Takes one ``RetrieveFilter`` and answers with a list of at most one collection.
 
-        **The window is half-open: ``start`` is included, ``end`` is excluded.** This is the
-        opposite of ``TimeFilter``, which backs ``created_time`` / ``last_updated_time`` /
-        ``event_time`` and is inclusive at both ends. Two different idioms in one SDK,
-        deliberately, so a window written for one is wrong for the other.
+        **The window is half-open: ``start`` included, ``end`` excluded**, unlike ``TimeFilter``.
 
-        Asking for ``aggregates`` changes what comes back: the datapoints then carry ``min``,
-        ``max`` and ``average``, and ``value`` is ``None``. ``as_dict()`` reads only ``value``,
-        so use ``get_datapoints()`` for an aggregate read.
-
-        Page with the collection's ``next_cursor``, fed back as the next ``RetrieveFilter``'s
-        ``cursor``; it is ``None`` when the result fit in one page.
+        With ``aggregates``, ``value`` is ``None``; use ``get_datapoints()`` rather than
+        ``as_dict()``.
         """
     def delete_datapoints(self, input: list[DeleteFilter]) -> None:
         """Remove datapoints from one or more series, a window at a time. Returns ``None``.
 
-        Takes a **list** of ``DeleteFilter`` — note the asymmetry with ``retrieve_datapoints``,
-        which takes one. Each filter names a series and a half-open window; leaving both bounds
-        ``None`` clears every datapoint of that series while keeping its definition, edges and
-        subscriptions, which is how a bad backfill is undone.
+        Takes a **list** of ``DeleteFilter``, each a series and a half-open window; both bounds
+        ``None`` clears the series.
 
-        An item naming a series that does not exist fails the **whole** request with a 400.
+        An unknown series fails the **whole** request with a 400.
 
-        **Accepted is not done, and none of it can be undone.** The call returns once the
-        request is accepted; the purge runs afterwards, so a read straight after can still see
-        the rows.
+        The purge runs after the call returns, and cannot be undone.
         """
     def retrieve_latest_datapoints(
         self, input: list[Identifiable]
     ) -> list[DatapointsCollectionDatapoints]:
         """The most recent datapoint of each named series, one collection per series.
 
-        Series are named by external id, numeric id, ``TimeSeries`` or ``IdCollection``. This
-        becomes readable sooner after a write than a range read does, which makes it the usual
-        way to check whether an ingest landed at all.
+        Readable sooner after a write than a range read.
         """
 
 
@@ -1084,11 +925,7 @@ class TimeSeriesServiceAsync:
     """Awaitable twin of ``TimeSeriesServiceSync``, reached as ``client.timeseries`` on an
     ``AsyncDataHubClient``.
 
-    Same methods, same arguments, same semantics — each returns an awaitable instead of
-    blocking. ``TimeSeriesServiceSync`` carries the per-method documentation.
-
-    Note ``insert_datapoints_binary`` and ``insert_from_lists_binary`` are sync-only; there is
-    no awaitable binary ingest path yet.
+    The binary ingest methods are sync-only.
     """
     async def list(self, limit: int | None = None) -> list[TimeSeries]: ...
     async def create(self, input: list[TimeSeries]) -> list[TimeSeries]: ...
@@ -1122,9 +959,8 @@ class TimeSeriesServiceAsync:
         sort_order: str | None = None,
         cursor: str | None = None,
     ) -> Page:
-        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
-        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
-        reused across calls.
+        """Pass either ``filter=`` or the criteria as keywords, not both. Returns a ``Page``;
+        ``limit`` defaults to 1000, and above 10000 is a 400.
         """
 
     async def insert_datapoints(self, input: list[DatapointsCollectionString]) -> list[str]: ...
@@ -1148,16 +984,11 @@ class TimeSeriesServiceAsync:
 class Event:
     """Something that happened, at a point in time.
 
-    Not a node: events are keyed by a **UUID** rather than a numeric id, have no ``name``, and
-    are stored in their own partitioned table.
+    Not a node: keyed by a **UUID**, and has no ``name``.
 
-    ``event_time`` is when the thing *occurred* — the source or sensor time — as distinct from
-    the server-set ``created_time``, which is when it was recorded. ``id`` is a client-generated
-    UUID v7, stamped by ``events.create`` on the objects it returns, so a locally-built
-    ``Event`` still reads ``id is None`` after a successful create: take the id off the result.
-
-    ``related_resources`` holds *selectors* (``IdCollection``), naming a resource by id,
-    external id or both — not edges. ``related_resource_nodes()`` resolves them to node objects.
+    ``event_time`` is when it occurred; ``created_time`` is when it was recorded. ``id`` is stamped
+    by ``events.create`` on the objects it *returns* — your own ``Event`` still reads
+    ``id is None``.
     """
     def __init__(
         self,
@@ -1231,13 +1062,9 @@ class TimeFilter:
     """A time window for a filter criterion — ``created_time``, ``last_updated_time`` or
     ``event_time``.
 
-    **Inclusive at both ends**: a row landing exactly on ``end`` is returned. To exclude the
-    upper endpoint, subtract a millisecond, the resolution these columns are stored at. Note
-    this is the opposite of ``RetrieveFilter``'s datapoint window, which is half-open.
+    **Inclusive at both ends**, unlike ``RetrieveFilter``'s half-open datapoint window.
 
-    ``TimeFilter(start, end)`` bounds both sides, ``TimeFilter(start=...)`` alone is "from then
-    on", ``TimeFilter(end=...)`` alone is "up to then". Both ``None`` raises ``ValueError``, as
-    does a ``start`` after the ``end``. Both must be timezone-aware.
+    Either bound may be omitted, not both. Both must be timezone-aware.
     """
     def __init__(
         self,
@@ -1250,17 +1077,11 @@ class EventFilter:
     """AND-combined criteria for ``events.filter`` (``POST /events/filter``).
 
     ``external_id``, ``source``, ``type``, ``sub_type`` and ``status`` are pattern lists — see
-    ``PatternList`` — so ``type=["alarm", "warning"]`` is one call. They are named in the singular
-    because each also takes a bare string. Every ``metadata`` entry must be present, and a ``None``
-    value matches the key alone. ``related_resources`` keeps its plural: every entry of it must be
-    attached to the event.
+    ``PatternList``. Every ``metadata`` and ``related_resources`` entry must be present; a
+    ``None`` metadata value matches the key alone.
 
-    ``data_set_id`` expands down the dataset hierarchy, so naming a parent covers its children.
-    **``None`` and ``[]`` differ here**: ``None`` places no restriction, ``[]`` narrows to no
-    datasets and matches nothing.
-
-    There is no ``id``: events are keyed by UUID, and the field the api used to declare was typed
-    as a long that nothing read. Use ``events.by_ids`` to look one up.
+    ``data_set_id`` covers child datasets too. **``None`` and ``[]`` differ here**: ``None``
+    places no restriction, ``[]`` matches nothing.
     """
     def __init__(
         self,
@@ -1279,9 +1100,7 @@ class EventFilter:
 
 
 class EventIdCollection:
-    """Event id selector exposed to Python. Events are keyed by a client-generated UUID v7, so this
-    carries the ``id`` (UUID) and/or the ``external_id``. Construct with either or both:
-    ``EventIdCollection(id=my_uuid)`` or ``EventIdCollection(external_id="...")``.
+    """Names an event by ``id`` (a UUID), ``external_id``, or both.
     """
     def __init__(
         self,
@@ -1300,15 +1119,8 @@ EventIdentifiable = Union[Event, EventIdCollection, UUID, str]
 class EventUpdate:
     """Field-level changes for one event.
 
-    There is deliberately no ``event_time`` and no ``external_id``: both identify an event rather
-    than describe it, and the api dropped each from its update form, so sending either is a ``400``
-    naming the field.
-
-    The events table is partitioned by ``event_time``, so the mutation cannot move the row and is
-    refused outright. ``externalId`` maps to the *set* of event UUIDs behind it — events sharing an
-    external id are the lifecycle of one logical event — so a rename would take every sibling along,
-    and an event targeted by UUID left the server without the old value to re-key with. Re-key by
-    creating a new event and deleting the old one; record a corrected time the same way.
+    There is no ``event_time`` or ``external_id``: to change either, create a new event and delete
+    the old one.
     """
 
     def __init__(
@@ -1332,8 +1144,7 @@ class EventUpdate:
 class EventDimension:
     """Categorical event fields with a queryable vocabulary.
 
-    Served from dimension tables the write path maintains, so they are cheap enough for a
-    typeahead but *eventually consistent* with the events themselves.
+    Cheap to query, but they lag the events slightly.
     """
 
     TYPE: EventDimension
@@ -1346,63 +1157,42 @@ class EventsServiceSync:
     """The blocking ``/events`` surface: event CRUD, filter and search, plus the vocabulary
     endpoints.
 
-    Reached as ``client.events``. Events are not nodes — they are keyed by UUID rather than a
-    numeric id, have no ``name``, and carry an ``event_time`` saying when the thing happened, as
-    distinct from the server-set ``created_time`` saying when it was recorded.
+    Reached as ``client.events``.
 
-    The ``list_*`` / ``search_*`` pairs answer "what values does this tenant actually use" for
-    the four categorical fields, and are what a filter dropdown is built from. They read small
-    server-side tables rather than scanning events, so they are cheap but lag the events
-    slightly.
-
-    Events live in ClickHouse and settle after the call returns, so poll rather than assert
-    once.
+    The ``list_*`` / ``search_*`` pairs return the values in use for the four categorical fields.
+    They are cheap but lag the events slightly.
     """
     def list(self, limit: int | None = None) -> list[Event]:
         """A criteria-free page of the tenant's events.
 
-        **The oldest ``limit`` events, not the newest.** It runs the event filter with an empty
-        body, whose default sort is ``eventTime`` ascending — the order the cursor pages in. The
-        node listings beside it (``resources.list``, ``timeseries.list``, ``datasets.list``)
-        really are newest-first; events are the one member of the family that reads the other
-        way round. For "what just happened", use ``filter(sort_by="eventTime",
-        sort_order="desc")``.
+        **The oldest ``limit`` events, not the newest.** For the newest, use
+        ``filter(sort_by="eventTime", sort_order="desc")``.
 
-        ``limit`` defaults to the server's 1000 and may not exceed 10000. A plain list is
-        returned rather than a ``Page``: there is no cursor to continue with.
+        ``limit`` defaults to 1000 and may not exceed 10000. No paging.
         """
     def create(self, input: list[Event]) -> list[Event]:
         """Create events, returning the server's echo of them.
 
-        Any event without an ``id`` is stamped with a client-generated UUID v7 before the first
-        send, so a retry collapses onto the same row instead of duplicating. The stamp lands on
-        the returned objects — **your own ``Event`` instances still have ``id is None``**, so
-        read the id off the result.
+        Events without an ``id`` get a UUID v7 on the *returned* objects — **your own ``Event``
+        instances still have ``id is None``**.
 
-        ``type`` is required and must be 3–128 non-blank characters; a blank one is a 400 naming
-        the offending index.
+        ``type`` is required, 3–128 characters.
 
-        **With buffering enabled**, a send that cannot get through spools to disk and the call
-        returns an **empty list** rather than raising. An empty result therefore means
-        "buffered", not "nothing was created".
+        **With buffering enabled**, a send that cannot get through is spooled and the call returns
+        an empty list rather than raising.
         """
     def by_ids(self, input: list[EventIdentifiable]) -> list[Event]:
         """Events by UUID or external id — a bare ``uuid.UUID`` is an id, a bare ``str`` an
         external id, and an ``Event`` or ``EventIdCollection`` may carry either.
 
-        Silently omits what it cannot find, so a shorter list back is how an unknown id is
-        reported. Use ``get(uuid)`` when you want a single event and ``None`` for a miss.
+        Silently omits what it cannot find.
 
-        One external id can answer with **several** events: an external id names the set of
-        UUIDs behind it, which together are the lifecycle of one logical event.
+        One external id can answer with **several** events.
         """
     def get(self, id: UUID) -> Event | None:
         """Look up a single event by its UUID. Returns ``None`` if no such event exists."""
     def delete(self, input: list[EventIdentifiable]) -> None:
         """Delete events by UUID or external id. Returns ``None``.
-
-        Also the second half of a re-key: an event's ``external_id`` and ``event_time`` cannot
-        be updated, so correcting either means creating a replacement and deleting the original.
         """
     def update(self, input: list[EventUpdate]) -> list[Event]:
         """Update events in place. Each ``EventUpdate`` targets one event and carries only the
@@ -1429,9 +1219,13 @@ class EventsServiceSync:
         cursor: str | None = None,
         advanced_filter: str | None = None,
     ) -> Page:
-        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
-        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
-        reused across calls.
+        """Events matching every criterion, sorted by ``event_time`` **ascending** by default.
+
+        ``advanced_filter`` takes a boolean expression, e.g.
+        ``"type NOT LIKE 'pump' AND (subType = 'water' OR subType = 'gas')"``.
+
+        Pass either ``filter=`` or the criteria as keywords, not both. Returns a ``Page``;
+        ``limit`` defaults to 1000, and above 10000 is a 400.
         """
 
     def search(
@@ -1440,7 +1234,7 @@ class EventsServiceSync:
         filter: EventFilter | None = None,
         limit: int | None = None,
     ) -> list[Event]:
-        """Free-text search over event descriptions, ranked by relevance."""
+        """Free-text search over events, newest first."""
     def count(self) -> int:
         """Total number of events in the tenant."""
     def list_dimension(
@@ -1475,9 +1269,6 @@ class EventsServiceSync:
 class EventsServiceAsync:
     """Awaitable twin of ``EventsServiceSync``, reached as ``client.events`` on an
     ``AsyncDataHubClient``.
-
-    Same methods, same arguments, same semantics — each returns an awaitable instead of
-    blocking. ``EventsServiceSync`` carries the per-method documentation.
     """
     async def list(self, limit: int | None = None) -> list[Event]: ...
     async def create(self, input: list[Event]) -> list[Event]: ...
@@ -1506,9 +1297,8 @@ class EventsServiceAsync:
         cursor: str | None = None,
         advanced_filter: str | None = None,
     ) -> Page:
-        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
-        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
-        reused across calls.
+        """Pass either ``filter=`` or the criteria as keywords, not both. Returns a ``Page``;
+        ``limit`` defaults to 1000, and above 10000 is a 400.
         """
 
     async def search(
@@ -1539,10 +1329,8 @@ class EventsServiceAsync:
 class Dataset:
     """A data set — the unit access is granted on, and what every other node is scoped by.
 
-    Granting someone a data set grants them everything beneath it in the ``BELONGS_TO``
-    hierarchy, and naming one in a filter's ``data_set_id`` matches its children too. That is
-    also why a data set cannot itself belong to one: ``data_set_id`` is always ``None`` here and
-    is dropped on create.
+    A grant or a filter on a data set covers everything beneath it in the ``BELONGS_TO`` hierarchy.
+    ``data_set_id`` is always ``None`` here and is dropped on create.
     """
     def __init__(
         self,
@@ -1561,8 +1349,7 @@ class Dataset:
         external_id : str
             Required. The caller-chosen identifier.
         name : str | None
-            Defaults to ``external_id``. Note this runs the opposite way from ``TimeSeries`` and
-            ``Resource``, where a missing ``external_id`` is derived from the name.
+            Defaults to ``external_id``.
         id : int | None
             Server-assigned; leave unset when creating.
         description : str | None
@@ -1573,17 +1360,13 @@ class Dataset:
         metadata : dict[str, str] | None
             Free-form key/value pairs; defaults to ``{}``. A filter criterion.
         connected_data_sets : list[int] | None
-            **Input-only, and it does not build a hierarchy.** The api never populates it on a
-            read, so it is empty on everything the server returns. To make one data set a child
-            of another, create the edge explicitly — and mind the direction: the row is stored
-            ``from = parent, to = child``, even though the relationship is named ``BELONGS_TO``.
-            Reversing it produces no hierarchy and no error.
+            **Input-only, and it does not build a hierarchy.** Create a ``BELONGS_TO`` edge
+            ``from = parent, to = child`` instead; reversed, it silently builds nothing.
         """
     @property
     def node_type(self) -> str:
         """This node's type as a string ("asset", "timeseries", "function", "resource",
-        "dataset", "policy"). Present on every node class, for dispatching from data rather
-        than with an isinstance ladder."""
+        "dataset", "policy")."""
     @property
     def labels(self) -> list[str] | None:
         """Always includes the intrinsic "DATASET" type-label."""
@@ -1630,12 +1413,10 @@ class Dataset:
         relationship_types: list[str] | None = None,
         limit: int = 5000,
     ) -> ResourceNetwork:
-        """Walk the graph from this dataset and return the connected sub-graph (its ``nodes``, the
-        ``edges`` between them, and their ``labels``). ``depth`` bounds the traversal in hops
-        (``-1``, the default, = the whole connected component); ``relationship_types`` filters
-        which edge types to follow (``None`` = all); ``limit`` caps the node count. Neighbour
-        nodes are typed as their own classes. Blocking; see ``neighbors_async`` for the
-        awaitable variant.
+        """Walk the graph from this dataset and return the connected sub-graph.
+
+        ``depth`` bounds the hops (``-1``, the default, is unbounded); ``relationship_types``
+        filters the edge types followed; ``limit`` caps the node count.
         """
     async def neighbors_async(
         self,
@@ -1645,9 +1426,7 @@ class Dataset:
     ) -> ResourceNetwork:
         """Awaitable variant of ``neighbors``."""
     def related_events(self, limit: int = 100) -> list[Event]:
-        """Fetch events whose ``related_resources`` include this dataset (matched by graph-node id
-        when present, else external id), via ``events.filter``. ``limit`` caps the results
-        (default 100). Blocking; see ``related_events_async``.
+        """Events whose ``related_resources`` include this dataset. ``limit`` caps the results.
         """
     async def related_events_async(self, limit: int = 100) -> list[Event]:
         """Awaitable variant of ``related_events``."""
@@ -1656,15 +1435,9 @@ class Dataset:
 class DatasetFilter:
     """AND-combined criteria for ``datasets.filter``.
 
-    ``external_id``, ``name`` and ``source`` are pattern lists — see ``PatternList`` — so
-    ``external_id=["sap_*"]`` replaces the retired ``external_id_prefix`` and can be combined
-    with exact ids in the same list. ``labels`` must **all** be present; names are canonicalised,
-    so ``"pump a"`` finds the label stored as ``PUMP_A``. Every ``metadata`` entry must be present,
-    and a ``None`` value matches the key alone.
-
-    There is no ``data_set_id``: a dataset is the thing other nodes are scoped by, and no
-    ``write_protected`` / ``deactivated`` either — both were removed server-side as inert, so a
-    filter carrying them looked like it was narrowing and was not.
+    ``external_id``, ``name`` and ``source`` are pattern lists — see ``PatternList``. Every
+    ``labels`` and ``metadata`` entry must be present; a ``None`` metadata value matches the key
+    alone.
     """
     def __init__(
         self,
@@ -1682,12 +1455,10 @@ class DatasetFilter:
 class DatasetUpdate:
     """A partial update for one dataset, mirroring the server's update form.
 
-    ``dataset`` names the target — a ``Dataset``, an ``IdCollection``, an external id or a
-    numeric id. Every other argument is a field wrapper and only the ones you pass are sent;
-    anything omitted is left untouched.
+    ``dataset`` names the target by ``Dataset``, ``IdCollection``, external id or id. Omitted fields
+    are left untouched.
 
-    There is deliberately no ``policies`` or ``connected_data_sets`` here: the update endpoint
-    does not accept them, whatever a ``Dataset`` can carry on create.
+    ``policies`` and ``connected_data_sets`` cannot be updated.
     """
     def __init__(
         self,
@@ -1707,24 +1478,17 @@ class DatasetUpdate:
 class DatasetsServiceSync:
     """The blocking ``/datasets`` surface.
 
-    Reached as ``client.datasets``. A data set is the unit access is granted on, and what every
-    other node is scoped by — so it sits above the things that belong to it, both for
-    permissions and for deletion.
-
-    Naming a data set in a filter covers everything beneath it in the ``BELONGS_TO`` hierarchy,
-    the same expansion its ACL grant applies.
+    Reached as ``client.datasets``.
     """
     def list(self, limit: int | None = None) -> list[Dataset]:
-        """Datasets in the tenant, newest first. ``limit`` defaults to the server's 1000 and may
-        not exceed 10000; there is no paging, so a bigger tenant is truncated rather than paged
-        — use ``filter`` to narrow instead.
+        """Datasets in the tenant, newest first. ``limit`` defaults to 1000 and may not exceed
+        10000. No paging; narrow with ``filter``.
         """
     def create(self, input: list[Dataset]) -> list[Dataset]:
         """Create data sets, returning the echo with the server-assigned ``id``s.
 
-        A ``data_set_id`` set on the input is silently dropped: a data set inside a data set
-        would orphan its ACL grant. Build the hierarchy with an explicit ``BELONGS_TO`` edge
-        instead — ``connected_data_sets`` does not create one.
+        A ``data_set_id`` on the input is silently dropped. Build a hierarchy with an explicit
+        ``BELONGS_TO`` edge; ``connected_data_sets`` does not create one.
         """
     def by_ids(self, input: list[Identifiable]) -> list[Dataset]:
         """Data sets by id or external id — a bare ``int`` is an id, a bare ``str`` an external id,
@@ -1755,9 +1519,8 @@ class DatasetsServiceSync:
         sort_order: str | None = None,
         cursor: str | None = None,
     ) -> Page:
-        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
-        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
-        reused across calls.
+        """Pass either ``filter=`` or the criteria as keywords, not both. Returns a ``Page``;
+        ``limit`` defaults to 1000, and above 10000 is a 400.
         """
 
     def search(
@@ -1768,39 +1531,28 @@ class DatasetsServiceSync:
     ) -> list[Dataset]:
         """Free-text search for ``query``, ranked by relevance.
 
-        ``filter`` takes the same criteria as ``filter()`` and only ever removes hits from the
-        phrase's — it cannot widen them, so omitting it returns them as found. ``limit`` caps what
-        survives, defaulting to 100 and capping at 1000; the ``filter`` endpoints use 1000/10000,
-        which is easy to conflate.
+        ``filter`` narrows the hits, never widens them. ``limit`` defaults to 100 and caps at 1000.
         """
     def update(self, input: list[DatasetUpdate]) -> list[Dataset]:
         """Apply partial updates, returning the datasets as they stand afterwards.
 
-        A dataset is the unit access is granted on, so the server treats editing one as an
-        operator action: this needs an all-datasets write grant and raises 403 without one, even
-        for a caller who can write the dataset's contents.
+        Needs an all-datasets write grant (**403** without), even for a caller who can write the
+        dataset's contents.
 
-        Settable: ``external_id``, ``name``, ``description``, ``metadata`` and ``labels``. There
-        is no ``policies`` or ``connected_data_sets`` — the endpoint does not accept them,
-        whatever a ``Dataset`` can carry on create — and no ``write_protected`` /
-        ``deactivated``, both removed server-side as inert. Changing ``external_id`` to one
-        already taken is a **409**.
+        Settable: ``external_id``, ``name``, ``description``, ``metadata`` and ``labels``. Changing
+        ``external_id`` to one already taken is a **409**.
         """
     def policies(self) -> list[Resource]:
         """The access policies a dataset can be associated with, as ``Resource``s.
 
-        **Known to come back empty even when policies exist** — the server answers 200 with no
-        body at all. That is a server-side bug, not something these bindings can work around, so
-        treat an empty result as "unknown" rather than "none".
+        **Can come back empty even when policies exist** (a server bug), so an empty result means
+        "unknown".
         """
 
 
 class DatasetsServiceAsync:
     """Awaitable twin of ``DatasetsServiceSync``, reached as ``client.datasets`` on an
     ``AsyncDataHubClient``.
-
-    Same methods, same arguments, same semantics — each returns an awaitable instead of
-    blocking. ``DatasetsServiceSync`` carries the per-method documentation.
     """
     async def list(self, limit: int | None = None) -> list[Dataset]: ...
     async def create(self, input: list[Dataset]) -> list[Dataset]: ...
@@ -1823,9 +1575,8 @@ class DatasetsServiceAsync:
         sort_order: str | None = None,
         cursor: str | None = None,
     ) -> Page:
-        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
-        ``TypeError``. Paging is always given here rather than on the filter, so one filter can be
-        reused across calls.
+        """Pass either ``filter=`` or the criteria as keywords, not both. Returns a ``Page``;
+        ``limit`` defaults to 1000, and above 10000 is a 400.
         """
 
     async def search(
@@ -1846,9 +1597,8 @@ class Resource:
     Give ``name`` or ``external_id``; the missing one is derived from the other, and passing
     neither raises ``ValueError``.
 
-    **``geolocation`` is write-only on a plain resource**: the server accepts it and never
-    echoes it, so it reads back as ``None``. Assets do carry theirs — create the node with the
-    ``ASSET`` label, or use ``client.assets``, if the geometry needs to survive a round trip.
+    **``geolocation`` is write-only on a plain resource** and reads back as ``None``; use an
+    ``Asset`` to keep it.
 
     ``related_resources`` is filled only by the graph reads and the ``/resources/create`` echo;
     every flat read answers ``[]``.
@@ -1870,8 +1620,7 @@ class Resource:
     @property
     def node_type(self) -> str:
         """This node's type as a string ("asset", "timeseries", "function", "resource",
-        "dataset", "policy"). Present on every node class, for dispatching from data rather
-        than with an isinstance ladder."""
+        "dataset", "policy")."""
     @property
     def name(self) -> str: ...
     @name.setter
@@ -1930,11 +1679,10 @@ class Resource:
         relationship_types: list[str] | None = None,
         limit: int = 5000,
     ) -> ResourceNetwork:
-        """Walk the graph from this resource and return the connected sub-graph (its ``nodes``, the
-        ``edges`` between them, and their ``labels``). ``depth`` bounds the traversal in hops
-        (``-1``, the default, = the whole connected component); ``relationship_types`` filters
-        which edge types to follow (``None`` = all); ``limit`` caps the node count. Blocking;
-        see ``neighbors_async`` for the awaitable variant.
+        """Walk the graph from this resource and return the connected sub-graph.
+
+        ``depth`` bounds the hops (``-1``, the default, is unbounded); ``relationship_types``
+        filters the edge types followed; ``limit`` caps the node count.
         """
     async def neighbors_async(
         self,
@@ -1944,9 +1692,7 @@ class Resource:
     ) -> ResourceNetwork:
         """Awaitable variant of ``neighbors``."""
     def related_events(self, limit: int = 100) -> list[Event]:
-        """Fetch events whose ``related_resources`` include this resource (matched by graph-node id
-        when present, else external id), via ``events.filter``. ``limit`` caps the results
-        (default 100). Blocking; see ``related_events_async``.
+        """Events whose ``related_resources`` include this resource. ``limit`` caps the results.
         """
     async def related_events_async(self, limit: int = 100) -> list[Event]:
         """Awaitable variant of ``related_events``."""
@@ -1955,8 +1701,7 @@ class Resource:
 class Asset:
     """A resource that carries a geographic location.
 
-    Assets and plain resources share a field set; the API tells them apart by the intrinsic
-    "ASSET" type-label, and only an asset ever has its `geolocation` echoed back on a read.
+    Unlike a plain ``Resource``, its ``geolocation`` survives a round trip.
     """
 
     def __init__(
@@ -2144,9 +1889,7 @@ class ResourceNetwork:
     `labels`."""
     @property
     def nodes(self) -> list[Node]:
-        """The nodes in the traversed sub-graph, each as its own class (``Asset``, ``TimeSeries``,
-        ``Dataset``, …), carrying what a flat read carries. Type-specific fields stay optional:
-        a node written before a field was projected reports it absent, which is not a default.
+        """The nodes in the traversed sub-graph, each as its own class.
         """
     @property
     def edges(self) -> list[EdgeProxy]: ...
@@ -2211,14 +1954,12 @@ class RelForm:
     ) -> RelForm:
         """An edge between two nodes named by external id.
 
-        Direction matters and is not implied by the type name: the edge runs *from* the first
-        argument *to* the second. A dataset hierarchy is stored ``from = parent, to = child``
-        under ``BELONGS_TO``; reversing it produces no hierarchy and no error.
+        Runs *from* the first *to* the second. A dataset hierarchy is ``from = parent, to = child``;
+        reversed, it silently builds nothing.
         """
     @classmethod
     def by_ids(cls, from_id: int, to_id: int, relationship_type: str) -> RelForm:
-        """An edge between two nodes named by numeric id. Runs *from* the first *to* the second —
-        see ``by_external_ids`` on why the direction matters.
+        """An edge between two nodes named by numeric id, *from* the first *to* the second.
         """
     @property
     def id(self) -> int | None: ...
@@ -2259,7 +2000,7 @@ class ResourceUpdate:
     """One resource's update for `resources.update`. Target the resource by a `Resource`, its
     numeric id, or its external id; every field is optional and uses the same wrappers as the
     other update APIs (`FieldStr` for scalars, `ListFieldStr` for labels, `MapField` for
-    metadata). Mirrors `TimeSeriesUpdate`."""
+    metadata)."""
     def __init__(
         self,
         resource: ResourceIdentifiable,
@@ -2282,10 +2023,6 @@ class ResourceUpdate:
 
 class ResourceFilter:
     """AND-combined criteria for ``resources.filter`` and the ``filter`` of ``resources.search``.
-
-    The same arguments ``resources.filter`` takes as keywords, in an object — which is what
-    ``search`` needs, since a filter passed positionally there would be indistinguishable from the
-    search form.
     """
     def __init__(
         self,
@@ -2306,67 +2043,46 @@ class ResourceFilter:
 class ResourcesServiceSync:
     """The blocking ``/resources`` surface — the **generic node service**.
 
-    Reached as ``client.resources``. Unlike the typed services beside it, every read here spans
-    all six node types (asset, timeseries, function, resource, data set, policy) and answers
-    each row as its own class, so ``isinstance(node, TimeSeries)`` works on what comes back and
-    an object from ``resources.filter()`` behaves exactly like one from ``timeseries.by_ids()``.
-    Narrow with ``node_type`` when you want only some of them.
-
-    This is also the only service that creates nodes **and** the edges between them in one call.
-    Edges between resources that already exist go through ``client.edges`` instead.
+    Reached as ``client.resources``. Reads span all six node types and answer each row as its own
+    class; narrow with ``node_type``.
     """
     def list(self, limit: int | None = None) -> list[Node]:
-        """The first ``limit`` nodes in the tenant, newest created first — the cheap "what have I
-        got" read, with no criteria and no paging.
+        """The first ``limit`` nodes in the tenant, newest created first.
 
-        Spans every node type and answers each row as its own class, exactly as ``filter`` does,
-        so ``isinstance(node, TimeSeries)`` works on what comes back. ``limit`` defaults to the
-        server's 1000 and may not exceed 10000; a ``Page`` is not returned because there is no
-        cursor to continue with — narrow with ``filter`` instead of raising the number.
+        Each row is its own class. ``limit`` defaults to 1000 and may not exceed 10000. No paging;
+        narrow with ``filter``.
         """
     def create(
         self, nodes: list[Node], relations: list[RelForm] | None = None
     ) -> GraphResult:
         """Create nodes, and optionally the edges between them, in one call.
 
-        ``nodes`` takes any of the six node classes; each is dispatched server-side by its own
-        type-labels. ``relations`` is a list of ``RelForm``, creating edges among the nodes
-        being created; omit it for nodes alone.
+        ``nodes`` takes any of the six node classes; ``relations`` is a list of ``RelForm``.
 
-        Returns a ``GraphResult``: ``.nodes`` typed per row, ``.relations`` the created edges
-        with their server-assigned ids. This is one of the only two paths that populate a node's
-        ``related_resources`` — flat reads always answer ``[]``.
-
-        Things worth knowing:
+        Returns a ``GraphResult`` of ``.nodes`` and ``.relations``.
 
         - ``Dataset`` and ``Policy`` nodes need the all-datasets manage grant (**403** without
           it), and their ``data_set_id`` is silently dropped.
         - A duplicate ``external_id`` surfaces as a constraint violation, not the clean 409
           ``timeseries.create`` gives.
-        - An unknown ``relationship_type``, or an unknown entry in ``labels``, is **created on the
-          fly** rather than rejected. Convenient, but a typo becomes a permanent catalogue entry,
-          and relationship types cannot be deleted.
+        - An unknown ``relationship_type`` or label is **created on the fly**, so a typo becomes a
+          permanent catalogue entry.
         - A node carrying two type-labels is a 400 naming both.
         """
     def by_ids(self, input: list[ResourceIdentifiable]) -> list[Node]:
         """Nodes by id or external id, each typed as its own class.
 
-        Accepts any node object, a bare ``int`` (id) or a bare ``str`` (external id). Silently
-        omits what it cannot find — contrast ``get_by_id``, which raises on a miss.
-
-        ``related_resources`` is empty on this path, as on every flat read.
+        Accepts any node object, a bare ``int`` (id) or a bare ``str`` (external id). Silently omits
+        what it cannot find.
         """
     def delete(self, input: list[ResourceIdentifiable]) -> None:
         """Delete nodes, and with them their relationships. Returns ``None``.
 
-        **Refuses to strand a node.** Deleting something that is another node's only route to
-        the graph root answers **409** with ``problem_slug == "would-strand"``, naming the
-        blockers in ``problem["blockedBy"]``. Include them in the same delete, or keep a
-        connecting path.
+        **Refuses to strand a node**: **409** ``would-strand``, the blockers in
+        ``problem["blockedBy"]``.
 
-        The check reads the graph projection, which lags the write — so deleting very soon after
-        creating gets the *wrong answer* rather than an error: the refusal does not fire and the
-        node is stranded. Leave a moment between the two.
+        The check lags the write: deleting right after creating can strand the node without an
+        error.
         """
     def search(
         self,
@@ -2376,23 +2092,12 @@ class ResourcesServiceSync:
     ) -> list[Node]:
         """Free-text search for ``query``, ranked by relevance.
 
-        ``filter`` takes the same criteria as ``filter()`` and only ever removes hits from the
-        phrase's — it cannot widen them, so omitting it returns them as found. ``limit`` caps what
-        survives, defaulting to 100 and capping at 1000; the ``filter`` endpoints use 1000/10000,
-        which is easy to conflate.
+        ``filter`` narrows the hits, never widens them. ``limit`` defaults to 100 and caps at 1000.
         """
     def update(self, input: list[ResourceUpdate]) -> GraphResult:
-        """Update nodes in place. Each ``ResourceUpdate`` targets one node and carries only the
-        fields to change; every field it can set is shared by all node types, so one update form
-        covers them all.
+        """Update nodes of any type in place.
 
-        **The echo is typed**, like every other read here: ``.nodes`` holds each node as its own
-        class, so a timeseries comes back as ``TimeSeries`` carrying its ``unit`` and an asset
-        as ``Asset`` carrying its ``geo_location``. The ``labels`` reflect what the server
-        stored, intrinsic type-label included.
-
-        This used to answer with a plain ``Resource`` whatever the node's real type. The api's
-        node-update refactor made the pipeline per-type and the echo followed.
+        **The echo is typed**: ``.nodes`` holds each node as its own class.
         """
     def get_by_id(self, id: int) -> Node | None:
         """``GET /resources/{id}`` — one resource by numeric id. Raises when it does not exist,
@@ -2420,23 +2125,18 @@ class ResourcesServiceSync:
         """``POST /resources/filter`` — the generic node query; criteria combine with AND.
 
         Spans **every node type** unless narrowed with ``node_type`` (``asset``, ``timeseries``,
-        ``function``, ``resource``, ``dataset``, ``policy``); every node carries its type as a
-        label so you can tell what came back.
+        ``function``, ``resource``, ``dataset``, ``policy``).
 
-        ``external_id``, ``name`` and ``source`` are pattern lists; ``labels`` must all be
-        present; a ``None`` ``metadata`` value matches the key alone. ``data_set_id`` expands
-        down the dataset hierarchy, and ``None`` (no restriction) differs from ``[]``
-        (narrow to no datasets, matching nothing). See ``TimeSeriesFilter`` for the sort and
-        cursor rules.
+        ``external_id``, ``name`` and ``source`` are pattern lists; ``labels`` must all be present;
+        a ``None`` ``metadata`` value matches the key alone. ``data_set_id`` expands down the
+        dataset hierarchy, and ``None`` (no restriction) differs from ``[]`` (narrow to no datasets,
+        matching nothing).
         """
 
 
 class ResourcesServiceAsync:
     """Awaitable twin of ``ResourcesServiceSync``, reached as ``client.resources`` on an
     ``AsyncDataHubClient``.
-
-    Same methods, same arguments, same semantics — each returns an awaitable instead of
-    blocking. ``ResourcesServiceSync`` carries the per-method documentation.
     """
     async def list(self, limit: int | None = None) -> list[Node]: ...
     async def create(
@@ -2478,9 +2178,7 @@ class ResourcesServiceAsync:
 
 class Label:
     """A DataHub label. `name` is the identifier you set (3–512 chars, canonicalised to
-    SNAKE_UPPER_CASE server-side); `id`/`color` are usually assigned by the server. Also the
-    shape returned inside a `ResourceNetwork` from `resources.fetch_related` (there
-    `color`/`i18n_code` are `None`)."""
+    SNAKE_UPPER_CASE server-side); `id`/`color` are usually assigned by the server."""
     def __init__(
         self,
         name: str | None = None,
@@ -2518,15 +2216,12 @@ LabelIdentifiable = Union["Label", int, str]
 class LabelsServiceSync:
     """The blocking ``/labels`` surface — the tenant's label dictionary.
 
-    Reached as ``client.labels``. A label is a dictionary row rather than an entity: the server
-    creates one on first use, so tagging a resource with a new name needs no seeding here, and a
-    label cannot be deleted while anything still carries it.
+    Reached as ``client.labels``. The server creates a label on first use.
     """
     def list(self) -> list[Label]:
         """Every label in the tenant."""
     def get(self, id: int) -> Label | None:
-        """A single label by numeric id, or ``None`` if it doesn't exist (the server answers an
-        unknown id with 404; that is absorbed into ``None``).
+        """A single label by numeric id, or ``None`` if it doesn't exist.
         """
     def create(self, input: list[Label]) -> list[Label]:
         """Create labels (each needs a unique ``name``). A duplicate name raises with status 409.
@@ -2536,20 +2231,14 @@ class LabelsServiceSync:
     def delete(self, input: list[LabelIdentifiable]) -> None:
         """Delete labels by ``Label``, numeric id, or name.
 
-        Refused with **400** while any resource still carries the label — drop it from those
-        resources first, with ``resources.update`` and ``labels.remove``. The problem's
-        ``fields`` name the label and the node still holding it. An intrinsic type-label
-        (``ASSET``, ``TIMESERIES``, …) is refused the same way: those are reserved, attached or
-        not.
+        Refused with **400** while any resource still carries the label, and always for an intrinsic
+        type-label (``ASSET``, ``TIMESERIES``, …).
         """
 
 
 class LabelsServiceAsync:
     """Awaitable twin of ``LabelsServiceSync``, reached as ``client.labels`` on an
     ``AsyncDataHubClient``.
-
-    Same methods, same arguments, same semantics — each returns an awaitable instead of
-    blocking. ``LabelsServiceSync`` carries the per-method documentation.
     """
     async def list(self) -> list[Label]: ...
     async def get(self, id: int) -> Label | None: ...
@@ -2564,10 +2253,7 @@ class Unit:
     """One entry of the DataHub unit catalogue — the shared vocabulary a timeseries points at
     through ``unit_external_id``.
 
-    Referencing a catalogue entry rather than typing free text into ``TimeSeries.unit`` is what
-    makes a series' unit comparable and convertible: ``conversion`` carries the factors to the
-    other units of the same ``quantity``. Units are read-only here — the catalogue is seeded
-    server-side, so this class is what ``units.list()`` and ``units.by_ids()`` hand back.
+    Read-only: the catalogue is seeded server-side.
 
     Parameters
     ----------
@@ -2657,28 +2343,20 @@ class Unit:
 class UnitServiceSync:
     """The blocking ``/units`` surface — read-only access to the tenant's unit catalogue.
 
-    Reached as ``client.units``. The catalogue is seeded server-side, so there is no create,
-    update or delete here. A unit's ``external_id`` is the stable handle you put in
-    ``TimeSeries.unit_external_id``.
+    Reached as ``client.units``.
     """
     def list(self) -> list[Unit]:
         """The whole catalogue, in one call.
-
-        No ``limit``, no filter, no paging — this is the only way to enumerate units, and the
-        way to find the ``external_id`` for a unit you want to reference.
         """
     def by_ids(self, input: list[IdCollection]) -> list[Unit]:
         """Units by id or external id. Missing entries are omitted rather than raising.
 
-        **Takes ``IdCollection`` objects only** — unlike every other ``by_ids`` in these
-        bindings, a bare ``str`` or ``int`` is a ``TypeError``. Write
-        ``units.by_ids([IdCollection(external_id="pressure_bar")])``.
+        **Takes ``IdCollection`` objects only**; a bare ``str`` or ``int`` is a ``TypeError``.
         """
     def by_external_ids(self, input: str) -> list[Unit]:
         """One unit by external id.
 
-        **Singular despite the name** — it takes one string, not a list, and answers with a list
-        of zero or one. A unit that does not exist is an empty list rather than an exception.
+        **Singular despite the name**: one string in, a list of zero or one out.
 
         The awaitable twin is spelled ``by_external_id``, without the ``s``.
         """
@@ -2687,9 +2365,6 @@ class UnitServiceSync:
 class UnitServiceAsync:
     """Awaitable twin of ``UnitServiceSync``, reached as ``client.units`` on an
     ``AsyncDataHubClient``.
-
-    Same methods, same arguments, same semantics — each returns an awaitable instead of
-    blocking. ``UnitServiceSync`` carries the per-method documentation.
     """
     async def list(self) -> list[Unit]: ...
     async def by_ids(self, input: list[IdCollection]) -> list[Unit]: ...
@@ -2701,12 +2376,9 @@ class UnitServiceAsync:
 class INode:
     """One entry in the file tree — a file or a folder.
 
-    The file hierarchy is separate from the resource graph: ``INode``s have their own ids, their
-    own ``path``, and their own ``security_categories``. What ties the two together is
-    ``related_resources``, whose ids ``related_resource_nodes()`` resolves to node objects.
+    Separate from the resource graph; ``related_resources`` is what links the two.
 
-    A soft-deleted file keeps its row but has its ``external_id`` rewritten to
-    ``DELETED_<checksum>_<id>_<epochMillis>``, which is why ``restore`` wants the numeric id.
+    A soft-deleted file has its ``external_id`` rewritten, so ``restore`` takes the numeric id.
     """
     def __init__(
         self,
@@ -2772,10 +2444,7 @@ class INode:
     # --- navigation (only on inodes returned by the API; raises otherwise) ---
     # `related_resources` (above) returns the raw ids; these resolve them to Resource objects.
     def related_resource_nodes(self) -> list[Node]:
-        """Fetch the resources this file references (its ``related_resources`` ids), resolved to
-        ``Resource`` objects via the resources service. (The ``related_resources`` *property*
-        returns the raw ids; this resolves them.) Blocking; see
-        ``related_resource_nodes_async``.
+        """Resolve ``related_resources`` to ``Resource`` objects.
         """
     async def related_resource_nodes_async(self) -> list[Node]:
         """Awaitable variant of ``related_resource_nodes``."""
@@ -2785,12 +2454,8 @@ class FileUpload:
     """Describes one file to upload: where to read it from locally, where to put it remotely, and
     the metadata to attach.
 
-    ``from_path`` is the short form for a file that should keep its own name;
-    ``new_with_destination_path`` places it somewhere else in the tree.
-
-    **Construction touches the filesystem and panics on failure** — a missing path, a
-    non-regular file or an unreadable name raises ``PanicException``, which derives from
-    ``BaseException`` and so is not caught by ``except Exception``. Check the path first.
+    **Construction reads the filesystem and panics on failure**: a bad path raises
+    ``PanicException``, which ``except Exception`` does not catch.
 
     Leave ``mime_type`` unset to have the server detect it.
     """
@@ -2809,14 +2474,10 @@ class FileUpload:
     @classmethod
     def from_path(cls, path: str) -> FileUpload:
         """Upload a local file, keeping its own name, into the root of the tree.
-
-        Touches the filesystem: a missing or unreadable path raises ``PanicException``, which
-        ``except Exception`` does not catch.
         """
     @classmethod
     def new_with_destination_path(cls, path: str, destination_path: str) -> FileUpload:
-        """Upload a local file to a chosen path in the tree, rather than to the root under its own
-        name. Same filesystem caveat as ``from_path``.
+        """Upload a local file to a chosen path in the tree.
         """
     @property
     def external_id(self) -> str: ...
@@ -2847,8 +2508,7 @@ class FileUpload:
 class FileUpdate:
     """A partial update for one file or folder.
 
-    Identify the node with ``external_id`` or ``id``; every other argument is optional and only
-    sent when given, so an omitted field is left unchanged.
+    Identify the node with ``external_id`` or ``id``. Omitted fields are left unchanged.
     """
 
     def __init__(
@@ -2888,9 +2548,7 @@ FileIdentifiable = Union[INode, IdCollection, int, str]
 class FilesServiceSync:
     """The blocking ``/files`` surface — a file and folder tree of ``INode``s.
 
-    Reached as ``client.files``. Separate from the resource graph: files have their own
-    hierarchy, their own ids, and their own ``security_categories``. What ties the two together
-    is an ``INode``'s ``related_resources``.
+    Reached as ``client.files``.
 
     Deleting is a **soft** delete — the file moves to the trash, where ``list_trash`` finds it
     and ``restore`` brings it back.
@@ -2898,33 +2556,22 @@ class FilesServiceSync:
     def upload_file(self, file_upload: FileUpload) -> list[INode]:
         """Upload one file, described by a ``FileUpload``. Returns the created ``INode``s.
 
-        The content is the raw ``PUT`` body — streamed, so a large file is not held in memory —
-        and every piece of metadata rides in ``X-Datahub-*`` headers. Leaving ``mime_type``
-        unset lets the server detect it.
-
-        **Local-file problems are ``PanicException``, not ``DataHubException``.** A path that
-        does not exist, is not a regular file, or cannot be opened raises a panic that derives
-        from ``BaseException``, so a plain ``except Exception`` will not catch it. Check the
-        path before calling.
+        **Local-file problems are ``PanicException``, not ``DataHubException``**, and
+        ``except Exception`` does not catch them.
         """
     def list_root_directory(self) -> list[INode]:
-        """The contents of the file tree's root. Takes no arguments — there is no limit and no
-        cursor on this endpoint.
+        """The contents of the file tree's root.
         """
     def delete(self, input: list[FileIdentifiable]) -> None:
         """Move files to the trash. Returns ``None``.
 
-        **A soft delete**, not a purge: the node stays visible through ``list_trash`` and can be
-        brought back with ``restore``. Its ``external_id`` is rewritten to
-        ``DELETED_<checksum>_<id>_<epochMillis>`` on the way, so the original external id is
-        free again immediately — and a trashed file can no longer be found under it.
+        A soft delete: ``restore`` brings it back. The ``external_id`` is freed immediately, so a
+        trashed file can no longer be found under it.
         """
     def list_directory_by_path(self, path: str) -> list[INode]:
         """The contents of one directory, named by its absolute path.
 
-        **``path`` must begin with ``/``** — it is appended to the route as given, so
-        ``"/images"`` works and ``"images"`` silently addresses the wrong route. ``""`` is the
-        root, the same as ``list_root_directory``.
+        **``path`` must begin with ``/``**; without it the call silently addresses the wrong route.
         """
     def get_by_id(self, id: int) -> list[INode]:
         """Metadata for one file or folder, by numeric id."""
@@ -2935,9 +2582,8 @@ class FilesServiceSync:
     def list_trash(self) -> list[INode]:
         """The soft-deleted files the caller can read."""
     def restore(self, input: list[FileIdentifiable]) -> list[INode]:
-        """Restore soft-deleted files. Identify each by numeric id: the trashed
-        ``DELETED_..._<epochMillis>`` external id does not round-trip through the server's
-        lowercasing hash, so that route answers 404. See ``FileService::restore`` in the SDK.
+        """Restore soft-deleted files, identified by numeric id; the trashed external id answers
+        404.
         """
     def update(self, update: FileUpdate) -> list[INode]:
         """Rename, move, or edit the metadata of one file or folder."""
@@ -2952,9 +2598,6 @@ class FilesServiceSync:
 class FilesServiceAsync:
     """Awaitable twin of ``FilesServiceSync``, reached as ``client.files`` on an
     ``AsyncDataHubClient``.
-
-    Same methods, same arguments, same semantics — each returns an awaitable instead of
-    blocking. ``FilesServiceSync`` carries the per-method documentation.
     """
     async def upload_file(self, file_upload: FileUpload) -> list[INode]: ...
     async def list_root_directory(self) -> list[INode]: ...
@@ -2975,8 +2618,8 @@ class FilesServiceAsync:
 class Subscription:
     """A standing request for change notifications on a set of timeseries.
 
-    Create one with ``subscriptions.create``, then open a WebSocket for it with
-    ``subscriptions.listen``. ``id`` is assigned by the server and is read-only.
+    Every referenced series must already exist, and a series bound to a subscription cannot be
+    deleted.
     """
     def __init__(
         self,
@@ -3004,8 +2647,7 @@ class SubscriptionFilter:
 class DataSort:
     """A sort for ``subscriptions.filter``: a ``property`` and an ``order``.
 
-    Anything other than ``"desc"`` sorts ascending, and an unrecognised property falls back to
-    the default rather than raising.
+    Anything other than ``"desc"`` sorts ascending; an unknown property falls back to the default.
     """
     def __init__(
         self,
@@ -3022,9 +2664,8 @@ class SubscriptionFilterForm:
     """The prepared request body for ``subscriptions.filter`` — a ``SubscriptionFilter`` plus
     ``limit`` and ``sort``.
 
-    Optional: ``filter()`` takes the same things as keywords. Passing both a ``form`` and any of
-    the keywords raises ``ValueError``. **Its ``limit`` defaults to 100**, where ``list()``
-    leaves the server's 1000.
+    Optional: ``filter()`` takes the same as keywords; passing both raises ``ValueError``.
+    **``limit`` defaults to 100.**
     """
     def __init__(
         self,
@@ -3065,8 +2706,7 @@ class WsDatapoint:
     @property
     def value(self) -> str: ...
     def as_float(self) -> float:
-        """Parse the value as a float. Raises ValueError if the value isn't numeric (e.g. for
-        string-typed timeseries that share this delivery channel).
+        """Parse the value as a float. Raises ``ValueError`` if the value isn't numeric.
         """
 
 
@@ -3105,9 +2745,7 @@ class DataWrapperMessage:
 class SubscriptionMessage:
     """One message off the subscription socket.
 
-    ``payload`` is the content; ``message_id`` is what you hand to ``ack()`` or ``nack()``. An
-    unacked message is redelivered to the next listener on the same subscription, so acking is
-    what marks it done.
+    Hand ``message_id`` to ``ack()`` or ``nack()``; an unacked message is redelivered.
     """
     @property
     def subscription_external_id(self) -> str:
@@ -3124,22 +2762,19 @@ SubscriptionIdentifiable = Union[Subscription, IdCollection, int, str]
 
 
 class SubscriptionListener:
-    """Synchronous Python wrapper around the Rust ``SubscriptionListener``. Iterating drives the
-    underlying WebSocket: ``for msg in listener:`` blocks until the next message or returns when
-    the connection closes cleanly.
+    """A WebSocket listener: ``for msg in listener:`` blocks until the next message and ends when
+    the connection closes.
     """
     def __iter__(self) -> SubscriptionListener: ...
     def __next__(self) -> SubscriptionMessage: ...
     def next_message(self) -> SubscriptionMessage | None:
         """Wait for the next message. Returns None when the connection has been closed cleanly,
-        raises on transport / deserialization errors. Equivalent to driving the iterator one
-        step but without using StopIteration as the close signal.
+        raises on transport / deserialization errors.
         """
     def ack(self, message_ids: list[str]) -> None:
         """Acknowledge messages, marking them done.
 
-        An unacked message is redelivered to the next listener on the same subscription, so
-        acking is what stops it coming back.
+        An unacked message is redelivered.
         """
     def nack(self, message_ids: list[str]) -> None:
         """Negatively acknowledge messages, asking for them to be redelivered."""
@@ -3151,8 +2786,6 @@ class SubscriptionListener:
         """Replace the whole subscription set with ``external_ids``."""
     def close(self) -> None:
         """Close the socket. Iteration then stops and ``next_message`` returns ``None``.
-
-        The listener is also a context manager, which closes on exit.
         """
     def __enter__(self) -> SubscriptionListener: ...
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None: ...
@@ -3176,23 +2809,20 @@ class SubscriptionListenerAsync:
 class SubscriptionsServiceSync:
     """The blocking ``/subscriptions`` surface, plus the WebSocket listener.
 
-    Reached as ``client.subscriptions``. A subscription binds a set of timeseries to a fan-out
-    topic; ``listen()`` then opens a socket that streams the datapoints those series receive.
+    Reached as ``client.subscriptions``. ``listen()`` opens a socket streaming the datapoints the
+    subscribed series receive.
 
-    Note the two reads default differently: ``list()`` leaves the server's 1000, while
-    ``filter()`` with no ``limit`` caps at **100**.
+    ``list()`` defaults to 1000 rows, ``filter()`` to **100**.
     """
     def create(self, input: list[Subscription]) -> list[Subscription]:
         """Create subscriptions, returning the echo with ``id``, ``date_created`` and
         ``last_updated`` filled in.
 
-        **Every referenced timeseries must already exist** — a subscription naming one that does
-        not is a 400.
+        **Every referenced timeseries must already exist**, or it is a 400.
         """
     def list(self, limit: int | None = None) -> list[Subscription]:
-        """Subscriptions in the tenant, newest first. ``limit`` defaults to the server's 1000 and
-        may not exceed 10000; there is no paging, so a bigger tenant is truncated rather than
-        paged — use ``filter`` to narrow instead.
+        """Subscriptions in the tenant, newest first. ``limit`` defaults to 1000 and may not exceed
+        10000. No paging; narrow with ``filter``.
         """
     def filter(
         self,
@@ -3204,23 +2834,16 @@ class SubscriptionsServiceSync:
         """Subscriptions matching every criterion on the filter."""
     def delete(self, input: list[SubscriptionIdentifiable]) -> None:
         """Delete subscriptions. Returns ``None``.
-
-        Also what unblocks a timeseries delete: a series still bound to a subscription cannot be
-        deleted, so drop the subscription first.
         """
     def listen(self, subscription_external_ids: list[str]) -> SubscriptionListener:
         """Open a WebSocket listener multiplexing the named subscriptions. The ids seed the initial
-        set (may be empty — add more with .subscribe()). Returns a SubscriptionListener you can
-        iterate or call .next_message() / .ack() / .subscribe() / .close() on.
+        set (may be empty — add more with .subscribe()). Returns a ``SubscriptionListener``.
         """
 
 
 class SubscriptionsServiceAsync:
     """Awaitable twin of ``SubscriptionsServiceSync``, reached as ``client.subscriptions`` on an
     ``AsyncDataHubClient``.
-
-    Same methods, same arguments, same semantics — each returns an awaitable instead of
-    blocking. ``SubscriptionsServiceSync`` carries the per-method documentation.
     """
     async def create(self, input: list[Subscription]) -> list[Subscription]: ...
     async def list(self, limit: int | None = None) -> list[Subscription]: ...
@@ -3238,12 +2861,9 @@ class SubscriptionsServiceAsync:
 # ====================== Functions ======================
 
 class Function:
-    """A graph node representing a computation — a plain node distinguished only by its
-    ``FUNCTION`` type-label, with no fields of its own.
+    """A graph node representing a computation.
 
-    ``name`` is optional on this constructor but required by the api, so a create without one is
-    a 400. ``related_resources`` is always empty on anything the functions service returns; use
-    ``neighbors()`` to read a function's edges.
+    ``name`` is optional here but required by the api.
     """
     def __init__(
         self,
@@ -3259,8 +2879,7 @@ class Function:
     @property
     def node_type(self) -> str:
         """This node's type as a string ("asset", "timeseries", "function", "resource",
-        "dataset", "policy"). Present on every node class, for dispatching from data rather
-        than with an isinstance ladder."""
+        "dataset", "policy")."""
     @property
     def labels(self) -> list[str]: ...
     @property
@@ -3283,11 +2902,9 @@ class Function:
     def last_updated_time(self) -> datetime.datetime | None: ...
     @property
     def related_resources(self) -> list[RelatedNode]:
-        """**Always empty.** Declared by the shared node base, but the api maps a function through
-        a transformer that never joins its edges in — so ``list``, ``get_by_id`` and even the
-        ``create`` echo all answer ``[]``. It is not sent on a write either.
+        """**Always empty**, and never sent on a write.
 
-        To read a function's edges, use ``neighbors()`` or the ``edges`` service.
+        Use ``neighbors()`` to read a function's edges.
         """
     # --- navigation (only on functions returned by the API; raises otherwise) ---
     def neighbors(
@@ -3296,12 +2913,10 @@ class Function:
         relationship_types: list[str] | None = None,
         limit: int = 5000,
     ) -> ResourceNetwork:
-        """Walk the graph from this function and return the connected sub-graph (its ``nodes``, the
-        ``edges`` between them, and their ``labels``). ``depth`` bounds the traversal in hops
-        (``-1``, the default, = the whole connected component); ``relationship_types`` filters
-        which edge types to follow (``None`` = all); ``limit`` caps the node count. Neighbour
-        nodes are typed as their own classes. Blocking; see ``neighbors_async`` for the
-        awaitable variant.
+        """Walk the graph from this function and return the connected sub-graph.
+
+        ``depth`` bounds the hops (``-1``, the default, is unbounded); ``relationship_types``
+        filters the edge types followed; ``limit`` caps the node count.
         """
     async def neighbors_async(
         self,
@@ -3311,9 +2926,7 @@ class Function:
     ) -> ResourceNetwork:
         """Awaitable variant of ``neighbors``."""
     def related_events(self, limit: int = 100) -> list[Event]:
-        """Fetch events whose ``related_resources`` include this function (matched by graph-node id
-        when present, else external id), via ``events.filter``. ``limit`` caps the results
-        (default 100). Blocking; see ``related_events_async``.
+        """Events whose ``related_resources`` include this function. ``limit`` caps the results.
         """
     async def related_events_async(self, limit: int = 100) -> list[Event]:
         """Awaitable variant of ``related_events``."""
@@ -3325,19 +2938,14 @@ FunctionIdentifiable = Union[Function, IdCollection, int, str]
 class FunctionsServiceSync:
     """The blocking ``/functions`` surface.
 
-    Reached as ``client.functions``. A function is a plain graph node distinguished only by its
-    ``FUNCTION`` type-label; it carries no fields of its own.
+    Reached as ``client.functions``.
 
-    **The api serves no ``/byids``, ``/filter`` or ``/search`` for functions** — the only node
-    type missing all three. ``by_ids`` works around that client-side (see there), and there is
-    no function search at all: reach them through
-    ``client.resources.filter(node_type=["function"])`` when you need criteria.
+    There is no function filter or search; use ``client.resources.filter(node_type=["function"])``.
     """
     def create(self, input: list[Function]) -> list[Function]:
         """Create functions, returning the echo with server-assigned ids.
 
-        **``name`` is optional here but non-null on the api**, so omitting it is a 400. Setting
-        ``related_resources`` locally has no effect either — the field is never sent.
+        **``name`` is required** by the api, though optional on ``Function``.
         """
     def list(self, limit: int | None = None) -> list[Function]:
         """The first ``limit`` functions you may read, newest first. ``limit`` defaults to the
@@ -3347,25 +2955,18 @@ class FunctionsServiceSync:
     def get_by_id(self, id: int) -> Function | None:
         """One function by numeric id; raises on 404.
 
-        A 404 does not tell you the id is free — a function you may not read is reported as
-        missing rather than forbidden. Prefer this to ``by_ids`` when you have the id: functions
-        have no ``/byids`` endpoint, so ``by_ids`` pages the listing and filters client-side.
+        A function you may not read is also reported as missing.
         """
     def by_ids(self, input: list[FunctionIdentifiable]) -> list[Function]:
         """Functions by id or external id, matched on either.
 
-        **There is no ``/byids`` endpoint behind this.** It fetches a listing of up to 10 000
-        functions and filters it in the client, so it costs one full listing per call whatever
-        the size of ``input``, and **a tenant holding more than 10 000 functions silently misses
-        its oldest** — an existing function past the cap comes back simply absent, with no
-        error.
+        **Filters a listing client-side**: one full listing per call, and a tenant holding more than
+        10 000 functions **silently misses its oldest**.
 
-        Unmatched ids are omitted rather than raising. Prefer ``get_by_id`` when you have a
-        numeric id: that one is a real endpoint.
+        Unmatched ids are omitted. Prefer ``get_by_id`` for a numeric id.
         """
     def by_external_id(self, external_id: str) -> Function:
-        """Convenience for the function-worker bootstrap: returns the function with the given
-        externalId, or raises if no such function exists.
+        """The function with the given external id; raises if there is none.
         """
     def update(self, input: list[ResourceUpdate]) -> GraphResult:
         """Update functions in place; ``geolocation`` is ignored, being asset-only.
@@ -3383,9 +2984,6 @@ class FunctionsServiceSync:
 class FunctionsServiceAsync:
     """Awaitable twin of ``FunctionsServiceSync``, reached as ``client.functions`` on an
     ``AsyncDataHubClient``.
-
-    Same methods, same arguments, same semantics — each returns an awaitable instead of
-    blocking. ``FunctionsServiceSync`` carries the per-method documentation.
     """
     async def create(self, input: list[Function]) -> list[Function]: ...
     async def list(self, limit: int | None = None) -> list[Function]: ...
@@ -3401,9 +2999,8 @@ class FunctionsServiceAsync:
 class AssetsServiceSync:
     """The typed ``/assets`` family — the ``ASSET``-labelled corner of the resource graph.
 
-    Every call is the generic ``/resources`` pipeline with the type pinned server-side, so the
-    two paths cannot drift apart on ACLs or status codes. What differs is the shape that comes
-    back: ``Asset``, so ``geolocation`` and ``is_root`` are reachable without a type check.
+    Reached as ``client.assets``. The ``/resources`` pipeline with the type pinned, answering
+    ``Asset``.
     """
 
     def create(self, input: list[Asset]) -> list[Asset]:
@@ -3423,8 +3020,7 @@ class AssetsServiceSync:
     def list(self, limit: int | None = None) -> list[Asset]:
         """The first ``limit`` assets, newest created first. Defaults to 1000, caps at 10000.
 
-        A plain list rather than a ``Page``: there is no cursor to continue with, so narrow with
-        ``filter`` instead of raising the number.
+        No paging; narrow with ``filter``.
         """
     def filter(
         self,
@@ -3448,9 +3044,7 @@ class AssetsServiceSync:
 
         Pass either ``filter=`` or the individual keywords, not both.
 
-        There is no ``node_type`` keyword on purpose: this endpoint answers with assets whatever
-        it is given, so the server replaces it. A ``node_type`` on a ``filter=`` object is
-        discarded the same way.
+        A ``node_type`` on a ``filter=`` object is ignored.
         """
     def search(
         self,
@@ -3460,11 +3054,10 @@ class AssetsServiceSync:
     ) -> list[Asset]:
         """Free-text search over assets, best match first.
 
-        ``filter`` only ever removes hits from the phrase's. ``limit`` defaults to 100 and caps
-        at 1000 — ``filter`` uses 1000/10000, which is easy to conflate.
+        ``filter`` narrows the hits, never widens them. ``limit`` defaults to 100 and caps at 1000.
         """
     def update(self, input: list[ResourceUpdate]) -> GraphResult:
-        """Update assets in place. ``geolocation`` is the field that means anything only here.
+        """Update assets in place.
 
         ``.nodes`` holds typed node objects, not necessarily all assets — an update may touch
         relations whose other end is something else.
@@ -3480,9 +3073,6 @@ class AssetsServiceSync:
 class AssetsServiceAsync:
     """Awaitable twin of ``AssetsServiceSync``, reached as ``client.assets`` on an
     ``AsyncDataHubClient``.
-
-    Same methods, same arguments, same semantics — each returns an awaitable instead of
-    blocking. ``AssetsServiceSync`` carries the per-method documentation.
     """
     async def create(self, input: list[Asset]) -> list[Asset]: ...
     async def get_by_id(self, id: int) -> Asset | None: ...
@@ -3559,27 +3149,19 @@ EdgeIdentifiable = Union[EdgeProxy, int]
 class EdgesServiceSync:
     """The blocking ``/edges`` surface — relationships between resources as first-class objects.
 
-    Reached as ``client.edges``. Edges normally come into being through
-    ``resources.create(nodes, relations)``; this service is for linking resources that **already
-    exist**, for reading one edge back, and for the relationship-type catalogue.
+    Reached as ``client.edges``. For linking nodes that already exist; ``resources.create`` creates
+    nodes and edges together.
 
-    An edge is separately deletable only when both of its endpoints stay reachable without it —
-    otherwise it goes away with the resources.
+    An edge can be deleted only when both endpoints stay reachable without it.
     """
     def get(self, id: int) -> EdgeProxy | None:
         """One relationship by numeric id, or ``None`` if no edge has that id.
-
-        The server answers an unknown id with 404; that is absorbed into ``None`` here, matching
-        the other ``get()`` methods in these bindings. Any other error still raises.
         """
     def by_ids(self, input: list[EdgeIdentifiable]) -> GraphResult:
-        """Several relationships plus the resources they connect, as a ``GraphResult`` — ``nodes``
-        holds both endpoints of each edge and ``relations`` the edges, so no follow-up call is
-        needed.
+        """Several relationships plus both endpoints of each, as a ``GraphResult``.
         """
     def create(self, input: list[RelForm]) -> list[EdgeProxy]:
-        """Link resources that already exist. To create the resources *and* their links together,
-        use ``resources.create(nodes, relations)`` instead.
+        """Link resources that already exist.
 
         All-or-nothing: if any relation in the batch fails, none are created. A relation
         targeting a dataset must use ``BELONGS_TO``; a timeseries cannot be linked to a second
@@ -3595,19 +3177,14 @@ class EdgesServiceSync:
     def create_types(self, input: list[RelTypeForm]) -> list[RelationshipType]:
         """Register relationship type names up front. Names normalise to uppercase snake case.
 
-        A name that already exists currently makes the server fail silently — it answers 200
-        with an empty body, and in a batch the valid new types are rolled back alongside the
-        duplicate. Treat an empty result as "something already existed and nothing was created",
-        and use ``types()`` to read the real state.
+        A name that already exists makes the server answer 200 with an empty body and roll back the
+        whole batch; check ``types()``.
         """
 
 
 class EdgesServiceAsync:
     """Awaitable twin of ``EdgesServiceSync``, reached as ``client.edges`` on an
     ``AsyncDataHubClient``.
-
-    Same methods, same arguments, same semantics — each returns an awaitable instead of
-    blocking. ``EdgesServiceSync`` carries the per-method documentation.
     """
     async def get(self, id: int) -> EdgeProxy | None: ...
     async def by_ids(self, input: list[EdgeIdentifiable]) -> GraphResult: ...

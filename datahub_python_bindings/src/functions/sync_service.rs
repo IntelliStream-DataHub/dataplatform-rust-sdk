@@ -8,13 +8,9 @@ use std::sync::Arc;
 
 /// The blocking `/functions` surface.
 ///
-/// Reached as `client.functions`. A function is a plain graph node distinguished only by its
-/// `FUNCTION` type-label; it carries no fields of its own.
+/// Reached as `client.functions`.
 ///
-/// **The api serves no `/byids`, `/filter` or `/search` for functions** — the only node type
-/// missing all three. `by_ids` works around that client-side (see there), and there is no
-/// function search at all: reach them through `client.resources.filter(node_type=["function"])`
-/// when you need criteria.
+/// There is no function filter or search; use `client.resources.filter(node_type=["function"])`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "FunctionsServiceSync")]
 pub struct PyFunctionsServiceSync {
     pub api_service: Arc<ApiService>,
@@ -25,8 +21,7 @@ pub struct PyFunctionsServiceSync {
 impl PyFunctionsServiceSync {
     /// Create functions, returning the echo with server-assigned ids.
     ///
-    /// **`name` is optional here but non-null on the api**, so omitting it is a 400. Setting
-    /// `related_resources` locally has no effect either — the field is never sent.
+    /// **`name` is required** by the api, though optional on `Function`.
     fn create(&self, py: Python<'_>, input: Vec<PyFunction>) -> PyResult<Vec<PyFunction>> {
         let fns: Vec<Function> = input.into_iter().map(Function::from).collect();
         let service = self.api_service.clone();
@@ -65,13 +60,10 @@ impl PyFunctionsServiceSync {
 
     /// Functions by id or external id, matched on either.
     ///
-    /// **There is no `/byids` endpoint behind this.** It fetches a listing of up to 10 000
-    /// functions and filters it in the client, so it costs one full listing per call whatever
-    /// the size of `input`, and **a tenant holding more than 10 000 functions silently misses
-    /// its oldest** — an existing function past the cap comes back simply absent, with no error.
+    /// **Filters a listing client-side**: one full listing per call, and a tenant holding more than
+    /// 10 000 functions **silently misses its oldest**.
     ///
-    /// Unmatched ids are omitted rather than raising. Prefer `get_by_id` when you have a numeric
-    /// id: that one is a real endpoint.
+    /// Unmatched ids are omitted. Prefer `get_by_id` for a numeric id.
     fn by_ids(
         &self,
         py: Python<'_>,
@@ -93,8 +85,7 @@ impl PyFunctionsServiceSync {
         })
     }
 
-    /// Convenience for the function-worker bootstrap: returns the function with the given
-    /// externalId, or raises if no such function exists.
+    /// The function with the given external id; raises if there is none.
     fn by_external_id(&self, py: Python<'_>, external_id: String) -> PyResult<PyFunction> {
         let service = self.api_service.clone();
         py.detach(|| {

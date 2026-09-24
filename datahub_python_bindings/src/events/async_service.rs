@@ -16,9 +16,6 @@ use uuid::Uuid;
 
 /// Awaitable twin of `EventsServiceSync`, reached as `client.events` on an
 /// `AsyncDataHubClient`.
-///
-/// Same methods, same arguments, same semantics — each returns an awaitable instead of
-/// blocking. `EventsServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "EventsServiceAsync")]
 pub struct PyEventsServiceAsync {
     pub api_service: Arc<ApiService>,
@@ -28,14 +25,10 @@ pub struct PyEventsServiceAsync {
 impl PyEventsServiceAsync {
     /// A criteria-free page of the tenant's events.
     ///
-    /// **The oldest `limit` events, not the newest.** It runs the event filter with an empty body,
-    /// whose default sort is `eventTime` ascending — the order the cursor pages in. The node
-    /// listings beside it (`resources.list`, `timeseries.list`, `datasets.list`) really are
-    /// newest-first; events are the one member of the family that reads the other way round. For
-    /// "what just happened", use `filter(sort_by="eventTime", sort_order="desc")`.
+    /// **The oldest `limit` events, not the newest.** For the newest, use
+    /// `filter(sort_by="eventTime", sort_order="desc")`.
     ///
-    /// `limit` defaults to the server's 1000 and may not exceed 10000. A plain list is returned
-    /// rather than a `Page`: there is no cursor to continue with.
+    /// `limit` defaults to 1000 and may not exceed 10000. No paging.
     #[pyo3(signature = (limit = None))]
     fn list<'py>(&self, py: Python<'py>, limit: Option<u64>) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
@@ -217,7 +210,7 @@ impl PyEventsServiceAsync {
         })
     }
 
-    /// Free-text search over event descriptions, ranked by relevance.
+    /// Free-text search over events, newest first.
     #[pyo3(signature = (query, filter = None, limit = None))]
     fn search<'py>(
         &self,

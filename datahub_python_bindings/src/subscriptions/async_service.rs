@@ -14,9 +14,6 @@ use std::sync::Arc;
 
 /// Awaitable twin of `SubscriptionsServiceSync`, reached as `client.subscriptions` on an
 /// `AsyncDataHubClient`.
-///
-/// Same methods, same arguments, same semantics — each returns an awaitable instead of
-/// blocking. `SubscriptionsServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionsServiceAsync")]
 pub struct PySubscriptionsServiceAsync {
     pub api_service: Arc<ApiService>,
@@ -46,9 +43,8 @@ impl PySubscriptionsServiceAsync {
         })
     }
 
-    /// Subscriptions in the tenant, newest first. `limit` defaults to the server's 1000 and may
-    /// not exceed 10000; there is no paging, so a bigger tenant is truncated rather than paged —
-    /// use `filter` to narrow instead.
+    /// Subscriptions in the tenant, newest first. `limit` defaults to 1000 and may not exceed
+    /// 10000. No paging; narrow with `filter`.
     #[pyo3(signature = (limit = None))]
     fn list<'py>(&self, py: Python<'py>, limit: Option<u64>) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();

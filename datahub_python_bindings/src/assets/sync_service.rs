@@ -13,10 +13,7 @@ use std::sync::Arc;
 
 /// The blocking `/assets` surface — the `ASSET`-labelled corner of the resource graph.
 ///
-/// Reached as `client.assets`. Every call is the generic `/resources` pipeline with the type
-/// pinned server-side, so the two cannot drift apart on ACLs or status codes. What differs is
-/// the shape that comes back: `Asset`, so `geolocation` and `is_root` are reachable without a
-/// type check.
+/// Reached as `client.assets`. The `/resources` pipeline with the type pinned, answering `Asset`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "AssetsServiceSync")]
 pub struct PyAssetsServiceSync {
     pub api_service: Arc<ApiService>,
@@ -84,9 +81,8 @@ impl PyAssetsServiceSync {
 
     /// The first `limit` assets you may read, newest created first.
     ///
-    /// `limit` defaults to the server's 1000 and may not exceed 10000. A plain list rather than a
-    /// `Page`: there is no cursor to continue with, so narrow with `filter` instead of raising the
-    /// number.
+    /// `limit` defaults to the server's 1000 and may not exceed 10000. No paging; narrow with
+    /// `filter`.
     #[pyo3(signature = (limit = None))]
     fn list(&self, py: Python<'_>, limit: Option<u64>) -> PyResult<Vec<PyAsset>> {
         let service = self.api_service.clone();

@@ -18,12 +18,9 @@ use std::sync::Arc;
 pub mod async_service;
 pub mod sync_service;
 
-/// A graph node representing a computation — a plain node distinguished only by its `FUNCTION`
-/// type-label, with no fields of its own.
+/// A graph node representing a computation.
 ///
-/// `name` is optional on this constructor but required by the api, so a create without one is a
-/// 400. `related_resources` is always empty on anything the functions service returns; use
-/// `neighbors()` to read a function's edges.
+/// `name` is optional here but required by the api.
 #[pyclass(module = "intellistream_datahub_sdk", name = "Function", from_py_object)]
 #[derive(Clone)]
 pub struct PyFunction {
@@ -107,8 +104,7 @@ impl PyFunction {
         self.inner.labels.clone()
     }
 
-    /// Always `"function"`. Present on every node class so data-driven code can dispatch without
-    /// an `isinstance` ladder.
+    /// Always `"function"`.
     #[getter]
     fn node_type(&self) -> &'static str {
         crate::nodes::node_type_name(intellistream_datahub_sdk::nodes::NodeType::Function)
@@ -156,11 +152,9 @@ impl PyFunction {
         self.inner.last_updated_time
     }
 
-    /// **Always empty.** Declared by the shared node base, but the api maps a function through
-    /// a transformer that never joins its edges in — so `list`, `get_by_id` and even the
-    /// `create` echo all answer `[]`. It is not sent on a write either.
+    /// **Always empty**, and never sent on a write.
     ///
-    /// To read a function's edges, use `neighbors()` or the `edges` service.
+    /// Use `neighbors()` to read a function's edges.
     #[getter]
     fn related_resources(&self) -> Vec<PyRelatedNode> {
         self.inner
@@ -300,11 +294,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// client); calling these on a locally-constructed `Function` raises a clear error.
 #[pymethods]
 impl PyFunction {
-    /// Walk the graph from this function and return the connected sub-graph (its `nodes`, the
-    /// `edges` between them, and their `labels`). `depth` bounds the traversal in hops
-    /// (`-1`, the default, = the whole connected component); `relationship_types` filters which
-    /// edge types to follow (`None` = all); `limit` caps the node count. Neighbour nodes are
-    /// typed as their own classes. Blocking; see [`neighbors_async`] for the awaitable variant.
+    /// Walk the graph from this function and return the connected sub-graph.
+    ///
+    /// `depth` bounds the hops (`-1`, the default, is unbounded); `relationship_types`
+    /// filters the edge types followed; `limit` caps the node count.
     #[pyo3(signature = (depth=-1, relationship_types=None, limit=5000))]
     fn neighbors(
         &self,
@@ -350,9 +343,7 @@ impl PyFunction {
 /// functions returned by the API; calling on a locally-constructed one raises.
 #[pymethods]
 impl PyFunction {
-    /// Fetch events whose `related_resources` include this
-    /// function (matched by graph-node id when present, else external id), via `events.filter`.
-    /// `limit` caps the results (default 100). Blocking; see [`related_events_async`].
+    /// Events whose `related_resources` include this function. `limit` caps the results.
     #[pyo3(signature = (limit=100))]
     fn related_events(&self, py: Python<'_>, limit: u64) -> PyResult<Vec<PyEvent>> {
         let service = self.client.clone().ok_or_else(crate::missing_client_err)?;

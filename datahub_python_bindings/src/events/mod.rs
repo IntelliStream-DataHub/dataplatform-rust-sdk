@@ -25,16 +25,10 @@ pub mod sync_service;
 
 /// Something that happened, at a point in time.
 ///
-/// Not a node: events are keyed by a **UUID** rather than a numeric id, have no `name`, and are
-/// stored in their own partitioned table.
+/// Not a node: keyed by a **UUID**, and has no `name`.
 ///
-/// `event_time` is when the thing *occurred* — the source or sensor time — as distinct from the
-/// server-set `created_time`, which is when it was recorded. `id` is a client-generated UUID v7,
-/// stamped by `events.create` on the objects it returns, so a locally-built `Event` still reads
-/// `id is None` after a successful create: take the id off the result.
-///
-/// `related_resources` holds *selectors* (`IdCollection`), naming a resource by id, external id
-/// or both — not edges. `related_resource_nodes()` resolves them to node objects.
+/// `event_time` is when it occurred; `created_time` is when it was recorded. `id` is stamped by
+/// `events.create` on the objects it *returns* — your own `Event` still reads `id is None`.
 #[pyclass(module = "intellistream_datahub_sdk", name = "Event", from_py_object)]
 #[derive(Clone)]
 pub struct PyEvent {
@@ -190,9 +184,6 @@ impl PyEventFilter {
     /// `data_set_id` takes numeric ids, external ids, or `IdCollection`s, and expands down the
     /// dataset hierarchy, so naming a parent covers its children. **`None` and `[]` differ here**:
     /// `None` places no restriction, `[]` narrows to no datasets and matches nothing.
-    ///
-    /// There is no `id`: events are keyed by UUID, and the field the api used to declare was typed
-    /// as a long that nothing read. Use `events.by_ids` to look one up.
     #[new]
     #[pyo3(signature=(
         external_id=None,
@@ -242,13 +233,9 @@ impl PyEventFilter {
 }
 /// A time window for a filter criterion — `created_time`, `last_updated_time` or `event_time`.
 ///
-/// **Inclusive at both ends**: a row landing exactly on `end` is returned. To exclude the upper
-/// endpoint, subtract a millisecond, the resolution these columns are stored at. Note this is
-/// the opposite of `RetrieveFilter`'s datapoint window, which is half-open.
+/// **Inclusive at both ends**, unlike `RetrieveFilter`'s half-open datapoint window.
 ///
-/// `TimeFilter(start, end)` bounds both sides, `TimeFilter(start=...)` alone is "from then on",
-/// `TimeFilter(end=...)` alone is "up to then". Both `None` raises `ValueError`, as does a
-/// `start` after the `end`. Both must be timezone-aware.
+/// Either bound may be omitted, not both. Both must be timezone-aware.
 #[pyclass(module = "intellistream_datahub_sdk", name = "TimeFilter", from_py_object)]
 #[derive(Clone)]
 pub struct PyTimeFilter {
@@ -303,9 +290,7 @@ impl PyTimeFilter {
         }
     }
 }
-/// Event id selector exposed to Python. Events are keyed by a client-generated UUID v7, so this
-/// carries the `id` (UUID) and/or the `external_id`. Construct with either or both:
-/// `EventIdCollection(id=my_uuid)` or `EventIdCollection(external_id="...")`.
+/// Names an event by `id` (a UUID), `external_id`, or both.
 #[pyclass(
     module = "intellistream_datahub_sdk",
     name = "EventIdCollection",

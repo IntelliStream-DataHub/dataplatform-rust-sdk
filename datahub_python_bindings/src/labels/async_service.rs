@@ -8,9 +8,6 @@ use std::sync::Arc;
 
 /// Awaitable twin of `LabelsServiceSync`, reached as `client.labels` on an
 /// `AsyncDataHubClient`.
-///
-/// Same methods, same arguments, same semantics — each returns an awaitable instead of
-/// blocking. `LabelsServiceSync` carries the per-method documentation.
 #[pyclass(module = "intellistream_datahub_sdk", name = "LabelsServiceAsync")]
 pub struct PyLabelsServiceAsync {
     pub api_service: Arc<ApiService>,
@@ -29,8 +26,7 @@ impl PyLabelsServiceAsync {
         })
     }
 
-    /// A single label by numeric id, or `None` if it doesn't exist (the server answers an
-    /// unknown id with 404; that is absorbed into `None`).
+    /// A single label by numeric id, or `None` if it doesn't exist.
     fn get<'py>(&self, py: Python<'py>, id: u64) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         future_into_py(py, async move {
@@ -67,10 +63,8 @@ impl PyLabelsServiceAsync {
 
     /// Delete labels by `Label`, numeric id, or name.
     ///
-    /// Refused with **400** while any resource still carries the label — drop it from those
-    /// resources first, with `resources.update` and `labels.remove`. The problem's `fields`
-    /// name the label and the node still holding it. An intrinsic type-label (`ASSET`,
-    /// `TIMESERIES`, …) is refused the same way: those are reserved, attached or not.
+    /// Refused with **400** while any resource still carries the label, and always for an intrinsic
+    /// type-label (`ASSET`, `TIMESERIES`, …).
     fn delete<'py>(&self, py: Python<'py>, input: Vec<LabelIdentifiable>) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         let ids: Vec<IdAndExtId> = input.into_iter().map(IdAndExtId::from).collect();
