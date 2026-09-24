@@ -67,7 +67,7 @@ impl PyLabelsServiceAsync {
         let ids: Vec<IdAndExtId> = input.into_iter().map(IdAndExtId::from).collect();
         future_into_py(py, async move {
             service.labels.delete(&ids).await.map_err(|e| crate::datahub_err(e))?;
-            Ok(())
+            Ok(Python::attach(|py| py.None()))
         })
     }
 }

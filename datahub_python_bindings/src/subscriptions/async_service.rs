@@ -102,7 +102,7 @@ impl PySubscriptionsServiceAsync {
                 .delete(&ids)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            Ok(())
+            Ok(Python::attach(|py| py.None()))
         })
     }
 

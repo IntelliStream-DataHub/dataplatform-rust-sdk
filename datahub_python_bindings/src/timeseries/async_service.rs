@@ -106,18 +106,12 @@ impl PyTimeSeriesServiceAsync {
         let wrapper = DataWrapper::from_vec(input_ids);
 
         future_into_py(py, async move {
-            let result = service
+            service
                 .time_series
                 .delete(&wrapper)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-
-            let py_ts: Vec<PyTimeSeries> = result
-                .get_items()
-                .iter()
-                .map(|ts| PyTimeSeries::with_client(ts.clone(), service.clone()))
-                .collect();
-            Ok(py_ts)
+            Ok(Python::attach(|py| py.None()))
         })
     }
     fn update<'p>(
@@ -314,7 +308,7 @@ impl PyTimeSeriesServiceAsync {
                 .delete_datapoints(&wrapper)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-            Ok(())
+            Ok(Python::attach(|py| py.None()))
         })
     }
     /// Retrieve latest datapoints for a collection of Timeseries

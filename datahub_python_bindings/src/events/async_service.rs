@@ -106,18 +106,12 @@ impl PyEventsServiceAsync {
             .collect::<Vec<EventIdCollection>>();
 
         future_into_py(py, async move {
-            let result = service
+            service
                 .events
                 .delete(&input_ids)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-
-            let py_ts: Vec<PyEvent> = result
-                .get_items()
-                .into_iter()
-                .map(|ev| PyEvent::with_client(ev.clone(), service.clone()))
-                .collect();
-            Ok(py_ts)
+            Ok(Python::attach(|py| py.None()))
         })
     }
 

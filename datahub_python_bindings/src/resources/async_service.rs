@@ -106,20 +106,12 @@ impl PyResourcesServiceAsync {
             .collect::<Vec<IdAndExtId>>();
 
         future_into_py(py, async move {
-            let result = service
+            service
                 .resources
                 .delete(&input_ids)
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
-
-            // `delete` answers 204 with no body, so this list is always empty; the api types
-            // the echo as flat resources, so that is what it is wrapped as.
-            let py_ts: Vec<crate::nodes::PyNode> = result
-                .nodes().unwrap_or_default()
-                .into_iter()
-                .map(|res| crate::nodes::PyNode::with_client(Node::Resource(res), service.clone()))
-                .collect();
-            Ok(py_ts)
+            Ok(Python::attach(|py| py.None()))
         })
     }
     #[pyo3(signature = (query, filter = None, limit = None))]

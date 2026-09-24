@@ -225,7 +225,8 @@ impl PySubscriptionListenerAsync {
                 .ok_or_else(|| PyException::new_err("listener is closed"))?;
             l.ack(&message_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))
+                .map_err(|e| PyException::new_err(e.to_string()))?;
+            Ok(Python::attach(|py| py.None()))
         })
     }
 
@@ -238,7 +239,8 @@ impl PySubscriptionListenerAsync {
                 .ok_or_else(|| PyException::new_err("listener is closed"))?;
             l.nack(&message_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))
+                .map_err(|e| PyException::new_err(e.to_string()))?;
+            Ok(Python::attach(|py| py.None()))
         })
     }
 
@@ -255,7 +257,8 @@ impl PySubscriptionListenerAsync {
                 .ok_or_else(|| PyException::new_err("listener is closed"))?;
             l.subscribe(&external_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))
+                .map_err(|e| PyException::new_err(e.to_string()))?;
+            Ok(Python::attach(|py| py.None()))
         })
     }
 
@@ -272,7 +275,8 @@ impl PySubscriptionListenerAsync {
                 .ok_or_else(|| PyException::new_err("listener is closed"))?;
             l.unsubscribe(&external_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))
+                .map_err(|e| PyException::new_err(e.to_string()))?;
+            Ok(Python::attach(|py| py.None()))
         })
     }
 
@@ -289,7 +293,8 @@ impl PySubscriptionListenerAsync {
                 .ok_or_else(|| PyException::new_err("listener is closed"))?;
             l.set_subscriptions(&external_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))
+                .map_err(|e| PyException::new_err(e.to_string()))?;
+            Ok(Python::attach(|py| py.None()))
         })
     }
 
@@ -302,7 +307,7 @@ impl PySubscriptionListenerAsync {
                     .await
                     .map_err(|e| PyException::new_err(e.to_string()))?;
             }
-            Ok(())
+            Ok(Python::attach(|py| py.None()))
         })
     }
 
