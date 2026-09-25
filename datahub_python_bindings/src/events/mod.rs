@@ -120,7 +120,9 @@ pub fn event_filter_form(
         from_keywords,
         any_keyword,
     )?);
-    form.set_limit(limit.unwrap_or(100));
+    if let Some(limit) = limit {
+        form.set_limit(limit);
+    }
     // A bare string is a one-element list here as it is on every other filter field; only one
     // property is used either way.
     if let Some(property) = sort_by {

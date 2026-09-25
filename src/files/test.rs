@@ -6,6 +6,14 @@ mod tests {
 
     use crate::{create_api_service, ApiService};
 
+    #[test]
+    fn file_upload_on_a_bad_path_is_an_error_not_a_panic() {
+        let missing = FileUpload::new("resources/test/no_such_file.jpg").unwrap_err();
+        assert_eq!(missing.kind(), std::io::ErrorKind::NotFound);
+        let directory = FileUpload::new("resources/test").unwrap_err();
+        assert_eq!(directory.kind(), std::io::ErrorKind::IsADirectory);
+    }
+
     #[tokio::test]
     async fn test_file_upload() -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
@@ -16,25 +24,25 @@ mod tests {
         let mut upload_forms = vec![];
 
         let file_path = "resources/test/random_values.csv";
-        let file_upload_form = FileUpload::new_with_destination_path(file_path, "/foo/bar");
+        let file_upload_form = FileUpload::new_with_destination_path(file_path, "/foo/bar").unwrap();
         upload_forms.push(file_upload_form);
 
         let file_path = "resources/test/image.jpg";
-        let mut file_upload_form = FileUpload::new_with_destination_path(file_path, "/images/");
+        let mut file_upload_form = FileUpload::new_with_destination_path(file_path, "/images/").unwrap();
         file_upload_form.set_file_name("sola.jpg".to_string());
         file_upload_form.set_external_id("image_sola_jpg".to_string());
         upload_forms.push(file_upload_form);
 
         let file_path = "resources/test/image2.jpg";
         let mut file_upload_form =
-            FileUpload::new_with_destination_path(file_path, "/images/insects");
+            FileUpload::new_with_destination_path(file_path, "/images/insects").unwrap();
         file_upload_form.set_file_name("fly.jpg".to_string());
         file_upload_form.set_external_id("image_fly_jpg".to_string());
         upload_forms.push(file_upload_form);
 
         let file_path = "resources/test/image3.jpg";
         let mut file_upload_form =
-            FileUpload::new_with_destination_path(file_path, "/images/norway/");
+            FileUpload::new_with_destination_path(file_path, "/images/norway/").unwrap();
         file_upload_form.set_file_name("teigland.jpg".to_string());
         file_upload_form.set_external_id("image_teigland_bomlo_jpg".to_string());
         upload_forms.push(file_upload_form);
@@ -243,8 +251,8 @@ mod tests {
         let created_millis: i64 = 1_704_067_200_000;
         let updated_millis: i64 = 1_704_153_600_000;
 
-        let upload = FileUpload::new_with_destination_path("resources/test/image.jpg", "/dates");
-        let body = upload.get_body().await;
+        let upload = FileUpload::new_with_destination_path("resources/test/image.jpg", "/dates").unwrap();
+        let body = upload.get_body().await.unwrap();
         let headers: Vec<(&str, String)> = vec![
             ("X-Datahub-Path", "/dates/epoch.jpg".to_string()),
             ("X-Datahub-External-Id", ext_id.to_string()),
@@ -388,7 +396,7 @@ mod tests {
             .await;
 
         let mut upload =
-            FileUpload::new_with_destination_path("resources/test/image.jpg", "/lifecycle");
+            FileUpload::new_with_destination_path("resources/test/image.jpg", "/lifecycle").unwrap();
         upload.set_file_name("sola.jpg".to_string());
         upload.set_external_id(ext_id.to_string());
         let source_bytes = std::fs::read("resources/test/image.jpg")?;

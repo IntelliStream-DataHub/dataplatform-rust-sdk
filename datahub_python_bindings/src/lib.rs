@@ -68,6 +68,22 @@ create_exception!(
 /// Convert an SDK `ResponseError` into a `DataHubException` that exposes the HTTP
 /// `status_code` and `message` as attributes, so Python callers can branch on the
 /// status code (e.g. `except DataHubException as e: if e.status_code == 409: ...`).
+/// Convert a WebSocket listener failure into a `DataHubException`. There is no HTTP response behind
+/// one, so `status_code` and the problem attributes are `None`, set anyway so an `except` block can
+/// read them without `hasattr`.
+pub(crate) fn listen_err(e: intellistream_datahub_sdk::ListenError) -> PyErr {
+    Python::attach(|py| {
+        let err = DataHubException::new_err(e.to_string());
+        let value = err.value(py);
+        let _ = value.setattr("status_code", py.None());
+        let _ = value.setattr("message", e.to_string());
+        let _ = value.setattr("problem", py.None());
+        let _ = value.setattr("problem_type", py.None());
+        let _ = value.setattr("problem_slug", py.None());
+        err
+    })
+}
+
 /// Map a "not found" into Python's `None`.
 ///
 /// Every single-resource `GET` in the API answers an unknown id with **404** (batch `/byids`

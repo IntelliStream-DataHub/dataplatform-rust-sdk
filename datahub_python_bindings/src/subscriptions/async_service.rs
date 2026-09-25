@@ -1,13 +1,11 @@
 use crate::subscriptions::listener::{PySubscriptionListenerAsync, shared_listener};
-use crate::subscriptions::sync_service::build_filter_form;
 use crate::subscriptions::{
-    PyDataSort, PySubscription, PySubscriptionFilterForm, SubscriptionIdentifyable,
-    SubscriptionTimeseriesId,
+    PySubscription, PySubscriptionFilter, SubscriptionIdentifyable, SubscriptionTimeseriesId,
+    subscription_filter_form,
 };
 use intellistream_datahub_sdk::ApiService;
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::subscriptions::Subscription;
-use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -62,30 +60,41 @@ impl PySubscriptionsServiceAsync {
         })
     }
 
-    /// Subscriptions matching every criterion on the filter.
-    #[pyo3(signature=(form=None, *, timeseries=None, limit=None, sort=None))]
+    /// Subscriptions matching every criterion on the filter, newest first.
+    #[pyo3(signature = (filter=None, id=None, external_id=None, name=None, timeseries=None,
+                        created_time=None, last_updated_time=None, limit=None, sort_by=None,
+                        sort_order=None, cursor=None))]
+    #[allow(clippy::too_many_arguments)]
     fn filter<'py>(
         &self,
         py: Python<'py>,
-        form: Option<PySubscriptionFilterForm>,
+        filter: Option<PySubscriptionFilter>,
+        id: Option<Vec<u64>>,
+        external_id: Option<crate::StringOrList>,
+        name: Option<crate::StringOrList>,
         timeseries: Option<Vec<SubscriptionTimeseriesId>>,
-        limit: Option<u32>,
-        sort: Option<PyDataSort>,
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        limit: Option<u64>,
+        sort_by: Option<crate::StringOrList>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let form = build_filter_form(form, timeseries, limit, sort)?;
+        let form = subscription_filter_form(
+            filter, id, external_id, name, timeseries, created_time, last_updated_time, limit,
+            sort_by, sort_order, cursor,
+        )?;
         let service = self.api_service.clone();
         future_into_py(py, async move {
             let result = service
                 .subscriptions
                 .filter(&form)
                 .await
-                .map_err(|e| crate::datahub_err(e))?;
-            Ok(result
-                .get_items()
-                .iter()
-                .cloned()
-                .map(PySubscription::from)
-                .collect::<Vec<_>>())
+                .map_err(crate::datahub_err)?;
+            let next_cursor = result.next_cursor().map(str::to_string);
+            let items: Vec<PySubscription> =
+                result.get_items().iter().cloned().map(PySubscription::from).collect();
+            Python::attach(|py| crate::PyPage::new(py, items, next_cursor))
         })
     }
 
@@ -117,7 +126,7 @@ impl PySubscriptionsServiceAsync {
                 .subscriptions
                 .listen(&subscription_external_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))?;
+                .map_err(crate::listen_err)?;
             Ok(PySubscriptionListenerAsync {
                 listener: shared_listener(listener),
             })

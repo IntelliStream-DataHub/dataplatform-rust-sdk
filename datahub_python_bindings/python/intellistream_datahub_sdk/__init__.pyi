@@ -100,8 +100,12 @@ class DataHubException(Exception):
 
     All three are `None` when the API answered with something that is not a
     problem document — an empty 401, a stack trace, or plain text.
+
+    A subscription listener raises it too, for a failure on its WebSocket. There
+    is no HTTP response behind that, so `status_code` is `None` along with the
+    problem attributes. Using a listener after `close()` raises `ValueError`.
     """
-    status_code: int
+    status_code: int | None
     message: str
     problem: dict | None
     problem_type: str | None
@@ -1947,6 +1951,9 @@ class INode:
 
 
 class FileUpload:
+    """A local file to upload. Constructing one reads the file's metadata, so a
+    missing path raises `FileNotFoundError` and a directory `IsADirectoryError`."""
+
     def __init__(
         self,
         path: str,
@@ -2075,36 +2082,29 @@ SubscriptionTimeseriesId = Union[TimeSeries, IdCollection, int, str]
 
 
 class SubscriptionFilter:
-    def __init__(self, timeseries: list[SubscriptionTimeseriesId] | None = None) -> None: ...
+    """AND-combined criteria for ``subscriptions.filter``.
+
+    ``external_id`` and ``name`` are pattern lists — see ``PatternList``. ``timeseries`` matches
+    subscriptions bound to at least one of the given timeseries. A subscription is not a node, so
+    there is no ``source``, ``labels`` or ``metadata``.
+    """
+    def __init__(
+        self,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        timeseries: list[SubscriptionTimeseriesId] | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+    ) -> None: ...
+    @property
+    def id(self) -> list[int] | None: ...
+    @property
+    def external_id(self) -> list[str] | None: ...
+    @property
+    def name(self) -> list[str] | None: ...
     @property
     def timeseries(self) -> list[IdCollection]: ...
-
-
-class DataSort:
-    def __init__(
-        self,
-        property: list[str] | None = None,
-        order: str | None = None,
-    ) -> None: ...
-    @property
-    def property(self) -> list[str]: ...
-    @property
-    def order(self) -> str | None: ...
-
-
-class SubscriptionFilterForm:
-    def __init__(
-        self,
-        filter: SubscriptionFilter | None = None,
-        limit: int | None = None,
-        sort: DataSort | None = None,
-    ) -> None: ...
-    @property
-    def filter(self) -> SubscriptionFilter: ...
-    @property
-    def limit(self) -> int: ...
-    @property
-    def sort(self) -> DataSort | None: ...
 
 
 class EventAction:
@@ -2196,11 +2196,23 @@ class SubscriptionsServiceSync:
     def list(self, limit: int | None = None) -> list[Subscription]: ...
     def filter(
         self,
-        form: SubscriptionFilterForm | None = None,
+        *,
+        filter: SubscriptionFilter | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
         timeseries: list[SubscriptionTimeseriesId] | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
         limit: int | None = None,
-        sort: DataSort | None = None,
-    ) -> list[Subscription]: ...
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
+        ``TypeError``. Sortable by ``id``, ``externalId``, ``name``, ``createdTime`` and
+        ``lastUpdatedTime``; the default is newest created first.
+        """
     def delete(self, input: list[SubscriptionIdentifiable]) -> None: ...
     def listen(self, subscription_external_ids: list[str]) -> SubscriptionListener: ...
 
@@ -2210,11 +2222,23 @@ class SubscriptionsServiceAsync:
     async def list(self, limit: int | None = None) -> list[Subscription]: ...
     async def filter(
         self,
-        form: SubscriptionFilterForm | None = None,
+        *,
+        filter: SubscriptionFilter | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
         timeseries: list[SubscriptionTimeseriesId] | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
         limit: int | None = None,
-        sort: DataSort | None = None,
-    ) -> list[Subscription]: ...
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
+        ``TypeError``. Sortable by ``id``, ``externalId``, ``name``, ``createdTime`` and
+        ``lastUpdatedTime``; the default is newest created first.
+        """
     async def delete(self, input: list[SubscriptionIdentifiable]) -> None: ...
     async def listen(self, subscription_external_ids: list[str]) -> SubscriptionListenerAsync: ...
 

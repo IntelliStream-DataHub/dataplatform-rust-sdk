@@ -278,6 +278,8 @@ pub enum TimeFilter {
 /// - **events** (`/events/filter`): `eventTime`, `createdTime`, `lastUpdatedTime`, `externalId`,
 ///   `type`, `subType`, `status`, `source`, `dataSetId`. Default is `eventTime` **ascending** — the
 ///   order the keyset pages in, so paging does not change it.
+/// - **subscriptions** (`/subscriptions/filter`): `id`, `externalId`, `name`, `createdTime`,
+///   `lastUpdatedTime`. Default is `createdTime` descending.
 ///
 /// An unsortable property falls back to the default rather than being rejected, so a misspelling
 /// returns the default order — visibly not what was asked for. Anything that is not exactly `desc`
@@ -392,7 +394,7 @@ impl EventFilterForm {
     pub fn default() -> Self {
         Self {
             filter: None,
-            limit: 100,
+            limit: 1000,
             cursor: None,
             sort: None,
             advanced_filter: None,

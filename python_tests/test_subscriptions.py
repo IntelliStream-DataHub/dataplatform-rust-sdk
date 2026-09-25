@@ -51,13 +51,27 @@ def test_create_list_delete(sync_client, subscription_timeseries):
         filtered = sync_client.subscriptions.filter(timeseries=[ts_a_ext], limit=100)
         assert any(s.external_id == sub_ext for s in filtered)
 
-        # Same call via an explicit form.
-        form = intellistream_datahub_sdk.SubscriptionFilterForm(
-            filter=intellistream_datahub_sdk.SubscriptionFilter(timeseries=[ts_a_ext]),
-            limit=100,
+        # Same call via a prepared filter.
+        prepared = intellistream_datahub_sdk.SubscriptionFilter(timeseries=[ts_a_ext])
+        filtered_via_filter = sync_client.subscriptions.filter(filter=prepared, limit=100)
+        assert any(s.external_id == sub_ext for s in filtered_via_filter)
+
+        # The node-style criteria narrow to exactly this subscription. Name is case-insensitive.
+        for criteria in (
+            {"id": [created[0].id]},
+            {"external_id": sub_ext},
+            {"name": f"*{sub_ext.upper()}"},
+        ):
+            narrowed = sync_client.subscriptions.filter(**criteria)
+            assert [s.external_id for s in narrowed] == [sub_ext], criteria
+
+        # A full page carries a cursor; continuing it under the same sort ends the walk.
+        first = sync_client.subscriptions.filter(external_id=sub_ext, limit=1, sort_by="externalId")
+        assert len(first) == 1 and first.next_cursor is not None
+        rest = sync_client.subscriptions.filter(
+            external_id=sub_ext, limit=1, sort_by="externalId", cursor=first.next_cursor
         )
-        filtered_via_retriever = sync_client.subscriptions.filter(form)
-        assert any(s.external_id == sub_ext for s in filtered_via_retriever)
+        assert list(rest) == []
 
         # Delete and verify gone.
         sync_client.subscriptions.delete([sub_ext])
@@ -86,10 +100,10 @@ def test_create_over_missing_timeseries_raises(sync_client):
         sync_client.subscriptions.create([sub])
 
 
-def test_filter_rejects_retriever_and_kwargs_together(sync_client):
-    form = intellistream_datahub_sdk.SubscriptionFilterForm()
-    with pytest.raises(ValueError):
-        sync_client.subscriptions.filter(form, limit=10)
+def test_filter_rejects_filter_and_criteria_together(sync_client):
+    prepared = intellistream_datahub_sdk.SubscriptionFilter(name="anything")
+    with pytest.raises(TypeError):
+        sync_client.subscriptions.filter(filter=prepared, external_id="anything")
 
 
 def test_list_default_returns_list(sync_client):
@@ -301,12 +315,13 @@ def test_listen_refused_subscription_surfaces_as_error(sync_client):
     bogus_sub = unique_id("sub_missing")
     listener = sync_client.subscriptions.listen([bogus_sub])
     try:
-        with pytest.raises(Exception) as excinfo:
+        with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
             # The server sends the error frame on attach, so the first iteration raises.
             for _ in listener:
                 break
         message = str(excinfo.value)
         assert "not-found" in message or "forbidden" in message, message
+        assert excinfo.value.status_code is None
     finally:
         try:
             listener.close()

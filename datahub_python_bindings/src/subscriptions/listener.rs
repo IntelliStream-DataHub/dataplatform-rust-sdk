@@ -1,6 +1,6 @@
 use crate::subscriptions::PySubscriptionMessage;
 use intellistream_datahub_sdk::subscriptions::SubscriptionListener;
-use pyo3::exceptions::{PyException, PyStopAsyncIteration, PyStopIteration};
+use pyo3::exceptions::{PyStopAsyncIteration, PyStopIteration, PyValueError};
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -31,10 +31,10 @@ impl PySubscriptionListener {
                 let mut guard = listener.lock().await;
                 let l = guard
                     .as_mut()
-                    .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                    .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
                 match l.next().await {
                     Some(Ok(msg)) => Ok(PySubscriptionMessage::from(msg)),
-                    Some(Err(e)) => Err(PyException::new_err(e.to_string())),
+                    Some(Err(e)) => Err(crate::listen_err(e)),
                     None => Err(PyStopIteration::new_err(())),
                 }
             })
@@ -52,10 +52,10 @@ impl PySubscriptionListener {
                 let mut guard = listener.lock().await;
                 let l = guard
                     .as_mut()
-                    .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                    .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
                 match l.next().await {
                     Some(Ok(msg)) => Ok(Some(PySubscriptionMessage::from(msg))),
-                    Some(Err(e)) => Err(PyException::new_err(e.to_string())),
+                    Some(Err(e)) => Err(crate::listen_err(e)),
                     None => Ok(None),
                 }
             })
@@ -70,10 +70,10 @@ impl PySubscriptionListener {
                 let mut guard = listener.lock().await;
                 let l = guard
                     .as_mut()
-                    .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                    .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
                 l.ack(&message_ids)
                     .await
-                    .map_err(|e| PyException::new_err(e.to_string()))
+                    .map_err(crate::listen_err)
             })
         })
     }
@@ -86,10 +86,10 @@ impl PySubscriptionListener {
                 let mut guard = listener.lock().await;
                 let l = guard
                     .as_mut()
-                    .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                    .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
                 l.nack(&message_ids)
                     .await
-                    .map_err(|e| PyException::new_err(e.to_string()))
+                    .map_err(crate::listen_err)
             })
         })
     }
@@ -102,10 +102,10 @@ impl PySubscriptionListener {
                 let mut guard = listener.lock().await;
                 let l = guard
                     .as_mut()
-                    .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                    .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
                 l.subscribe(&external_ids)
                     .await
-                    .map_err(|e| PyException::new_err(e.to_string()))
+                    .map_err(crate::listen_err)
             })
         })
     }
@@ -118,10 +118,10 @@ impl PySubscriptionListener {
                 let mut guard = listener.lock().await;
                 let l = guard
                     .as_mut()
-                    .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                    .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
                 l.unsubscribe(&external_ids)
                     .await
-                    .map_err(|e| PyException::new_err(e.to_string()))
+                    .map_err(crate::listen_err)
             })
         })
     }
@@ -134,10 +134,10 @@ impl PySubscriptionListener {
                 let mut guard = listener.lock().await;
                 let l = guard
                     .as_mut()
-                    .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                    .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
                 l.set_subscriptions(&external_ids)
                     .await
-                    .map_err(|e| PyException::new_err(e.to_string()))
+                    .map_err(crate::listen_err)
             })
         })
     }
@@ -151,7 +151,7 @@ impl PySubscriptionListener {
                 if let Some(l) = guard.take() {
                     l.close()
                         .await
-                        .map_err(|e| PyException::new_err(e.to_string()))?;
+                        .map_err(crate::listen_err)?;
                 }
                 Ok(())
             })
@@ -192,10 +192,10 @@ impl PySubscriptionListenerAsync {
             let mut guard = listener.lock().await;
             let l = guard
                 .as_mut()
-                .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
             match l.next().await {
                 Some(Ok(msg)) => Ok(PySubscriptionMessage::from(msg)),
-                Some(Err(e)) => Err(PyException::new_err(e.to_string())),
+                Some(Err(e)) => Err(crate::listen_err(e)),
                 None => Err(PyStopAsyncIteration::new_err(())),
             }
         })
@@ -207,10 +207,10 @@ impl PySubscriptionListenerAsync {
             let mut guard = listener.lock().await;
             let l = guard
                 .as_mut()
-                .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
             match l.next().await {
                 Some(Ok(msg)) => Ok(Some(PySubscriptionMessage::from(msg))),
-                Some(Err(e)) => Err(PyException::new_err(e.to_string())),
+                Some(Err(e)) => Err(crate::listen_err(e)),
                 None => Ok(None),
             }
         })
@@ -222,10 +222,10 @@ impl PySubscriptionListenerAsync {
             let mut guard = listener.lock().await;
             let l = guard
                 .as_mut()
-                .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
             l.ack(&message_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))?;
+                .map_err(crate::listen_err)?;
             Ok(Python::attach(|py| py.None()))
         })
     }
@@ -236,10 +236,10 @@ impl PySubscriptionListenerAsync {
             let mut guard = listener.lock().await;
             let l = guard
                 .as_mut()
-                .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
             l.nack(&message_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))?;
+                .map_err(crate::listen_err)?;
             Ok(Python::attach(|py| py.None()))
         })
     }
@@ -254,10 +254,10 @@ impl PySubscriptionListenerAsync {
             let mut guard = listener.lock().await;
             let l = guard
                 .as_mut()
-                .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
             l.subscribe(&external_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))?;
+                .map_err(crate::listen_err)?;
             Ok(Python::attach(|py| py.None()))
         })
     }
@@ -272,10 +272,10 @@ impl PySubscriptionListenerAsync {
             let mut guard = listener.lock().await;
             let l = guard
                 .as_mut()
-                .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
             l.unsubscribe(&external_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))?;
+                .map_err(crate::listen_err)?;
             Ok(Python::attach(|py| py.None()))
         })
     }
@@ -290,10 +290,10 @@ impl PySubscriptionListenerAsync {
             let mut guard = listener.lock().await;
             let l = guard
                 .as_mut()
-                .ok_or_else(|| PyException::new_err("listener is closed"))?;
+                .ok_or_else(|| PyValueError::new_err("listener is closed"))?;
             l.set_subscriptions(&external_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))?;
+                .map_err(crate::listen_err)?;
             Ok(Python::attach(|py| py.None()))
         })
     }
@@ -305,7 +305,7 @@ impl PySubscriptionListenerAsync {
             if let Some(l) = guard.take() {
                 l.close()
                     .await
-                    .map_err(|e| PyException::new_err(e.to_string()))?;
+                    .map_err(crate::listen_err)?;
             }
             Ok(Python::attach(|py| py.None()))
         })

@@ -304,7 +304,7 @@ impl PyFileUpload {
         data_set_id: Option<u64>,
         related_resources: Option<Vec<u64>>,
     ) -> PyResult<Self> {
-        let mut file_upload = FileUpload::new(path);
+        let mut file_upload = FileUpload::new(path)?;
         if let Some(external_id) = external_id {
             file_upload.external_id = external_id.to_string();
         }
@@ -334,7 +334,7 @@ impl PyFileUpload {
     #[classmethod]
     pub fn from_path(_py: Py<PyType>, path: &str) -> PyResult<Self> {
         Ok(Self {
-            inner: FileUpload::new(path),
+            inner: FileUpload::new(path)?,
         })
     }
     #[classmethod]
@@ -344,7 +344,7 @@ impl PyFileUpload {
         destination_path: &str,
     ) -> PyResult<Self> {
         Ok(Self {
-            inner: FileUpload::new_with_destination_path(path, destination_path),
+            inner: FileUpload::new_with_destination_path(path, destination_path)?,
         })
     }
     #[getter]

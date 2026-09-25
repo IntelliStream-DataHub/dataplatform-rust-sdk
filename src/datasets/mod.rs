@@ -73,7 +73,7 @@ impl DatasetsService {
     /// `POST /datasets/filter` — datasets matching [`DatasetFilterForm`], newest first.
     ///
     /// Every criterion on the filter is honoured server-side. Results are capped by the form's
-    /// `limit` (default 100 on the form, 1000 server-side when unset; max 10000). A broader match
+    /// `limit` (default 1000; max 10000). A broader match
     /// than the cap is paged, not truncated: set [`sort`](DatasetFilterForm) and echo the
     /// envelope's `next_cursor` back as `cursor` to walk it, under that same `sort`.
     pub async fn filter(
@@ -503,7 +503,7 @@ impl DatasetFilterForm {
     pub fn new() -> Self {
         Self {
             filter: None,
-            limit: 100,
+            limit: 1000,
             paging: Default::default(),
         }
     }

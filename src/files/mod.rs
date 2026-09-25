@@ -9,6 +9,7 @@ use reqwest::Body;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::io;
 use std::path::Path;
 use std::sync::Weak;
 use tokio::fs::File;
@@ -35,7 +36,12 @@ impl FileService {
     ) -> Result<DataWrapper<INode>, ResponseError> {
         // The backend takes the file content as the raw PUT body; all metadata travels in
         // `X-Datahub-*` headers (see `FileController.upload`).
-        let body = file_upload.get_body().await;
+        let body = file_upload.get_body().await.map_err(|e| {
+            ResponseError::bad_request(format!(
+                "failed to open '{}': {}",
+                file_upload.file_path, e
+            ))
+        })?;
         let headers = file_upload.upload_headers();
         self.execute_file_upload_request(self.base_url.as_str(), body, headers)
             .await
@@ -364,19 +370,32 @@ pub struct FileUpload {
 }
 
 impl FileUpload {
-    pub fn new_with_destination_path(file_path: &str, destination_path: &str) -> Self {
-        let mut f = Self::new(file_path);
+    pub fn new_with_destination_path(
+        file_path: &str,
+        destination_path: &str,
+    ) -> io::Result<Self> {
+        let mut f = Self::new(file_path)?;
         f.set_destination_path(destination_path.to_string());
-        f
+        Ok(f)
     }
 
-    pub fn new(file_path: &str) -> Self {
-        let metadata = fs::metadata(file_path).unwrap_or_else(|e| {
-            panic!("Failed to get metadata for file '{}': {}", file_path, e);
-        });
+    /// Fails with the underlying `io::Error` when `file_path` cannot be read, and with
+    /// `ErrorKind::IsADirectory` or `InvalidInput` when it is not a regular file.
+    pub fn new(file_path: &str) -> io::Result<Self> {
+        let metadata = fs::metadata(file_path)
+            .map_err(|e| io::Error::new(e.kind(), format!("'{}': {}", file_path, e)))?;
 
+        if metadata.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::IsADirectory,
+                format!("'{}' is a directory, not a file", file_path),
+            ));
+        }
         if !metadata.is_file() {
-            panic!("Path '{}' is not a regular file.", file_path);
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("'{}' is not a regular file", file_path),
+            ));
         }
 
         let mut source_date_created: Option<DateTime<Utc>> = None;
@@ -396,7 +415,12 @@ impl FileUpload {
             .file_name()
             .and_then(|name| name.to_str())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| panic!("Could not get file name from path: {:?}", file_path));
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("could not get a file name from '{}'", file_path),
+                )
+            })?;
 
         let kind: Option<String> = match infer::get_from_path(file_path) {
             Ok(Some(file_type)) => Some(file_type.mime_type().to_string()),
@@ -410,7 +434,7 @@ impl FileUpload {
             }
         };
 
-        Self {
+        Ok(Self {
             external_id: to_snake_lower_cased_allow_start_with_digits(file_name.as_str()),
             file_path: file_path.to_string(),
             destination_path: None,
@@ -423,17 +447,15 @@ impl FileUpload {
             related_resources: None,
             source_date_created,
             source_last_updated,
-        }
+        })
     }
 
     /// Opens the file and returns its contents as a streaming request body. The file content is
     /// the raw PUT body of the new `/files` upload endpoint.
-    pub async fn get_body(&self) -> Body {
-        let file = File::open(&self.file_path).await.unwrap_or_else(|e| {
-            panic!("Failed to open file '{}': {}", self.file_path, e);
-        });
+    pub async fn get_body(&self) -> io::Result<Body> {
+        let file = File::open(&self.file_path).await?;
         let stream = FramedRead::new(file, BytesCodec::new());
-        Body::wrap_stream(stream)
+        Ok(Body::wrap_stream(stream))
     }
 
     /// Builds the `X-Datahub-*` and `Content-Type` headers the upload endpoint reads before it

@@ -7,7 +7,7 @@ pub use listen::{
     SubscriptionListener, SubscriptionMessage, WsDatapoint,
 };
 
-use crate::filters::DataSort;
+use crate::filters::{PageRequest, TimeFilter};
 use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId};
 use crate::http::ResponseError;
 use crate::ApiService;
@@ -56,17 +56,12 @@ impl SubscriptionsService {
             .await
     }
 
-    /// `POST /subscriptions/filter` — subscriptions matching [`SubscriptionFilterForm`].
+    /// `POST /subscriptions/filter` — subscriptions matching [`SubscriptionFilterForm`], newest
+    /// created first.
     ///
-    /// This was `POST /subscriptions/list`, whose body was subscriptions-only: a `limit` that
-    /// defaulted to 100 where the rest of the api defaulted to 1000, a sort property that reached
-    /// the query unvalidated, and no cursor, so a tenant past one page could not reach the rest.
-    /// The api moved it onto the family envelope and removed `/list` rather than aliasing it, so a
-    /// client that has not moved gets a 404.
-    ///
-    /// [`SubscriptionFilterForm`] is a strict subset of what the endpoint now accepts: it does not
-    /// yet carry the `cursor`, nor the `id`, `externalId`, `name`, `createdTime` and
-    /// `lastUpdatedTime` criteria the filter grew alongside `timeseries`.
+    /// Only subscriptions whose bound timeseries the caller can *all* read are returned. A match
+    /// broader than `limit` is paged, not truncated: echo the envelope's `next_cursor` back as
+    /// [`PageRequest::cursor`], under the same `sort`.
     pub async fn filter(
         &self,
         form: &SubscriptionFilterForm,
@@ -138,29 +133,65 @@ impl DataHubEntity for Subscription {
     }
 }
 
+/// Criteria for `POST /subscriptions/filter`, mirroring the api's `SubscriptionFilter`.
+///
+/// Deliberately **not** a [`NodeFilter`](crate::filters::NodeFilter): a subscription is not a
+/// node, and has no `source`, `labels` or `metadata` to match on. What it shares with the node
+/// filters it shares by name and meaning — [`external_id`](Self::external_id) and
+/// [`name`](Self::name) are case-insensitive pattern lists (`*` and `%` wildcards, `_` literal),
+/// and the time windows are inclusive at both ends.
+///
+/// Fields AND together, entries within a list OR, and `None` or an empty list places no
+/// restriction.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionFilter {
+    /// Max 1000. Sent as strings, like every id on the wire.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::serde_helper::opt_string_id_vec"
+    )]
+    pub id: Option<Vec<u64>>,
+    /// Max 1000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<Vec<String>>,
+    /// Max 1000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<Vec<String>>,
+    /// Subscriptions bound to at least one of these timeseries. Max 1000.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub timeseries: Vec<IdAndExtId>,
+    /// Matched against the subscription's `dateCreated`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_time: Option<TimeFilter>,
+    /// Matched against the subscription's `lastUpdated`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_updated_time: Option<TimeFilter>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Request body of `POST /subscriptions/filter`.
+///
+/// Sortable by `id`, `externalId`, `name`, `createdTime` and `lastUpdatedTime`; the default is
+/// `createdTime` descending.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionFilterForm {
     pub filter: SubscriptionFilter,
-    pub limit: u32,
-    /// Absent means the endpoint's default order, `createdTime` descending.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sort: Option<DataSort>,
+    /// Defaults to 1000 server-side and is capped at 10000 — above that the request is rejected
+    /// with 400.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+    /// Ordering and paging. Flattened, so `sort` and `cursor` sit beside `filter` and `limit`.
+    #[serde(flatten)]
+    pub paging: PageRequest,
 }
 
-impl Default for SubscriptionFilterForm {
-    fn default() -> Self {
-        SubscriptionFilterForm {
-            filter: SubscriptionFilter::default(),
-            limit: 100,
-            sort: None,
+impl SubscriptionFilterForm {
+    pub fn new(filter: SubscriptionFilter) -> Self {
+        Self {
+            filter,
+            ..Self::default()
         }
     }
 }

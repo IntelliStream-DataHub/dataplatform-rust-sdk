@@ -357,3 +357,11 @@ def test_range_query_end_is_exclusive(sync_client, make_ts):
     assert not exclusive_end, (
         f"end is exclusive, so a window closing on the point must not return it: {exclusive_end}"
     )
+
+
+def test_insert_from_lists_rejects_mismatched_lengths(sync_client, async_client):
+    at = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)
+    with pytest.raises(ValueError, match="got 2 and 1"):
+        sync_client.timeseries.insert_from_lists([at, at], [1.0], "never_sent")
+    with pytest.raises(ValueError, match="got 1 and 2"):
+        async_client.timeseries.insert_from_lists([at], [1.0, 2.0], "never_sent")

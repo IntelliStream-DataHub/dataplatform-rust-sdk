@@ -269,7 +269,7 @@ fn filter_body_matches_the_documented_wire_shape() {
     );
 
     let json: serde_json::Value = serde_json::to_value(&filter).unwrap();
-    assert_eq!(json["limit"], 100);
+    assert_eq!(json["limit"], 1000);
     let f = &json["filter"];
     // The shared node criteria are flattened, so they sit directly on the filter body rather than
     // nested under a key the api does not read.

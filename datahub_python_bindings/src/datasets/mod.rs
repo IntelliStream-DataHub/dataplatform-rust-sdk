@@ -484,7 +484,7 @@ impl PyDatasetFilter {
 ///
 /// Shared by the sync and async services so the accepted keywords cannot drift apart between them.
 ///
-/// `limit` defaults to the server's 100 and may not exceed 10000 — above that the request is
+/// `limit` defaults to 1000 and may not exceed 10000 — above that the request is
 /// rejected.
 #[allow(clippy::too_many_arguments)]
 pub fn dataset_filter_form(
