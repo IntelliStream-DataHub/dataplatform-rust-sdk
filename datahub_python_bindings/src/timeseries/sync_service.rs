@@ -1,5 +1,4 @@
 use super::*;
-use crate::datetime::py_datetime_to_utc;
 use crate::timeseries::datapoints::{
     PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
 };
@@ -273,26 +272,9 @@ impl PyTimeSeriesServiceSync {
         ts: Identifiable,
     ) -> PyResult<Vec<String>> {
         let service = self.api_service.clone();
-        let datapoints: Vec<DatapointString> = timestamps
-            .into_iter()
-            .zip(values.into_iter())
-            .map(|(timestamp, value)| {
-                Ok(DatapointString {
-                    timestamp: py_datetime_to_utc(&timestamp)?.timestamp_millis().to_string(),
-                    value: value.to_string(),
-                })
-            })
-            .collect::<PyResult<Vec<_>>>()?;
-        let inner: DatapointsCollection<DatapointString> = DatapointsCollection {
-            datapoints,
-            next_cursor: None,
-            id: ts.id_collection().id,
-            external_id: ts.id_collection().external_id,
-            unit: None,
-            unit_external_id: None,
-        };
+        let collection = lists_to_collection(timestamps, values, ts)?;
         let mut wrapper =
-            DataWrapper::<DatapointsCollection<DatapointString>>::from_vec(vec![inner]);
+            DataWrapper::<DatapointsCollection<DatapointString>>::from_vec(vec![collection]);
         py.detach(|| {
             let result = self
                 .runtime

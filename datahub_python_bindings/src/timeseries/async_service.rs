@@ -2,12 +2,11 @@ use crate::timeseries::datapoints::{
     PyDatapoint, PyDatapointsCollectionDatapoints, PyDatapointsCollectionString,
 };
 use crate::timeseries::{
-    PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate, PyTimeseriesIdentifiable,
+    lists_to_collection, PyDeleteFilter, PyTimeSeries, PyTimeSeriesUpdate, PyTimeseriesIdentifiable,
 };
 use crate::{
     DatahubIdentity, Identifiable, PyIdCollection, PyRetrieveFilter,
 };
-use crate::datetime::py_datetime_to_utc;
 use intellistream_datahub_sdk::generic::{
     DataWrapper, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter,
 };
@@ -242,26 +241,9 @@ impl PyTimeSeriesServiceAsync {
         ts: Identifiable,
     ) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
-        let datapoints: Vec<DatapointString> = timestamps
-            .into_iter()
-            .zip(values.into_iter())
-            .map(|(timestamp, value)| {
-                Ok(DatapointString {
-                    timestamp: py_datetime_to_utc(&timestamp)?.timestamp_millis().to_string(),
-                    value: value.to_string(),
-                })
-            })
-            .collect::<PyResult<Vec<_>>>()?;
-        let inner: DatapointsCollection<DatapointString> = DatapointsCollection {
-            datapoints,
-            next_cursor: None,
-            id: ts.id_collection().id,
-            external_id: ts.id_collection().external_id,
-            unit: None,
-            unit_external_id: None,
-        };
+        let collection = lists_to_collection(timestamps, values, ts)?;
         let mut wrapper =
-            DataWrapper::<DatapointsCollection<DatapointString>>::from_vec(vec![inner]);
+            DataWrapper::<DatapointsCollection<DatapointString>>::from_vec(vec![collection]);
         future_into_py(py, async move {
             let result = service
                 .time_series
