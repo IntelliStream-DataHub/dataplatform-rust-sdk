@@ -8,7 +8,7 @@ use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::subscriptions::{
     Subscription, SubscriptionFilter, SubscriptionFilterForm,
 };
-use pyo3::exceptions::{PyException, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use std::sync::Arc;
 
@@ -108,7 +108,7 @@ impl PySubscriptionsServiceSync {
             let listener = self
                 .runtime
                 .block_on(service.subscriptions.listen(&subscription_external_ids))
-                .map_err(|e| PyException::new_err(e.to_string()))?;
+                .map_err(crate::listen_err)?;
             Ok(PySubscriptionListener {
                 listener: shared_listener(listener),
                 runtime,
@@ -125,7 +125,7 @@ pub(crate) fn build_filter_form(
 ) -> PyResult<SubscriptionFilterForm> {
     let kwargs_used = timeseries.is_some() || limit.is_some() || sort.is_some();
     if form.is_some() && kwargs_used {
-        return Err(PyValueError::new_err(
+        return Err(PyTypeError::new_err(
             "pass either a SubscriptionFilterForm or kwargs, not both",
         ));
     }

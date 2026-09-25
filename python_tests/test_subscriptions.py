@@ -88,7 +88,7 @@ def test_create_over_missing_timeseries_raises(sync_client):
 
 def test_filter_rejects_retriever_and_kwargs_together(sync_client):
     form = intellistream_datahub_sdk.SubscriptionFilterForm()
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         sync_client.subscriptions.filter(form, limit=10)
 
 
@@ -301,12 +301,13 @@ def test_listen_refused_subscription_surfaces_as_error(sync_client):
     bogus_sub = unique_id("sub_missing")
     listener = sync_client.subscriptions.listen([bogus_sub])
     try:
-        with pytest.raises(Exception) as excinfo:
+        with pytest.raises(intellistream_datahub_sdk.DataHubException) as excinfo:
             # The server sends the error frame on attach, so the first iteration raises.
             for _ in listener:
                 break
         message = str(excinfo.value)
         assert "not-found" in message or "forbidden" in message, message
+        assert excinfo.value.status_code is None
     finally:
         try:
             listener.close()

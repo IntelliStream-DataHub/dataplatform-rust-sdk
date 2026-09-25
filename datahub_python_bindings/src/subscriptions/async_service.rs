@@ -7,7 +7,6 @@ use crate::subscriptions::{
 use intellistream_datahub_sdk::ApiService;
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::subscriptions::Subscription;
-use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
@@ -117,7 +116,7 @@ impl PySubscriptionsServiceAsync {
                 .subscriptions
                 .listen(&subscription_external_ids)
                 .await
-                .map_err(|e| PyException::new_err(e.to_string()))?;
+                .map_err(crate::listen_err)?;
             Ok(PySubscriptionListenerAsync {
                 listener: shared_listener(listener),
             })

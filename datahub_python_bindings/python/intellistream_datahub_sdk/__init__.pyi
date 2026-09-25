@@ -100,8 +100,12 @@ class DataHubException(Exception):
 
     All three are `None` when the API answered with something that is not a
     problem document — an empty 401, a stack trace, or plain text.
+
+    A subscription listener raises it too, for a failure on its WebSocket. There
+    is no HTTP response behind that, so `status_code` is `None` along with the
+    problem attributes. Using a listener after `close()` raises `ValueError`.
     """
-    status_code: int
+    status_code: int | None
     message: str
     problem: dict | None
     problem_type: str | None
