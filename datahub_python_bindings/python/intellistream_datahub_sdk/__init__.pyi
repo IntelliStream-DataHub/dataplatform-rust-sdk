@@ -1951,6 +1951,9 @@ class INode:
 
 
 class FileUpload:
+    """A local file to upload. Constructing one reads the file's metadata, so a
+    missing path raises `FileNotFoundError` and a directory `IsADirectoryError`."""
+
     def __init__(
         self,
         path: str,

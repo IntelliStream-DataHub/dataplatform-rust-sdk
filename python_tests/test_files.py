@@ -160,6 +160,18 @@ def test_file_update_requires_a_selector():
         intellistream_datahub_sdk.FileUpdate(name="renamed.jpg")
 
 
+def test_file_upload_on_a_bad_path_raises_os_errors(tmp_path):
+    missing = str(tmp_path / "no_such_file.jpg")
+    with pytest.raises(FileNotFoundError):
+        intellistream_datahub_sdk.FileUpload(missing)
+    with pytest.raises(FileNotFoundError):
+        intellistream_datahub_sdk.FileUpload.from_path(missing)
+    with pytest.raises(FileNotFoundError):
+        intellistream_datahub_sdk.FileUpload.new_with_destination_path(missing, "/x")
+    with pytest.raises(IsADirectoryError):
+        intellistream_datahub_sdk.FileUpload(str(tmp_path))
+
+
 # --------------------------------------------------------------------------- #
 # FileUpdate, field by field.
 #
