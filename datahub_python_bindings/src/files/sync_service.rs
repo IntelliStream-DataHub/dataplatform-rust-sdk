@@ -127,13 +127,15 @@ impl PyFilesServiceSync {
         })
     }
 
-    /// Full-text search over file and folder names and descriptions.
-    fn search<'py>(&self, py: Python<'py>, query: &str) -> PyResult<Vec<PyINode>> {
+    /// Full-text search over file and folder names and descriptions. `limit` defaults to 100
+    /// server-side and is clamped to 1000.
+    #[pyo3(signature = (query, limit = None))]
+    fn search<'py>(&self, py: Python<'py>, query: &str, limit: Option<u64>) -> PyResult<Vec<PyINode>> {
         let service = self.api_service.clone();
         py.detach(|| {
             let result = self
                 .runtime
-                .block_on(service.files.search(query))
+                .block_on(service.files.search(query, limit))
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(to_py_inodes(&result, &service))
         })

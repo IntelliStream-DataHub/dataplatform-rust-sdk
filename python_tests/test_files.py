@@ -108,6 +108,7 @@ def test_get_search_update_download_trash_restore(sync_client, tmp_path):
 
         found = sync_client.files.search("sola")
         assert any(node.external_id == ext_id for node in found)
+        assert len(sync_client.files.search("sola", limit=1)) == 1
         # A blank query is answered with an empty list, not an error.
         assert sync_client.files.search("") == []
 
