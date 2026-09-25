@@ -15,3 +15,5 @@ __pycache__/
 # Wheel and sdist build output
 /dist/
 /datahub_python_bindings/dist/
+docs-python/_build/
+docs-python/services/

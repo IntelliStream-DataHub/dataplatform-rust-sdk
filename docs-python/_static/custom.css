@@ -1,0 +1,4 @@
+/* Service names on the landing page are attribute names; show them as code. */
+.service-list a {
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}

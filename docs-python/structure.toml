@@ -1,0 +1,113 @@
+# How the service pages are organised. Read by docs-python/_ext/service_pages.py.
+#
+# This file owns the STRUCTURE: which services appear, in what order, and which heading
+# each method sits under. Nothing can derive that -- a tool has no idea `restore` belongs
+# with `delete` rather than with `create`.
+#
+# It does not own the CONTENT. Signatures and prose come from the type stub.
+#
+# Groups are global: the same verbs repeat across the services, so `list` is declared once.
+# A method lands in the first group naming it. Drift is a build warning, and the build runs
+# with warnings as errors: a method the stub has and this file does not, or a name here the
+# stub no longer has, fails it until this file is updated.
+
+# Service order in the nav. Anything missing is appended alphabetically, with a warning.
+order = [
+  "Datasets",
+  "TimeSeries",
+  "Events",
+  "Resources",
+  "Assets",
+  "Files",
+  "Labels",
+  "Edges",
+  "Subscriptions",
+  "Functions",
+  "Unit",
+]
+
+[[groups]]
+title = "Find"
+blurb = "Reading what is already there."
+methods = [
+  "list",
+  "filter",
+  "search",
+  "count",
+  "by_ids",
+  "by_external_id",
+  "by_external_ids",
+  "get",
+  "get_by_id",
+  "get_by_external_id",
+]
+
+[[groups]]
+title = "Change"
+blurb = "Creating, editing and removing."
+methods = [
+  "create",
+  "update",
+  "delete",
+  "restore",
+]
+
+[[groups]]
+title = "Datapoints"
+blurb = "The values on a series, read and written in bulk."
+methods = [
+  "insert_datapoints",
+  "insert_datapoints_binary",
+  "insert_from_lists",
+  "insert_from_lists_binary",
+  "retrieve_datapoints",
+  "retrieve_latest_datapoints",
+  "delete_datapoints",
+]
+
+[[groups]]
+title = "Files"
+blurb = "Moving file contents in and out, and the directory tree they live in."
+methods = [
+  "upload_file",
+  "download",
+  "download_to_path",
+  "list_root_directory",
+  "list_directory_by_path",
+  "list_trash",
+]
+
+[[groups]]
+title = "Vocabularies"
+blurb = "The enumerations this service validates against."
+methods = [
+  "types",
+  "create_types",
+  "list_types",
+  "search_types",
+  "list_sub_types",
+  "search_sub_types",
+  "list_statuses",
+  "search_statuses",
+  "list_sources",
+  "search_sources",
+  "list_dimension",
+  "policies",
+]
+
+[[groups]]
+title = "Streaming"
+blurb = "Long-lived connections."
+methods = [
+  "listen",
+]
+
+# Page prose that belongs to the template rather than to any method.
+[text]
+services_title = "Services"
+services_blurb = "Reached as attributes of a configured client -- ``client.timeseries``, ``client.events`` -- never imported. ``AsyncDataHubClient`` has the same services with every method a coroutine; each page shows both side by side."
+unlisted_blurb = "Not yet placed in this service's structure."
+sync_only = "Not available on ``AsyncDataHubClient``."
+async_only = "Only on ``AsyncDataHubClient``."
+# {returns} is the async method's return type.
+async_returns = "On ``AsyncDataHubClient`` this returns ``{returns}``."
