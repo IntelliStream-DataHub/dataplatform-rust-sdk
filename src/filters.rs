@@ -392,7 +392,7 @@ impl EventFilterForm {
     pub fn default() -> Self {
         Self {
             filter: None,
-            limit: 100,
+            limit: 1000,
             cursor: None,
             sort: None,
             advanced_filter: None,

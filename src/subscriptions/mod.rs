@@ -159,7 +159,7 @@ impl Default for SubscriptionFilterForm {
     fn default() -> Self {
         SubscriptionFilterForm {
             filter: SubscriptionFilter::default(),
-            limit: 100,
+            limit: 1000,
             sort: None,
         }
     }

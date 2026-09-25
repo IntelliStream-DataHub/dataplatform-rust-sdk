@@ -54,10 +54,10 @@ mod tests {
     #[test]
     fn test_filter_form_default_serializes_cleanly() {
         // SubscriptionFilterForm::default() must serialize to a body the backend accepts:
-        // `{"filter":{},"limit":100}` — an unset sort is omitted rather than sent empty, and
+        // `{"filter":{},"limit":1000}` — an unset sort is omitted rather than sent empty, and
         // `nulls` is absent because the api removed the field and now 400s on it.
         let json = serde_json::to_value(&SubscriptionFilterForm::default()).unwrap();
-        assert_eq!(json["limit"], 100);
+        assert_eq!(json["limit"], 1000);
         let filter_obj = json["filter"].as_object().unwrap();
         assert!(filter_obj.get("timeseries").is_none());
         assert!(json.get("sort").is_none());
