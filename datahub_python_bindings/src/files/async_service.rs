@@ -139,20 +139,13 @@ impl PyFilesServiceAsync {
         })
     }
 
-    /// Full-text search over file and folder names and descriptions. `limit` defaults to 100
-    /// server-side and is clamped to 1000.
-    #[pyo3(signature = (query, limit = None))]
-    fn search<'py>(
-        &self,
-        py: Python<'py>,
-        query: String,
-        limit: Option<u64>,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    /// Full-text search over file and folder names and descriptions.
+    fn search<'py>(&self, py: Python<'py>, query: String) -> PyResult<Bound<'py, PyAny>> {
         let service = self.api_service.clone();
         future_into_py(py, async move {
             let result = service
                 .files
-                .search(query.as_str(), limit)
+                .search(query.as_str())
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(to_py_inodes(&result, &service))

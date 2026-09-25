@@ -417,17 +417,15 @@ mod tests {
         assert_eq!(by_ext.get_items()[0].id, Some(id));
 
         // --- search ---
-        let found = api_service.files.search("sola", None).await?;
+        let found = api_service.files.search("sola").await?;
         assert_eq!(found.get_http_status_code().unwrap(), 200);
         assert!(
             found.get_items().iter().any(|n| n.external_id == ext_id),
             "search for 'sola' should surface the uploaded file"
         );
-        let capped = api_service.files.search("sola", Some(1)).await?;
-        assert_eq!(capped.get_items().len(), 1);
 
         // A blank query is answered with an empty list, not an error.
-        let empty = api_service.files.search("", None).await?;
+        let empty = api_service.files.search("").await?;
         assert_eq!(empty.get_http_status_code().unwrap(), 200);
 
         // --- download, in memory and streamed to disk ---

@@ -319,7 +319,7 @@ impl FileService {
         fn delete(id_collection: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<INode>, ResponseError>;
         fn get_by_id(id: u64) -> Result<DataWrapper<INode>, ResponseError>;
         fn get_by_external_id(external_id: &str) -> Result<DataWrapper<INode>, ResponseError>;
-        fn search(query: &str, limit: Option<u64>) -> Result<DataWrapper<INode>, ResponseError>;
+        fn search(query: &str) -> Result<DataWrapper<INode>, ResponseError>;
         fn list_trash() -> Result<DataWrapper<INode>, ResponseError>;
         fn restore(id_collection: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<INode>, ResponseError>;
         fn update(update: &FileUpdate) -> Result<DataWrapper<INode>, ResponseError>;

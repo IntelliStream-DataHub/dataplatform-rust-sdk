@@ -98,19 +98,10 @@ impl FileService {
     /// `GET /files/search?q=` — case-insensitive full-text search over file and folder names and
     /// descriptions, across the whole tree, narrowed to the caller's readable datasets.
     ///
-    /// A blank query is answered with an empty item list rather than an error. `limit` defaults to
-    /// 100 server-side and is clamped to 1000 rather than rejected above it; `<= 0` is the default.
-    pub async fn search(
-        &self,
-        query: &str,
-        limit: Option<u64>,
-    ) -> Result<DataWrapper<INode>, ResponseError> {
+    /// A blank query is answered with an empty item list rather than an error.
+    pub async fn search(&self, query: &str) -> Result<DataWrapper<INode>, ResponseError> {
         let full_path = format!("{}/search", self.base_url.as_str());
-        let mut params = vec![("q", query.to_string())];
-        if let Some(limit) = limit {
-            params.push(("limit", limit.to_string()));
-        }
-        self.execute_get_request(full_path.as_str(), Some(&params))
+        self.execute_get_request(full_path.as_str(), Some(&[("q", query.to_string())]))
             .await
     }
 
