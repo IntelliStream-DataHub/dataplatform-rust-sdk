@@ -1748,11 +1748,6 @@ class DatasetFilter:
     ) -> DatasetFilter: ...
 
 
-# `limit` defaults to the server's 1000 and may not exceed 10000. There is no paging, so a filter
-# broad enough to exceed the cap is truncated — narrow it instead.
-# A partial update for one dataset. `dataset` names the target; only the fields you pass are sent,
-# anything omitted is left untouched. There is deliberately no `policies` or `connected_data_sets`
-# — the update endpoint does not accept them, whatever a Dataset can carry on create.
 @final
 class DatasetUpdate:
     """
@@ -1780,11 +1775,6 @@ class DatasetUpdate:
     def target_external_id(self) -> str | None: ...
 
 
-# `search(query, ...)`: query is 3-140 chars and Latin letters/spaces/digits only, so an external
-# id with underscores is a 400 — search on words and use filter() to look up by id. Results are
-# unranked.
-#
-# `update(...)`: there is no write_protected/deactivated — both were removed server-side as inert.
 class DatasetsServiceSync:
     def list(self, limit: int | None = None) -> builtins.list[Dataset]:
         """

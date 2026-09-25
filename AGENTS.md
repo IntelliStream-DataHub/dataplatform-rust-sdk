@@ -518,6 +518,30 @@ rather than green: there is no rename left to assert on. Nothing in the SDK's MC
 
 A PyO3 crate (built with maturin) that wraps this SDK as the Python package `intellistream-datahub-sdk` (import name `intellistream_datahub_sdk`). Binding modules in `datahub_python_bindings/src/` mirror the Rust subservices; the pure-Python side lives in `datahub_python_bindings/python/intellistream_datahub_sdk`.
 
+### The Python reference is built from the stub
+
+`datahub_python_bindings/python/intellistream_datahub_sdk/__init__.pyi` is the single source of
+the Python API reference: signatures and prose alike. Read the Docs builds it from `docs-python/`
+(`.readthedocs.yaml`), and IDEs show the same docstrings on hover. The guides stay in
+datahub-sdk-docs; this is only the reference.
+
+- **Write Python-facing prose in the stub**, numpydoc style (`Parameters`, `Returns`, `Raises`,
+  `Examples`), in reStructuredText. The bindings' `///` comments are not read by the build.
+- **Spell types out.** The stub has no type aliases: each parameter says what its Rust type
+  accepts, so `timeseries.by_ids` takes `int | str | TimeSeries | IdCollection`, not a shared
+  union that claims more.
+- **Place new methods and classes.** A service method must be named in a group of
+  `docs-python/structure.toml`, and a new class listed in one of the `docs-python/*.rst` group
+  pages; the build fails until it is.
+
+```
+pip install -r docs-python/requirements.txt
+sphinx-build -W -b html docs-python docs-python/_build
+```
+
+No cargo or compiled module is needed. `docs-python/_ext/service_pages.py` writes the service pages
+(`timeseries`, `datasets`, …) at build time; sphinx-autoapi writes the class pages.
+
 The Python test suite in `python_tests/` imports the **compiled** `intellistream_datahub_sdk` module, not the Rust sources — a stale `.so` silently masks source changes. Always run it through `./run_python_tests.sh`, which rebuilds via `maturin develop` first. Extra args are forwarded to pytest (`./run_python_tests.sh -k timeseries`); `--release`, `--no-build`, and `--no-deps` are consumed by the script itself.
 
 Every entity a test creates carries `TEST_PREFIX` — `pytest_` in Python, `rust_sdk_` in Rust — and
