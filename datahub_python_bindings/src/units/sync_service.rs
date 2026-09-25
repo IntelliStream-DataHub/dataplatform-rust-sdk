@@ -60,7 +60,7 @@ impl PyUnitServiceSync {
             Ok(py_units)
         })
     }
-    fn by_external_ids<'py>(&self, py: Python<'py>, input: &str) -> PyResult<Vec<PyUnit>> {
+    fn by_external_id<'py>(&self, py: Python<'py>, input: &str) -> PyResult<Vec<PyUnit>> {
         let service = self.api_service.clone();
         py.detach(|| {
             // A unit that does not exist is a 404; report it as an empty list rather than
