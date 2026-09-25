@@ -1,7 +1,7 @@
 Filters and identifiers
 =======================
 
-Criteria for ``filter`` and ``search``, and ways of naming an entity.
+Criteria for ``filter`` and ``search``, the page ``filter`` returns, and ways of naming an entity.
 
 .. toctree::
    :maxdepth: 1
@@ -14,6 +14,7 @@ Criteria for ``filter`` and ``search``, and ways of naming an entity.
    api/intellistream_datahub_sdk/SubscriptionFilterForm
    api/intellistream_datahub_sdk/TimeFilter
    api/intellistream_datahub_sdk/DataSort
+   api/intellistream_datahub_sdk/Page
    api/intellistream_datahub_sdk/EventDimension
    api/intellistream_datahub_sdk/IdCollection
    api/intellistream_datahub_sdk/EventIdCollection

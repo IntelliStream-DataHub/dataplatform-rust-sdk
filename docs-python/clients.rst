@@ -8,5 +8,4 @@ Where every call starts.
 
    api/intellistream_datahub_sdk/DataHubClient
    api/intellistream_datahub_sdk/AsyncDataHubClient
-   api/intellistream_datahub_sdk/Page
    api/intellistream_datahub_sdk/DataHubException

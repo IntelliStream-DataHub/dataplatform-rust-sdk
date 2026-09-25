@@ -21,7 +21,7 @@ Everything else
 - :doc:`clients` — where every call starts.
 - :doc:`entities` — what the services create, read and return.
 - :doc:`datapoints` — values on a series, and the requests that read and delete them.
-- :doc:`filters-and-identifiers` — criteria for ``filter`` and ``search``, and ways of naming an entity.
+- :doc:`filters-and-identifiers` — criteria for ``filter`` and ``search``, the page ``filter`` returns, and ways of naming an entity.
 - :doc:`updates` — partial updates, and the field wrappers they are built from.
 - :doc:`graph` — relationships between resources.
 - :doc:`files` — uploading and downloading content.
