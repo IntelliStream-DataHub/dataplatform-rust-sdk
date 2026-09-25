@@ -1,14 +1,11 @@
 use crate::subscriptions::listener::{PySubscriptionListener, shared_listener};
 use crate::subscriptions::{
-    PyDataSort, PySubscription, PySubscriptionFilterForm, SubscriptionIdentifyable,
-    SubscriptionTimeseriesId,
+    PySubscription, PySubscriptionFilter, SubscriptionIdentifyable, SubscriptionTimeseriesId,
+    subscription_filter_form,
 };
 use intellistream_datahub_sdk::ApiService;
 use intellistream_datahub_sdk::generic::IdAndExtId;
-use intellistream_datahub_sdk::subscriptions::{
-    Subscription, SubscriptionFilter, SubscriptionFilterForm,
-};
-use pyo3::exceptions::PyTypeError;
+use intellistream_datahub_sdk::subscriptions::Subscription;
 use pyo3::prelude::*;
 use std::sync::Arc;
 
@@ -57,30 +54,42 @@ impl PySubscriptionsServiceSync {
         })
     }
 
-    /// Subscriptions matching every criterion on the filter.
-    #[pyo3(signature=(form=None, *, timeseries=None, limit=None, sort=None))]
+    /// Subscriptions matching every criterion on the filter, newest first.
+    #[pyo3(signature = (filter=None, id=None, external_id=None, name=None, timeseries=None,
+                        created_time=None, last_updated_time=None, limit=None, sort_by=None,
+                        sort_order=None, cursor=None))]
+    #[allow(clippy::too_many_arguments)]
     fn filter(
         &self,
         py: Python<'_>,
-        form: Option<PySubscriptionFilterForm>,
+        filter: Option<PySubscriptionFilter>,
+        id: Option<Vec<u64>>,
+        external_id: Option<crate::StringOrList>,
+        name: Option<crate::StringOrList>,
         timeseries: Option<Vec<SubscriptionTimeseriesId>>,
-        limit: Option<u32>,
-        sort: Option<PyDataSort>,
-    ) -> PyResult<Vec<PySubscription>> {
-        let form = build_filter_form(form, timeseries, limit, sort)?;
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        limit: Option<u64>,
+        sort_by: Option<crate::StringOrList>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
+    ) -> PyResult<crate::PyPage> {
+        let form = subscription_filter_form(
+            filter, id, external_id, name, timeseries, created_time, last_updated_time, limit,
+            sort_by, sort_order, cursor,
+        )?;
         let service = self.api_service.clone();
-        py.detach(|| {
+        let (items, next_cursor) = py.detach(|| {
             let result = self
                 .runtime
                 .block_on(service.subscriptions.filter(&form))
-                .map_err(|e| crate::datahub_err(e))?;
-            Ok(result
-                .get_items()
-                .iter()
-                .cloned()
-                .map(PySubscription::from)
-                .collect())
-        })
+                .map_err(crate::datahub_err)?;
+            let next_cursor = result.next_cursor().map(str::to_string);
+            let items: Vec<PySubscription> =
+                result.get_items().iter().cloned().map(PySubscription::from).collect();
+            Ok::<_, PyErr>((items, next_cursor))
+        })?;
+        crate::PyPage::new(py, items, next_cursor)
     }
 
     fn delete(&self, py: Python<'_>, input: Vec<SubscriptionIdentifyable>) -> PyResult<()> {
@@ -116,34 +125,3 @@ impl PySubscriptionsServiceSync {
         })
     }
 }
-
-pub(crate) fn build_filter_form(
-    form: Option<PySubscriptionFilterForm>,
-    timeseries: Option<Vec<SubscriptionTimeseriesId>>,
-    limit: Option<u32>,
-    sort: Option<PyDataSort>,
-) -> PyResult<SubscriptionFilterForm> {
-    let kwargs_used = timeseries.is_some() || limit.is_some() || sort.is_some();
-    if form.is_some() && kwargs_used {
-        return Err(PyTypeError::new_err(
-            "pass either a SubscriptionFilterForm or kwargs, not both",
-        ));
-    }
-    if let Some(r) = form {
-        return Ok(r.into());
-    }
-    let mut r = SubscriptionFilterForm::default();
-    if let Some(ts) = timeseries {
-        r.filter = SubscriptionFilter {
-            timeseries: ts.into_iter().map(IdAndExtId::from).collect(),
-        };
-    }
-    if let Some(l) = limit {
-        r.limit = l;
-    }
-    if let Some(s) = sort {
-        r.sort = Some(s.into());
-    }
-    Ok(r)
-}
-

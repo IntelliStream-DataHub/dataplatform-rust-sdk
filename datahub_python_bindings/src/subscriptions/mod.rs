@@ -1,6 +1,7 @@
 use crate::PyIdCollection;
 use crate::timeseries::PyTimeSeries;
-use intellistream_datahub_sdk::filters::DataSort;
+use crate::StringOrList;
+use crate::events::PyTimeFilter;
 use intellistream_datahub_sdk::generic::IdAndExtId;
 use intellistream_datahub_sdk::subscriptions::{
     DataCollectionString, DataWrapperMessage, EventAction, EventObject, Subscription,
@@ -34,7 +35,9 @@ impl From<PySubscription> for Subscription {
     }
 }
 
-#[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionFilter")]
+/// Criteria for `subscriptions.filter`. Every field is optional; the fields AND together and the
+/// entries within a list OR.
+#[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionFilter", from_py_object)]
 #[derive(Clone, Default)]
 pub struct PySubscriptionFilter {
     pub inner: SubscriptionFilter,
@@ -53,19 +56,54 @@ impl From<PySubscriptionFilter> for SubscriptionFilter {
 
 #[pymethods]
 impl PySubscriptionFilter {
+    /// `external_id` and `name` are **pattern** lists: `*` and `%` are wildcards, `_` is literal,
+    /// matching is case-insensitive, and an entry with no wildcard matches exactly. Each also
+    /// accepts a bare string. `timeseries` matches subscriptions bound to at least one of them.
     #[new]
-    #[pyo3(signature=(timeseries=None))]
-    fn new(timeseries: Option<Vec<SubscriptionTimeseriesId>>) -> Self {
-        let timeseries = timeseries
-            .unwrap_or_default()
-            .into_iter()
-            .map(IdAndExtId::from)
-            .collect();
+    #[pyo3(signature = (
+        id = None,
+        external_id = None,
+        name = None,
+        timeseries = None,
+        created_time = None,
+        last_updated_time = None,
+    ))]
+    pub fn new(
+        id: Option<Vec<u64>>,
+        external_id: Option<StringOrList>,
+        name: Option<StringOrList>,
+        timeseries: Option<Vec<SubscriptionTimeseriesId>>,
+        created_time: Option<PyTimeFilter>,
+        last_updated_time: Option<PyTimeFilter>,
+    ) -> Self {
         Self {
-            inner: SubscriptionFilter { timeseries },
+            inner: SubscriptionFilter {
+                id,
+                external_id: external_id.map(Into::into),
+                name: name.map(Into::into),
+                timeseries: timeseries
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(IdAndExtId::from)
+                    .collect(),
+                created_time: created_time.map(Into::into),
+                last_updated_time: last_updated_time.map(Into::into),
+            },
         }
     }
 
+    #[getter]
+    fn id(&self) -> Option<Vec<u64>> {
+        self.inner.id.clone()
+    }
+    #[getter]
+    fn external_id(&self) -> Option<Vec<String>> {
+        self.inner.external_id.clone()
+    }
+    #[getter]
+    fn name(&self) -> Option<Vec<String>> {
+        self.inner.name.clone()
+    }
     #[getter]
     fn timeseries(&self) -> Vec<PyIdCollection> {
         self.inner
@@ -77,97 +115,43 @@ impl PySubscriptionFilter {
     }
 }
 
-#[pyclass(module = "intellistream_datahub_sdk", name = "DataSort")]
-#[derive(Clone, Default)]
-pub struct PyDataSort {
-    pub inner: DataSort,
-}
-
-impl From<DataSort> for PyDataSort {
-    fn from(s: DataSort) -> Self {
-        Self { inner: s }
-    }
-}
-impl From<PyDataSort> for DataSort {
-    fn from(s: PyDataSort) -> Self {
-        s.inner
-    }
-}
-
-#[pymethods]
-impl PyDataSort {
-    #[new]
-    #[pyo3(signature=(property=None, order=None))]
-    fn new(property: Option<Vec<String>>, order: Option<String>) -> Self {
-        Self {
-            inner: DataSort {
-                property: property.unwrap_or_default(),
-                order,
-            },
-        }
-    }
-
-    #[getter]
-    fn property(&self) -> Vec<String> {
-        self.inner.property.clone()
-    }
-    #[getter]
-    fn order(&self) -> Option<String> {
-        self.inner.order.clone()
-    }
-}
-
-#[pyclass(module = "intellistream_datahub_sdk", name = "SubscriptionFilterForm")]
-#[derive(Clone)]
-pub struct PySubscriptionFilterForm {
-    pub inner: SubscriptionFilterForm,
-}
-
-impl From<SubscriptionFilterForm> for PySubscriptionFilterForm {
-    fn from(s: SubscriptionFilterForm) -> Self {
-        Self { inner: s }
-    }
-}
-impl From<PySubscriptionFilterForm> for SubscriptionFilterForm {
-    fn from(s: PySubscriptionFilterForm) -> Self {
-        s.inner
-    }
-}
-
-#[pymethods]
-impl PySubscriptionFilterForm {
-    #[new]
-    #[pyo3(signature=(filter=None, limit=None, sort=None))]
-    fn new(
-        filter: Option<PySubscriptionFilter>,
-        limit: Option<u32>,
-        sort: Option<PyDataSort>,
-    ) -> Self {
-        let mut inner = SubscriptionFilterForm::default();
-        if let Some(f) = filter {
-            inner.filter = f.into();
-        }
-        if let Some(l) = limit {
-            inner.limit = l;
-        }
-        if let Some(s) = sort {
-            inner.sort = Some(s.into());
-        }
-        Self { inner }
-    }
-
-    #[getter]
-    fn filter(&self) -> PySubscriptionFilter {
-        self.inner.filter.clone().into()
-    }
-    #[getter]
-    fn limit(&self) -> u32 {
-        self.inner.limit
-    }
-    #[getter]
-    fn sort(&self) -> Option<PyDataSort> {
-        self.inner.sort.clone().map(PyDataSort::from)
-    }
+/// Build the request body for `subscriptions.filter` from either form of its arguments.
+///
+/// Shared by the sync and async services so the accepted keywords cannot drift apart between them.
+#[allow(clippy::too_many_arguments)]
+pub fn subscription_filter_form(
+    filter: Option<PySubscriptionFilter>,
+    id: Option<Vec<u64>>,
+    external_id: Option<StringOrList>,
+    name: Option<StringOrList>,
+    timeseries: Option<Vec<SubscriptionTimeseriesId>>,
+    created_time: Option<PyTimeFilter>,
+    last_updated_time: Option<PyTimeFilter>,
+    limit: Option<u64>,
+    sort_by: Option<StringOrList>,
+    sort_order: Option<String>,
+    cursor: Option<String>,
+) -> PyResult<SubscriptionFilterForm> {
+    let any_keyword = id.is_some()
+        || external_id.is_some()
+        || name.is_some()
+        || timeseries.is_some()
+        || created_time.is_some()
+        || last_updated_time.is_some();
+    let from_keywords = PySubscriptionFilter::new(
+        id,
+        external_id,
+        name,
+        timeseries,
+        created_time,
+        last_updated_time,
+    )
+    .inner;
+    Ok(SubscriptionFilterForm {
+        filter: crate::resolve_filter(filter.map(Into::into), from_keywords, any_keyword)?,
+        limit,
+        paging: crate::build_page_request(sort_by, sort_order, cursor),
+    })
 }
 
 /// Things accepted as a subscription identifier when deleting.
@@ -463,8 +447,6 @@ impl PySubscriptionMessage {
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySubscription>()?;
     m.add_class::<PySubscriptionFilter>()?;
-    m.add_class::<PyDataSort>()?;
-    m.add_class::<PySubscriptionFilterForm>()?;
     m.add_class::<PySubscriptionMessage>()?;
     m.add_class::<PyDataWrapperMessage>()?;
     m.add_class::<PyDataCollectionString>()?;

@@ -7,7 +7,7 @@ mod tests {
         EventAction, EventObject, Subscription, SubscriptionFilter,
         SubscriptionFilterForm,
     };
-    use crate::filters::DataSort;
+    use crate::filters::{PageRequest, TimeFilter};
     use crate::timeseries::TimeSeries;
     use crate::{create_api_service, ApiService};
     use reqwest::StatusCode;
@@ -53,23 +53,43 @@ mod tests {
 
     #[test]
     fn test_filter_form_default_serializes_cleanly() {
-        // SubscriptionFilterForm::default() must serialize to a body the backend accepts:
-        // `{"filter":{},"limit":1000}` — an unset sort is omitted rather than sent empty, and
-        // `nulls` is absent because the api removed the field and now 400s on it.
-        let json = serde_json::to_value(&SubscriptionFilterForm::default()).unwrap();
-        assert_eq!(json["limit"], 1000);
-        let filter_obj = json["filter"].as_object().unwrap();
-        assert!(filter_obj.get("timeseries").is_none());
-        assert!(json.get("sort").is_none());
+        // Every unset field is omitted rather than sent as null: the api rejects both unknown and
+        // null-typed keys.
+        let json = serde_json::to_value(SubscriptionFilterForm::default()).unwrap();
+        assert_eq!(json, serde_json::json!({"filter": {}}));
+    }
 
-        let sorted = SubscriptionFilterForm {
-            sort: Some(DataSort::desc("name")),
-            ..Default::default()
+    #[test]
+    fn test_filter_form_serializes_every_criterion_under_the_api_names() {
+        let min = "2026-01-01T00:00:00Z".parse().unwrap();
+        let form = SubscriptionFilterForm {
+            filter: SubscriptionFilter {
+                id: Some(vec![12, 18]),
+                external_id: Some(vec!["plant_a_*".into()]),
+                name: Some(vec!["*dashboard*".into()]),
+                timeseries: vec![IdAndExtId::from_external_id("heater_2012_temp")],
+                created_time: Some(TimeFilter::After { min }),
+                last_updated_time: Some(TimeFilter::After { min }),
+            },
+            limit: Some(100),
+            paging: PageRequest::asc("createdTime").after("opaque"),
         };
-        let json = serde_json::to_value(&sorted).unwrap();
-        assert_eq!(json["sort"]["property"], serde_json::json!(["name"]));
-        assert_eq!(json["sort"]["order"], "desc");
-        assert!(json["sort"].as_object().unwrap().get("nulls").is_none());
+        assert_eq!(
+            serde_json::to_value(&form).unwrap(),
+            serde_json::json!({
+                "filter": {
+                    "id": ["12", "18"],
+                    "externalId": ["plant_a_*"],
+                    "name": ["*dashboard*"],
+                    "timeseries": [{"externalId": "heater_2012_temp"}],
+                    "createdTime": {"min": "2026-01-01T00:00:00Z"},
+                    "lastUpdatedTime": {"min": "2026-01-01T00:00:00Z"},
+                },
+                "limit": 100,
+                "sort": {"property": ["createdTime"], "order": "asc"},
+                "cursor": "opaque",
+            })
+        );
     }
 
     // Helpers for the integration test — mirrors delete_events in events/tests.rs.
@@ -158,15 +178,71 @@ mod tests {
                 .filter(&SubscriptionFilterForm {
                     filter: SubscriptionFilter {
                         timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
+                        ..Default::default()
                     },
-                    limit: 100,
-                    sort: None,
+                    limit: Some(100),
+                    ..Default::default()
                 })
                 .await?;
             assert!(
                 filtered.get_items().iter().any(|s| s.external_id == sub_ext),
                 "timeseries-filtered list must contain the subscription"
             );
+
+            // 4b. The node-style criteria narrow too. The name is matched case-insensitively.
+            let created_id = created_item.id.unwrap();
+            let created_at = created_item.date_created.unwrap();
+            let narrow = |filter: SubscriptionFilter| SubscriptionFilterForm {
+                filter,
+                ..Default::default()
+            };
+            for (label, filter) in [
+                ("id", SubscriptionFilter { id: Some(vec![created_id]), ..Default::default() }),
+                (
+                    "externalId",
+                    SubscriptionFilter { external_id: Some(vec![sub_ext.clone()]), ..Default::default() },
+                ),
+                (
+                    "name",
+                    SubscriptionFilter {
+                        name: Some(vec![format!("*{}", sub_ext.to_uppercase())]),
+                        ..Default::default()
+                    },
+                ),
+            ] {
+                let found = api_service.subscriptions.filter(&narrow(filter)).await?;
+                let ext_ids: Vec<&str> =
+                    found.get_items().iter().map(|s| s.external_id.as_str()).collect();
+                assert_eq!(ext_ids, vec![sub_ext.as_str()], "filter by {label}");
+            }
+            let too_late = api_service
+                .subscriptions
+                .filter(&narrow(SubscriptionFilter {
+                    external_id: Some(vec![sub_ext.clone()]),
+                    created_time: Some(TimeFilter::After {
+                        min: created_at + chrono::Duration::hours(1),
+                    }),
+                    ..Default::default()
+                }))
+                .await?;
+            assert!(too_late.get_items().is_empty(), "createdTime must narrow");
+
+            // 4c. A full page carries a cursor; continuing it under the same sort ends the walk.
+            let mut paged = narrow(SubscriptionFilter {
+                external_id: Some(vec![sub_ext.clone()]),
+                ..Default::default()
+            });
+            paged.limit = Some(1);
+            paged.paging = PageRequest::asc("externalId");
+            let first = api_service.subscriptions.filter(&paged).await?;
+            assert_eq!(first.length(), 1);
+            let cursor = first
+                .next_cursor()
+                .expect("a full page must carry a next cursor")
+                .to_string();
+            paged.paging = PageRequest::asc("externalId").after(&cursor);
+            let second = api_service.subscriptions.filter(&paged).await?;
+            assert!(second.get_items().is_empty(), "the walk ends after the only match");
 
             // 5. Delete the subscription. Backend returns 204 No Content → empty DataWrapper.
             delete_subscriptions(&api_service, &[IdAndExtId::from_external_id(&sub_ext)]).await;
@@ -179,9 +255,10 @@ mod tests {
                 .filter(&SubscriptionFilterForm {
                     filter: SubscriptionFilter {
                         timeseries: vec![IdAndExtId::from_external_id(&ts_a_ext)],
+                        ..Default::default()
                     },
-                    limit: 100,
-                    sort: None,
+                    limit: Some(100),
+                    ..Default::default()
                 })
                 .await?;
             assert!(
