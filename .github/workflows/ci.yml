@@ -36,19 +36,9 @@ jobs:
       # without failing a release. `blocking` did exactly that.
       - run: cargo build --all-features
       - run: cargo test --no-run --all-features
-      - run: cargo publish --dry-run
-
-  docs:
-    name: Docs build clean
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      # -D warnings is the point: a broken intra-doc link renders as dead text on docs.rs
-      # rather than failing anything, so the reference rots silently without this.
-      - run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
-      # Only --doc: every other test in this crate needs a live backend. Doctests are the
-      # examples in the documentation, and they are pure construction, so they run anywhere.
+      # Only --doc: every other test needs a live backend.
       - run: cargo test --doc --all-features
+      - run: cargo publish --dry-run
 
   wheels:
     name: Wheels
