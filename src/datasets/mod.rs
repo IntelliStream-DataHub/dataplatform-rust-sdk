@@ -1,3 +1,20 @@
+//! Data sets — the container the rest of the platform hangs off, and the unit access is granted on.
+//!
+//! [`DatasetsService`] is reached as `api.datasets` and covers create, list, by-ids, filter,
+//! search, update and delete, all over [`Dataset`]. [`list`](DatasetsService::list) is a capped,
+//! unpaged sample of the tenant; criteria, ordering and cursor paging live on
+//! [`filter`](DatasetsService::filter).
+//!
+//! Because a data set is what read and write grants attach to, editing one is an operator action:
+//! [`update`](DatasetsService::update) requires the all-datasets write grant and answers **403**
+//! without it, even for a caller who may write the data set's *contents*. Two fields never come
+//! back populated — `connected_data_sets` is input-only, and `data_set_id` is always `None`, since
+//! a data set cannot belong to another one.
+//!
+//! [`policies`](DatasetsService::policies) is wired to the documented endpoint but has been
+//! observed answering with an empty body even where policies exist, so treat its result as
+//! unreliable rather than authoritative.
+
 #[cfg(test)]
 mod tests;
 
@@ -15,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Weak;
 
+/// Data set CRUD, filtering and search. Reached as `api.datasets`; see the [module docs](self).
 pub struct DatasetsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -34,6 +52,9 @@ impl DatasetsService {
         }
     }
 
+    /// `POST /datasets/create` — create one or more data sets.
+    ///
+    /// Accepts a [`Dataset`], a `Vec` of them, or a reference to either.
     pub async fn create<I>(&self, data: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<Dataset>>,
@@ -44,6 +65,10 @@ impl DatasetsService {
             .await
     }
 
+    /// `POST /datasets/delete` — delete data sets by id or external id.
+    ///
+    /// A data set stands above everything that belongs to it, so this is refused while it still has
+    /// members.
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
@@ -84,6 +109,9 @@ impl DatasetsService {
         self.execute_post_request(path, filter).await
     }
 
+    /// `POST /datasets/byids` — fetch data sets by id or external id.
+    ///
+    /// Like every batch lookup, this answers 200 with the subset it found and silently omits the rest.
     pub async fn by_ids<I>(&self, id_collection: &I) -> Result<DataWrapper<Dataset>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
@@ -166,6 +194,10 @@ impl DatasetsService {
     }
 }
 
+/// A data set: the container entities belong to, and the unit read and write grants attach to.
+///
+/// `connected_data_sets` is input-only and `data_set_id` is always `None` on a read — a data set
+/// cannot belong to another one.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Dataset {

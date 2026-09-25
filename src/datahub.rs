@@ -1,3 +1,21 @@
+//! Configuration and authentication. [`DataHubConfig`] holds the API base URL and the credentials
+//! every call is made with, and mints, caches and refreshes the bearer token behind them.
+//!
+//! Build one from the process environment and a local `.env` with [`DataHubConfig::from_env`], or
+//! from a named file with [`from_envfile`](DataHubConfig::from_envfile), then pass it to
+//! [`ApiService::new`](crate::ApiService::new). `BASE_URL` is always required; for credentials,
+//! either set `TOKEN` to a token you manage yourself — that one is never treated as expired and
+//! never refreshed — or give `CLIENT_ID`, `CLIENT_SECRET` and `TOKEN_URI` for the
+//! client-credentials flow, or the `ASSERTION*` variables for the RFC 7523 `jwt-bearer` exchange.
+//! The setters adjust the same values in code, and also switch on the durable ingest buffer
+//! ([`enable_buffering`](DataHubConfig::enable_buffering)).
+//!
+//! `openid` is **always** requested and `SCOPE` *adds* to it rather than replacing it, because the
+//! API resolves dataset grants by calling the identity provider's UserInfo endpoint with your own
+//! token — on a Keycloak Organizations realm that means `SCOPE=organization:<alias>`. Everything
+//! here fails with [`DataHubError`], never with
+//! [`ResponseError`](crate::http::ResponseError).
+
 use crate::errors::DataHubError;
 use chrono::{DateTime, Utc};
 use dotenv::from_path;
@@ -24,7 +42,8 @@ pub const DEFAULT_BUFFER_DIR: &str = ".datahub-spool";
 /// Default number of datapoint insert requests in flight at once. Each carries up to 100 000 points,
 /// which the api holds in memory while it parses them, so this bounds what one insert costs its heap.
 pub const DEFAULT_DATAPOINT_INSERT_PARALLELISM: usize = 4;
-/// Scope sent with a token request when none is configured. See [`OAuthConfig::effective_scope`].
+/// Scope sent with a token request when none is configured. `SCOPE` adds to this rather than
+/// replacing it, so `SCOPE=organization:acme` asks for `openid organization:acme`.
 pub const DEFAULT_SCOPE: &str = "openid";
 /// RFC 7523 grant type: exchange an externally-issued JWT assertion for a token.
 const JWT_BEARER_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
@@ -32,6 +51,10 @@ const JWT_BEARER_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 /// (Keycloak "Signed JWT - Federated") instead of a client secret.
 const JWT_BEARER_CLIENT_ASSERTION: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
+/// The credential half of [`DataHubConfig`]: which OAuth2 flow to use and what to send with it.
+///
+/// Populated from the environment by [`DataHubConfig::from_env`]; the `ASSERTION*` fields select
+/// the RFC 7523 `jwt-bearer` exchange in place of plain client credentials.
 #[derive(Default, Deserialize, Debug, Clone)]
 pub struct OAuthConfig {
     #[serde(alias = "CLIENT_ID")]
@@ -134,6 +157,12 @@ pub(crate) struct AuthState {
     pub token: Option<oauth2::basic::BasicTokenResponse>,
     pub expire_time: Option<DateTime<Utc>>,
 }
+/// Base URL, credentials and the cached bearer token — everything an [`ApiService`](crate::ApiService)
+/// needs to talk to one backend as one tenant.
+///
+/// Build it with [`from_env`](Self::from_env) or [`from_envfile`](Self::from_envfile), adjust it
+/// with the setters, then hand it to [`ApiService::new`](crate::ApiService::new). Cloning is cheap
+/// and shares the token cache.
 #[derive(Debug, Clone)]
 pub struct DataHubConfig {
     pub(crate) config: Arc<OAuthConfig>,
@@ -525,6 +554,10 @@ impl DataHubConfig {
         auth_state.expire_time = None;
     }
 
+    /// The current bearer token, minting or refreshing it if the cached one is missing or expired.
+    ///
+    /// A `TOKEN` supplied through the environment is returned as-is and never refreshed — it is
+    /// assumed to be managed outside the SDK.
     pub async fn get_api_token(&self) -> Result<String, DataHubError> {
         {
             // lock scope. read and if expired refresh token

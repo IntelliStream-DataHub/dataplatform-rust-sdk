@@ -1,3 +1,20 @@
+//! Files — upload, download, and the directory tree they live in.
+//!
+//! [`FileService`] is reached as `api.files`. Files and folders are both
+//! [`INode`]s: walk the tree with
+//! [`list_root_directory`](FileService::list_root_directory) and
+//! [`list_directory_by_path`](FileService::list_directory_by_path), look one up with
+//! [`get_by_id`](FileService::get_by_id), [`get_by_external_id`](FileService::get_by_external_id)
+//! or [`search`](FileService::search), rename, move or re-assign a data set with
+//! [`update`](FileService::update), and soft-delete, [`list_trash`](FileService::list_trash) and
+//! [`restore`](FileService::restore).
+//!
+//! Upload is a raw `PUT`: the file content is the request body and all metadata rides in
+//! `X-Datahub-*` headers, which [`FileUpload`] builds for you — but note that [`FileUpload::new`]
+//! inspects the path eagerly and **panics** if it is not a readable regular file, so validate it
+//! first. Download comes in two shapes: [`download`](FileService::download) buffers the whole file
+//! into memory, while [`download_to_path`](FileService::download_to_path) streams it to disk.
+
 mod test;
 
 use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
@@ -15,6 +32,7 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio_util::codec::{BytesCodec, FramedRead};
 
+/// File upload, download and the directory tree. Reached as `api.files`; see the [module docs](self).
 pub struct FileService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -29,6 +47,10 @@ impl FileService {
         }
     }
 
+    /// `PUT /files` — upload a file's contents, with its metadata in `X-Datahub-*` headers.
+    ///
+    /// The body is the raw bytes rather than a multipart form. Build the [`FileUpload`] first; it
+    /// reads the path eagerly and panics if it is not a readable regular file.
     pub async fn upload_file(
         &self,
         file_upload: FileUpload,
@@ -41,6 +63,7 @@ impl FileService {
             .await
     }
 
+    /// The top level of the file tree, as [`INode`]s — files and folders alike.
     pub async fn list_root_directory(&self) -> Result<DataWrapper<INode>, ResponseError> {
         // Create and send an HTTP GET request
         let full_path = format!("{}/list", self.base_url.as_str());
@@ -48,6 +71,7 @@ impl FileService {
             .await
     }
 
+    /// The contents of one folder, named by its path.
     pub async fn list_directory_by_path(
         &self,
         path: &str,
@@ -57,6 +81,10 @@ impl FileService {
             .await
     }
 
+    /// `POST /files/delete` — move files to the trash by id or external id.
+    ///
+    /// Soft: see [`list_trash`](Self::list_trash) for what is in there and
+    /// [`restore`](Self::restore) to bring one back.
     pub async fn delete(
         &self,
         id_collection: &DataWrapper<IdAndExtId>,
@@ -341,6 +369,10 @@ impl FileUpdate {
     }
 }
 
+/// A file staged for upload: the local path plus the metadata that rides in `X-Datahub-*` headers.
+///
+/// [`new`](Self::new) inspects the path immediately and **panics** if it is not a readable regular
+/// file, so check it first if the path came from outside your program.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FileUpload {
     #[serde(rename = "externalId")]

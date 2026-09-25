@@ -1,3 +1,21 @@
+//! [`ResourceService`], the generic node service over `/resources`, and the types its calls take
+//! and answer.
+//!
+//! It is the one service that spans **every** node type — assets, timeseries, functions, data
+//! sets, policies and plain resources — so its reads answer the [`Node`] enum
+//! rather than one flat struct, each row in the shape of its own kind. Create nodes, and
+//! optionally the edges between them, with [`create`](ResourceService::create); read with
+//! [`get_by_id`](ResourceService::get_by_id), [`by_ids`](ResourceService::by_ids),
+//! [`list`](ResourceService::list), [`filter`](ResourceService::filter) and
+//! [`search`](ResourceService::search); change fields with [`update`](ResourceService::update),
+//! whose body is a [`ResourceUpdate`] naming one node plus the [`ResourceUpdateFields`] to apply.
+//!
+//! [`fetch_related`](ResourceService::fetch_related) is the graph read: bounded by a
+//! [`RelatedResourcesForm`], it walks outward from a starting node and answers a
+//! [`ResourceNetwork`] of nodes, edges and labels. Note that the [`Label`] in this module is that
+//! traversal's graph DTO, not the label entity — the entity is
+//! [`labels::Label`](crate::labels::Label).
+
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -18,6 +36,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Weak;
 
+/// The generic node service, spanning every node type. Reached as `api.resources`; see the
+/// [module docs](self).
 pub struct ResourceService {
     api_service: Weak<ApiService>,
     base_url: String,
@@ -88,6 +108,10 @@ impl ResourceService {
             .await
     }
 
+    /// `POST /resources/delete` — delete nodes by id or external id.
+    ///
+    /// Refused with **409** `would-strand` if it would cut a surviving node's only route to the graph
+    /// root; the problem's `blockedBy` names what is in the way.
     pub async fn delete<I>(&self, input: &I) -> Result<GraphDataWrapper<Resource>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
@@ -98,6 +122,10 @@ impl ResourceService {
         self.execute_post_request::<GraphDataWrapper<Resource>, _>(&url, &payload)
             .await
     }
+    /// `POST /resources/search` — full-text search across every node type.
+    ///
+    /// The phrase selects and the filter only narrows; results are ranked by `ts_rank` and tie-broken
+    /// on id. Answers each row as its own [`Node`] variant.
     pub async fn search(
         &self,
         payload: &SearchAndFilterForm<ResourceFilter>,
@@ -167,7 +195,7 @@ impl ResourceService {
     ///
     /// The cheap "what have I got" read: no body, no criteria. Like every read under
     /// `/resources` it spans **every** node type and answers each row in the shape of its own
-    /// kind — see [`Node`](crate::nodes::Node) — and it is narrowed to the data sets you may read
+    /// kind — see [`crate::nodes::Node`] — and it is narrowed to the data sets you may read
     /// exactly as [`filter`](Self::filter) is.
     ///
     /// Resources are the bulk of a tenant, so treat this as a sample rather than an inventory: it
@@ -214,6 +242,10 @@ impl ResourceService {
             .await
     }
 }
+/// A plain graph node — one carrying none of the intrinsic type-labels.
+///
+/// The flat shape `/resources` answers with for an unlabelled node; a labelled one comes back as
+/// the matching [`Node`] variant instead.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Resource {

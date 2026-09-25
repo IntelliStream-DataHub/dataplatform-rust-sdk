@@ -1,7 +1,14 @@
 //! Blocking (synchronous) client, mirroring the async API — the same split as
 //! `reqwest` / `reqwest::blocking`.
 //!
-//! Enable it with the `blocking` cargo feature. Every wrapper delegates to the async
+//! **Requires the `blocking` cargo feature**, which is off by default:
+//!
+//! ```toml
+//! [dependencies]
+//! intellistream-datahub-sdk = { version = "0.4", features = ["blocking"] }
+//! ```
+//!
+//! Every wrapper delegates to the async
 //! implementation on a dedicated Tokio runtime owned by the client, so behavior
 //! (durable buffering, retries, OAuth token refresh) is identical to the async API —
 //! there is exactly one implementation of each call.

@@ -1,3 +1,19 @@
+//! [`ResponseError`], the error every service method returns.
+//!
+//! It carries the HTTP status ([`get_status`](ResponseError::get_status)) and the raw response
+//! body ([`get_message`](ResponseError::get_message)) and, when the API refused in the documented
+//! way, the RFC 9457 problem document behind it: reach that with
+//! [`problem`](ResponseError::problem) and branch on its
+//! [`slug`](crate::problem::ProblemDetail::slug) rather than on the prose in `title` or `detail`.
+//! Failures the SDK raised itself — a connect timeout, a client-side rejection, an unobtainable
+//! token — arrive as the same type with no problem document.
+//!
+//! [`is_transient`](ResponseError::is_transient),
+//! [`is_auth_failure`](ResponseError::is_auth_failure) and
+//! [`is_bufferable`](ResponseError::is_bufferable) classify a failure for retry; the durable
+//! ingest buffer spools on the last of them, so a 401/403 costs a rotated credential rather than
+//! the batch.
+
 use crate::generic::DataWrapperDeserialization;
 use oauth2::http::StatusCode;
 use reqwest::{Error, Response};
@@ -5,6 +21,11 @@ use serde::de::DeserializeOwned;
 use std::fmt;
 use thiserror::Error;
 
+/// A failed API call: the status, the raw body, and the problem document behind it when there
+/// was one.
+///
+/// Also covers failures that never reached the server — a connect timeout, an unobtainable token —
+/// which arrive with no problem document.
 #[derive(Debug, Error, Clone)]
 pub struct ResponseError {
     pub(crate) status: StatusCode,
@@ -136,6 +157,7 @@ impl fmt::Display for ResponseError {
     }
 }
 
+#[doc(hidden)]
 pub async fn process_response<T>(response: Response, path: &str) -> Result<T, ResponseError>
 where
     T: DeserializeOwned + DataWrapperDeserialization,

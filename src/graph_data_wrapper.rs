@@ -1,9 +1,31 @@
+//! [`GraphDataWrapper<T, R>`], the response shape of the graph endpoints: nodes *and* the edges
+//! between them, where [`DataWrapper`](crate::generic::DataWrapper) carries rows alone.
+//!
+//! [`ResourceService::create`](crate::resources::ResourceService::create),
+//! [`by_ids`](crate::resources::ResourceService::by_ids) and
+//! [`update`](crate::resources::ResourceService::update) answer one, as do
+//! [`AssetsService::update`](crate::assets::AssetsService::update),
+//! [`FunctionsService::update`](crate::functions::FunctionsService::update) and
+//! [`EdgesService::by_ids`](crate::relations::EdgesService::by_ids). Read it with
+//! [`nodes`](GraphDataWrapper::nodes) and [`relations`](GraphDataWrapper::relations) — both are
+//! `Option`, absent rather than empty when the response carried none.
+//!
+//! `R` defaults to [`EdgeProxy`], the response form of an edge, so
+//! `GraphDataWrapper<Node>` is the shape you receive; the explicit `GraphDataWrapper<T, RelForm>`
+//! is the request form. The same struct is the update request body, which is why a bare
+//! `&ResourceUpdate` or `&Vec<ResourceUpdate>` can be handed directly to `update` — [`GraphNode`]
+//! is the marker that unlocks those conversions.
+
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::generic::DataWrapperDeserialization;
 use crate::relations::EdgeProxy;
 
+/// Marker for the node types a [`GraphDataWrapper`] can carry.
+///
+/// Implementing it is what lets `&update` and `&vec_of_updates` convert into a request body, so
+/// they can be handed straight to `resources.update` and its siblings.
 pub trait GraphNode: Clone + Serialize {
     fn into_wrapper(self) -> GraphDataWrapper<Self> {
         GraphDataWrapper::from(&self)

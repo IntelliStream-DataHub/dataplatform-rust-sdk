@@ -20,6 +20,11 @@ exclude = [
 # Synchronous client (intellistream_datahub_sdk::blocking), same split as reqwest::blocking.
 blocking = []
 
+# docs.rs builds with default features only, which would leave `blocking` undocumented even
+# though the README points callers at it.
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 maplit = "1"
 tokio = { version = "1", features = ["full"] }
