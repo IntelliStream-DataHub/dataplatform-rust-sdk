@@ -32,7 +32,9 @@ use crate::datasets::{DatasetFilter, Dataset, DatasetFilterForm, DatasetUpdate};
 use crate::events::{Event, EventDimension, EventIdCollection};
 use crate::files::{FileDownload, FileUpdate, FileUpload};
 use crate::filters::{EventFilter, EventFilterForm};
-use crate::functions::Function;
+use crate::functions::{Function, FunctionFilter, FunctionFilterForm};
+use crate::tenant::{SettingsPermission, TenantFeatures, TenantLlmSettings, TenantLlmSettingsForm};
+use std::collections::HashMap;
 use crate::generic::{
     DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, INode, IdAndExtId,
     RetrieveFilter, SearchAndFilterForm,
@@ -43,10 +45,13 @@ use crate::labels::Label;
 use crate::nodes::{Asset, Node};
 use crate::relations::{EdgeProxy, RelForm, RelTypeForm, RelationshipType};
 use crate::resources::{
-    RelatedResourcesForm, Resource, ResourceFilter, ResourceFilterForm, ResourceNetwork,
-    ResourceUpdate,
+    GraphImportResult, RelatedResourcesForm, Resource, ResourceFilter, ResourceFilterForm,
+    ResourceNetwork, ResourceUpdate,
 };
-use crate::timeseries::{BinaryIngestOptions, TimeSeries, TimeSeriesFilter, TimeSeriesUpdateCollection};
+use crate::timeseries::{
+    BinaryIngestOptions, TimeSeries, TimeSeriesFilter, TimeSeriesUpdateCollection,
+    ValueTypeRecommendation,
+};
 use crate::unit::Unit;
 
 /// Generate blocking methods that delegate to the same-named async method on one of
@@ -100,6 +105,7 @@ pub struct ApiService {
     pub functions: FunctionsService,
     pub labels: LabelsService,
     pub edges: EdgesService,
+    pub tenant: TenantService,
 }
 
 /// The blocking counterpart of [`crate::create_api_service`]: configuration from the
@@ -141,6 +147,7 @@ impl ApiService {
             functions: service!(FunctionsService),
             labels: service!(LabelsService),
             edges: service!(EdgesService),
+            tenant: service!(TenantService),
             api,
         }
     }
@@ -161,6 +168,8 @@ pub struct TimeSeriesService {
 impl TimeSeriesService {
     delegate! { time_series =>
         fn list(limit: Option<u64>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
+        fn get_by_id(id: u64) -> Result<DataWrapper<TimeSeries>, ResponseError>;
+        fn recommend_value_type(unit_external_id: &str) -> Result<ValueTypeRecommendation, ResponseError>;
         fn create(json: &DataWrapper<TimeSeries>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn create_one(ts: &TimeSeries) -> Result<DataWrapper<TimeSeries>, ResponseError>;
         fn create_from_list(ts_list: &Vec<TimeSeries>) -> Result<DataWrapper<TimeSeries>, ResponseError>;
@@ -199,6 +208,27 @@ impl ResourceService {
         fn list(limit: Option<u64>) -> Result<DataWrapper<Node>, ResponseError>;
         fn search(payload: &SearchAndFilterForm<ResourceFilter>) -> Result<DataWrapper<Node>, ResponseError>;
         fn fetch_related(form: &RelatedResourcesForm) -> Result<ResourceNetwork, ResponseError>;
+        fn export_graph(id: u64) -> Result<Vec<u8>, ResponseError>;
+        fn import_graph(file: Vec<u8>) -> Result<GraphImportResult, ResponseError>;
+    }
+
+    /// Blocking counterpart of [`crate::ResourceService::export_graph_to_path`].
+    pub fn export_graph_to_path(
+        &self,
+        id: u64,
+        destination: impl AsRef<std::path::Path>,
+    ) -> Result<u64, ResponseError> {
+        self.rt
+            .block_on(self.api.resources.export_graph_to_path(id, destination))
+    }
+
+    /// Blocking counterpart of [`crate::ResourceService::import_graph_from_path`].
+    pub fn import_graph_from_path(
+        &self,
+        source: impl AsRef<std::path::Path>,
+    ) -> Result<GraphImportResult, ResponseError> {
+        self.rt
+            .block_on(self.api.resources.import_graph_from_path(source))
     }
 
     // Generic or GraphDataWrapper-returning; delegated by hand.
@@ -277,6 +307,7 @@ pub struct DatasetsService {
 impl DatasetsService {
     delegate! { datasets =>
         fn list(limit: Option<u64>) -> Result<DataWrapper<Dataset>, ResponseError>;
+        fn get_by_id(id: u64) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn filter(filter: &DatasetFilterForm) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn search(search: &SearchAndFilterForm<DatasetFilter>) -> Result<DataWrapper<Dataset>, ResponseError>;
         fn search_by_query(query: &str) -> Result<DataWrapper<Dataset>, ResponseError>;
@@ -385,6 +416,9 @@ impl FunctionsService {
         fn list(limit: Option<u64>) -> Result<DataWrapper<Function>, ResponseError>;
         fn by_ids(ids: &[IdAndExtId]) -> Result<DataWrapper<Function>, ResponseError>;
         fn by_external_id(external_id: &str) -> Result<Function, ResponseError>;
+        fn filter(form: &FunctionFilterForm) -> Result<DataWrapper<Function>, ResponseError>;
+        fn search(form: &SearchAndFilterForm<FunctionFilter>) -> Result<DataWrapper<Function>, ResponseError>;
+        fn search_by_query(query: &str) -> Result<DataWrapper<Function>, ResponseError>;
     }
 
     delegate_into! { functions =>
@@ -437,5 +471,20 @@ impl EdgesService {
         fn create(data: Into<DataWrapper<RelForm>>) -> Result<DataWrapper<EdgeProxy>, ResponseError>;
         fn delete(json: Into<DataWrapper<IdAndExtId>>) -> Result<DataWrapper<EdgeProxy>, ResponseError>;
         fn create_types(data: Into<DataWrapper<RelTypeForm>>) -> Result<DataWrapper<RelationshipType>, ResponseError>;
+    }
+}
+
+/// Blocking counterpart of [`crate::tenant::TenantService`].
+pub struct TenantService {
+    api: Arc<crate::ApiService>,
+    rt: Arc<Runtime>,
+}
+
+impl TenantService {
+    delegate! { tenant =>
+        fn features() -> Result<TenantFeatures, ResponseError>;
+        fn settings_permissions() -> Result<HashMap<String, SettingsPermission>, ResponseError>;
+        fn llm_settings() -> Result<TenantLlmSettings, ResponseError>;
+        fn update_llm_settings(form: &TenantLlmSettingsForm) -> Result<TenantLlmSettings, ResponseError>;
     }
 }

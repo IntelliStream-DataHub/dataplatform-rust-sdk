@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod test;
 
-use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId};
+use crate::filters::{NodeFilter, PageRequest};
+use crate::generic::{ApiServiceProvider, DataHubEntity, DataWrapper, IdAndExtId, SearchAndFilterForm};
 use crate::graph_data_wrapper::GraphDataWrapper;
 use crate::http::ResponseError;
 use crate::nodes::Node;
@@ -66,9 +67,7 @@ impl FunctionsService {
     /// missing rather than forbidden, so a 404 says "not a function you can read" and nothing
     /// more. A node of another type is not a function and is reported the same way.
     ///
-    /// Unlike [`by_ids`](Self::by_ids), which omits what it cannot find, this is an error. Prefer
-    /// it to `by_ids` when you already have the numeric id: `by_ids` does not yet call the api's
-    /// `/functions/byids` and pages the whole listing to filter client-side.
+    /// Unlike [`by_ids`](Self::by_ids), which omits what it cannot find, this is an error.
     pub async fn get_by_id(&self, id: u64) -> Result<DataWrapper<Function>, ResponseError> {
         let path = &format!("{}/{}", self.base_url, id);
         self.execute_get_request::<DataWrapper<Function>, ()>(path, None)
@@ -105,43 +104,58 @@ impl FunctionsService {
             .await
     }
 
-    /// Look up functions by id or externalId, implemented client-side by listing and filtering.
+    /// `POST /functions/byids` — a batch lookup by id or external id.
     ///
-    /// **The SDK has not wired the real endpoint yet.** The api grew `/functions/byids`,
-    /// `/functions/filter` and `/functions/search` in platform #131, which is what this should
-    /// call; until it does, the client-side walk stands.
-    ///
-    /// It asks for the largest page the api allows, because a client-side filter can only match
-    /// what the listing returned — so a tenant past 10000 functions silently misses the oldest
-    /// ones here. The fix is to call `/functions/byids`, not to ask for a bigger page.
+    /// Like every batch lookup in this api, it answers 200 with the found subset and silently
+    /// omits the rest: an id that does not exist, names a node of another type, or is not readable
+    /// is simply absent from the response.
     pub async fn by_ids(
         &self,
         ids: &[IdAndExtId],
     ) -> Result<DataWrapper<Function>, ResponseError> {
-        let mut wanted_ids: Vec<u64> = vec![];
-        let mut wanted_external_ids: Vec<String> = vec![];
-        for id in ids {
-            if let Some(numeric) = id.id {
-                wanted_ids.push(numeric);
-            }
-            if let Some(ext) = &id.external_id {
-                wanted_external_ids.push(ext.clone());
-            }
-        }
-        let all = self.list(Some(10_000)).await?;
-        let mut matched: Vec<Function> = vec![];
-        for f in all.get_items() {
-            let id_match = f.id.map_or(false, |i| wanted_ids.contains(&i));
-            let ext_match = wanted_external_ids.contains(&f.external_id);
-            if id_match || ext_match {
-                matched.push(f.clone());
-            }
-        }
-        let mut wrapper = DataWrapper::from_vec(matched);
-        if let Some(code) = all.get_http_status_code() {
-            wrapper.set_http_status_code(code);
-        }
-        Ok(wrapper)
+        let path = &format!("{}/byids", self.base_url);
+        let body: DataWrapper<IdAndExtId> = DataWrapper::from_vec(ids.to_vec());
+        self.execute_post_request::<DataWrapper<Function>, _>(path, &body)
+            .await
+    }
+
+    /// `POST /functions/filter` — functions matching every supplied criterion, newest created
+    /// first unless the form sorts otherwise.
+    ///
+    /// The shared [`NodeFilter`](crate::filters::NodeFilter) rules apply — wildcards,
+    /// case-insensitivity, what an empty list means — plus
+    /// [`data_set_id`](FunctionFilter::data_set_id). Pages: the form carries `sort` and `cursor`,
+    /// and the response carries `next_cursor`.
+    pub async fn filter(
+        &self,
+        form: &FunctionFilterForm,
+    ) -> Result<DataWrapper<Function>, ResponseError> {
+        let path = &format!("{}/filter", self.base_url);
+        self.execute_post_request::<DataWrapper<Function>, _>(path, form)
+            .await
+    }
+
+    /// `POST /functions/search` — free-text search over functions, ranked by `ts_rank` and
+    /// tie-broken on id.
+    ///
+    /// The phrase selects and the filter only removes. `query` is required at 3–140 characters;
+    /// `limit` defaults to 100 and caps at 1000.
+    pub async fn search(
+        &self,
+        form: &SearchAndFilterForm<FunctionFilter>,
+    ) -> Result<DataWrapper<Function>, ResponseError> {
+        let path = &format!("{}/search", self.base_url);
+        self.execute_post_request::<DataWrapper<Function>, _>(path, form)
+            .await
+    }
+
+    /// [`search`](Self::search) with just a query string, leaving `limit` at the server's default
+    /// of 100.
+    pub async fn search_by_query(
+        &self,
+        query: &str,
+    ) -> Result<DataWrapper<Function>, ResponseError> {
+        self.search(&SearchAndFilterForm::new(query)).await
     }
 
     /// Convenience for the function-worker bootstrap: `client.functions.by_external_id("...")`.
@@ -251,5 +265,54 @@ impl Function {
 impl DataHubEntity for Function {
     fn ext_id(&self) -> &String {
         &self.external_id
+    }
+}
+
+/// Criteria for `POST /functions/filter`, and the `filter` of `POST /functions/search`: the shared
+/// [`NodeFilter`] plus a data set restriction, mirroring the api's `FunctionFilter`.
+// Not PartialEq: `data_set_id` holds `IdAndExtId`, which is intentionally non-comparable.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionFilter {
+    #[serde(flatten)]
+    pub node: NodeFilter,
+    /// Restrict to functions in these data sets **and every data set beneath them**, each named
+    /// by id or external id.
+    ///
+    /// **`None` and empty differ**: `None` places no restriction, `Some(vec![])` narrows to no
+    /// data sets and matches nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_set_id: Option<Vec<IdAndExtId>>,
+}
+
+/// Body of `POST /functions/filter`: the criteria, how many to return, and in what order.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionFilterForm {
+    pub filter: FunctionFilter,
+    /// Defaults to 1000 server-side and is capped at 10000 — above that the request is a 400.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+    #[serde(flatten)]
+    pub paging: PageRequest,
+}
+
+impl FunctionFilterForm {
+    pub fn new(filter: FunctionFilter) -> Self {
+        Self {
+            filter,
+            limit: None,
+            paging: Default::default(),
+        }
+    }
+
+    pub fn with_limit(mut self, limit: u64) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn with_paging(mut self, paging: PageRequest) -> Self {
+        self.paging = paging;
+        self
     }
 }

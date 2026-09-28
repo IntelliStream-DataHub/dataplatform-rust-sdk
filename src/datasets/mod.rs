@@ -70,6 +70,14 @@ impl DatasetsService {
             .await
     }
 
+    /// `GET /datasets/{id}` — one data set by its numeric id. A miss is a 404 carrying the
+    /// `not-found` problem type, unlike [`by_ids`](Self::by_ids), which omits what it cannot find.
+    pub async fn get_by_id(&self, id: u64) -> Result<DataWrapper<Dataset>, ResponseError> {
+        let path = &format!("{}/{}", self.base_url, id);
+        self.execute_get_request::<DataWrapper<Dataset>, ()>(path, None)
+            .await
+    }
+
     /// `POST /datasets/filter` — datasets matching [`DatasetFilterForm`], newest first.
     ///
     /// Every criterion on the filter is honoured server-side. Results are capped by the form's

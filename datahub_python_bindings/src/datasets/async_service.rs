@@ -36,6 +36,22 @@ impl PyDatasetsServiceAsync {
         })
     }
 
+    /// One data set by numeric id. Raises on 404.
+    fn get_by_id<'p>(&self, py: Python<'p>, id: u64) -> PyResult<Bound<'p, PyAny>> {
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .datasets
+                .get_by_id(id)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(result
+                .get_items()
+                .first()
+                .map(|d| PyDataset::with_client(d.clone(), service.clone())))
+        })
+    }
+
     fn create<'p>(&self, py: Python<'p>, input: Vec<PyDataset>) -> PyResult<Bound<'p, PyAny>> {
         let datasets: Vec<Dataset> = input.iter().cloned().map(Dataset::from).collect();
         let service = self.api_service.clone();

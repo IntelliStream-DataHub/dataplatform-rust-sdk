@@ -1,7 +1,9 @@
 pub mod binary;
+pub mod datapoint_listen;
 mod test;
 
 pub use binary::{BinaryIngestOptions, DatapointValueType, Frame, FrameWriter, ResolvedSeries};
+pub use datapoint_listen::{DatapointListener, LiveDatapoint};
 
 use crate::buffer::DurableSpool;
 use crate::datahub::DataHubConfig;
@@ -69,6 +71,58 @@ impl TimeSeriesService {
         let query = limit.map(|limit| [("limit", limit)]);
         self.execute_get_request::<DataWrapper<TimeSeries>, _>(&self.base_url, query.as_ref())
             .await
+    }
+
+    /// `GET /timeseries/{id}` — one series by its numeric id.
+    ///
+    /// **404 does not mean the id is free.** A series the caller may not read is reported as
+    /// missing rather than forbidden. Unlike [`by_ids`](Self::by_ids), which omits what it cannot
+    /// find, a miss here is an error carrying the `not-found` problem type.
+    pub async fn get_by_id(&self, id: u64) -> Result<DataWrapper<TimeSeries>, ResponseError> {
+        let path = &format!("{}/{}", self.base_url, id);
+        self.execute_get_request::<DataWrapper<TimeSeries>, ()>(path, None)
+            .await
+    }
+
+    /// Open a live tail of the datapoints written to these timeseries, by external id — the
+    /// `/timeseries/datapoints/listen` WebSocket. May be empty; add series later with
+    /// [`DatapointListener::subscribe`].
+    ///
+    /// No subscription entity is involved and nothing is durable: the stream starts at *latest*,
+    /// and ids the caller cannot read are dropped silently. For at-least-once delivery use
+    /// [`SubscriptionsService::listen`](crate::subscriptions::SubscriptionsService::listen).
+    pub async fn listen_datapoints<S: AsRef<str>>(
+        &self,
+        external_ids: &[S],
+    ) -> Result<DatapointListener, crate::subscriptions::ListenError> {
+        let interest = external_ids.iter().map(|s| s.as_ref().to_string()).collect();
+        DatapointListener::connect(self.api_service.clone(), &self.base_url, interest).await
+    }
+
+    /// `GET /timeseries/recommend-value-type/{unitExternalId}` — the value type that compresses
+    /// best in ClickHouse for a unit while still representing it faithfully.
+    ///
+    /// Advice, not a constraint, and a hard-coded heuristic. An unknown unit is **not** an error:
+    /// it answers the generic compact default with
+    /// [`recognized`](ValueTypeRecommendation::recognized) `false`.
+    pub async fn recommend_value_type(
+        &self,
+        unit_external_id: &str,
+    ) -> Result<ValueTypeRecommendation, ResponseError> {
+        let mut url = reqwest::Url::parse(&self.base_url).map_err(|e| ResponseError {
+            status: reqwest::StatusCode::BAD_REQUEST,
+            message: e.to_string(),
+            content_type: None,
+        })?;
+        url.path_segments_mut()
+            .map_err(|_| ResponseError {
+                status: reqwest::StatusCode::BAD_REQUEST,
+                message: format!("base url {} cannot carry a path", self.base_url),
+                content_type: None,
+            })?
+            .push("recommend-value-type")
+            .push(unit_external_id);
+        self.execute_get_request(url.as_str(), None::<&str>).await
     }
 
     pub async fn create(
@@ -950,5 +1004,25 @@ mod unbuffered_insert_tests {
 
         assert_eq!(error.get_status().as_u16(), 500);
         assert!(observed.requests.load(Ordering::SeqCst) < 5);
+    }
+}
+
+/// Answer of [`TimeSeriesService::recommend_value_type`]. A bare object on the wire, not an
+/// `items` envelope.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ValueTypeRecommendation {
+    /// The unit external id the recommendation was made for, echoed from the request.
+    pub unit_external_id: String,
+    /// One of `BIGINT`, `FLOAT`, `FLOAT32`, `NUMERIC`, `DECIMAL32`, `TEXT` or `MIXED`.
+    pub recommended_value_type: String,
+    pub reason: String,
+    /// `false` when the unit matched nothing specific and the generic default came back.
+    pub recognized: bool,
+}
+
+impl crate::generic::DataWrapperDeserialization for ValueTypeRecommendation {
+    fn deserialize_and_set_status(body: &str, _status_code: u16) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(body)
     }
 }

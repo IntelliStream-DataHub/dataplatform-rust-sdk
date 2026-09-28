@@ -52,6 +52,7 @@ pub mod tests;
 pub mod timeseries;
 pub mod unit;
 pub mod functions;
+pub mod tenant;
 
 pub use resources::*;
 pub use nodes::{Asset, Node, NodeType, Policy};
@@ -72,6 +73,7 @@ pub use subscriptions::{
     SubscriptionFilterForm, WsDatapoint,
 };
 use crate::functions::FunctionsService;
+pub use crate::tenant::TenantService;
 //pub use filters::Filter;
 
 pub struct ApiService {
@@ -87,6 +89,7 @@ pub struct ApiService {
     pub functions: FunctionsService,
     pub labels: LabelsService,
     pub edges: EdgesService,
+    pub tenant: TenantService,
     pub(crate) http_client: Client,
 }
 
@@ -144,6 +147,7 @@ pub fn create_api_service() -> Arc<ApiService> {
             functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
             labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
             edges: EdgesService::new(Weak::clone(weak_self), &base_url_clone),
+            tenant: TenantService::new(Weak::clone(weak_self), &base_url_clone),
             http_client,
         }
     });
@@ -181,6 +185,7 @@ impl ApiService {
                 functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
                 labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
                 edges: EdgesService::new(Weak::clone(weak_self), &base_url_clone),
+                tenant: TenantService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });
@@ -219,6 +224,7 @@ impl ApiService {
                 functions: FunctionsService::new(Weak::clone(weak_self), &base_url_clone),
                 labels: LabelsService::new(Weak::clone(weak_self), &base_url_clone),
                 edges: EdgesService::new(Weak::clone(weak_self), &base_url_clone),
+                tenant: TenantService::new(Weak::clone(weak_self), &base_url_clone),
                 http_client,
             }
         });

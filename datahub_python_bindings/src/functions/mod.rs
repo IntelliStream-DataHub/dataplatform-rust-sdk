@@ -283,6 +283,7 @@ pub(crate) fn json_to_py<'py>(
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFunction>()?;
+    m.add_class::<PyFunctionFilter>()?;
     m.add_class::<sync_service::PyFunctionsServiceSync>()?;
     m.add_class::<async_service::PyFunctionsServiceAsync>()?;
     Ok(())
@@ -401,4 +402,113 @@ impl PyFunction {
         filter.set_limit(limit);
         filter
     }
+}
+
+/// Criteria for `functions.filter()` and the `filter` of `functions.search()`: the criteria every
+/// node type shares, plus `data_set_id`. Same rules as `ResourceFilter` — patterns, AND across
+/// fields, and `data_set_id=None` (no restriction) differing from `[]` (matches nothing).
+#[pyclass(module = "intellistream_datahub_sdk", name = "FunctionFilter", from_py_object)]
+#[derive(Clone)]
+pub struct PyFunctionFilter {
+    pub inner: intellistream_datahub_sdk::functions::FunctionFilter,
+}
+
+#[pymethods]
+impl PyFunctionFilter {
+    #[new]
+    #[pyo3(signature = (id=None, external_id=None, name=None, source=None, labels=None,
+                        metadata=None, created_time=None, last_updated_time=None,
+                        data_set_id=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        id: Option<Vec<u64>>,
+        external_id: Option<crate::StringOrList>,
+        name: Option<crate::StringOrList>,
+        source: Option<crate::StringOrList>,
+        labels: Option<crate::StringOrList>,
+        metadata: Option<std::collections::HashMap<String, Option<String>>>,
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        data_set_id: Option<Vec<crate::DataSetRef>>,
+    ) -> Self {
+        Self {
+            inner: build_function_filter(
+                id,
+                external_id,
+                name,
+                source,
+                labels,
+                metadata,
+                created_time,
+                last_updated_time,
+                data_set_id,
+            ),
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_function_filter(
+    id: Option<Vec<u64>>,
+    external_id: Option<crate::StringOrList>,
+    name: Option<crate::StringOrList>,
+    source: Option<crate::StringOrList>,
+    labels: Option<crate::StringOrList>,
+    metadata: Option<std::collections::HashMap<String, Option<String>>>,
+    created_time: Option<crate::events::PyTimeFilter>,
+    last_updated_time: Option<crate::events::PyTimeFilter>,
+    data_set_id: Option<Vec<crate::DataSetRef>>,
+) -> intellistream_datahub_sdk::functions::FunctionFilter {
+    intellistream_datahub_sdk::functions::FunctionFilter {
+        node: intellistream_datahub_sdk::filters::NodeFilter {
+            id,
+            external_id: crate::opt_patterns(external_id),
+            name: crate::opt_patterns(name),
+            source: crate::opt_patterns(source),
+            labels: crate::opt_patterns(labels),
+            metadata,
+            created_time: created_time.map(Into::into),
+            last_updated_time: last_updated_time.map(Into::into),
+        },
+        data_set_id: crate::opt_data_set_refs(data_set_id),
+    }
+}
+
+/// Shared by the sync and async `filter` bindings.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_function_filter_form(
+    filter: Option<PyFunctionFilter>,
+    id: Option<Vec<u64>>,
+    external_id: Option<crate::StringOrList>,
+    name: Option<crate::StringOrList>,
+    source: Option<crate::StringOrList>,
+    labels: Option<crate::StringOrList>,
+    metadata: Option<std::collections::HashMap<String, Option<String>>>,
+    created_time: Option<crate::events::PyTimeFilter>,
+    last_updated_time: Option<crate::events::PyTimeFilter>,
+    data_set_id: Option<Vec<crate::DataSetRef>>,
+    limit: Option<u64>,
+    sort_by: Option<crate::StringOrList>,
+    sort_order: Option<String>,
+    cursor: Option<String>,
+) -> PyResult<intellistream_datahub_sdk::functions::FunctionFilterForm> {
+    let any_keyword = id.is_some()
+        || external_id.is_some()
+        || name.is_some()
+        || source.is_some()
+        || labels.is_some()
+        || metadata.is_some()
+        || created_time.is_some()
+        || last_updated_time.is_some()
+        || data_set_id.is_some();
+    let from_keywords = build_function_filter(
+        id, external_id, name, source, labels, metadata, created_time, last_updated_time,
+        data_set_id,
+    );
+    let filter = crate::resolve_filter(filter.map(|f| f.inner), from_keywords, any_keyword)?;
+    let mut form = intellistream_datahub_sdk::functions::FunctionFilterForm::new(filter);
+    if let Some(limit) = limit {
+        form = form.with_limit(limit);
+    }
+    Ok(form.with_paging(crate::build_page_request(sort_by, sort_order, cursor)))
 }

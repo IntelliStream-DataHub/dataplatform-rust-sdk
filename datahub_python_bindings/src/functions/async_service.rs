@@ -56,6 +56,83 @@ impl PyFunctionsServiceAsync {
         })
     }
 
+    /// Functions matching every criterion, newest created first unless `sort_by` says otherwise.
+    /// Returns a `Page`; send its `next_cursor` back as `cursor`, with the same sort, for the next.
+    ///
+    /// Pass either `filter=` or the individual keywords, not both.
+    #[pyo3(signature = (filter=None, id=None, external_id=None, name=None, source=None,
+                        labels=None, metadata=None, created_time=None, last_updated_time=None,
+                        data_set_id=None, limit=None, sort_by=None, sort_order=None, cursor=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn filter<'py>(
+        &self,
+        py: Python<'py>,
+        filter: Option<crate::functions::PyFunctionFilter>,
+        id: Option<Vec<u64>>,
+        external_id: Option<crate::StringOrList>,
+        name: Option<crate::StringOrList>,
+        source: Option<crate::StringOrList>,
+        labels: Option<crate::StringOrList>,
+        metadata: Option<std::collections::HashMap<String, Option<String>>>,
+        created_time: Option<crate::events::PyTimeFilter>,
+        last_updated_time: Option<crate::events::PyTimeFilter>,
+        data_set_id: Option<Vec<crate::DataSetRef>>,
+        limit: Option<u64>,
+        sort_by: Option<crate::StringOrList>,
+        sort_order: Option<String>,
+        cursor: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let form = crate::functions::build_function_filter_form(
+            filter, id, external_id, name, source, labels, metadata, created_time,
+            last_updated_time, data_set_id, limit, sort_by, sort_order, cursor,
+        )?;
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .functions
+                .filter(&form)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            let next_cursor = result.next_cursor().map(str::to_string);
+            let items: Vec<PyFunction> = result
+                .get_items()
+                .iter()
+                .cloned()
+                .map(|f| PyFunction::with_client(f, service.clone()))
+                .collect();
+            Python::attach(|py| crate::PyPage::new(py, items, next_cursor))
+        })
+    }
+
+    /// Free-text search over functions, best match first. The phrase selects and `filter` only
+    /// removes. `query` is required at 3–140 characters; `limit` defaults to 100 and caps at 1000.
+    #[pyo3(signature = (query, filter = None, limit = None))]
+    fn search<'py>(
+        &self,
+        py: Python<'py>,
+        query: String,
+        filter: Option<crate::functions::PyFunctionFilter>,
+        limit: Option<u64>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let form = crate::search_form(query, filter.map(|f| f.inner), limit);
+        let service = self.api_service.clone();
+        future_into_py(py, async move {
+            let result = service
+                .functions
+                .search(&form)
+                .await
+                .map_err(|e| crate::datahub_err(e))?;
+            Ok(result
+                .get_items()
+                .iter()
+                .cloned()
+                .map(|f| PyFunction::with_client(f, service.clone()))
+                .collect::<Vec<_>>())
+        })
+    }
+
+    /// Look up functions by id or external id. What does not exist, or you may not read, is
+    /// left out rather than raising.
     fn by_ids<'py>(
         &self,
         py: Python<'py>,

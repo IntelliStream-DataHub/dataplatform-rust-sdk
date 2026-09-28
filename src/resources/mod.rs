@@ -213,6 +213,92 @@ impl ResourceService {
         self.execute_post_request::<ResourceNetwork, _>(url, form)
             .await
     }
+
+    /// `GET /resources/export/{id}` — the whole connected graph component around one resource, as
+    /// a gzip-compressed file, in memory.
+    ///
+    /// The file names everything by external id, never by numeric id, so it imports into another
+    /// tenant or environment with [`import_graph`](Self::import_graph). A component over 2,000,000
+    /// nodes or relationships is a 400 rather than a partial export. Use
+    /// [`export_graph_to_path`](Self::export_graph_to_path) for anything large.
+    pub async fn export_graph(&self, id: u64) -> Result<Vec<u8>, ResponseError> {
+        let path = format!("{}/export/{}", self.base_url, id);
+        let response = self.execute_get_stream_request(&path).await?;
+        let status = response.status();
+        let bytes = response.bytes().await.map_err(|err| ResponseError {
+            status,
+            message: err.to_string(),
+            content_type: None,
+        })?;
+        Ok(bytes.to_vec())
+    }
+
+    /// [`export_graph`](Self::export_graph), streamed to `destination` without buffering the file
+    /// in memory. Returns the number of bytes written. The destination is created if missing and
+    /// truncated if it exists.
+    pub async fn export_graph_to_path(
+        &self,
+        id: u64,
+        destination: impl AsRef<std::path::Path>,
+    ) -> Result<u64, ResponseError> {
+        use tokio::io::AsyncWriteExt;
+        let path = format!("{}/export/{}", self.base_url, id);
+        let mut response = self.execute_get_stream_request(&path).await?;
+        let status = response.status();
+        let io_error = |err: std::io::Error| ResponseError {
+            status,
+            message: err.to_string(),
+            content_type: None,
+        };
+        let mut file = tokio::fs::File::create(destination.as_ref())
+            .await
+            .map_err(io_error)?;
+        let mut written: u64 = 0;
+        while let Some(chunk) = response.chunk().await.map_err(|err| ResponseError {
+            status,
+            message: err.to_string(),
+            content_type: None,
+        })? {
+            file.write_all(&chunk).await.map_err(io_error)?;
+            written += chunk.len() as u64;
+        }
+        file.flush().await.map_err(io_error)?;
+        Ok(written)
+    }
+
+    /// `POST /resources/import` — recreate the resources and relationships of a file produced by
+    /// [`export_graph`](Self::export_graph).
+    ///
+    /// What already exists is skipped rather than rejected — nodes by external id, relationships
+    /// by (from, to, type) — so re-importing into the source tenant is a no-op, and after a
+    /// failure the same file can simply be sent again: it fast-forwards through the segments
+    /// already committed. Timeseries are not created; missing ones are listed in
+    /// [`nodes_skipped_timeseries`](GraphImportResult::nodes_skipped_timeseries). Over 512 MB, or
+    /// 2,000,000 nodes or relationships, is a 413.
+    pub async fn import_graph(
+        &self,
+        file: impl Into<reqwest::Body>,
+    ) -> Result<GraphImportResult, ResponseError> {
+        let path = format!("{}/import", self.base_url);
+        self.execute_post_bytes_request(&path, file, "application/octet-stream")
+            .await
+    }
+
+    /// [`import_graph`](Self::import_graph), streaming the file from disk.
+    pub async fn import_graph_from_path(
+        &self,
+        source: impl AsRef<std::path::Path>,
+    ) -> Result<GraphImportResult, ResponseError> {
+        let file = tokio::fs::File::open(source.as_ref()).await.map_err(|e| {
+            ResponseError::bad_request(format!(
+                "failed to open '{}': {}",
+                source.as_ref().display(),
+                e
+            ))
+        })?;
+        let stream = tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
+        self.import_graph(reqwest::Body::wrap_stream(stream)).await
+    }
 }
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -640,4 +726,50 @@ impl FetchNearestResourcesForm {
         self.excluded_labels = Some(labels);
         self
     }
+}
+
+/// Answer of [`ResourceService::import_graph`]. A bare object on the wire.
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphImportResult {
+    pub nodes_created: u64,
+    pub relations_created: u64,
+    /// Skipped because a node with the same external id already exists.
+    pub nodes_skipped_existing: u64,
+    /// Timeseries in the file that do not exist here. They cannot be created through the resource
+    /// api — create them through the timeseries api first, then import again.
+    #[serde(default)]
+    pub nodes_skipped_timeseries: Vec<String>,
+    /// Already present, or an endpoint is unavailable.
+    pub relations_skipped: u64,
+    /// Nodes whose data set reference could not be resolved here and was dropped.
+    pub data_set_references_dropped: u64,
+    /// Transactions committed. The import streams in segments of 50,000 objects, each atomic.
+    pub segments: u64,
+    /// Naming-policy violations that were allowed through and recorded for review.
+    #[serde(default)]
+    pub warnings: Vec<PolicyWarning>,
+}
+
+impl crate::generic::DataWrapperDeserialization for GraphImportResult {
+    fn deserialize_and_set_status(body: &str, _status_code: u16) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(body)
+    }
+}
+
+/// A naming-policy violation that was allowed through and recorded for review.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PolicyWarning {
+    /// Position of the offending item in the submitted batch.
+    pub index: u32,
+    pub external_id: String,
+    /// External id of the policy that fired.
+    #[serde(default)]
+    pub policy: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+    /// A conforming alternative. Not applied — external ids are stored exactly as sent.
+    #[serde(default)]
+    pub suggestion: Option<String>,
 }

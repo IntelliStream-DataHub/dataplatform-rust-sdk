@@ -41,6 +41,57 @@ impl PyTimeSeriesServiceSync {
         })
     }
 
+    /// One series by numeric id. Raises on 404 — and a 404 does not tell you the id is free: a
+    /// series you may not read is reported as missing rather than forbidden.
+    fn get_by_id(&self, py: Python<'_>, id: u64) -> PyResult<Option<PyTimeSeries>> {
+        let service = self.api_service.clone();
+        let result = py.detach(|| self.runtime.block_on(service.time_series.get_by_id(id)));
+        let result = result.map_err(|e| crate::datahub_err(e))?;
+        Ok(result
+            .get_items()
+            .first()
+            .map(|ts| PyTimeSeries::with_client(ts.clone(), service.clone())))
+    }
+
+    /// The value type that compresses best for a unit while representing it faithfully. Advice,
+    /// not a constraint; an unknown unit answers the generic default with `recognized=False`.
+    fn recommend_value_type(
+        &self,
+        py: Python<'_>,
+        unit_external_id: String,
+    ) -> PyResult<crate::timeseries::live::PyValueTypeRecommendation> {
+        let service = self.api_service.clone();
+        py.detach(|| {
+            self.runtime
+                .block_on(service.time_series.recommend_value_type(&unit_external_id))
+                .map(Into::into)
+                .map_err(|e| crate::datahub_err(e))
+        })
+    }
+
+    /// Open a live tail of the datapoints written to these timeseries. Nothing is durable: the
+    /// stream starts at the latest point, and ids you cannot read are dropped silently. For
+    /// at-least-once delivery use `subscriptions.listen`.
+    #[pyo3(signature = (external_ids = Vec::new()))]
+    fn listen_datapoints(
+        &self,
+        py: Python<'_>,
+        external_ids: Vec<String>,
+    ) -> PyResult<crate::timeseries::live::PyDatapointListener> {
+        let service = self.api_service.clone();
+        let runtime = self.runtime.clone();
+        py.detach(|| {
+            let listener = self
+                .runtime
+                .block_on(service.time_series.listen_datapoints(&external_ids))
+                .map_err(crate::listen_err)?;
+            Ok(crate::timeseries::live::PyDatapointListener {
+                listener: crate::timeseries::live::shared_listener(listener),
+                runtime,
+            })
+        })
+    }
+
     fn create<'p>(&self, py: Python<'p>, input: Vec<PyTimeSeries>) -> PyResult<Vec<PyTimeSeries>> {
         let timeseries = input.iter().cloned().map(TimeSeries::from).collect();
         let payload = DataWrapper::from_vec(timeseries);

@@ -227,6 +227,54 @@ impl PyResourcesServiceSync {
         crate::PyPage::new(py, items, next_cursor)
     }
 
+    /// The whole connected graph component around one resource, as a gzip-compressed file
+    /// (`bytes`). It names everything by external id, so it imports into another tenant with
+    /// `import_graph`. Over 2,000,000 nodes or relationships raises a 400 rather than exporting
+    /// part. Use `export_graph_to_path` for anything large.
+    fn export_graph<'py>(&self, py: Python<'py>, id: u64) -> PyResult<pyo3::Bound<'py, pyo3::types::PyBytes>> {
+        let service = self.api_service.clone();
+        let file = py
+            .detach(|| self.runtime.block_on(service.resources.export_graph(id)))
+            .map_err(|e| crate::datahub_err(e))?;
+        Ok(pyo3::types::PyBytes::new(py, &file))
+    }
+
+    /// `export_graph`, streamed to `destination` without holding it in memory. Returns the number
+    /// of bytes written.
+    fn export_graph_to_path(&self, py: Python<'_>, id: u64, destination: String) -> PyResult<u64> {
+        let service = self.api_service.clone();
+        py.detach(|| {
+            self.runtime
+                .block_on(service.resources.export_graph_to_path(id, destination))
+                .map_err(|e| crate::datahub_err(e))
+        })
+    }
+
+    /// Recreate the resources and relationships of an `export_graph` file. What already exists is
+    /// skipped, so re-importing into the source tenant is a no-op and a failed import can simply
+    /// be sent again. Timeseries are not created; missing ones are listed on the result.
+    fn import_graph(&self, py: Python<'_>, file: &[u8]) -> PyResult<crate::resources::PyGraphImportResult> {
+        let service = self.api_service.clone();
+        let file = file.to_vec();
+        py.detach(|| {
+            self.runtime
+                .block_on(service.resources.import_graph(file))
+                .map(Into::into)
+                .map_err(|e| crate::datahub_err(e))
+        })
+    }
+
+    /// `import_graph`, streaming the file from disk.
+    fn import_graph_from_path(&self, py: Python<'_>, source: String) -> PyResult<crate::resources::PyGraphImportResult> {
+        let service = self.api_service.clone();
+        py.detach(|| {
+            self.runtime
+                .block_on(service.resources.import_graph_from_path(source))
+                .map(Into::into)
+                .map_err(|e| crate::datahub_err(e))
+        })
+    }
+
     /// `POST /resources/fetch-nearest` — the closest `limit` nodes carrying one of `end_labels`,
     /// plus the sub-graph connecting them back to the start.
     ///

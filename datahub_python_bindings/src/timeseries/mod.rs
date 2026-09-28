@@ -36,6 +36,7 @@ pub mod async_service;
 mod construction;
 pub mod datapoints;
 pub mod general;
+pub mod live;
 pub mod sync_service;
 
 /// Python wrapper for Timeseries objects, represents contextualization data for timeseries
@@ -469,6 +470,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDatapointString>()?;
     m.add_class::<PyDatapointsCollectionDatapoints>()?;
     m.add_class::<PyDatapointsCollectionString>()?;
+    m.add_class::<live::PyLiveDatapoint>()?;
+    m.add_class::<live::PyValueTypeRecommendation>()?;
+    m.add_class::<live::PyDatapointListener>()?;
+    m.add_class::<live::PyDatapointListenerAsync>()?;
     Ok(())
 }
 

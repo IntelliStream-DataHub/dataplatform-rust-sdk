@@ -190,6 +190,8 @@ class DataHubClient:
     def labels(self) -> LabelsServiceSync: ...
     @property
     def edges(self) -> EdgesServiceSync: ...
+    @property
+    def tenant(self) -> TenantServiceSync: ...
 
 
 class AsyncDataHubClient:
@@ -243,6 +245,8 @@ class AsyncDataHubClient:
     def edges(self) -> EdgesServiceAsync: ...
     @property
     def datasets(self) -> DatasetsServiceAsync: ...
+    @property
+    def tenant(self) -> TenantServiceAsync: ...
 
 
 # ====================== Identifiers & search ======================
@@ -611,8 +615,76 @@ class RetrieveFilter:
     def cursor(self) -> str | None: ...
 
 
+class LiveDatapoint:
+    """One point from ``timeseries.listen_datapoints()``. ``value`` is a string for every
+    value type."""
+    @property
+    def external_id(self) -> str: ...
+    @property
+    def value_type(self) -> str | None: ...
+    @property
+    def timestamp(self) -> str: ...
+    @property
+    def value(self) -> str: ...
+
+
+class ValueTypeRecommendation:
+    @property
+    def unit_external_id(self) -> str: ...
+    @property
+    def recommended_value_type(self) -> str:
+        """One of ``BIGINT``, ``FLOAT``, ``FLOAT32``, ``NUMERIC``, ``DECIMAL32``, ``TEXT``,
+        ``MIXED``."""
+    @property
+    def reason(self) -> str: ...
+    @property
+    def recognized(self) -> bool:
+        """``False`` when the unit matched nothing specific and the generic default came back."""
+
+
+class DatapointListener:
+    """A live tail of datapoints. ``for point in listener:`` blocks until the next one.
+
+    Nothing is durable: points written while the connection is down are not replayed. A dropped
+    connection is re-established transparently; a refusal (bad token, missing role, connection
+    limit) raises instead."""
+    def __iter__(self) -> DatapointListener: ...
+    def __next__(self) -> LiveDatapoint: ...
+    def next_datapoint(self) -> LiveDatapoint | None: ...
+    def subscribe(self, external_ids: list[str]) -> None:
+        """Add timeseries. Ids you cannot read are dropped silently, not reported."""
+    def unsubscribe(self, external_ids: list[str]) -> None: ...
+    def set_timeseries(self, external_ids: list[str]) -> None:
+        """Replace the whole live set."""
+    def close(self) -> None: ...
+    def __enter__(self) -> DatapointListener: ...
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None: ...
+
+
+class DatapointListenerAsync:
+    def __aiter__(self) -> DatapointListenerAsync: ...
+    async def __anext__(self) -> LiveDatapoint: ...
+    async def next_datapoint(self) -> LiveDatapoint | None: ...
+    async def subscribe(self, external_ids: list[str]) -> None: ...
+    async def unsubscribe(self, external_ids: list[str]) -> None: ...
+    async def set_timeseries(self, external_ids: list[str]) -> None: ...
+    async def close(self) -> None: ...
+    async def __aenter__(self) -> DatapointListenerAsync: ...
+    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None: ...
+
+
 class TimeSeriesServiceSync:
     def list(self, limit: int | None = None) -> list[TimeSeries]: ...
+    def get_by_id(self, id: int) -> TimeSeries | None:
+        """One series by numeric id; raises on 404. A 404 does not tell you the id is free — a
+        series you may not read is reported as missing rather than forbidden."""
+    def recommend_value_type(self, unit_external_id: str) -> ValueTypeRecommendation:
+        """The value type that compresses best for a unit while representing it faithfully.
+        Advice, not a constraint. An unknown unit is not an error: it answers the generic default
+        with ``recognized=False``."""
+    def listen_datapoints(self, external_ids: list[str] = ...) -> DatapointListener:
+        """Open a live tail of the datapoints written to these timeseries, starting at the latest
+        point. For at-least-once delivery use ``subscriptions.listen`` instead."""
     def create(self, input: list[TimeSeries]) -> list[TimeSeries]: ...
     def by_ids(self, input: list[Identifiable]) -> list[TimeSeries]: ...
     def delete(self, input: list[Identifiable]) -> None: ...
@@ -684,6 +756,9 @@ class TimeSeriesServiceSync:
 
 class TimeSeriesServiceAsync:
     async def list(self, limit: int | None = None) -> list[TimeSeries]: ...
+    async def get_by_id(self, id: int) -> TimeSeries | None: ...
+    async def recommend_value_type(self, unit_external_id: str) -> ValueTypeRecommendation: ...
+    async def listen_datapoints(self, external_ids: list[str] = ...) -> DatapointListenerAsync: ...
     async def create(self, input: list[TimeSeries]) -> list[TimeSeries]: ...
     async def by_ids(self, input: list[Identifiable]) -> list[TimeSeries]: ...
     async def delete(self, input: list[Identifiable]) -> None: ...
@@ -1152,6 +1227,8 @@ class DatasetUpdate:
 # `update(...)`: there is no write_protected/deactivated — both were removed server-side as inert.
 class DatasetsServiceSync:
     def list(self, limit: int | None = None) -> list[Dataset]: ...
+    def get_by_id(self, id: int) -> Dataset | None:
+        """One data set by numeric id; raises on 404."""
     def create(self, input: list[Dataset]) -> list[Dataset]: ...
     def by_ids(self, input: list[Identifiable]) -> list[Dataset]: ...
     def delete(self, input: list[Identifiable]) -> None: ...
@@ -1196,6 +1273,7 @@ class DatasetsServiceSync:
 
 class DatasetsServiceAsync:
     async def list(self, limit: int | None = None) -> list[Dataset]: ...
+    async def get_by_id(self, id: int) -> Dataset | None: ...
     async def create(self, input: list[Dataset]) -> list[Dataset]: ...
     async def by_ids(self, input: list[Identifiable]) -> list[Dataset]: ...
     async def delete(self, input: list[Identifiable]) -> None: ...
@@ -1656,8 +1734,49 @@ class ResourceFilter:
     ) -> None: ...
 
 
+class GraphImportResult:
+    """What ``resources.import_graph()`` did."""
+    @property
+    def nodes_created(self) -> int: ...
+    @property
+    def relations_created(self) -> int: ...
+    @property
+    def nodes_skipped_existing(self) -> int:
+        """Skipped because a node with the same external id already exists."""
+    @property
+    def nodes_skipped_timeseries(self) -> list[str]:
+        """Timeseries in the file that do not exist here. They cannot be created through the
+        resource api — create them through ``timeseries`` first, then import again."""
+    @property
+    def relations_skipped(self) -> int: ...
+    @property
+    def data_set_references_dropped(self) -> int: ...
+    @property
+    def segments(self) -> int:
+        """Transactions committed; each segment of 50,000 objects is atomic on its own."""
+    @property
+    def warnings(self) -> list[PolicyWarning]: ...
+
+
 class ResourcesServiceSync:
     def list(self, limit: int | None = None) -> list[Node]: ...
+    def export_graph(self, id: int) -> bytes:
+        """The whole connected graph component around one resource, as a gzip-compressed file.
+        It names everything by external id, so it imports into another tenant with
+        ``import_graph``. Over 2,000,000 nodes or relationships raises a 400 rather than exporting
+        part of it. Use ``export_graph_to_path`` for anything large."""
+    def export_graph_to_path(self, id: int, destination: str) -> int:
+        """``export_graph``, streamed to ``destination``. Returns the number of bytes written."""
+    def import_graph(self, file: bytes) -> GraphImportResult:
+        """Recreate the resources and relationships of an ``export_graph`` file.
+
+        What already exists is skipped — nodes by external id, relationships by (from, to, type) —
+        so re-importing into the source tenant is a no-op, and after a failure the same file can
+        simply be sent again. Over 512 MB, or 2,000,000 nodes or relationships, raises a 413.
+        The graph projection lags writes, so export a component only once it is readable through
+        ``fetch_related``."""
+    def import_graph_from_path(self, source: str) -> GraphImportResult:
+        """``import_graph``, streaming the file from disk."""
     def create(
         self, nodes: list[Node], relations: list[RelForm] | None = None
     ) -> GraphResult: ...
@@ -1713,6 +1832,10 @@ class ResourcesServiceSync:
 
 class ResourcesServiceAsync:
     async def list(self, limit: int | None = None) -> list[Node]: ...
+    async def export_graph(self, id: int) -> bytes: ...
+    async def export_graph_to_path(self, id: int, destination: str) -> int: ...
+    async def import_graph(self, file: bytes) -> GraphImportResult: ...
+    async def import_graph_from_path(self, source: str) -> GraphImportResult: ...
     async def create(
         self, nodes: list[Node], relations: list[RelForm] | None = None
     ) -> GraphResult: ...
@@ -2304,6 +2427,24 @@ class Function:
 FunctionIdentifiable = Union[Function, IdCollection, int, str]
 
 
+class FunctionFilter:
+    """Criteria for ``functions.filter()`` and the ``filter`` of ``functions.search()``: the
+    criteria every node type shares, plus ``data_set_id``. ``data_set_id=None`` places no
+    restriction; ``[]`` matches nothing."""
+    def __init__(
+        self,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
+    ) -> None: ...
+
+
 class FunctionsServiceSync:
     def create(self, input: list[Function]) -> list[Function]: ...
     def list(self, limit: int | None = None) -> list[Function]: ...
@@ -2311,10 +2452,38 @@ class FunctionsServiceSync:
         """One function by numeric id; raises on 404.
 
         A 404 does not tell you the id is free — a function you may not read is reported as
-        missing rather than forbidden. Prefer this to ``by_ids`` when you have the id: functions
-        have no ``/byids`` endpoint, so ``by_ids`` pages the listing and filters client-side.
+        missing rather than forbidden.
         """
-    def by_ids(self, input: list[FunctionIdentifiable]) -> list[Function]: ...
+    def by_ids(self, input: list[FunctionIdentifiable]) -> list[Function]:
+        """What does not exist, or you may not read, is left out rather than raising."""
+    def filter(
+        self,
+        *,
+        filter: FunctionFilter | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page:
+        """Pass either ``filter=`` or the individual criteria keywords; passing both is a
+        ``TypeError``. Newest created first unless ``sort_by`` says otherwise."""
+    def search(
+        self,
+        query: str,
+        filter: FunctionFilter | None = None,
+        limit: int | None = None,
+    ) -> list[Function]:
+        """Free-text search, best match first. ``query`` is 3–140 characters; ``limit`` defaults
+        to 100 and caps at 1000."""
     def by_external_id(self, external_id: str) -> Function: ...
     def update(self, input: list[ResourceUpdate]) -> GraphResult:
         """Update functions in place; ``geolocation`` is ignored, being asset-only.
@@ -2329,6 +2498,30 @@ class FunctionsServiceAsync:
     async def list(self, limit: int | None = None) -> list[Function]: ...
     async def get_by_id(self, id: int) -> Function | None: ...
     async def by_ids(self, input: list[FunctionIdentifiable]) -> list[Function]: ...
+    async def filter(
+        self,
+        *,
+        filter: FunctionFilter | None = None,
+        id: Sequence[int] | None = None,
+        external_id: PatternList | None = None,
+        name: PatternList | None = None,
+        source: PatternList | None = None,
+        labels: PatternList | None = None,
+        metadata: MetadataFilter | None = None,
+        created_time: TimeFilter | None = None,
+        last_updated_time: TimeFilter | None = None,
+        data_set_id: Sequence[DataSetRef] | None = None,
+        limit: int | None = None,
+        sort_by: SortBy | None = None,
+        sort_order: str | None = None,
+        cursor: str | None = None,
+    ) -> Page: ...
+    async def search(
+        self,
+        query: str,
+        filter: FunctionFilter | None = None,
+        limit: int | None = None,
+    ) -> list[Function]: ...
     async def by_external_id(self, external_id: str) -> Function: ...
     async def update(self, input: list[ResourceUpdate]) -> GraphResult: ...
     async def delete(self, input: list[FunctionIdentifiable]) -> None: ...
@@ -2504,3 +2697,115 @@ class EdgesServiceAsync:
     async def delete(self, input: list[EdgeIdentifiable]) -> None: ...
     async def types(self) -> list[RelationshipType]: ...
     async def create_types(self, input: list[RelTypeForm]) -> list[RelationshipType]: ...
+
+
+# ====================== Policies ======================
+
+class PolicyWarning:
+    """A naming-policy violation that was allowed through and recorded for review."""
+    @property
+    def index(self) -> int: ...
+    @property
+    def external_id(self) -> str: ...
+    @property
+    def policy(self) -> str | None: ...
+    @property
+    def message(self) -> str | None: ...
+    @property
+    def suggestion(self) -> str | None: ...
+
+
+# ====================== Tenant ======================
+
+class TenantFeatures:
+    """Which optional features are enabled for your tenant. A disabled feature's endpoints may
+    still exist and answer 404 or 403."""
+    @property
+    def files(self) -> bool: ...
+    @property
+    def policy(self) -> bool: ...
+    @property
+    def streaming(self) -> bool: ...
+    @property
+    def chat(self) -> bool: ...
+
+
+class SettingsPermission:
+    @property
+    def read(self) -> bool: ...
+    @property
+    def write(self) -> bool: ...
+
+
+class TenantLlmSettings:
+    """The model your organization's assistant runs on. The API key is never returned."""
+    @property
+    def provider(self) -> str | None:
+        """``"anthropic"`` or ``"openai-compatible"``."""
+    @property
+    def model(self) -> str | None: ...
+    @property
+    def base_url(self) -> str | None: ...
+    @property
+    def reasoning_effort(self) -> str | None: ...
+    @property
+    def effort(self) -> str | None:
+        """One of ``low``, ``medium``, ``high``, ``xhigh``, ``max``."""
+    @property
+    def turn_timeout(self) -> str | None: ...
+    @property
+    def max_output_tokens(self) -> int | None: ...
+    @property
+    def max_iterations(self) -> int | None: ...
+    @property
+    def instructions(self) -> str | None: ...
+    @property
+    def api_key_set(self) -> bool:
+        """Whether a credential is stored."""
+    @property
+    def configured(self) -> bool:
+        """Whether this amounts to a model that can actually be called."""
+
+
+class TenantServiceSync:
+    def features(self) -> TenantFeatures: ...
+    def settings_permissions(self) -> dict[str, SettingsPermission]:
+        """What you may read and write, per settings scope (``"llm"``, …). For gating a UI; the
+        settings calls enforce the same grants."""
+    def llm_settings(self) -> TenantLlmSettings:
+        """Needs the ``llm`` read grant (403 without)."""
+    def update_llm_settings(
+        self,
+        provider: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        reasoning_effort: str | None = None,
+        effort: str | None = None,
+        turn_timeout: str | None = None,
+        max_output_tokens: int | None = None,
+        max_iterations: int | None = None,
+        instructions: str | None = None,
+    ) -> TenantLlmSettings:
+        """**Replace** the model configuration: an argument left out is cleared. The exception is
+        ``api_key``, where ``None`` or empty keeps the stored credential. Needs the ``llm`` write
+        grant."""
+
+
+class TenantServiceAsync:
+    async def features(self) -> TenantFeatures: ...
+    async def settings_permissions(self) -> dict[str, SettingsPermission]: ...
+    async def llm_settings(self) -> TenantLlmSettings: ...
+    async def update_llm_settings(
+        self,
+        provider: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        reasoning_effort: str | None = None,
+        effort: str | None = None,
+        turn_timeout: str | None = None,
+        max_output_tokens: int | None = None,
+        max_iterations: int | None = None,
+        instructions: str | None = None,
+    ) -> TenantLlmSettings: ...

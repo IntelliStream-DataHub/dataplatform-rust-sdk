@@ -1115,3 +1115,131 @@ async fn update_echo_is_typed_per_node_type() -> Result<(), ResponseError> {
     fn_cleanup.disarm();
     Ok(())
 }
+
+/// Export a two-node component, then import the file back into the tenant it came from: every
+/// node already exists, so the import is a no-op that skips rather than creates.
+#[tokio::test]
+async fn graph_export_then_import_into_the_source_tenant_is_a_no_op() -> Result<(), ResponseError> {
+    let api_service = create_api_service();
+    let test_resources = create_test_resources();
+    let root_ext = test_resources[0].external_id.clone();
+    let child_ext = test_resources[1].external_id.clone();
+    let relations = vec![RelForm::by_external_ids(
+        root_ext.clone(),
+        child_ext.clone(),
+        "flows_to",
+    )];
+    let created = api_service
+        .resources
+        .create(test_resources, relations)
+        .await?;
+    let _cleanup = cleanup_resources(vec![child_ext.clone(), root_ext.clone()]);
+    let root_id = created
+        .nodes()
+        .unwrap()
+        .iter()
+        .find(|n| n.external_id() == root_ext)
+        .and_then(|n| n.id())
+        .expect("create echoes the root's id");
+
+    // The export walks the graph projection, which lags the write.
+    let related = RelatedResourcesForm {
+        id: None,
+        external_id: Some(root_ext.clone()),
+        depth: -1,
+        relationship_types: None,
+        limit: 100,
+        excluded_labels: vec![],
+    };
+    let network = poll_until(
+        || api_service.resources.fetch_related(&related),
+        |r| r.as_ref().map(|n| n.nodes().len() >= 2).unwrap_or(false),
+    )
+    .await?;
+    assert!(network.nodes().len() >= 2, "graph projection did not catch up");
+
+    let file = api_service.resources.export_graph(root_id).await?;
+    assert_eq!(&file[..2], &[0x1f, 0x8b], "the export is gzip");
+
+    let result = api_service.resources.import_graph(file).await?;
+    assert_eq!(result.nodes_created, 0, "{result:?}");
+    assert!(result.nodes_skipped_existing >= 2, "{result:?}");
+    assert!(result.segments >= 1, "{result:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn graph_export_of_an_unknown_id_is_a_404() {
+    let api_service = create_api_service();
+    let err = api_service
+        .resources
+        .export_graph(u64::MAX / 2)
+        .await
+        .expect_err("no such resource");
+    assert_eq!(err.status.as_u16(), 404);
+}
+
+/// `root -> middle -> leaf`, with only the leaf carrying the end label: the nearest match is the
+/// leaf, and the answer carries the path back to the start, so `middle` comes too. A relationship
+/// type filter that matches no edge reaches nothing.
+#[tokio::test]
+async fn fetch_nearest_reaches_the_labelled_node_through_the_path() -> Result<(), ResponseError> {
+    use crate::tests::ids::TEST_LABEL;
+
+    let api_service = create_api_service();
+    let ids: Vec<String> = ["nearest_root", "nearest_middle", "nearest_leaf"]
+        .iter()
+        .map(|kind| unique_id(kind))
+        .collect();
+    let node = |ext: &String, labels: Vec<&str>, is_root: bool| Resource {
+        is_root,
+        labels: Some(labels.into_iter().map(str::to_string).collect()),
+        ..{
+            let mut r = Resource::new();
+            r.external_id = ext.clone();
+            r.name = format!("Rust SDK nearest probe {ext}");
+            r
+        }
+    };
+    let nodes = vec![
+        node(&ids[0], vec!["ASSET"], true),
+        node(&ids[1], vec!["ASSET"], false),
+        node(&ids[2], vec!["ASSET", TEST_LABEL], false),
+    ];
+    let relations = vec![
+        RelForm::by_external_ids(ids[0].clone(), ids[1].clone(), "flows_to"),
+        RelForm::by_external_ids(ids[1].clone(), ids[2].clone(), "flows_to"),
+    ];
+    let created = api_service.resources.create(nodes, relations).await?;
+    // Leaf first: the backend refuses to delete the start of an edge.
+    let _cleanup = cleanup_resources(ids.iter().rev().cloned().collect());
+    let root_id = created
+        .nodes()
+        .unwrap()
+        .iter()
+        .find(|n| n.external_id() == ids[0])
+        .and_then(|n| n.id())
+        .expect("create echoes the root's id");
+
+    let form = FetchNearestResourcesForm {
+        end_labels: Some(vec![TEST_LABEL.to_string()]),
+        limit: Some(1),
+        ..FetchNearestResourcesForm::from_id(root_id)
+    };
+    let has = |net: &ResourceNetwork, ext: &str| net.nodes().iter().any(|n| n.external_id() == ext);
+    let network = poll_until(
+        || api_service.resources.fetch_nearest(&form),
+        |r| r.as_ref().map(|n| has(n, &ids[2])).unwrap_or(false),
+    )
+    .await?;
+    assert!(has(&network, &ids[2]), "the labelled leaf was not reached");
+    assert!(has(&network, &ids[1]), "the path back to the start is part of the answer");
+
+    let unmatched = FetchNearestResourcesForm {
+        relationship_types: Some(vec![unique_id("no_such_type").to_uppercase()]),
+        ..form.clone()
+    };
+    let none = api_service.resources.fetch_nearest(&unmatched).await?;
+    assert!(!has(&none, &ids[2]), "a relationship filter matching no edge still reached the leaf");
+    Ok(())
+}
