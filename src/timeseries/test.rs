@@ -1806,3 +1806,101 @@ fn timeseries_update_matches_the_server_field_set() {
     };
     assert_eq!(cleared["source"], serde_json::json!({"set": null, "setNull": true}));
 }
+
+#[cfg(test)]
+mod single_reads_and_live_tail {
+    use crate::create_api_service;
+    use crate::generic::{DataWrapper, DatapointString, DatapointsCollection};
+    use crate::tests::cleanup::cleanup_timeseries;
+    use crate::tests::ids::unique_id;
+    use crate::timeseries::TimeSeries;
+    use chrono::Utc;
+    use std::time::Duration;
+
+    async fn create_series(ext_id: &str) -> u64 {
+        let api = create_api_service();
+        let mut ts = TimeSeries::new(ext_id, "Rust SDK single-read probe");
+        ts.unit = Some("celsius".to_string());
+        let created = api
+            .time_series
+            .create(&DataWrapper::from_vec(vec![ts]))
+            .await
+            .expect("create the probe series");
+        created.get_items()[0].id.expect("create echoes the id")
+    }
+
+    #[tokio::test]
+    async fn get_by_id_reads_one_series_and_404s_a_miss() {
+        let api = create_api_service();
+        let ext_id = unique_id("ts");
+        let id = create_series(&ext_id).await;
+        let _cleanup = cleanup_timeseries(vec![ext_id.clone()]);
+
+        let got = api.time_series.get_by_id(id).await.unwrap();
+        assert_eq!(got.get_items().len(), 1);
+        assert_eq!(got.get_items()[0].external_id, ext_id);
+
+        let err = api
+            .time_series
+            .get_by_id(u64::MAX / 2)
+            .await
+            .expect_err("an unknown id is a 404");
+        assert_eq!(err.status.as_u16(), 404);
+        assert_eq!(err.problem_slug().as_deref(), Some("not-found"));
+    }
+
+    #[tokio::test]
+    async fn recommend_value_type_answers_known_and_unknown_units() {
+        let api = create_api_service();
+        let known = api
+            .time_series
+            .recommend_value_type("temperature_deg_c")
+            .await
+            .unwrap();
+        assert_eq!(known.unit_external_id, "temperature_deg_c");
+        assert!(!known.recommended_value_type.is_empty());
+
+        let unknown_unit = unique_id("unit");
+        let unknown = api
+            .time_series
+            .recommend_value_type(&unknown_unit)
+            .await
+            .unwrap();
+        assert!(!unknown.recognized, "an unknown unit is the generic default, not an error");
+    }
+
+    /// Points written after the listener connects arrive on it; nothing is replayed from before.
+    #[tokio::test]
+    async fn listen_datapoints_delivers_points_written_after_connecting() {
+        let api = create_api_service();
+        let ext_id = unique_id("ts");
+        create_series(&ext_id).await;
+        let _cleanup = cleanup_timeseries(vec![ext_id.clone()]);
+
+        let mut listener = api
+            .time_series
+            .listen_datapoints(&[ext_id.as_str()])
+            .await
+            .expect("open the datapoint tail");
+        // The consumer reads from latest; give it a moment to attach before writing.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let mut collection = DatapointsCollection::from_external_id(&ext_id);
+        collection
+            .datapoints
+            .push(DatapointString::from_datetime(Utc::now(), "21.5"));
+        api.time_series
+            .insert_datapoints(&mut DataWrapper::from_vec(vec![collection]))
+            .await
+            .expect("write a point");
+
+        let point = tokio::time::timeout(Duration::from_secs(30), listener.next())
+            .await
+            .expect("a point within 30s")
+            .expect("the stream is open")
+            .expect("a decodable point");
+        assert_eq!(point.external_id, ext_id);
+        assert_eq!(point.value.parse::<f64>().unwrap(), 21.5);
+        listener.close().await.unwrap();
+    }
+}

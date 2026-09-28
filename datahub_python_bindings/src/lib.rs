@@ -11,6 +11,7 @@ mod subscriptions;
 pub mod timeseries;
 pub mod units;
 mod functions;
+mod tenant;
 
 use crate::datasets::PyDataset;
 use crate::datasets::async_service::PyDatasetsServiceAsync;
@@ -406,6 +407,16 @@ impl PySyncClient {
         }
     }
 
+
+
+    #[getter]
+    fn tenant(&self) -> crate::tenant::PyTenantServiceSync {
+        crate::tenant::PyTenantServiceSync {
+            api_service: self.inner.clone(),
+            runtime: self.runtime.clone(),
+        }
+    }
+
 }
 
 #[pyclass(module = "intellistream_datahub_sdk", name = "AsyncDataHubClient")]
@@ -559,6 +570,15 @@ impl PyAsyncClient {
     #[getter]
     fn edges(&self) -> PyEdgesServiceAsync {
         PyEdgesServiceAsync {
+            api_service: self.inner.clone(),
+        }
+    }
+
+
+
+    #[getter]
+    fn tenant(&self) -> crate::tenant::PyTenantServiceAsync {
+        crate::tenant::PyTenantServiceAsync {
             api_service: self.inner.clone(),
         }
     }
@@ -1291,5 +1311,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     assets::register(m)?;
     relations::register(m)?;
     nodes::register(m)?;
+    tenant::register(m)?;
+    m.add_class::<crate::resources::PyGraphImportResult>()?;
+    m.add_class::<crate::resources::PyPolicyWarning>()?;
     Ok(())
 }

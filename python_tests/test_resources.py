@@ -10,7 +10,7 @@ import intellistream_datahub_sdk
 import pytest
 from intellistream_datahub_sdk import DataHubException, EdgeProxy, GraphResult, RelForm, Resource
 
-from fixtures import sync_client, unique_id
+from fixtures import TEST_LABEL, make_resource, sync_client, unique_id
 from polling import poll_until
 
 
@@ -161,3 +161,39 @@ def test_api_error_surfaces_status_code(sync_client):
         sync_client.resources.create([bad])
     assert exc_info.value.status_code == 400
     assert exc_info.value.message  # raw response body is preserved
+
+
+def test_fetch_nearest_reaches_the_labelled_node_through_the_path(sync_client, make_resource):
+    """Mirrors `fetch_nearest_reaches_the_labelled_node_through_the_path` in
+    `src/resources/tests.rs`: `root -> middle -> leaf`, only the leaf labelled."""
+    root, middle, leaf = (unique_id(k) for k in ("nearest_root", "nearest_middle", "nearest_leaf"))
+    created = make_resource(
+        [
+            Resource(external_id=root, name="py nearest root", labels=["ASSET"], is_root=True),
+            Resource(external_id=middle, name="py nearest middle", labels=["ASSET"]),
+            Resource(external_id=leaf, name="py nearest leaf", labels=["ASSET", TEST_LABEL]),
+        ],
+        [
+            RelForm(relationship_type="flows_to", from_external_id=root, to_external_id=middle),
+            RelForm(relationship_type="flows_to", from_external_id=middle, to_external_id=leaf),
+        ],
+    )
+    root_id = next(n.id for n in created.nodes if n.external_id == root)
+
+    def reached(network, ext):
+        return any(n.external_id == ext for n in network.nodes)
+
+    network = poll_until(
+        lambda: sync_client.resources.fetch_nearest(root_id, end_labels=[TEST_LABEL], limit=1),
+        lambda n: reached(n, leaf),
+    )
+    assert reached(network, leaf), "the labelled leaf was not reached"
+    assert reached(network, middle), "the path back to the start is part of the answer"
+
+    none = sync_client.resources.fetch_nearest(
+        root_id,
+        end_labels=[TEST_LABEL],
+        limit=1,
+        relationship_types=[unique_id("no_such_type").upper()],
+    )
+    assert not reached(none, leaf)

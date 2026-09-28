@@ -604,3 +604,81 @@ impl PyResourceFilter {
         }
     }
 }
+
+/// Answer of `resources.import_graph()`.
+#[pyclass(module = "intellistream_datahub_sdk", name = "GraphImportResult", get_all, frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyGraphImportResult {
+    pub nodes_created: u64,
+    pub relations_created: u64,
+    /// Skipped because a node with the same external id already exists.
+    pub nodes_skipped_existing: u64,
+    /// Timeseries in the file that do not exist here; create them through the timeseries api.
+    pub nodes_skipped_timeseries: Vec<String>,
+    pub relations_skipped: u64,
+    pub data_set_references_dropped: u64,
+    /// Transactions committed; each segment of 50,000 objects is atomic on its own.
+    pub segments: u64,
+    /// Naming-policy violations allowed through and recorded for review.
+    pub warnings: Vec<PyPolicyWarning>,
+}
+
+impl From<intellistream_datahub_sdk::resources::GraphImportResult> for PyGraphImportResult {
+    fn from(r: intellistream_datahub_sdk::resources::GraphImportResult) -> Self {
+        Self {
+            nodes_created: r.nodes_created,
+            relations_created: r.relations_created,
+            nodes_skipped_existing: r.nodes_skipped_existing,
+            nodes_skipped_timeseries: r.nodes_skipped_timeseries,
+            relations_skipped: r.relations_skipped,
+            data_set_references_dropped: r.data_set_references_dropped,
+            segments: r.segments,
+            warnings: r.warnings.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[pymethods]
+impl PyGraphImportResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "GraphImportResult(nodes_created={}, relations_created={}, nodes_skipped_existing={}, relations_skipped={}, segments={})",
+            self.nodes_created,
+            self.relations_created,
+            self.nodes_skipped_existing,
+            self.relations_skipped,
+            self.segments
+        )
+    }
+}
+
+/// A naming-policy violation that was allowed through and recorded for review.
+#[pyclass(module = "intellistream_datahub_sdk", name = "PolicyWarning", get_all, frozen, skip_from_py_object)]
+#[derive(Clone)]
+pub struct PyPolicyWarning {
+    /// Position of the offending item in the submitted batch.
+    pub index: u32,
+    pub external_id: String,
+    pub policy: Option<String>,
+    pub message: Option<String>,
+    pub suggestion: Option<String>,
+}
+
+impl From<intellistream_datahub_sdk::resources::PolicyWarning> for PyPolicyWarning {
+    fn from(w: intellistream_datahub_sdk::resources::PolicyWarning) -> Self {
+        Self {
+            index: w.index,
+            external_id: w.external_id,
+            policy: w.policy,
+            message: w.message,
+            suggestion: w.suggestion,
+        }
+    }
+}
+
+#[pymethods]
+impl PyPolicyWarning {
+    fn __repr__(&self) -> String {
+        format!("PolicyWarning(external_id='{}')", self.external_id)
+    }
+}

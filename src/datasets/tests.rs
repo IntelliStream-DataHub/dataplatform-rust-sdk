@@ -307,3 +307,25 @@ fn filter_body_matches_the_documented_wire_shape() {
         "ids must be strings so a large id survives a JavaScript client"
     );
 }
+
+#[tokio::test]
+async fn get_by_id_reads_one_dataset_and_404s_a_miss() -> Result<(), ResponseError> {
+    let api = create_api_service();
+    let dataset = Dataset::new(unique_id("dataset")).build();
+    let ext_id = dataset.external_id().to_string();
+    let created = api.datasets.create(&vec![dataset]).await?;
+    let _cleanup = cleanup_datasets(vec![ext_id.clone()]);
+    let id = *created.get_items()[0].id().expect("create echoes the id");
+
+    let got = api.datasets.get_by_id(id).await?;
+    assert_eq!(got.get_items().len(), 1);
+    assert_eq!(got.get_items()[0].external_id(), &ext_id);
+
+    let err = api
+        .datasets
+        .get_by_id(u64::MAX / 2)
+        .await
+        .expect_err("an unknown id is a 404");
+    assert_eq!(err.status.as_u16(), 404);
+    Ok(())
+}

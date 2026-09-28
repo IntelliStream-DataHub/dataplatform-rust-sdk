@@ -804,6 +804,32 @@ pub trait ApiServiceProvider {
         }
     }
 
+    /// `PUT` a JSON body. Only the tenant settings replace a whole object this way; every other
+    /// write in this api is a `POST`.
+    async fn execute_put_request<T: DeserializeOwned + DataWrapperDeserialization, J: Serialize>(
+        &self,
+        path: &str,
+        json: &J,
+    ) -> Result<T, ResponseError> {
+        let token = self.get_token().await?;
+        let response = self
+            .get_api_service()
+            .http_client
+            .put(path)
+            .json(json)
+            .bearer_auth(token.clone())
+            .send()
+            .await
+            .map_err(|err| {
+                eprintln!("HTTP request failed: {}", err);
+                ResponseError::from_err(err)
+            })?;
+        match process_response::<T>(response, path).await {
+            Ok(value) => Ok(value),
+            Err(e) => Err(self.on_request_error(e, &token).await),
+        }
+    }
+
     /// Uploads a file with a raw `PUT`: the file content is the request body and all metadata
     /// travels in headers (`X-Datahub-Path`, `X-Datahub-External-Id`, `X-Datahub-Dataset-Id`,
     /// `X-Datahub-Description`, `Content-Type`). The server validates and authorises the upload
@@ -837,12 +863,12 @@ pub trait ApiServiceProvider {
     }
 
     /// `POST` a binary body under its own media type: the datapoint frames of
-    /// `/timeseries/data/binary`. The api's 204 becomes an empty wrapper, as in the JSON helper;
-    /// a rejection carries the api's `problem+json` text.
+    /// `/timeseries/data/binary` and the graph files of `/resources/import`. The api's 204 becomes
+    /// an empty wrapper, as in the JSON helper; a rejection carries the api's `problem+json` text.
     async fn execute_post_bytes_request<T: DeserializeOwned + DataWrapperDeserialization>(
         &self,
         path: &str,
-        body: Vec<u8>,
+        body: impl Into<reqwest::Body>,
         content_type: &str,
     ) -> Result<T, ResponseError> {
         let token = self.get_token().await?;

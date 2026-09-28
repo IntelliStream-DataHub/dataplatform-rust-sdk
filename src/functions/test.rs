@@ -94,4 +94,56 @@ mod tests {
         let err = after.expect_err("a deleted function is a 404");
         assert_eq!(err.status.as_u16(), 404);
     }
+
+    /// `/functions/byids`, `/filter` and `/search` — the server-side reads that replaced the
+    /// client-side walk over the listing.
+    #[tokio::test]
+    #[ignore]
+    async fn functions_byids_filter_and_search() {
+        use crate::filters::NodeFilter;
+        use crate::functions::{FunctionFilter, FunctionFilterForm};
+        use crate::tests::ids::unique_token;
+        use crate::tests::polling::poll_until;
+
+        let api = create_api_service();
+        let ext_id = unique_id("fn");
+        let token = unique_token("fn");
+        let mut function_in = Function::new(ext_id.clone()).with_name(format!("{token} filter probe"));
+        function_in.description = Some(format!("{token} searchable description"));
+
+        let created = api.functions.create(&vec![function_in]).await.unwrap();
+        let _cleanup = cleanup_functions(vec![ext_id.clone()]);
+        let id = created.get_items()[0].id.unwrap();
+
+        let by_id = api.functions.by_ids(&[IdAndExtId::from_id(id)]).await.unwrap();
+        assert_eq!(by_id.get_items().len(), 1);
+        assert_eq!(by_id.get_items()[0].external_id, ext_id);
+        let missing = api
+            .functions
+            .by_ids(&[IdAndExtId::from_external_id(&unique_id("fn_absent"))])
+            .await
+            .unwrap();
+        assert!(missing.get_items().is_empty(), "a batch lookup omits what it cannot find");
+
+        let form = FunctionFilterForm::new(FunctionFilter {
+            node: NodeFilter {
+                external_id: Some(vec![ext_id.clone()]),
+                ..Default::default()
+            },
+            data_set_id: None,
+        });
+        let filtered = api.functions.filter(&form).await.unwrap();
+        assert_eq!(filtered.get_items().len(), 1);
+        assert_eq!(filtered.get_items()[0].external_id, ext_id);
+
+        let found = poll_until(
+            || async { api.functions.search_by_query(&token).await.unwrap() },
+            |hits| hits.get_items().iter().any(|f| f.external_id == ext_id),
+        )
+        .await;
+        assert!(
+            found.get_items().iter().any(|f| f.external_id == ext_id),
+            "search for {token} never returned {ext_id}"
+        );
+    }
 }

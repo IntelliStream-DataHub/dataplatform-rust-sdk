@@ -89,6 +89,17 @@ impl PyDatasetsServiceSync {
         })
     }
 
+    /// One data set by numeric id. Raises on 404.
+    fn get_by_id(&self, py: Python<'_>, id: u64) -> PyResult<Option<PyDataset>> {
+        let service = self.api_service.clone();
+        let result = py.detach(|| self.runtime.block_on(service.datasets.get_by_id(id)));
+        let result = result.map_err(crate::datahub_err)?;
+        Ok(result
+            .get_items()
+            .first()
+            .map(|d| PyDataset::with_client(d.clone(), service.clone())))
+    }
+
     /// Datasets matching every criterion on the filter, newest first.
     #[pyo3(signature = (filter=None, id=None, external_id=None, name=None, source=None,
                         labels=None, metadata=None, created_time=None, last_updated_time=None,
