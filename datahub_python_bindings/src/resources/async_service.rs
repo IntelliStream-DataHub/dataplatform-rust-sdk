@@ -85,13 +85,10 @@ impl PyResourcesServiceAsync {
                 .await
                 .map_err(|e| crate::datahub_err(e))?;
 
-            let py_units: Vec<crate::nodes::PyNode> = result
-                .nodes()
-                .unwrap()
-                .iter()
-                .map(|u| crate::nodes::PyNode::with_client(u.clone(), service.clone()))
-                .collect();
-            Ok(py_units)
+            Ok(crate::nodes::PyNode::many(
+                result.nodes().unwrap_or_default(),
+                service.clone(),
+            ))
         })
     }
     fn delete<'py>(
