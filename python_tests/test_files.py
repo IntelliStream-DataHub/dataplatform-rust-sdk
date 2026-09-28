@@ -1,9 +1,8 @@
 """Tests for the Python files module.
 
-Mirrors `src/files/test.rs` (`test_file_upload`, `list_folders`). The clients now
-expose the full `FilesServiceSync` / `FilesServiceAsync` with `upload_file`,
-`list_root_directory`, and `list_directory_by_path`. The SDK uploads a single
-`FileUpload` per call and echoes back the server-assigned metadata as a list.
+Mirrors `src/files/test.rs`. The SDK uploads a single `FileUpload` per call and
+echoes back the server-assigned metadata as a list. File external ids are stored
+verbatim and looked up case-insensitively; a deleted file keeps its external id.
 """
 import os
 
@@ -153,6 +152,98 @@ def test_get_search_update_download_trash_restore(sync_client, tmp_path):
                 sync_client.files.delete([name])
             except Exception:
                 pass
+
+
+def _delete_quietly(sync_client, *names):
+    for name in names:
+        try:
+            sync_client.files.delete([name])
+        except Exception:
+            pass
+
+
+def test_default_external_id_is_the_file_name():
+    # The server's own default when no external id is sent, and stored verbatim like it.
+    upload = intellistream_datahub_sdk.FileUpload(_IMAGE_PATH)
+    assert upload.external_id == "image.jpg"
+
+
+def test_external_id_is_stored_verbatim_and_matched_case_insensitively(sync_client):
+    ext_id = unique_id("file") + "-Sola.JPG"
+    folder = "datahub_folder_pyverbatim"
+    upload = intellistream_datahub_sdk.FileUpload(
+        path=_IMAGE_PATH, destination_path="/pyverbatim/", external_id=ext_id, name=ext_id
+    )
+    try:
+        node = sync_client.files.upload_file(upload)[0]
+        assert node.external_id == ext_id
+
+        for spelling in (ext_id, ext_id.lower(), ext_id.upper()):
+            found = sync_client.files.get_by_external_id(spelling)
+            assert found[0].id == node.id, spelling
+            assert found[0].external_id == ext_id
+    finally:
+        _delete_quietly(sync_client, ext_id, folder)
+
+
+def test_external_id_outside_the_charset_is_a_400(sync_client):
+    upload = intellistream_datahub_sdk.FileUpload(
+        path=_IMAGE_PATH, destination_path="/pycharset/", external_id="has space.jpg"
+    )
+    with pytest.raises(intellistream_datahub_sdk.DataHubException) as err:
+        sync_client.files.upload_file(upload)
+    assert err.value.status_code == 400
+    fields = (err.value.problem or {}).get("fields", [])
+    assert any(f.get("field") == "externalId" for f in fields), err.value.message
+
+
+def test_restore_by_external_id_takes_the_most_recently_deleted_copy(sync_client):
+    # A deleted file keeps its external id, so the trash can hold several copies of one.
+    ext_id = unique_id("file_restore")
+    folder = "datahub_folder_pyrestore"
+    ids = []
+    try:
+        for _ in range(2):
+            upload = intellistream_datahub_sdk.FileUpload(
+                path=_IMAGE_PATH, destination_path="/pyrestore/", external_id=ext_id, name=f"{ext_id}.jpg"
+            )
+            ids.append(sync_client.files.upload_file(upload)[0].id)
+            sync_client.files.delete([ext_id])
+
+        trashed = {n.id: n for n in sync_client.files.list_trash() if n.id in ids}
+        assert set(trashed) == set(ids)
+        assert all(n.external_id == ext_id for n in trashed.values())
+        assert trashed[ids[0]].deleted_at <= trashed[ids[1]].deleted_at
+
+        restored = sync_client.files.restore([ext_id])
+        assert [n.id for n in restored] == [ids[1]]
+        assert sync_client.files.get_by_external_id(ext_id)[0].id == ids[1]
+        assert ids[0] in {n.id for n in sync_client.files.list_trash()}
+    finally:
+        _delete_quietly(sync_client, ext_id, folder)
+
+
+@pytest.mark.asyncio
+async def test_async_trash_and_restore_by_external_id(async_client, sync_client):
+    ext_id = unique_id("file_async")
+    folder = "datahub_folder_pyasynctrash"
+    upload = intellistream_datahub_sdk.FileUpload(
+        path=_IMAGE_PATH, destination_path="/pyasynctrash/", external_id=ext_id, name=f"{ext_id}.jpg"
+    )
+    try:
+        node = (await async_client.files.upload_file(upload))[0]
+        assert node.deleted_at is None
+
+        await async_client.files.delete([ext_id])
+        trashed = [n for n in await async_client.files.list_trash() if n.id == node.id]
+        assert trashed and trashed[0].external_id == ext_id
+        assert trashed[0].deleted_at is not None
+
+        restored = await async_client.files.restore([ext_id])
+        assert restored[0].id == node.id
+        assert (await async_client.files.get_by_id(node.id))[0].deleted_at is None
+    finally:
+        _delete_quietly(sync_client, ext_id, folder)
 
 
 def test_file_update_requires_a_selector():
