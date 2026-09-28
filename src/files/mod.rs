@@ -1,6 +1,5 @@
 mod test;
 
-use crate::datahub::to_snake_lower_cased_allow_start_with_digits;
 use crate::generic::{ApiServiceProvider, DataWrapper, INode, IdAndExtId};
 use crate::http::ResponseError;
 use crate::ApiService;
@@ -107,10 +106,8 @@ impl FileService {
 
     /// `GET /files/trash` — the soft-deleted files the caller can read.
     ///
-    /// Folders are never listed: only files are soft-deleted. `name` and `path` are the
-    /// pre-deletion values, while the `external_id` has been rewritten to
-    /// `DELETED_<checksum>_<id>_<epochMillis>`. Use the `id` to [`restore`](Self::restore) —
-    /// see there for why the rewritten external id does not round-trip.
+    /// Folders are never listed, since only files can be restored. `external_id`, `name` and
+    /// `path` are the pre-deletion values, and `deleted_at` says when the file was deleted.
     pub async fn list_trash(&self) -> Result<DataWrapper<INode>, ResponseError> {
         let full_path = format!("{}/trash", self.base_url.as_str());
         self.execute_get_request(full_path.as_str(), None::<&str>)
@@ -120,11 +117,9 @@ impl FileService {
     /// `POST /files/restore` — move soft-deleted files out of the trash back to their original
     /// location.
     ///
-    /// **Identify each file by numeric id.** The external-id route does not currently work for
-    /// trashed files: the server hashes the supplied id through `ExternalIds.hash`, which
-    /// lowercases, while the stored hash for a `DELETED_<checksum>_<id>_<epochMillis>` id was not
-    /// lowercased — so the lookup misses and the call answers 404. That is a server-side bug; the
-    /// id route sidesteps the hash entirely.
+    /// Identify each file by id or external id. A deleted file keeps its external id, so several
+    /// deleted copies may share one: by external id the most recently deleted copy comes back, and
+    /// an older one needs its id.
     ///
     /// The call never overwrites: if a file's original path or external id is taken, or its
     /// original folder is gone, the whole request is refused with 409 and nothing is restored.
@@ -379,6 +374,11 @@ impl FileUpload {
         Ok(f)
     }
 
+    /// The external id defaults to the file name as-is, the same default the server applies. The
+    /// server stores it verbatim and accepts only letters, digits and `. _ : + = -`, so a file name
+    /// with a space or other character outside that set needs
+    /// [`set_external_id`](Self::set_external_id), or the upload is a 400 naming `externalId`.
+    ///
     /// Fails with the underlying `io::Error` when `file_path` cannot be read, and with
     /// `ErrorKind::IsADirectory` or `InvalidInput` when it is not a regular file.
     pub fn new(file_path: &str) -> io::Result<Self> {
@@ -435,7 +435,7 @@ impl FileUpload {
         };
 
         Ok(Self {
-            external_id: to_snake_lower_cased_allow_start_with_digits(file_name.as_str()),
+            external_id: file_name.clone(),
             file_path: file_path.to_string(),
             destination_path: None,
             name: file_name,
@@ -461,7 +461,7 @@ impl FileUpload {
     /// Builds the `X-Datahub-*` and `Content-Type` headers the upload endpoint reads before it
     /// touches the body. Every value is percent-encoded the way the server decodes it (the path
     /// segment-by-segment, everything else with `URLDecoder.decode` — including the external id,
-    /// which the server then slug-sanitizes). `metadata` and `relatedResources` go as
+    /// which the server stores verbatim). `metadata` and `relatedResources` go as
     /// percent-encoded JSON, and the two source dates as percent-encoded ISO-8601 (RFC 3339). An
     /// omitted/octet-stream content type makes the server auto-detect the MIME type.
     pub fn upload_headers(&self) -> Vec<(&'static str, String)> {

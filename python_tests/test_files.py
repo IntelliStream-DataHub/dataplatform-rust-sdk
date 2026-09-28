@@ -139,13 +139,14 @@ def test_get_search_update_download_trash_restore(sync_client, tmp_path):
 
         trashed = [n for n in sync_client.files.list_trash() if n.id == node_id]
         assert trashed, "the deleted file should be in the trash"
-        assert trashed[0].external_id.startswith("DELETED_")
+        assert trashed[0].external_id == ext_id
+        assert trashed[0].deleted_at is not None
 
-        # Restore by numeric id: the trashed `DELETED_...` external id does not round-trip
-        # through the server's lowercasing hash. See the Rust test for the detail.
-        restored = sync_client.files.restore([node_id])
+        restored = sync_client.files.restore([ext_id])
         assert restored[0].id == node_id
-        assert sync_client.files.get_by_id(node_id)[0].external_id == ext_id
+        after = sync_client.files.get_by_id(node_id)[0]
+        assert after.external_id == ext_id
+        assert after.deleted_at is None
     finally:
         for name in leaked:
             try:

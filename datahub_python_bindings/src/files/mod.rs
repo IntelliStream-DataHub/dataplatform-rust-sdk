@@ -121,6 +121,7 @@ impl PyINode {
                 source_last_updated,
                 date_created: DateTime::default(),
                 last_updated: DateTime::default(),
+                deleted_at: None,
                 parent_id,
                 parent_external_id,
                 data_set_id,
@@ -187,6 +188,10 @@ impl PyINode {
     #[getter]
     pub fn last_updated(&self) -> DateTime<Utc> {
         self.inner.last_updated
+    }
+    #[getter]
+    pub fn deleted_at(&self) -> Option<DateTime<Utc>> {
+        self.inner.deleted_at
     }
     #[getter]
     pub fn parent_id(&self) -> Option<i64> {

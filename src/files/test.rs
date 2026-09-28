@@ -290,7 +290,7 @@ mod tests {
         let id_collection = DataWrapper::from_vec(vec![
             IdAndExtId::from_external_id("datahub_folder_foo"),
             IdAndExtId::from_external_id("datahub_folder_bar"),
-            IdAndExtId::from_external_id("random_values_csv"),
+            IdAndExtId::from_external_id("random_values.csv"),
             IdAndExtId::from_external_id("datahub_folder_images"),
             IdAndExtId::from_external_id("image_sola_jpg"),
             IdAndExtId::from_external_id("datahub_folder_insects"),
@@ -385,7 +385,8 @@ mod tests {
     async fn file_lifecycle_get_search_update_download_trash_restore(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
-        let ext_id = "lifecycle_sola_jpg";
+        // Mixed case and punctuation: stored verbatim, looked up case-insensitively.
+        let ext_id = "Lifecycle-Sola.JPG";
 
         // Start from a clean slate; the file may be left over from a failed run.
         let _ = api_service
@@ -415,6 +416,12 @@ mod tests {
 
         let by_ext = api_service.files.get_by_external_id(ext_id).await?;
         assert_eq!(by_ext.get_items()[0].id, Some(id));
+        let by_other_case = api_service
+            .files
+            .get_by_external_id(&ext_id.to_lowercase())
+            .await?;
+        assert_eq!(by_other_case.get_items()[0].id, Some(id));
+        assert_eq!(by_other_case.get_items()[0].external_id, ext_id);
 
         // --- search ---
         let found = api_service.files.search("sola").await?;
@@ -481,20 +488,14 @@ mod tests {
             .into_iter()
             .find(|n| n.id == Some(id))
             .expect("the deleted file should be in the trash");
-        // The trashed external id is rewritten to DELETED_<checksum>_<id>_<epochMillis>.
-        assert!(
-            trashed.external_id.starts_with("DELETED_"),
-            "expected a trashed externalId, got {}",
-            trashed.external_id
-        );
+        assert_eq!(trashed.external_id, ext_id);
+        assert!(trashed.deleted_at.is_some(), "a trashed file carries deletedAt");
 
-        // Restore by numeric id. The external-id route does not currently work for trashed files:
-        // the server hashes the supplied id through ExternalIds.hash, which lowercases, while the
-        // stored hash for a `DELETED_...` id was not lowercased — so the lookup misses and the
-        // call 404s. Numeric id sidesteps the hash entirely.
         let restored = api_service
             .files
-            .restore(&DataWrapper::from_vec(vec![IdAndExtId::from_id(id)]))
+            .restore(&DataWrapper::from_vec(vec![IdAndExtId::from_external_id(
+                ext_id,
+            )]))
             .await?;
         assert_eq!(restored.get_http_status_code().unwrap(), 200);
         assert_eq!(restored.get_items()[0].id, Some(id));
@@ -502,6 +503,7 @@ mod tests {
         // Restored under its original external id, so the guard can clean it up.
         let after = api_service.files.get_by_id(id).await?;
         assert_eq!(after.get_items()[0].external_id, ext_id);
+        assert_eq!(after.get_items()[0].deleted_at, None);
 
         let _ = api_service
             .files
@@ -516,4 +518,30 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn default_external_id_is_the_file_name() {
+        let upload = FileUpload::new("resources/test/random_values.csv").unwrap();
+        assert_eq!(upload.external_id, "random_values.csv");
+    }
+
+    #[tokio::test]
+    async fn upload_with_an_external_id_outside_the_charset_is_a_400() {
+        let api_service = create_api_service();
+        let mut upload =
+            FileUpload::new_with_destination_path("resources/test/image.jpg", "/charset").unwrap();
+        upload.set_external_id("has space.jpg".to_string());
+
+        let err = api_service
+            .files
+            .upload_file(upload)
+            .await
+            .expect_err("a space is outside the external id charset");
+        assert_eq!(err.status.as_u16(), 400);
+        let problem = err.problem().expect("a problem document");
+        assert!(
+            problem.fields().iter().any(|f| f.field.as_deref() == Some("externalId")),
+            "the problem should name externalId, got {:?}",
+            problem.fields()
+        );
+    }
 }
