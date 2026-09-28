@@ -1,7 +1,7 @@
 """Tests for the Python units module.
 
 Units are reference data — there's no create endpoint, only read paths.
-Exercises every endpoint on `UnitServiceSync`: list, by_ids, by_external_ids.
+Exercises every endpoint on `UnitServiceSync`: list, by_ids, by_external_id.
 """
 import intellistream_datahub_sdk as dh
 import pytest
@@ -29,8 +29,8 @@ def test_by_ids(sync_client, some_unit):
     assert result[0].id == some_unit.id
 
 
-def test_by_external_ids(sync_client, some_unit):
-    result = sync_client.units.by_external_ids(some_unit.external_id)
+def test_by_external_id(sync_client, some_unit):
+    result = sync_client.units.by_external_id(some_unit.external_id)
     assert len(result) >= 1
     assert any(u.external_id == some_unit.external_id for u in result)
 
@@ -48,5 +48,5 @@ def test_by_ids_nonexistent_external_ids(sync_client):
     assert result == []
 
 
-def test_by_external_ids_nonexistent(sync_client):
-    assert sync_client.units.by_external_ids("nonexistent_unit_xyz") == []
+def test_by_external_id_nonexistent(sync_client):
+    assert sync_client.units.by_external_id("nonexistent_unit_xyz") == []
