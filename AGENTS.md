@@ -27,7 +27,7 @@ cargo test                               # runs all non-ignored tests
 cargo test <name>                        # substring match on test name
 cargo test -- --ignored                  # run tests marked #[ignore] (e.g. long-running datapoint tests)
 cargo test <path>::tests::<name>         # e.g. `events::tests::test_events_full`
-cargo test -- --nocapture                # show println! from tests (the SDK prints response bodies)
+cargo test -- --nocapture                # show println! from tests
 cargo test --release <bench name>        # ALWAYS --release for anything timed (see below)
 ./run_python_tests.sh                    # Python-bindings suite (rebuilds the PyO3 module first — see below)
 ```
@@ -206,7 +206,7 @@ Every subservice implements `ApiServiceProvider`, which owns the HTTP plumbing: 
 
 ### Response shape: `DataWrapper<T>`
 
-The API wraps collections in `{ "items": [...] }`. `DataWrapper<T>` mirrors that and carries the HTTP status code + raw error body alongside items. Deserialization goes through the `DataWrapperDeserialization` trait, which tolerates 204/empty bodies and stores non-2xx bodies in `error_body` instead of failing. When adding new endpoint methods, return `Result<DataWrapper<T>, ResponseError>`.
+The API wraps collections in `{ "items": [...] }`. `DataWrapper<T>` mirrors that and carries the HTTP status code alongside items. Deserialization goes through the `DataWrapperDeserialization` trait, which tolerates 204/empty bodies; it only ever sees 2xx responses, since `process_response` turns everything else into a `ResponseError`. When adding new endpoint methods, return `Result<DataWrapper<T>, ResponseError>`.
 
 ### Entity → request-body conversion
 
@@ -567,5 +567,5 @@ under another test, and use a fixed *pair* when a test has to tell two labels ap
 - `#[serde(rename = "camelCase")]` or explicit `#[serde(rename = "...")]` on fields — the backend is camelCase, Rust is snake_case.
 - **A request body naming a field the api does not have is a 400.** Jackson used to drop unknown properties, so a stale or misspelled key was answered with 200 and no effect; a strict converter now rejects the body and names every offender alongside the fields the endpoint accepts. Two consequences for this SDK: a struct that doubles as request *and* response must `#[serde(skip_serializing)]` its response-only fields — `GraphDataWrapper`'s `errorBody`/`httpStatusCode` reached `/resources/create` and made every resource and function create and update a 400 — and one Rust type may not stand in for two endpoints that disagree on their fields (see the search forms above). Reading is unaffected: responses stay lenient in both directions.
 - `externalId` (string, user-supplied) and numeric `id` are both valid identifiers across the API. `IdAndExtId` / `IdAndExtIdCollection` model this choice.
-- `process_response` (`src/http.rs`) prints response bodies to stdout (truncated to 2000 chars). This is deliberate for debugging — don't silently remove it.
+- The SDK does not print. Everything a caller could want to see is in the returned value or the `ResponseError`, and a library writing to stdout or stderr cannot be silenced by the application embedding it.
 - Tests that depend on backend state being empty are brittle; recent fixes moved away from exact-count assertions (see commit `7f0a059`). Don't add new ones.

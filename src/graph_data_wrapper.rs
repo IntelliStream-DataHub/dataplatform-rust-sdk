@@ -67,40 +67,18 @@ impl<T: GraphNode + DeserializeOwned, R: DeserializeOwned> DataWrapperDeserializ
     for GraphDataWrapper<T, R>
 {
     fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error> {
-        if status_code >= 200 && status_code < 300 {
-            if status_code == 204 || body.is_empty() {
-                return Ok(Self {
-                    nodes: None,
-                    relations: None,
-                    error_body: None,
-                    http_status_code: Some(status_code),
-                });
-            }
-            serde_json::from_str(body).map(|mut wrapper: GraphDataWrapper<T, R>| {
-                wrapper.set_http_status_code(status_code);
-                wrapper
-            })
-        } else {
-            eprintln!(
-                "HTTP request failed with status code {}: {}",
-                status_code, body
-            );
-            match serde_json::from_str(body).map(|mut wrapper: GraphDataWrapper<T, R>| {
-                wrapper.set_http_status_code(status_code);
-                wrapper
-            }) {
-                Ok(result) => Ok(result),
-                Err(_) => {
-                    eprintln!("Error parsing HTTP response body: {}", body);
-                    Ok(GraphDataWrapper {
-                        nodes: None,
-                        relations: None,
-                        error_body: Some(body.to_string()),
-                        http_status_code: Some(status_code),
-                    })
-                }
-            }
+        if status_code == 204 || body.is_empty() {
+            return Ok(Self {
+                nodes: None,
+                relations: None,
+                error_body: None,
+                http_status_code: Some(status_code),
+            });
         }
+        serde_json::from_str(body).map(|mut wrapper: GraphDataWrapper<T, R>| {
+            wrapper.set_http_status_code(status_code);
+            wrapper
+        })
     }
 }
 

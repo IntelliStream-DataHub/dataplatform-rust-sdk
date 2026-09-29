@@ -136,40 +136,23 @@ impl fmt::Display for ResponseError {
     }
 }
 
-pub async fn process_response<T>(response: Response, path: &str) -> Result<T, ResponseError>
+pub(crate) async fn process_response<T>(response: Response) -> Result<T, ResponseError>
 where
     T: DeserializeOwned + DataWrapperDeserialization,
 {
     let status = response.status();
     if (200..300).contains(&status.as_u16()) {
-        // Read the response body and attempt to deserialize
-        let body = response.text().await.map_err(|err| {
-            eprintln!("Failed to read response body: {err}",);
-            ResponseError {
-                status,
-                message: err.to_string(),
-                content_type: None,
-            }
+        let body = response.text().await.map_err(|err| ResponseError {
+            status,
+            message: err.to_string(),
+            content_type: None,
         })?;
-
-        let max_chars = 2000;
-        let truncated_body = &body[..body.len().min(max_chars)];
-        println!("Response body for path: {}\n{}", path, &truncated_body); // Debug output
-
-        // Conditionally apply custom or default logic
-        let result: T = T::deserialize_and_set_status(&body, status.as_u16()).map_err(|err| {
-            eprintln!("Failed to deserialize JSON: {err}",);
-            ResponseError {
-                status,
-                message: err.to_string(),
-                content_type: None,
-            }
-        })?;
-
-        Ok(result)
+        T::deserialize_and_set_status(&body, status.as_u16()).map_err(|err| ResponseError {
+            status,
+            message: err.to_string(),
+            content_type: None,
+        })
     } else {
-        let status = response.status();
-        eprintln!("Request failed with status: {status}",);
         // Read the header before the body: `text()` consumes the response.
         let content_type = response
             .headers()
