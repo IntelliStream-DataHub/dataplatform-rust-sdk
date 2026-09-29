@@ -158,62 +158,6 @@ def test_invalid_retrieve_latest_datapoint(sync_client):
         nonexistant_ts = intellistream_datahub_sdk.TimeSeries(external_id="nonexistent_ts",value_type="bigint",unit="a.u")
         sync_client.timeseries.retrieve_latest_datapoints(input=[nonexistant_ts])[0]
 
-"""
-TODO! determine what is invalid input and codify in tests
-Bellow are draft tests for invalid input 
-
-@pytest.mark.parametrize("metadata", [{"vec": [0,1,2]},{"value_params": {"nested": {}}},{"nonstringable": print}])
-def test_reject_invalid_timeseries_metadata(sync_client,metadata):
-    with pytest.raises(ValueError):
-        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
-            name="valid name",
-            metadata=metadata,
-        )
-         sync_client.timeseries.delete([test_insert_ts])
-
-@pytest.mark.parametrize("name", ["valid name"])
-def test_reject_invalid_timeseries_name(sync_client,name):
-    with pytest.raises(ValueError):
-        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
-            name=name,
-        )
-         sync_client.timeseries.delete([test_insert_ts])
-
-@pytest.mark.parametrize("external_id", [1,12,"a","ab"])
-def test_reject_invalid_timeseries_metadata(sync_client,external_id):
-    with pytest.raises(ValueError):
-        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
-            name="valid name",
-            external_id=external_id,
-        )
-         sync_client.timeseries.delete([test_insert_ts])
-
-
-@pytest.mark.parametrize("value_type", ["",None,"big_int","strings","hex"])
-def test_reject_invalid_timeseries_metadata(sync_client,value_type):
-    with pytest.raises(ValueError):
-        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
-            name="valid name",
-            value_type=value_type,
-        )
-         sync_client.timeseries.delete([test_insert_ts])
-
-
-@pytest.mark.parametrize("units", ["",None,0],marks=pytest.mark.xfail(reason="TBD what are invalid units"))
-@pytest.mark.parametrize("unit_external_id", ["",None,0],marks=pytest.mark.xfail(reason="TBD what are invalid units"))
-def test_reject_invalid_timeseries_unit(sync_client,units,unit_external_id):
-    with pytest.raises(ValueError):
-        test_insert_ts = intellistream_datahub_sdk.TimeSeries(
-            name="valid name",
-            units=units,
-            unit_external_id=unit_external_id,
-        )
-         sync_client.timeseries.delete([test_insert_ts])
-
-
-"""
-
-
 
 def test_timeseries_update_with_fields(sync_client, make_ts):
     # 1. Create a new unique TS for updating (make_ts deletes it at teardown)
