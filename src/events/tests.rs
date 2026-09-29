@@ -752,7 +752,11 @@ mod related_resources_serde {
 
 mod vocabulary {
     use crate::create_api_service;
-    use crate::events::EventDimension;
+    use crate::events::{Event, EventDimension};
+    use crate::tests::cleanup::cleanup_events;
+    use crate::tests::ids::{unique_id, TEST_PREFIX};
+    use crate::tests::polling::poll_until;
+    use chrono::Utc;
 
     /// The four list endpoints: distinct values, alphabetical, honouring `limit`.
     #[tokio::test]
@@ -793,14 +797,20 @@ mod vocabulary {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let api = create_api_service();
 
-        // Pick a real value to search for so the test doesn't depend on any particular tenant data.
-        let types = api.events.list_types(None).await?;
-        let Some(sample) = types.get_items().first().cloned() else {
-            println!("SKIP test_search_dimensions: this tenant has no events with a type");
-            return Ok(());
-        };
+        // Fixed, not unique: a dimension row outlives the events that put it there, so a fresh
+        // name per run would add a vocabulary entry per run.
+        let sample = format!("{TEST_PREFIX}vocab_type_a");
+        let ext_id = unique_id("vocab_event");
+        let _cleanup = cleanup_events(vec![ext_id.clone()]);
+        api.events
+            .create(&Event::new(ext_id, sample.clone(), Utc::now()))
+            .await?;
 
-        let exact = api.events.search_types(&sample, None).await?;
+        let exact = poll_until(
+            || async { api.events.search_types(&sample, None).await },
+            |r| r.as_ref().is_ok_and(|dw| dw.get_items().contains(&sample)),
+        )
+        .await?;
         assert!(
             exact.get_items().contains(&sample),
             "searching for {sample:?} should find it"
@@ -831,10 +841,10 @@ mod vocabulary {
             );
         }
 
-        // Every result is a subset of the full list — search filters, it does not invent values.
-        let all = types.get_items();
-        for found in exact.get_items() {
-            assert!(all.contains(&found), "{found:?} is not in the full list");
+        // Search filters the vocabulary, it does not invent values.
+        let part = &sample[..sample.len() - 1];
+        for found in api.events.search_types(part, None).await?.get_items() {
+            assert!(found.to_lowercase().contains(part), "{found:?} does not contain {part:?}");
         }
 
         // No match is an empty list, not an error.

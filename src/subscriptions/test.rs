@@ -282,20 +282,11 @@ mod tests {
         result
     }
 
-    // Regression test for the subscription-bound timeseries delete path.
-    //
-    // Deleting a timeseries that is still referenced by a subscription must surface a *terminal*
-    // 400 naming the blocking subscription — not an opaque 500. The backend guard
-    // (ResourceService.checkForSubscriptions) throws ResourceDeleteException; the fix that maps
-    // it to 400 lives in datahub-platform on branch
-    // `bugfix-500-on-subscription-bound-timeseries-delete`.
-    //
-    // #[ignore]d until that backend fix ships: against an unpatched backend this delete returns an
-    // empty 500 (which the SDK may also buffer/retry as a 5xx), so the assertions below would fail.
-    // Un-ignore once the backend change is deployed. Run with `cargo test -- --ignored`.
+    // Deleting a timeseries that a subscription still references is refused with a 409
+    // `referenced` problem naming the subscription in `blockedBy`. It used to surface as an
+    // empty 500.
     #[tokio::test]
-    #[ignore]
-    async fn test_delete_timeseries_bound_to_subscription_returns_400(
+    async fn test_delete_timeseries_bound_to_subscription_is_refused(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
         let ts_ext = unique_id("sub_guard_ts");
@@ -318,24 +309,20 @@ mod tests {
         api_service.subscriptions.create(&sub).await?;
         let mut sub_cleanup = cleanup_subscriptions(vec![sub_ext.clone()]);
 
-        // Deleting the bound timeseries must be refused with a terminal 400, not a 500.
         let ts_ids = DataWrapper::from_vec(vec![IdAndExtId::from_external_id(&ts_ext)]);
         match api_service.time_series.delete(&ts_ids).await {
             Ok(_) => panic!(
                 "expected the delete to be refused while a subscription references the timeseries"
             ),
             Err(e) => {
-                assert_eq!(
-                    e.get_status(),
-                    StatusCode::BAD_REQUEST,
-                    "expected 400, got {}: {}",
-                    e.get_status(),
-                    e.get_message()
-                );
+                assert_eq!(e.get_status(), StatusCode::CONFLICT, "{}", e.get_message());
+                let problem = e.problem().expect("the refusal should be a problem document");
+                assert_eq!(problem.slug(), Some("referenced"), "{}", e.get_message());
+                let blockers = problem.blocked_by();
                 assert!(
-                    e.get_message().to_lowercase().contains("subscription"),
-                    "error should name the blocking subscription, got: {}",
-                    e.get_message()
+                    blockers.iter().any(|b| b.get("subscriptionExternalId")
+                        .and_then(|v| v.as_str()) == Some(sub_ext.as_str())),
+                    "blockedBy should name {sub_ext}: {blockers:?}"
                 );
             }
         }

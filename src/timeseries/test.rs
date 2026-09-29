@@ -1589,7 +1589,6 @@ mod tests {
     /// The only live coverage of that retry: every other path resolves before it sends. Needs a
     /// backend that serves the binary endpoint.
     #[tokio::test]
-    #[ignore]
     async fn test_insert_datapoints_binary_re_resolves_a_recreated_series() -> Result<(), Box<dyn std::error::Error>> {
         let api_service = create_api_service();
         let ext_id = unique_id("ts_binary_recreated");

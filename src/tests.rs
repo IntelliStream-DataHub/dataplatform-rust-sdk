@@ -582,7 +582,6 @@ pub mod cleanup {
         /// the blocked-runtime half faithfully while turning a hang into a failed assertion —
         /// a deadlock would otherwise just stall the suite with no output.
         #[tokio::test]
-        #[ignore]
         async fn a_guard_tears_down_after_the_token_cache_was_cleared() {
             // `create_default` reads process env; only `create_api_service` loads `.env`.
             dotenv::dotenv().ok();

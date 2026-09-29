@@ -1,10 +1,7 @@
 """Tests for the Python subscriptions module.
 
-Mirrors src/subscriptions/test.rs: a CRUD round-trip and a listen end-to-end test. The
-end-to-end listen test needs the backend's Pulsar fan-out consumer running, so it is gated
-behind RUN_LISTEN_TESTS=1 (matching the Rust `#[ignore]`).
+Mirrors src/subscriptions/test.rs: a CRUD round-trip and a listen end-to-end test.
 """
-import os
 import time
 from datetime import datetime, timezone
 
@@ -126,12 +123,6 @@ def test_ws_datapoint_as_float():
 
 # --- Listen end-to-end -----------------------------------------------------------------
 
-# Skipped by default — needs the backend's Pulsar consumer running so REST datapoint writes
-# fan out to the subscription topic. Set RUN_LISTEN_TESTS=1 to enable.
-listen_enabled = os.environ.get("RUN_LISTEN_TESTS") == "1"
-
-
-@pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
 def test_listen_end_to_end(sync_client):
     ts_ext = unique_id("listen_ts")
     sub_ext = unique_id("listen")
@@ -205,7 +196,6 @@ def test_listen_end_to_end(sync_client):
             pass
 
 
-@pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
 def test_listen_context_manager_closes_cleanly(sync_client):
     ts_ext = unique_id("ctx_ts")
     sub_ext = unique_id("ctx")
@@ -234,7 +224,6 @@ def test_listen_context_manager_closes_cleanly(sync_client):
         sync_client.timeseries.delete([ts])
 
 
-@pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
 def test_listen_fans_out_all_bound_timeseries(sync_client):
     """One subscription bound to several timeseries must fan out datapoints from ALL of them.
 
@@ -303,7 +292,6 @@ def test_listen_fans_out_all_bound_timeseries(sync_client):
     )
 
 
-@pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
 def test_listen_refused_subscription_surfaces_as_error(sync_client):
     """A subscription the server refuses is raised to the caller as an exception, not swallowed.
 
@@ -329,7 +317,6 @@ def test_listen_refused_subscription_surfaces_as_error(sync_client):
             pass
 
 
-@pytest.mark.skipif(not listen_enabled, reason="set RUN_LISTEN_TESTS=1 to run live listen tests")
 def test_listen_partial_refusal_keeps_valid_subscription(sync_client):
     """A refused subscription on a multiplexed connection surfaces as an error but does NOT tear the
     socket down — the valid subscription on the same connection keeps delivering. This is the core

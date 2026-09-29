@@ -8,14 +8,7 @@ mod tests {
     use crate::tests::ids::unique_id;
 
     /// The whole `/functions` surface: create, list, get by id, by_ids, update, delete.
-    ///
-    /// `#[ignore]` because it needs a live backend; run with
-    /// `cargo test functions:: -- --ignored`. It needs nothing beyond that — the `forecast-ema`
-    /// model template this comment used to name went away with the functions feature itself (see
-    /// the server's "Remove functions feature. revert to simple metadata store"), and a function is
-    /// now a plain node.
     #[tokio::test]
-    #[ignore]
     async fn functions_full_roundtrip() {
         let api = create_api_service();
         let ext_id = unique_id("fn");
@@ -98,7 +91,6 @@ mod tests {
     /// `/functions/byids`, `/filter` and `/search` — the server-side reads that replaced the
     /// client-side walk over the listing.
     #[tokio::test]
-    #[ignore]
     async fn functions_byids_filter_and_search() {
         use crate::filters::NodeFilter;
         use crate::functions::{FunctionFilter, FunctionFilterForm};

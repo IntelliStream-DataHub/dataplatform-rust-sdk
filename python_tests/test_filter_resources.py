@@ -23,7 +23,7 @@ import pytest
 import intellistream_datahub_sdk
 from intellistream_datahub_sdk import DataHubException
 
-from fixtures import async_client, sync_client, unique_id  # noqa: F401  (fixtures)
+from fixtures import async_client, make_resource, sync_client, unique_id  # noqa: F401  (fixtures)
 from filter_fixtures import (  # noqa: F401  (fixtures)
     datasets,
     prefix,
@@ -269,20 +269,20 @@ def test_every_node_carries_its_type_as_a_label(sync_client, resource_corpus, pr
         assert "TIMESERIES" in (node.labels or []), f"{node.external_id} has labels {node.labels}"
 
 
-@pytest.mark.parametrize("type_label,node_type", [
-    ("ASSET", "asset"),
-    ("DATASET", "dataset"),
-    ("TIMESERIES", "timeseries"),
-    ("FUNCTION", "function"),
-    ("POLICY", "policy"),
+@pytest.mark.parametrize("type_label,build", [
+    ("ASSET", lambda ext: intellistream_datahub_sdk.Asset(external_id=ext, name=ext, is_root=True)),
+    ("DATASET", lambda ext: intellistream_datahub_sdk.Dataset(external_id=ext, name=ext)),
+    ("TIMESERIES", lambda ext: intellistream_datahub_sdk.TimeSeries(
+        external_id=ext, name=ext, value_type="float", unit="a.u")),
+    ("FUNCTION", lambda ext: intellistream_datahub_sdk.Function(external_id=ext, name=ext)),
+    ("POLICY", lambda ext: intellistream_datahub_sdk.Policy(
+        external_id=ext, name=ext, type="HAS_REQUIREMENT", value=True)),
 ])
-def test_every_type_label_is_matchable(sync_client, type_label, node_type):
+def test_every_type_label_is_matchable(sync_client, make_resource, type_label, build):
     """A node reports its type-label on every read, so filtering by it must find that node.
 
-    Asserted tenant-wide rather than against this run's corpus: a type-label is one shared row per
-    name, so whether it matches is a property of that row, not of any node a fixture can create.
-    The failure mode is silent either way — an empty result is indistinguishable from "nothing is
-    tagged that way" — which is what makes it worth pinning.
+    The failure mode is silent — an empty result is indistinguishable from "nothing is tagged that
+    way" — which is what makes it worth pinning.
 
     Four of these five were broken by hash drift until V37: commit 5c22b485 dropped the line writing
     `label.hash` with XXH64 and left `Label.setName`'s XXH3 as the only writer, so every row written
@@ -292,15 +292,13 @@ def test_every_type_label_is_matchable(sync_client, type_label, node_type):
     POLICY was a different fault and stayed red after V37: there was no POLICY row in the label
     table at all, so a policy node reported `labels: ['POLICY']` from the denormalised
     `node.labels` column while the filter's join on the label hash had nothing to join to — the
-    label visible and unsearchable, with no row to repair. Fixed server-side; it is a plain case
-    here now rather than a strict xfail.
+    label visible and unsearchable, with no row to repair.
     """
-    of_type = sync_client.resources.filter(node_type=[node_type], limit=1000)
-    if not of_type:
-        pytest.skip(f"no {node_type} nodes in this tenant to match")
+    ext = unique_id(f"type_label_{type_label.lower()}")
+    make_resource([build(ext)])
 
-    by_label = sync_client.resources.filter(labels=[type_label], limit=1000)
-    assert by_label, f"{len(of_type)} {node_type} nodes exist but none match labels=[{type_label}]"
+    by_label = sync_client.resources.filter(labels=[type_label], external_id=[ext])
+    assert externals(by_label) == {ext}, f"the new node does not match labels=[{type_label}]"
 
 
 def test_garbled_criteria_match_nothing_without_erroring(flt, resource_corpus):

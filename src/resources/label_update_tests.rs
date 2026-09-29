@@ -2,7 +2,7 @@
 //!
 //! Two groups:
 //! - offline serde tests that lock the request wire-format (set/add/remove, node identity);
-//! - `#[ignore]` live tests that exercise the backend's label-update semantics, in particular the
+//! - live tests that exercise the backend's label-update semantics, in particular the
 //!   privileged **type-labels** (`ASSET`/`DATASET`/`POLICY`/`TIMESERIES`/`FUNCTION`), which
 //!   `TypeLabels.applyLabelUpdate` on the server forces to stay exactly the node's own type — no
 //!   update may add, remove, or swap it — while ordinary labels follow `base(set|current)+add-remove`.
@@ -108,8 +108,7 @@ mod tests {
     }
 
     // ----------------------------------------------------------------------------------------
-    // Live: label-update semantics. Ignored by default (needs a backend + mutates state).
-    // Run with `cargo test label_update -- --ignored --nocapture`.
+    // Live: label-update semantics.
     // ----------------------------------------------------------------------------------------
 
     /// Sorted label list from an update/read response's first node.
@@ -182,7 +181,6 @@ mod tests {
 
     /// The intrinsic type-label (ASSET here) is preserved no matter what an update tries.
     #[tokio::test]
-    #[ignore]
     async fn special_type_label_is_preserved() -> Result<(), Box<dyn std::error::Error>> {
         let api = create_api_service();
         let ext = "sdk_lblupd_type";
@@ -224,7 +222,6 @@ mod tests {
 
     /// set / add / remove each applied on their own to ordinary (non-type) labels.
     #[tokio::test]
-    #[ignore]
     async fn set_add_remove_individually() -> Result<(), Box<dyn std::error::Error>> {
         let api = create_api_service();
         let ext = "sdk_lblupd_basic";
@@ -259,7 +256,6 @@ mod tests {
     /// `set_and_delta_are_mutually_exclusive` test), so there is no combined-`set`+`add`/`remove`
     /// request to exercise live — the type system no longer lets one be built.
     #[tokio::test]
-    #[ignore]
     async fn add_then_remove_in_one_delta() -> Result<(), Box<dyn std::error::Error>> {
         let api = create_api_service();
         let ext = "sdk_lblupd_delta";

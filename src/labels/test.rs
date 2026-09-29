@@ -33,10 +33,8 @@ mod tests {
     }
 
     // Live end-to-end exercise of the whole label lifecycle, including the
-    // delete-while-in-use error. Ignored by default: needs a configured backend (.env) and
-    // mutates tenant state. Run with `cargo test labels -- --ignored --nocapture`.
+    // delete-while-in-use error.
     #[tokio::test]
-    #[ignore]
     async fn test_label_lifecycle() -> Result<(), Box<dyn std::error::Error>> {
         let api = create_api_service();
 
@@ -103,7 +101,6 @@ mod tests {
     // Delete-while-in-use: create a label, attach it to a resource, and confirm the delete is
     // rejected with a 400 whose body names the blocking resource. Ignored by default.
     #[tokio::test]
-    #[ignore]
     async fn test_delete_label_in_use_reports_blocker() -> Result<(), Box<dyn std::error::Error>> {
         use crate::relations::RelForm;
         use crate::resources::Resource;

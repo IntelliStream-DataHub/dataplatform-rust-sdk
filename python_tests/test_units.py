@@ -12,8 +12,7 @@ from fixtures import sync_client
 @pytest.fixture(scope="module")
 def some_unit(sync_client):
     units = sync_client.units.list()
-    if not units:
-        pytest.skip("backend has no units configured")
+    assert units, "the units catalogue is seeded by the api's migrations"
     return units[0]
 
 

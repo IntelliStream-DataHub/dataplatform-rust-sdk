@@ -186,13 +186,7 @@ def test_create_between_existing_resources(sync_client):
         relationship_type="SDK_TEST_LINK", from_external_id=a, to_external_id=b
     )
     try:
-        try:
-            created = sync_client.edges.create([form])
-        except intellistream_datahub_sdk.DataHubException as exc:
-            # POST /edges/create is newer than some backends; skip rather than fail there.
-            if "405" in str(exc):
-                pytest.skip("this backend has no POST /edges/create")
-            raise
+        created = sync_client.edges.create([form])
 
         assert len(created) == 1
         edge_id = created[0].id
