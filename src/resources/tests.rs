@@ -809,7 +809,7 @@ async fn graph_projection_is_one_to_one_and_typed() -> Result<(), Box<dyn std::e
 
     let mut ts = TimeSeries::new(&ts_ext, "GP TS");
     ts.set_unit("deg C")
-        .set_unit_external_id("celsius")
+        .set_unit_external_id("temperature_deg_c")
         .set_description("ts description")
         .set_data_set_id(ds_id)
         .set_metadata(hashmap! {"tk".to_string() => "tv".to_string()});
