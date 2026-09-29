@@ -743,10 +743,7 @@ pub trait ApiServiceProvider {
                 .query(param)
                 .send()
                 .await
-                .map_err(|err| {
-                    eprintln!("HTTP request failed: {}", err);
-                    ResponseError::from_err(err)
-                })?
+                .map_err(ResponseError::from_err)?
         } else {
             self.get_api_service()
                 .http_client
@@ -754,12 +751,9 @@ pub trait ApiServiceProvider {
                 .bearer_auth(token.clone())
                 .send()
                 .await
-                .map_err(|err| {
-                    eprintln!("HTTP request failed: {}", err);
-                    ResponseError::from_err(err)
-                })?
+                .map_err(ResponseError::from_err)?
         };
-                match process_response::<T>(response, path).await {
+                match process_response::<T>(response).await {
             Ok(value) => Ok(value),
             Err(e) => Err(self.on_request_error(e, &token).await),
         }
@@ -782,14 +776,10 @@ pub trait ApiServiceProvider {
             .bearer_auth(token.clone())
             .send()
             .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
+            .map_err(ResponseError::from_err)?;
         if response.status() == 204 {
             // Return deserialized `T` with an empty body and the HTTP status code
             T::deserialize_and_set_status("", response.status().as_u16()).map_err(|err| {
-                eprintln!("Failed to create object from empty response: {}", err);
                 ResponseError {
                     status: response.status(),
                     message: err.to_string(),
@@ -797,7 +787,7 @@ pub trait ApiServiceProvider {
                 }
             })
         } else {
-                        match process_response::<T>(response, path).await {
+                        match process_response::<T>(response).await {
                 Ok(value) => Ok(value),
                 Err(e) => Err(self.on_request_error(e, &token).await),
             }
@@ -820,11 +810,8 @@ pub trait ApiServiceProvider {
             .bearer_auth(token.clone())
             .send()
             .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
-        match process_response::<T>(response, path).await {
+            .map_err(ResponseError::from_err)?;
+        match process_response::<T>(response).await {
             Ok(value) => Ok(value),
             Err(e) => Err(self.on_request_error(e, &token).await),
         }
@@ -852,11 +839,8 @@ pub trait ApiServiceProvider {
             request = request.header(name, value);
         }
 
-        let response = request.send().await.map_err(|err| {
-            eprintln!("HTTP file upload request failed: {}", err);
-            ResponseError::from_err(err)
-        })?;
-                match process_response::<T>(response, path).await {
+        let response = request.send().await.map_err(ResponseError::from_err)?;
+                match process_response::<T>(response).await {
             Ok(value) => Ok(value),
             Err(e) => Err(self.on_request_error(e, &token).await),
         }
@@ -882,10 +866,7 @@ pub trait ApiServiceProvider {
             .bearer_auth(token.clone())
             .send()
             .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
+            .map_err(ResponseError::from_err)?;
         if response.status() == 204 {
             return T::deserialize_and_set_status("", response.status().as_u16()).map_err(|err| {
                 ResponseError {
@@ -895,7 +876,7 @@ pub trait ApiServiceProvider {
                 }
             });
         }
-        match process_response::<T>(response, path).await {
+        match process_response::<T>(response).await {
             Ok(value) => Ok(value),
             Err(e) => Err(self.on_request_error(e, &token).await),
         }
@@ -904,10 +885,9 @@ pub trait ApiServiceProvider {
     /// `GET` an endpoint that answers with bytes rather than JSON (currently only
     /// `/files/download/{id}`).
     ///
-    /// The body is *not* passed through [`process_response`] — there is no `DataWrapper` to
-    /// deserialize and no reason to print a binary body to stdout. Non-2xx responses still surface
-    /// as a [`ResponseError`] carrying the server's text explanation, so error handling matches the
-    /// JSON helpers.
+    /// The body is *not* passed through `process_response` — there is no `DataWrapper` to
+    /// deserialize. Non-2xx responses still surface as a [`ResponseError`] carrying the server's
+    /// text explanation, so error handling matches the JSON helpers.
     async fn execute_get_stream_request(
         &self,
         path: &str,
@@ -921,10 +901,7 @@ pub trait ApiServiceProvider {
             .header(http::header::ACCEPT, "*/*")
             .send()
             .await
-            .map_err(|err| {
-                eprintln!("HTTP request failed: {}", err);
-                ResponseError::from_err(err)
-            })?;
+            .map_err(ResponseError::from_err)?;
 
         let status = response.status();
         if status.is_success() {
@@ -937,7 +914,6 @@ pub trait ApiServiceProvider {
         if status == http::StatusCode::UNAUTHORIZED {
             self.get_api_service().config.invalidate_token().await;
         }
-        eprintln!("Request failed with status: {status}");
         // Read the header before the body: `text()` consumes the response.
         let content_type = response
             .headers()
@@ -1045,48 +1021,15 @@ where
     DataWrapper<T>: Sized,
 {
     fn deserialize_and_set_status(body: &str, status_code: u16) -> Result<Self, serde_json::Error> {
-        if status_code >= 200 && status_code < 300 {
-            if status_code == 204 || body.is_empty() {
-                // HTTP No content doesnt return anything
-                let mut wrapper: DataWrapper<T> = DataWrapper::new();
-                wrapper.set_http_status_code(status_code);
-                return Ok(wrapper);
-            }
-            // For 2xx responses, we expect the body to be a valid DataWrapper<T>
-            // If body is empty, it's fine for `from_str` to fail and return an error
-            // Or, if you specifically want an empty wrapper for 2xx with empty body:
-            // let mut wrapper = DataWrapper::new();
-            // wrapper.set_http_status_code(status_code);
-            // return Ok(wrapper);
-            // However, typically a successful response with a body should be parsed.
-            serde_json::from_str(body).map(|mut wrapper: DataWrapper<T>| {
-                wrapper.set_http_status_code(status_code);
-                wrapper
-            })
-        } else {
-            // For non-2xx responses (errors)
-            eprintln!(
-                "HTTP request failed with status code {}: {}",
-                status_code, body
-            );
-
-            // Attempt to deserialize the body into DataWrapper<T>
-            // This is useful if the error response *itself* is a structured JSON,
-            // for example, containing an error object.
-            match serde_json::from_str(body).map(|mut wrapper: DataWrapper<T>| {
-                wrapper.set_http_status_code(status_code); // Set the HTTP status code
-                wrapper // Return the modified wrapper
-            }) {
-                Ok(result) => Ok(result),
-                Err(_) => {
-                    eprintln!("Error parsing HTTP response body: {}", body);
-                    let mut wrapper: DataWrapper<T> = DataWrapper::new();
-                    wrapper.error_body = Some(body.to_string());
-                    wrapper.set_http_status_code(status_code);
-                    Ok(wrapper)
-                }
-            }
+        if status_code == 204 || body.is_empty() {
+            let mut wrapper: DataWrapper<T> = DataWrapper::new();
+            wrapper.set_http_status_code(status_code);
+            return Ok(wrapper);
         }
+        serde_json::from_str(body).map(|mut wrapper: DataWrapper<T>| {
+            wrapper.set_http_status_code(status_code);
+            wrapper
+        })
     }
 }
 

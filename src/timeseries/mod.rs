@@ -14,7 +14,7 @@ use crate::generic::{
 };
 use crate::filters::NodeFilter;
 use crate::relations::RelatedNode;
-use crate::http::{process_response, ResponseError};
+use crate::http::ResponseError;
 use crate::serde_helper::is_zero;
 use crate::ApiService;
 use chrono::{DateTime, Utc};
@@ -392,7 +392,6 @@ impl TimeSeriesService {
 
         if total_datapoints > MAX_DATAPOINTS_PER_REQUEST {
             while total_datapoints > MAX_DATAPOINTS_PER_REQUEST {
-                println!("Total datapoints left: {}", total_datapoints);
                 // Divide the request into multiple batch requests
                 let mut new_json: DataWrapper<DatapointsCollection<DatapointString>> =
                     DataWrapper::new();
@@ -409,7 +408,6 @@ impl TimeSeriesService {
 
                     let batch_size: usize =
                         MAX_DATAPOINTS_PER_REQUEST / active_timeseries_with_datapoints.len();
-                    println!("Current Batch size: {}", batch_size);
                     if orig_dp_collection.datapoints.len() > batch_size {
                         let chunk: Vec<DatapointString> =
                             orig_dp_collection.datapoints.drain(..batch_size).collect();
@@ -420,7 +418,6 @@ impl TimeSeriesService {
                             .iter()
                             .position(|&x| x == orig_dp_collection.hash())
                         {
-                            println!("Remove datacollection: {}", orig_dp_collection.to_string());
                             active_timeseries_with_datapoints.remove(pos);
                         }
                     } else {
@@ -434,17 +431,7 @@ impl TimeSeriesService {
                     let moved_points = new_dp_collection.datapoints.len();
                     new_json.add_item(new_dp_collection);
                     total_datapoints = total_datapoints - moved_points;
-                    println!("Total datapoints left: {}", total_datapoints);
                 }
-
-                let mut new_total_datapoints: usize = 0;
-                for dp_collection in new_json.get_items().iter() {
-                    new_total_datapoints += dp_collection.datapoints.len();
-                }
-                println!(
-                    "Sending insert datapoints request with {} datapoints.",
-                    new_total_datapoints
-                );
 
                 new_request_bodies.push(new_json);
             }
@@ -468,12 +455,6 @@ impl TimeSeriesService {
         while let Some(result) = sends.next().await {
             result?;
         }
-
-        total_datapoints = 0;
-        for dp_collection in json.get_items().iter() {
-            total_datapoints += dp_collection.datapoints.len();
-        }
-        println!("Final request: Total datapoints left: {}", total_datapoints);
         self.execute_post_request::<DataWrapper<String>, _>(path, json)
             .await
     }
