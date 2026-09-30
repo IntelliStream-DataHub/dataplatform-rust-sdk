@@ -1,3 +1,30 @@
+//! Time series and their datapoints.
+//!
+//! [`TimeSeriesService`] is reached as `api.time_series` and does two distinct jobs:
+//!
+//! - **The series themselves** — [`create`](TimeSeriesService::create),
+//!   [`list`](TimeSeriesService::list), [`by_ids`](TimeSeriesService::by_ids),
+//!   [`filter`](TimeSeriesService::filter), [`search`](TimeSeriesService::search),
+//!   [`update`](TimeSeriesService::update) and [`delete`](TimeSeriesService::delete), over
+//!   [`TimeSeries`]. `list` is a capped, unpaged sample; criteria and paging live on `filter`,
+//!   whose `data_set_id` expands down the data-set hierarchy server-side.
+//! - **Datapoints** — [`insert_datapoint`](TimeSeriesService::insert_datapoint) and
+//!   [`insert_datapoints`](TimeSeriesService::insert_datapoints) on the JSON ingest path,
+//!   [`insert_datapoints_binary`](TimeSeriesService::insert_datapoints_binary) on the Arrow/zstd
+//!   one (see [`binary`]), then
+//!   [`retrieve_datapoints`](TimeSeriesService::retrieve_datapoints),
+//!   [`retrieve_latest_datapoint`](TimeSeriesService::retrieve_latest_datapoint) and
+//!   [`delete_datapoints`](TimeSeriesService::delete_datapoints) to read and clear them.
+//!
+//! Ingest is retry-safe — datapoints dedup on `(series, timestamp)` server-side — and with durable
+//! buffering enabled on the client, `insert_datapoints` spools to disk when the server is
+//! unreachable and answers **202 with no items** instead of failing, flushing the backlog on a
+//! later call.
+//!
+//! Mind which delete you want: [`delete`](TimeSeriesService::delete) removes the series *and* its
+//! datapoints, while [`delete_datapoints`](TimeSeriesService::delete_datapoints) clears a window
+//! and keeps the definition.
+
 pub mod binary;
 mod test;
 
@@ -32,6 +59,7 @@ struct SpoolDatapoint {
     value: String,
 }
 
+/// Time series and datapoint calls. Reached as `api.time_series`; see the [module docs](self).
 pub struct TimeSeriesService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -70,6 +98,10 @@ impl TimeSeriesService {
             .await
     }
 
+    /// `POST /timeseries/create` — create one or more series.
+    ///
+    /// A duplicate `external_id` answers a clean 409. See [`create_one`](Self::create_one) and
+    /// [`create_from_list`](Self::create_from_list) for the common shapes.
     pub async fn create(
         &self,
         json: &DataWrapper<TimeSeries>,
@@ -79,6 +111,7 @@ impl TimeSeriesService {
             .await
     }
 
+    /// [`create`](Self::create) for a single series.
     pub async fn create_one(
         &self,
         ts: &TimeSeries,
@@ -88,6 +121,7 @@ impl TimeSeriesService {
         self.create(&dw).await
     }
 
+    /// [`create`](Self::create) for a slice of series.
     pub async fn create_from_list(
         &self,
         ts_list: &Vec<TimeSeries>,
@@ -114,6 +148,10 @@ impl TimeSeriesService {
         self.execute_post_request(path, json).await
     }
 
+    /// `POST /timeseries/update` — partial update of one or more series.
+    ///
+    /// Each [`TimeSeriesUpdate`] names its target and carries only the fields it changes. `value_type`
+    /// is not among them: it is fixed at creation.
     pub async fn update(
         &self,
         json: &TimeSeriesUpdateCollection,
@@ -123,6 +161,7 @@ impl TimeSeriesService {
             .await
     }
 
+    /// `POST /timeseries/byids` — fetch series by id or external id, answering the subset it found.
     pub async fn by_ids(
         &self,
         json: &DataWrapper<IdAndExtId>,
@@ -169,6 +208,8 @@ impl TimeSeriesService {
         self.search(&SearchAndFilterForm::new(query)).await
     }
 
+    /// Insert a single datapoint into one series — [`insert_datapoints`](Self::insert_datapoints)
+    /// for a batch, which is what you want for anything but a one-off.
     pub async fn insert_datapoint(
         &self,
         id: Option<u64>,
@@ -423,6 +464,10 @@ impl TimeSeriesService {
             .await
     }
 
+    /// `POST /timeseries/data/list` — read datapoints for one or more series.
+    ///
+    /// Each [`RetrieveFilter`] names a series and a window, and may ask for `aggregates` at a
+    /// `granularity` instead of raw points. The window is half-open: `[start, end)`.
     pub async fn retrieve_datapoints(
         &self,
         json: &DataWrapper<RetrieveFilter>,
@@ -449,6 +494,7 @@ impl TimeSeriesService {
             .await
     }
 
+    /// The most recent datapoint of each named series.
     pub async fn retrieve_latest_datapoint(
         &self,
         json: &DataWrapper<IdAndExtId>,
@@ -581,6 +627,9 @@ impl TimeSeriesFilterForm {
     }
 }
 
+/// A time series: the definition datapoints hang off, not the points themselves.
+///
+/// `value_type` fixes what its datapoints may hold and cannot be changed after creation.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct TimeSeries {
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
@@ -598,10 +647,10 @@ pub struct TimeSeries {
     pub data_set_id: Option<u64>,
     /// The series' value type (`float`, `bigint`, `text`, …).
     ///
-    /// `None` means the endpoint did not say, not that the series has no type. A flat read always
-    /// carries it; a node reached through the graph (`fetch_related`/`fetch_nearest`) does not,
-    /// because Neo4j stores only a subset of the columns — re-read the series by id when the
-    /// value type matters.
+    /// `None` means the endpoint did not say, not that the series has no type. Both the flat and
+    /// the graph reads (`fetch_related`/`fetch_nearest`) carry it now; a series last written
+    /// before the graph projection included the field still reports it absent, so treat `None` as
+    /// "not stated" rather than as a default.
     #[serde(
         rename = "valueType",
         default,
@@ -764,6 +813,7 @@ impl TimeSeriesUpdateFields {
     }
 }
 
+/// A partial update of one series: how to find it, plus only the fields being changed.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSeriesUpdate {
     #[serde(default, with = "crate::serde_helper::opt_string_id")]
@@ -773,6 +823,7 @@ pub struct TimeSeriesUpdate {
     pub update: TimeSeriesUpdateFields,
 }
 
+/// A batch of [`TimeSeriesUpdate`]s for one `POST /timeseries/update` call.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TimeSeriesUpdateCollection {
     items: Vec<TimeSeriesUpdate>,

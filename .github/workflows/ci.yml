@@ -36,6 +36,8 @@ jobs:
       # without failing a release. `blocking` did exactly that.
       - run: cargo build --all-features
       - run: cargo test --no-run --all-features
+      # Only --doc: every other test needs a live backend.
+      - run: cargo test --doc --all-features
       - run: cargo publish --dry-run
 
   wheels:

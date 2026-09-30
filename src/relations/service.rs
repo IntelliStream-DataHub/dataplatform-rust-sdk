@@ -13,6 +13,8 @@ use crate::nodes::Node;
 use crate::ApiService;
 use std::sync::Weak;
 
+/// The `/edges` endpoints and the relationship-type catalogue. Reached as `api.edges`; see the
+/// [`relations`](crate::relations) module docs.
 pub struct EdgesService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,

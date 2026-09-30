@@ -1,3 +1,14 @@
+//! Serde adapters for DataHub's id encoding: entity ids are 64-bit but travel as JSON **strings**,
+//! because a value past 2^53 loses precision in a JavaScript client.
+//!
+//! Each submodule is a `serialize`/`deserialize` pair for one shape, used through
+//! `#[serde(with = "...")]` rather than called directly. The SDK's own types already carry the
+//! right one, so an id field is a numeric `u64`/`i64` in Rust and a string on the wire.
+//! Deserialization also accepts a bare JSON number, so a payload from an older server still parses.
+//!
+//! Hidden from the rendered documentation because callers do not reach for these directly, but
+//! left `pub` so a downstream type can reuse them in its own `#[serde(with = …)]`.
+
 use serde::{Deserialize, Deserializer, Serializer};
 
 pub fn is_zero(x: &u64) -> bool {
@@ -67,7 +78,7 @@ pub mod string_id {
 
 /// `Option<Vec<u64>>` of ids as JSON strings (accepts strings or numbers on input).
 ///
-/// The list form of [`opt_string_id`], for filter fields like `DataSetFilter.ids` that the backend
+/// The list form of `opt_string_id`, for filter fields like `DataSetFilter.ids` that the backend
 /// declares as `List<Long>` but serializes with `ToStringSerializer`.
 pub mod opt_string_id_vec {
     use super::*;

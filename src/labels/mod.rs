@@ -1,3 +1,16 @@
+//! Labels — the tenant's catalogue of the categories resources and timeseries are filed under.
+//!
+//! Every resource carries at least one label (`PIPE`, `SENSOR`, `DOCUMENT`, …), and creating a
+//! resource with a name that does not exist yet auto-creates the label — so [`LabelsService`]
+//! (`api.labels`) is mostly for admin flows: pre-seeding names, colours and i18n codes, listing
+//! what exists, and cleaning up. Names are tenant-scoped and canonicalised to `SNAKE_UPPER_CASE`
+//! server-side, so `Heat Exchanger` and `heat_exchanger` are the same label and a duplicate is a
+//! **409**.
+//!
+//! The entity is `labels::Label`, deliberately *not* re-exported at the crate root because
+//! `resources::*` already brings a different graph-DTO `Label` there — spell it `labels::Label`.
+//! [`delete`](LabelsService::delete) is refused while any resource still references the label.
+
 #[cfg(test)]
 mod test;
 
@@ -33,7 +46,8 @@ impl LabelsService {
         self.execute_get_request(&self.base_url, None::<&str>).await
     }
 
-    /// Look up a single label by its numeric `id`. Returns an empty `items` if it doesn't exist.
+    /// Look up a single label by its numeric `id`. A miss is a **404** carrying a `not-found`
+    /// problem, not an empty `items`.
     pub async fn get(&self, id: u64) -> Result<DataWrapper<Label>, ResponseError> {
         let path = &format!("{}/{}", self.base_url, id);
         self.execute_get_request(path, None::<&str>).await

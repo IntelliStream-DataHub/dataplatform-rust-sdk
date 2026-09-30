@@ -1,3 +1,23 @@
+//! Subscriptions — a named set of timeseries to be notified about, and the WebSocket stream that
+//! delivers the notifications.
+//!
+//! [`SubscriptionsService`] is reached as `api.subscriptions`.
+//!
+//! - **Managing subscriptions** — [`create`](SubscriptionsService::create),
+//!   [`list`](SubscriptionsService::list), [`filter`](SubscriptionsService::filter) and
+//!   [`delete`](SubscriptionsService::delete), over [`Subscription`]. There is no update or
+//!   single-get. `list` is a capped, unpaged sample; criteria live on `filter` and
+//!   [`SubscriptionFilterForm`], which carries only the `timeseries` criterion of the several the
+//!   endpoint accepts.
+//! - **Listening** — [`listen`](SubscriptionsService::listen) opens a WebSocket and returns a
+//!   [`SubscriptionListener`] multiplexing the named subscriptions' streams.
+//!
+//! The listener has to be driven: call [`next`](SubscriptionListener::next) in a loop and
+//! [`ack`](SubscriptionListener::ack) what you have processed. `next` is also what answers the
+//! server's pings and transparently re-establishes a dropped connection, so a listener that is not
+//! being polled is closed as idle after roughly 45 seconds — run heavy per-message work on another
+//! task. Anything left unacked is redelivered to the next listener on the same subscription.
+
 pub mod listen;
 mod test;
 
@@ -14,6 +34,8 @@ use crate::ApiService;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Subscription management and WebSocket listening. Reached as `api.subscriptions`; see the
+/// [module docs](self).
 pub struct SubscriptionsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -31,6 +53,7 @@ impl SubscriptionsService {
         }
     }
 
+    /// `POST /subscriptions/create` — create one or more subscriptions.
     pub async fn create<I>(&self, data: &I) -> Result<DataWrapper<Subscription>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<Subscription>>,
@@ -76,6 +99,10 @@ impl SubscriptionsService {
             .await
     }
 
+    /// `POST /subscriptions/delete` — delete subscriptions by id or external id.
+    ///
+    /// Close any [`SubscriptionListener`] on the subscription first; deleting one with a live
+    /// listener attached is refused.
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<Subscription>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<IdAndExtId>>,
@@ -104,6 +131,8 @@ impl SubscriptionsService {
     }
 }
 
+/// A named standing interest in a set of timeseries, which
+/// [`listen`](SubscriptionsService::listen) then streams datapoints for.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Subscription {
@@ -134,6 +163,8 @@ impl Subscription {
 
 impl DataHubEntity for Subscription {}
 
+/// Criteria for [`SubscriptionsService::filter`]. Currently only `timeseries`, a subset of what
+/// the endpoint accepts.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionFilter {
@@ -141,6 +172,7 @@ pub struct SubscriptionFilter {
     pub timeseries: Vec<IdAndExtId>,
 }
 
+/// The request body of `POST /subscriptions/filter`: [`SubscriptionFilter`] criteria plus paging.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionFilterForm {

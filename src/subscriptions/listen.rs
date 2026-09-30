@@ -91,6 +91,8 @@ pub enum EventObject {
     ResourceAndRelation,
 }
 
+/// One series' worth of datapoints as they arrive over the subscription WebSocket, with values
+/// left as strings.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DataCollectionString {

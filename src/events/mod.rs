@@ -1,3 +1,32 @@
+//! Events — time-stamped records of something that happened, plus the vocabulary endpoints behind
+//! their filter dropdowns.
+//!
+//! [`EventsService`] is reached as `api.events`. An [`Event`] is identified by a UUID rather than a
+//! numeric id, and [`create`](EventsService::create) stamps a UUID v7 client-side on any event that
+//! arrives without one — so a retry carries the same id and the server collapses the duplicate
+//! instead of storing it twice.
+//!
+//! - **CRUD and queries** — [`create`](EventsService::create), [`get`](EventsService::get),
+//!   [`by_ids`](EventsService::by_ids), [`update`](EventsService::update),
+//!   [`delete`](EventsService::delete), plus [`filter`](EventsService::filter),
+//!   [`search`](EventsService::search) and [`count`](EventsService::count).
+//! - **Vocabulary** — [`list_types`](EventsService::list_types) /
+//!   [`search_types`](EventsService::search_types) and the same pair for sub-types, statuses and
+//!   sources (see [`EventDimension`]). They answer "what values does this tenant actually use" for
+//!   the four categorical fields, reading small server-side dimension tables instead of scanning
+//!   events — cheap, but only *eventually consistent* with the events themselves.
+//!
+//! Two surprises worth knowing. [`list`](EventsService::list) returns the **oldest** events, not
+//! the newest: it is `filter` with an empty body, whose default sort is `eventTime` ascending, so
+//! ask "what just happened" through `filter` with a descending sort. And [`EventUpdate`] cannot
+//! change `event_time` or `external_id` — both identify an event rather than describe it, and
+//! sending either is a 400; record a correction by creating a new event and deleting the old one.
+//!
+//! With durable buffering enabled on the client, [`create`](EventsService::create) can answer
+//! **202 with no items** because the batch was spooled to disk rather than sent. Check
+//! [`get_http_status_code`](crate::generic::DataWrapper::get_http_status_code) or
+//! [`buffered_count`](EventsService::buffered_count) when you need to tell the two apart.
+
 #[cfg(test)]
 mod tests;
 
@@ -17,6 +46,8 @@ use std::collections::HashMap;
 use std::sync::{Mutex, Weak};
 use uuid::Uuid;
 
+/// Event CRUD, filtering, search and the vocabulary endpoints. Reached as `api.events`; see the
+/// [module docs](self).
 pub struct EventsService {
     pub(crate) api_service: Weak<ApiService>,
     base_url: String,
@@ -34,6 +65,13 @@ impl EventsService {
         }
     }
 
+    /// `POST /events/create` — create one or more events.
+    ///
+    /// Any event without an `id` is given a time-ordered UUID v7 before sending, so a retry carries
+    /// the same id and the server collapses the duplicate rather than storing it twice.
+    ///
+    /// With durable buffering enabled, a batch that cannot reach the server is spooled to disk and
+    /// this answers **202 with no items** instead of failing.
     pub async fn create<I>(&self, data: &I) -> Result<DataWrapper<Event>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<Event>>,
@@ -160,6 +198,7 @@ impl EventsService {
         }
     }
 
+    /// `POST /events/delete` — delete events by UUID.
     pub async fn delete<I>(&self, json: &I) -> Result<DataWrapper<Event>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<EventIdCollection>>,
@@ -191,11 +230,15 @@ impl EventsService {
             .await
     }
 
+    /// `POST /events/filter` — events matching [`EventFilterForm`], with sorting and keyset paging.
+    ///
+    /// Defaults to `eventTime` ascending. Echo the response's `next_cursor` back to walk the rest.
     pub async fn filter(&self, filter: &EventFilterForm) -> Result<DataWrapper<Event>, ResponseError> {
         let path = &format!("{}/filter", self.base_url);
         self.execute_post_request(path, &filter).await
     }
 
+    /// `POST /events/byids` — fetch events by UUID, answering the subset it found.
     pub async fn by_ids<I>(&self, id_collection: &I) -> Result<DataWrapper<Event>, ResponseError>
     where
         for<'a> &'a I: Into<DataWrapper<EventIdCollection>>,
@@ -435,6 +478,10 @@ fn buffered_wrapper() -> DataWrapper<Event> {
 // Not PartialEq: it carries `Vec<IdAndExtId>`, which is intentionally non-comparable (see
 // `IdAndExtId`) — the same resource can be named as {id}, {externalId} or both. Same reasoning as
 // `EventFilter`.
+/// Something that happened, at a time.
+///
+/// Identified by a UUID rather than a numeric id. `external_id` is deliberately *not* unique: the
+/// events sharing one are the lifecycle of a single logical event.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Event {
