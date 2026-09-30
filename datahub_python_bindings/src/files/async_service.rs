@@ -165,9 +165,8 @@ impl PyFilesServiceAsync {
         })
     }
 
-    /// Restore soft-deleted files. Identify each by numeric id: the trashed
-    /// `DELETED_..._<epochMillis>` external id does not round-trip through the server's
-    /// lowercasing hash, so that route answers 404. See `FileService::restore` in the SDK.
+    /// Restore soft-deleted files, by id or external id. By external id the most recently
+    /// deleted copy comes back. See `FileService::restore` in the SDK.
     fn restore<'py>(
         &self,
         py: Python<'py>,

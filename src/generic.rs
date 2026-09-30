@@ -1065,6 +1065,9 @@ pub struct INode {
     pub date_created: DateTime<Utc>,
     #[serde(rename = "lastUpdated")]
     pub last_updated: DateTime<Utc>,
+    /// Set only on a file listed by [`list_trash`](crate::files::FileService::list_trash).
+    #[serde(rename = "deletedAt")]
+    pub deleted_at: Option<DateTime<Utc>>,
     #[serde(rename = "parentId")]
     #[serde(default, with = "crate::serde_helper::opt_string_id_i64")]
     pub parent_id: Option<i64>,
