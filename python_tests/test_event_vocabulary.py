@@ -4,10 +4,13 @@ Mirrors the `vocabulary` module in `src/events/tests.rs`. These answer "what val
 tenant actually use?" for the four categorical event fields, so they back filter dropdowns and
 autocompletes. They return plain strings, not events.
 """
+from datetime import datetime, timezone
+
 import intellistream_datahub_sdk
 import pytest
 
-from fixtures import async_client, sync_client
+from fixtures import TEST_PREFIX, async_client, sync_client, unique_id
+from polling import poll_until
 
 
 DIMENSIONS = [
@@ -16,6 +19,30 @@ DIMENSIONS = [
     intellistream_datahub_sdk.EventDimension.STATUS,
     intellistream_datahub_sdk.EventDimension.SOURCE,
 ]
+
+# Fixed, not unique: a dimension row outlives the events that put it there, so a fresh name per
+# run would add a vocabulary entry per run.
+SEEDED_TYPES = [f"{TEST_PREFIX}vocab_type_a", f"{TEST_PREFIX}vocab_type_b"]
+
+
+@pytest.fixture(scope="module")
+def seeded_types(sync_client):
+    events = [
+        intellistream_datahub_sdk.Event(
+            type=t, external_id=unique_id("vocab_event"), event_time=datetime.now(timezone.utc)
+        )
+        for t in SEEDED_TYPES
+    ]
+    sync_client.events.create(events)
+    try:
+        found = poll_until(
+            lambda: sync_client.events.search_types(f"{TEST_PREFIX}vocab_type"),
+            lambda found: set(SEEDED_TYPES) <= set(found),
+        )
+        assert set(SEEDED_TYPES) <= set(found), found
+        yield SEEDED_TYPES
+    finally:
+        sync_client.events.delete(events)
 
 
 def test_list_dimensions_are_distinct(sync_client):
@@ -46,10 +73,7 @@ def test_named_helpers_match_the_generic_form(sync_client):
     )
 
 
-def test_limit_caps_results(sync_client):
-    values = sync_client.events.list_types()
-    if len(values) < 2:
-        pytest.skip("tenant has fewer than two distinct event types")
+def test_limit_caps_results(sync_client, seeded_types):
     assert len(sync_client.events.list_types(limit=1)) == 1
 
 
@@ -59,22 +83,16 @@ def test_limit_is_clamped_not_rejected(sync_client):
     assert isinstance(sync_client.events.list_types(limit=0), list)
 
 
-def test_search_is_case_insensitive_substring(sync_client):
-    values = sync_client.events.list_types()
-    if not values:
-        pytest.skip("tenant has no events with a type")
-    sample = values[0]
+def test_search_is_case_insensitive_substring(sync_client, seeded_types):
+    sample = seeded_types[0]
 
     assert sample in sync_client.events.search_types(sample)
-
-    flipped = sample.upper() if sample.islower() else sample.lower()
-    assert sample in sync_client.events.search_types(flipped)
-
-    if len(sample) > 2:
-        assert sample in sync_client.events.search_types(sample[:-1])
+    assert sample in sync_client.events.search_types(sample.upper())
+    assert sample in sync_client.events.search_types(sample[:-1])
 
     # Search filters the vocabulary; it never invents values.
-    assert set(sync_client.events.search_types(sample)) <= set(values)
+    hits = sync_client.events.search_types(sample[:-1])
+    assert all(sample[:-1] in v.lower() for v in hits), hits
 
 
 def test_no_match_is_empty_not_an_error(sync_client):

@@ -113,9 +113,6 @@ fn search_body_omits_an_absent_filter() {
 }
 
 /// Live round-trip over the whole `/assets` surface.
-///
-/// `#[ignore]` like every test here that needs a backend; run with
-/// `cargo test assets:: -- --ignored --nocapture`.
 mod live {
     use super::*;
     use crate::create_api_service;
@@ -125,7 +122,6 @@ mod live {
     use crate::tests::ids::unique_id;
 
     #[tokio::test]
-    #[ignore]
     async fn assets_full_roundtrip() {
         let api = create_api_service();
         let ext_id = unique_id("asset");
@@ -238,7 +234,6 @@ mod live {
     /// A node that exists but is not an asset is reported as missing, not as a type error — so a
     /// 404 here does not tell you whether the id exists.
     #[tokio::test]
-    #[ignore]
     async fn a_non_asset_id_is_reported_as_missing() {
         let api = create_api_service();
         let ext_id = unique_id("fn_not_asset");
@@ -269,7 +264,6 @@ mod live {
     /// `geoLocation` set through the shared update form reaches the asset — the one update field
     /// that means anything on exactly one node type.
     #[tokio::test]
-    #[ignore]
     async fn geolocation_is_updatable() {
         let api = create_api_service();
         let ext_id = unique_id("asset_geo");

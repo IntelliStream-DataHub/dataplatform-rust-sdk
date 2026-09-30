@@ -1040,7 +1040,6 @@ async fn plain_listing_is_typed_capped_and_uncursored() -> Result<(), Box<dyn st
 ///
 /// This drives the two types that broke, and asserts the echo comes back in each node's own shape.
 #[tokio::test]
-#[ignore]
 async fn update_echo_is_typed_per_node_type() -> Result<(), ResponseError> {
     let api = create_api_service();
 
