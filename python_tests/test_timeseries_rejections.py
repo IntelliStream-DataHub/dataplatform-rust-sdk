@@ -2,12 +2,13 @@
 
 Wrongly *typed* input never leaves Python: the binding declares ``str`` fields, so ``unit=0`` is a
 ``TypeError`` from the constructor, and ``value_type`` is checked against the SDK's catalogue there
-too. Everything else is the api's call, answered with a 400 ``constraint-violation`` whose
-``fields`` name each rejected property.
+too. Everything else is the api's call, answered with a 400 whose ``fields`` name each rejected
+property.
 
-Two things the api accepts that a caller might expect it to refuse, and which are therefore not
-pinned here: a ``unit_external_id`` that names no catalogue entry, and one that disagrees with
-``unit`` (``unit="Celsius"`` on ``pressure_bar``). REST does not look the id up at all.
+A ``unit_external_id``, when sent, must name a unit in the catalogue, and is looked up *before* the
+body is validated: a blank or unknown one is a ``bad-request`` naming only ``unitExternalId``, even
+when other fields are wrong too. A valid one stands in for ``unit``, which is filled from the
+catalogue; a ``unit`` the caller does send is kept as is, even one that disagrees with the id.
 """
 import pytest
 
@@ -29,7 +30,7 @@ def valid(**overrides):
     return {k: v for k, v in kwargs.items() if v is not ABSENT}
 
 
-def rejected_fields(sync_client, ts):
+def rejected_fields(sync_client, ts, slug="constraint-violation"):
     """Create ``ts`` expecting a 400, and return ``{field: code}`` from the problem."""
     try:
         with pytest.raises(DataHubException) as excinfo:
@@ -39,8 +40,8 @@ def rejected_fields(sync_client, ts):
         sync_client.timeseries.delete([ts.external_id])
     error = excinfo.value
     assert error.status_code == 400, error.message
-    assert error.problem_slug == "constraint-violation", error.message
-    return {f["field"]: f["code"] for f in error.problem["fields"]}
+    assert error.problem_slug == slug, error.message
+    return {f["field"]: f.get("code") for f in error.problem["fields"]}
 
 
 # --------------------------------------------------------------------------- #
@@ -77,12 +78,21 @@ def test_unit_is_required(sync_client, unit):
     assert fields == {"unit": "timeseries.unit.not.blank"}
 
 
-def test_a_unit_external_id_does_not_stand_in_for_unit(sync_client):
-    """Unlike the MCP ``timeseries_create`` tool, REST does not fill ``unit`` in from the catalogue."""
-    fields = rejected_fields(
-        sync_client, TimeSeries(**valid(unit=ABSENT, unit_external_id="pressure_bar"))
-    )
-    assert fields == {"unit": "timeseries.unit.not.blank"}
+def test_a_unit_external_id_stands_in_for_unit(sync_client):
+    # Not through make_ts, which defaults a unit in.
+    ts = TimeSeries(**valid(unit=ABSENT, unit_external_id="pressure_bar"))
+    try:
+        created = sync_client.timeseries.create([ts])[0]
+    finally:
+        sync_client.timeseries.delete([ts.external_id])
+    assert created.unit == "bar"
+    assert created.unit_external_id == "pressure_bar"
+
+
+def test_a_unit_that_disagrees_with_its_external_id_is_kept(make_ts):
+    created = make_ts(**valid(unit="Celsius", unit_external_id="pressure_bar"))
+    assert created.unit == "Celsius"
+    assert created.unit_external_id == "pressure_bar"
 
 
 def test_unit_is_at_most_64_characters(sync_client, make_ts):
@@ -92,10 +102,21 @@ def test_unit_is_at_most_64_characters(sync_client, make_ts):
     assert set(fields) == {"unit"}
 
 
-@pytest.mark.parametrize("unit_external_id", ["", "ab"])
-def test_unit_external_id_is_at_least_3_characters(sync_client, unit_external_id):
+@pytest.mark.parametrize(
+    "unit_external_id", ["", "   ", "ab", "no_such_unit_xyz"], ids=["empty", "blank", "short", "unknown"]
+)
+def test_unit_external_id_must_name_a_catalogue_unit(sync_client, unit_external_id):
     fields = rejected_fields(
-        sync_client, TimeSeries(**valid(unit_external_id=unit_external_id))
+        sync_client, TimeSeries(**valid(unit_external_id=unit_external_id)), slug="bad-request"
+    )
+    assert set(fields) == {"unitExternalId"}
+
+
+def test_a_bad_unit_external_id_is_reported_before_other_fields(sync_client):
+    fields = rejected_fields(
+        sync_client,
+        TimeSeries(**valid(name="", unit_external_id="no_such_unit_xyz")),
+        slug="bad-request",
     )
     assert set(fields) == {"unitExternalId"}
 
@@ -113,9 +134,9 @@ def test_external_id_is_at_least_3_characters(sync_client):
 
 def test_every_rejected_field_is_named_at_once(sync_client):
     fields = rejected_fields(
-        sync_client, TimeSeries(**valid(name="", unit="", unit_external_id="ab"))
+        sync_client, TimeSeries(**valid(name="", unit="", external_id="ab"))
     )
-    assert {"name", "unit", "unitExternalId"} <= set(fields)
+    assert {"name", "unit", "externalId"} <= set(fields)
 
 
 @pytest.mark.asyncio
