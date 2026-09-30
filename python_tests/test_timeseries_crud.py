@@ -46,7 +46,7 @@ def _refetch(sync_client, ts):
         {"value_type": "float", "metadata": {}},
         {"value_type": "float", "metadata": {"empty_value": ""}},
         {"value_type": "float", "description": "a described series"},
-        {"value_type": "float", "unit": "m/s", "unit_external_id": "ext.unit.id"},
+        {"value_type": "float", "unit": "bar", "unit_external_id": "pressure_bar"},
         {"value_type": "float", "name": "Unicode ✓ 日本語 name"},
         {"value_type": "float", "source": "sap_pi"},
     ],
@@ -144,9 +144,7 @@ def test_delete_by_external_id_string(sync_client):
         ("unit", "Updated Unit", "unit"),
         ("description", "Updated Description", "description"),
         ("source", "updated_source", "source"),
-        # unit_external_id is sanitised server-side (dots -> underscores), so the
-        # value here is already in canonical form to keep the assertion exact.
-        ("unit_external_id", "updated_unit_ext", "unit_external_id"),
+        ("unit_external_id", "pressure_bar", "unit_external_id"),
     ],
 )
 def test_update_scalar_str_set_value(sync_client, make_ts, field, new_value, attr):
@@ -154,7 +152,7 @@ def test_update_scalar_str_set_value(sync_client, make_ts, field, new_value, att
         name="Original",
         description="original description",
         unit="a.u",
-        unit_external_id="orig_unit_ext",
+        unit_external_id="temperature_deg_c",
         source="original_source",
     )
 
@@ -202,7 +200,7 @@ def test_update_scalar_str_set_null(sync_client, make_ts, field, attr):
     ts = make_ts(
         description="please clear me",
         unit="a.u",
-        unit_external_id="clear.this.ext",
+        unit_external_id="temperature_deg_c",
         source="please_clear_me",
     )
 

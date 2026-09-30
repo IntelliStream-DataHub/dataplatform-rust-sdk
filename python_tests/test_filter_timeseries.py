@@ -211,7 +211,7 @@ def test_unit_external_ids_are_a_pattern_list(flt, timeseries_corpus):
     assert flt(unit_external_id=["pressure_bar"]) == {
         timeseries_corpus["pump_1"].external_id, timeseries_corpus["valve"].external_id
     }
-    assert flt(unit_external_id=["pressure_*", "temperature_c"]) == {
+    assert flt(unit_external_id=["pressure_*", "temperature_deg_c"]) == {
         ts.external_id for ts in timeseries_corpus.values()
     }
 

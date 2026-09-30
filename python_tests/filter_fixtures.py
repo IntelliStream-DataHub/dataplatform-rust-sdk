@@ -115,7 +115,7 @@ def timeseries_corpus(sync_client, datasets, prefix, token):
         ),
         "pump_x1": dict(
             external_id=f"{prefix}_ts_pumpX1", name=f"Pump Beta {token}",
-            unit="celsius", unit_external_id="temperature_c", value_type="float",
+            unit="celsius", unit_external_id="temperature_deg_c", value_type="float",
             data_set_id=child.id,
             metadata={f"tsk_{token}": "beta", f"tsshared_{token}": "yes"},
         ),
