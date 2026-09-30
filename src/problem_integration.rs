@@ -550,9 +550,9 @@ mod unified {
     }
 
     /// An unauthenticated call answers 401 with a full problem document — `type`, `detail`,
-    /// `requestId` and `retry` — rather than the empty body it used to send. That empty body is
-    /// why [`crate::auth_diagnostics`] exists, reconstructing the reason from the token just
-    /// sent; the server now says it directly.
+    /// `requestId` and `retry` — rather than the empty body it used to send. The SDK carried an
+    /// `auth_diagnostics` module to reconstruct that reason from the token it had just sent; the
+    /// server saying it directly is what retired it.
     #[tokio::test]
     async fn an_unauthenticated_call_says_why() {
         let refusal = Probe::new().get_unauthenticated("/timeseries?limit=1").await;

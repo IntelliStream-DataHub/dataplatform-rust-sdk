@@ -55,7 +55,6 @@ fn unreachable_buffered_service(dir: &PathBuf) -> Arc<ApiService> {
         None,
         None,
         None,
-        None,
     );
     config
         .set_buffer_dir(dir.clone())

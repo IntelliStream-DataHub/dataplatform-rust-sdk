@@ -882,7 +882,6 @@ mod unbuffered_insert_tests {
             None,
             None,
             None,
-            None,
         );
         if let Some(parallelism) = parallelism {
             config.set_datapoint_insert_parallelism(parallelism);

@@ -68,7 +68,6 @@ environment:
 - `BASE_URL` — backend root, e.g. `http://localhost:8081` (required)
 - Either `TOKEN` (bearer token used as-is, never considered expired), **or** the OAuth2
   client-credentials set: `CLIENT_ID`, `CLIENT_SECRET`, `TOKEN_URI`
-- `PROJECT_NAME` — optional
 - `SCOPE` — against DataHub, needed when the realm uses Keycloak Organizations: that claim comes
   from a dynamic client scope, so the request must name it (`organization:*`, or
   `organization:<alias>` to pin one tenant). Without it the token carries no tenant and every call

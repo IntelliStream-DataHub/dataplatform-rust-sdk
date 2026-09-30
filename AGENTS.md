@@ -42,7 +42,7 @@ rather than run unoptimised, and the same applies to the PyO3 module, which need
 Most tests are integration tests that call a live backend via `create_api_service()`. They read configuration from a local `.env` file (gitignored). Required:
 
 - `BASE_URL` — backend root, e.g. `http://localhost:8081`
-- Either `TOKEN` (bearer token used as-is, no expiry) **or** the OAuth2 client-credentials set: `CLIENT_ID`, `CLIENT_SECRET`, `TOKEN_URI` (optional: `PROJECT_NAME`)
+- Either `TOKEN` (bearer token used as-is, no expiry) **or** the OAuth2 client-credentials set: `CLIENT_ID`, `CLIENT_SECRET`, `TOKEN_URI`
 
 Tests that mutate backend state (create/delete) often `sleep` a few seconds between operations and are sensitive to race conditions — prefer running them serially or isolating by unique external IDs.
 
@@ -245,10 +245,10 @@ refusal, so a by-id 404 carries `type: …/errors/not-found` and **`slug()` matc
 stays as the regression guard.
 
 401s carry a problem document too, with `type: …/errors/unauthorized` and a `detail` naming the
-check that failed — a missing, empty, malformed or ambiguous `organization` claim. That is the
-reason `src/auth_diagnostics.rs` reconstructs from the token it just sent, so the SDK now appends
-a near-duplicate of what the server already said. Note every entry-point 401 shares the
-`unauthorized` slug, so the cause is in the prose and cannot be branched on.
+check that failed — a missing, empty, malformed or ambiguous `organization` claim. That retired
+the SDK's own `auth_diagnostics` module, which existed only to reconstruct the reason from the
+token it had just sent. Note every entry-point 401 shares the `unauthorized` slug, so the cause is
+in the prose and cannot be branched on.
 
 ### Filters (`src/filters.rs`)
 

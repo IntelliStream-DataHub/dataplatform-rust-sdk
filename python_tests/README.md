@@ -108,7 +108,7 @@ The fixtures build a client from an env file containing at least:
 
 - `BASE_URL` — backend root, e.g. `http://localhost:8081`
 - **either** `TOKEN` (a bearer token used as-is) **or** the OAuth2 client-credentials set
-  `CLIENT_ID` / `CLIENT_SECRET` / `TOKEN_URI` (optional `PROJECT_NAME`)
+  `CLIENT_ID` / `CLIENT_SECRET` / `TOKEN_URI`
 
 A gitignored `.env` already exists at the repo root. Make sure it points at a backend you
 can reach and that the credentials are valid.

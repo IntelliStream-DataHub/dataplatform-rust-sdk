@@ -66,11 +66,9 @@
 //! server's own words it reads. `WWW-Authenticate` still carries no `error_description`; the
 //! reason is in the body.
 //!
-//! [`crate::auth_diagnostics`] reconstructs the same reason from the token the SDK just sent and
-//! appends it, so the message a caller sees can carry both. Every 401 here shares the
-//! `unauthorized` slug, so the cause is only in the prose: a caller cannot branch on `type` to
-//! tell "no token" from "ambiguous organization". Cases that differ only by fixture are asserted
-//! on **status alone**.
+//! Every 401 here shares the `unauthorized` slug, so the cause is only in the prose: a caller
+//! cannot branch on `type` to tell "no token" from "ambiguous organization". Cases that differ
+//! only by fixture are asserted on **status alone**.
 //!
 //! (403s are different: those carry a real RFC 9457 `problem+json` body from the server, with
 //! `dataSetId` and `permission`, which the ACL tests assert on directly.)
@@ -283,7 +281,6 @@ fn principal(test: &str, prefix: &str, scope: Option<&str>) -> Option<Principal>
         Some(token_uri),
         Some(client_id.clone()),
         Some(client_secret),
-        None,
     );
     if let Some(scope) = scope {
         config.set_scope(scope);
@@ -463,10 +460,9 @@ async fn multi_tenant_multi_org_principal_with_wildcard_scope_is_rejected(
         "a token naming two organizations",
     );
 
-    // The reason reaches the caller two ways now: the server writes it into the problem's
-    // `detail`, and `crate::auth_diagnostics` appends its own from the token just used. Asserting
-    // it against a real two-organization token from a real realm is what proves the explanation
-    // survives the whole path, entry point to `ResponseError`.
+    // The reason is the server's own: the organization validator writes it into the problem's
+    // `detail`. Asserting it against a real two-organization token from a real realm is what
+    // proves the explanation survives the whole path, entry point to `ResponseError`.
     let message = error.get_message();
     assert!(
         message.contains("names 2 organizations"),
@@ -484,7 +480,7 @@ async fn multi_tenant_multi_org_principal_with_wildcard_scope_is_rejected(
         }
     }
     assert!(
-        message.contains("SCOPE=organization:<alias>"),
+        message.contains("scope=organization:"),
         "the message should say what to change — got {message:?}"
     );
     Ok(())

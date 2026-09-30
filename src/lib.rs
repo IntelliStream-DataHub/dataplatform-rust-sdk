@@ -17,8 +17,6 @@ pub use crate::labels::LabelsService;
 pub use crate::relations::EdgesService;
 pub use crate::subscriptions::SubscriptionsService;
 
-/// Explaining an unexplained 401 from the token the SDK already holds.
-pub(crate) mod auth_diagnostics;
 #[cfg(feature = "blocking")]
 pub mod blocking;
 pub mod assets;
