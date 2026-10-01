@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - run: |
           set -euo pipefail
           crate=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
@@ -42,6 +44,15 @@ jobs:
             fi
             if [ "${GITHUB_REF_NAME#v}" != "$crate" ]; then
               echo "::error::tag $GITHUB_REF_NAME does not match manifest version $crate"
+              exit 1
+            fi
+            # Releases are cut from release/vX.Y (or release/vX.Y.Z), never from main.
+            minor=$(printf '%s' "$GITHUB_REF_NAME" | cut -d. -f1,2)
+            git fetch --quiet origin '+refs/heads/release/v*:refs/remotes/origin/release/v*'
+            branches=$(git branch -r --contains "$GITHUB_SHA" --list 'origin/release/v*' | sed 's/^ *//')
+            echo "release branches containing $GITHUB_SHA: ${branches:-none}"
+            if ! printf '%s\n' "$branches" | grep -Fxq -e "origin/release/$minor" -e "origin/release/$GITHUB_REF_NAME"; then
+              echo "::error::tag $GITHUB_REF_NAME is not on release/$minor or release/$GITHUB_REF_NAME"
               exit 1
             fi
           fi
