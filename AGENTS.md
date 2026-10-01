@@ -19,6 +19,11 @@ A release is a docs event too. When you tag `vX.Y.Z`, open an issue on datahub-s
 start names the latest release, and a new minor version gets a frozen snapshot of the docs. The
 rules are in that repository's `AGENTS.md`, under "Versions".
 
+Releases are cut from a release branch, not from `main`. Tag `vX.Y.Z` on a commit of
+`release/vX.Y` (one branch per minor line; `release/vX.Y.Z` is also accepted). `release.yml`
+refuses to publish a tag that no matching release branch contains, so push the branch before the
+tag. CI runs on pushes to `main` and `release/v*`.
+
 ## Build / Test
 
 ```
