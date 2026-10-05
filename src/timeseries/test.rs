@@ -1273,15 +1273,29 @@ mod tests {
     async fn validate_daily_avg(api_service: &Arc<ApiService>, ts_external_id_vec: Vec<String>) {
         let values = read_values_from_file().expect("the datapoint source file should be readable");
         for ts_external_id in &ts_external_id_vec {
-            let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
-            let mut rf = RetrieveFilter::new();
-            rf.set_external_id(ts_external_id);
-            rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
-            rf.set_end(Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap());
-            rf.set_aggregates(vec!["avg".to_string(), "min".to_string(), "max".to_string()]);
-            rf.set_granularity("1d");
-            data_request.add_item(rf);
-            let result = api_service.time_series.retrieve_datapoints(&data_request).await;
+            // The aggregate lags the raw rows it is computed from, so a poll on the raw count
+            // can be satisfied while buckets are still missing. Same long bound as
+            // `poll_datapoint_count`; the assertions below report what came back if it expires.
+            let result = poll_until_for(
+                std::time::Duration::from_secs(150),
+                || async {
+                    let mut data_request: DataWrapper<RetrieveFilter> = DataWrapper::new();
+                    let mut rf = RetrieveFilter::new();
+                    rf.set_external_id(ts_external_id);
+                    rf.set_start(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap());
+                    rf.set_end(Utc.with_ymd_and_hms(2025, 3, 1, 0, 0, 0).unwrap());
+                    rf.set_aggregates(vec!["avg".to_string(), "min".to_string(), "max".to_string()]);
+                    rf.set_granularity("1d");
+                    data_request.add_item(rf);
+                    api_service.time_series.retrieve_datapoints(&data_request).await
+                },
+                |result| {
+                    result.as_ref().is_ok_and(|r| {
+                        r.get_items().first().is_some_and(|i| i.datapoints.len() >= 59)
+                    })
+                },
+            )
+            .await;
             match result {
                 Ok(r) => {
                     // Every caller inserts the full sixty days from 2025-01-01 and reads back to
