@@ -124,7 +124,7 @@
 //! MT_READONLY_CLIENT_ID  / _SECRET     D
 //! MT_WRITEONLY_CLIENT_ID / _SECRET     E
 //! MT_NOGRANT_CLIENT_ID   / _SECRET     F
-//! MT_DATASET_EXT_ID                    dataset D and E are granted on; must exist in the ACL org
+//! MT_DATASET_EXT_ID                    dataset D and E are granted on; created in the ACL org if missing
 //!                                      as a real dataset, not just as a Keycloak group name
 //! ```
 //!
@@ -389,13 +389,31 @@ async fn acl_dataset_id(admin: &Principal, external_id: &str) -> u64 {
                 e.get_message()
             )
         });
-    found.unwrap_or_else(|| {
-        panic!(
-            "MT_DATASET_EXT_ID='{external_id}' does not exist in {}'s tenant — the ACL fixtures \
-             grant on a dataset that isn't there",
-            admin.label
-        )
-    })
+    if let Some(id) = found {
+        return id;
+    }
+    // The grants are groups named after the external id, so a dataset created under that id
+    // is the one they already cover. It is left in place: every test shares it.
+    admin
+        .service
+        .datasets
+        .create(&Dataset::new(external_id.to_string()))
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "MT_DATASET_EXT_ID='{external_id}' does not exist in {}'s tenant and creating it \
+                 failed: HTTP {} {}",
+                admin.label,
+                e.get_status(),
+                e.get_message()
+            )
+        });
+    admin
+        .datasets_by_external_id(external_id)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| panic!("created dataset '{external_id}' but it cannot be read back"))
 }
 
 impl Principal {
