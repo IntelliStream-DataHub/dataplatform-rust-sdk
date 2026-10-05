@@ -277,7 +277,12 @@ def acl_dataset_id(env):
             pytest.skip("MT_ORG_A's token is refused (401) — fix the realm first")
         raise
     if not found:
-        pytest.skip(f"dataset '{external_id}' does not exist in the ACL organization")
+        # The grants are groups named after the external id, so a dataset created under it
+        # is the one they already cover. Left in place: every test shares it.
+        found = admin.datasets.create([
+            intellistream_datahub_sdk.Dataset(external_id=external_id, name=external_id)
+        ])
+        assert found, f"could not create dataset '{external_id}' in the ACL organization"
     return found[0].id
 
 
