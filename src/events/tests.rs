@@ -948,3 +948,111 @@ async fn plain_listing_is_oldest_first_capped_and_uncursored(
     );
     Ok(())
 }
+
+/// An external id names a logical event, not a row: each create under it adds a sibling with its
+/// own UUID rather than conflicting or overwriting, so the siblings read as that event's lifecycle.
+/// Both ways of resolving the external id — `byids` and `delete` — reach every sibling.
+#[tokio::test]
+async fn events_sharing_an_external_id_are_one_lifecycle() -> Result<(), Box<dyn std::error::Error>>
+{
+    use crate::tests::ids::unique_id;
+    use std::collections::HashSet;
+    use uuid::Uuid;
+
+    let api_service = create_api_service();
+    let ext_id = unique_id("event_lifecycle");
+    let start = Utc::now() - Duration::minutes(10);
+
+    let lifecycle: Vec<Event> = ["OPEN", "ACKNOWLEDGED", "CLOSED"]
+        .iter()
+        .enumerate()
+        .map(|(i, status)| {
+            let mut event = Event::new(
+                ext_id.clone(),
+                "lifecycle".to_string(),
+                start + Duration::minutes(i as i64),
+            );
+            event.set_status(status);
+            event.id = Some(Uuid::now_v7());
+            event
+        })
+        .collect();
+    let uuids: HashSet<Uuid> = lifecycle.iter().filter_map(|e| e.id).collect();
+    let mut guard = cleanup_events_by_uuid(
+        uuids
+            .iter()
+            .map(|id| EventIdCollection::from_uuid(*id))
+            .collect(),
+    );
+
+    // One create per transition, the way a writer reports a lifecycle as it unfolds.
+    for event in &lifecycle {
+        let created = api_service.events.create(event).await?;
+        assert_eq!(created.get_items().len(), 1);
+        assert_eq!(created.get_items()[0].id, event.id);
+    }
+
+    let mut form = EventFilterForm::default();
+    form.set_filter(EventFilter::default().set_external_id(&[&ext_id]).build());
+    let filtered = poll_until(
+        || api_service.events.filter(&form),
+        |r| r.as_ref().is_ok_and(|r| r.get_items().len() >= 3),
+    )
+    .await?;
+    let statuses: Vec<_> = filtered
+        .get_items()
+        .iter()
+        .map(|e| e.get_status())
+        .collect();
+    assert_eq!(
+        statuses,
+        vec![Some("OPEN"), Some("ACKNOWLEDGED"), Some("CLOSED")],
+        "an exact externalId filter returns every sibling, eventTime ascending"
+    );
+    assert_eq!(
+        filtered
+            .get_items()
+            .iter()
+            .filter_map(|e| e.id)
+            .collect::<HashSet<_>>(),
+        uuids
+    );
+
+    let by_ext = vec![EventIdCollection::from_external_id(&ext_id)];
+    let fetched = poll_until(
+        || api_service.events.by_ids(&by_ext),
+        |r| r.as_ref().is_ok_and(|r| r.get_items().len() >= 3),
+    )
+    .await?;
+    assert_eq!(
+        fetched
+            .get_items()
+            .iter()
+            .filter_map(|e| e.id)
+            .collect::<HashSet<_>>(),
+        uuids,
+        "byids by externalId resolves to every sibling, not just one"
+    );
+
+    api_service.events.delete(&by_ext).await?;
+    let by_uuid: Vec<EventIdCollection> = uuids
+        .iter()
+        .map(|id| EventIdCollection::from_uuid(*id))
+        .collect();
+    let remaining = poll_until(
+        || api_service.events.by_ids(&by_uuid),
+        |r| r.as_ref().is_ok_and(|r| r.get_items().is_empty()),
+    )
+    .await?;
+    assert!(
+        remaining.get_items().is_empty(),
+        "delete by externalId removes every sibling, left: {:?}",
+        remaining
+            .get_items()
+            .iter()
+            .map(|e| e.id)
+            .collect::<Vec<_>>()
+    );
+    guard.disarm();
+    Ok(())
+}
