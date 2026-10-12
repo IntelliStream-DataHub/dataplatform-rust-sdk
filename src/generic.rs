@@ -883,18 +883,19 @@ pub trait ApiServiceProvider {
     }
 
     /// `POST` a JSON body to an endpoint that answers with bytes of type `accept` rather than JSON
-    /// (currently only `/timeseries/data/list/binary`), and return the whole body.
+    /// (currently only `/timeseries/data/list/binary`), returning the response to read as it
+    /// arrives.
     ///
     /// `application/problem+json` is offered beside `accept` so a refusal reaches the caller as the
     /// problem document it is, rather than as Spring's 406 for a type the handler does not produce.
-    /// A body that breaks off while it is being read is a 502: the server answered 200 and then
-    /// failed to finish, which is not the caller's fault and is safe to send again.
-    async fn execute_post_request_for_bytes<J: Serialize>(
+    /// The status is checked here, before any of the body is read, so a refusal is always an
+    /// `Err` and never a stream.
+    async fn execute_post_request_for_stream<J: Serialize>(
         &self,
         path: &str,
         json: &J,
         accept: &str,
-    ) -> Result<Vec<u8>, ResponseError> {
+    ) -> Result<reqwest::Response, ResponseError> {
         let token = self.get_token().await?;
         let response = self
             .get_api_service()
@@ -907,30 +908,23 @@ pub trait ApiServiceProvider {
             .await
             .map_err(ResponseError::from_err)?;
         let status = response.status();
-        if !status.is_success() {
-            let content_type = response
-                .headers()
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_string);
-            let error = ResponseError {
-                status,
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Failed to read response body".to_string()),
-                content_type,
-            };
-            return Err(self.on_request_error(error, &token).await);
+        if status.is_success() {
+            return Ok(response);
         }
-        match response.bytes().await {
-            Ok(body) => Ok(body.into()),
-            Err(error) => Err(ResponseError {
-                status: http::StatusCode::BAD_GATEWAY,
-                message: format!("the response was cut short while it was being read: {error}"),
-                content_type: None,
-            }),
-        }
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let error = ResponseError {
+            status,
+            message: response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Failed to read response body".to_string()),
+            content_type,
+        };
+        Err(self.on_request_error(error, &token).await)
     }
 
     /// `GET` an endpoint that answers with bytes rather than JSON (currently only

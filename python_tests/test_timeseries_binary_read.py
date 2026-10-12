@@ -9,6 +9,7 @@ import datetime
 import decimal
 import http.server
 import pathlib
+import struct
 import threading
 
 import pytest
@@ -141,6 +142,149 @@ def test_a_refusal_is_the_problem_the_server_sent(stand_in):
     assert excinfo.value.status_code == 400
 
 
+# --- streaming, offline -----------------------------------------------------------------------
+
+
+def _frames(body):
+    """The frames of a response body, each as its own bytes, without the end marker."""
+    frames, pos = [], 0
+    while body[pos:pos + 4] == b"DHDP":
+        directory, payload = struct.unpack_from("<II", body, pos + 16)
+        end = pos + 28 + directory + payload
+        frames.append(body[pos:end])
+        pos = end
+    return frames
+
+
+VALUES = _frames((FIXTURES / "read_values.bin").read_bytes())
+MIXED = VALUES[6:8]  # rd_mixed and rd_mixed_numbers: two series with the same columns
+
+
+class _Chunked(http.server.BaseHTTPRequestHandler):
+    """Answers with a chunked body, flushing each chunk; the chunk at `gate_after` waits for `gate`."""
+    protocol_version = "HTTP/1.1"
+    chunks = []
+    gate_after = None
+    gate = threading.Event()
+    status = 200
+    content_type = MEDIA_TYPE
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        cls = type(self)
+        self.send_response(cls.status)
+        self.send_header("Content-Type", cls.content_type)
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        for i, chunk in enumerate(cls.chunks):
+            if i == cls.gate_after:
+                cls.gate.wait(10)
+            self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
+            self.wfile.flush()
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def chunked():
+    _Chunked.chunks, _Chunked.gate_after, _Chunked.status, _Chunked.content_type = [], None, 200, MEDIA_TYPE
+    _Chunked.gate = threading.Event()
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Chunked)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    client = intellistream_datahub_sdk.DataHubClient(
+        base_url=f"http://127.0.0.1:{server.server_address[1]}", token="test-token"
+    )
+    yield client, _Chunked
+    _Chunked.gate.set()
+    server.shutdown()
+
+
+def test_iterating_yields_a_chunk_per_frame_as_it_arrives(chunked):
+    client, server = chunked
+    server.chunks = [VALUES[0], b"".join(VALUES[1:]) + b"DHDE"]
+    server.gate_after = 1  # nothing after the first frame until the test has it
+
+    reader = client.timeseries.retrieve_datapoints_binary_stream([_filter("rd_bigint")])
+    first = next(reader)
+    assert (first.external_id, len(first)) == ("rd_bigint", 3)
+    server.gate.set()
+    rest = list(reader)
+
+    assert [c.external_id for c in rest] == ["rd_float", "rd_float32", "rd_numeric", "rd_decimal32", "rd_text", "rd_mixed", "rd_mixed_numbers"]
+    assert list(reader.external_ids.values())[:2] == ["rd_bigint", "rd_float"]
+    assert rest[4].value_type == "text"  # mixed value types are fine when iterating
+    assert list(reader) == []
+
+
+def test_the_arrow_stream_is_one_long_table(chunked):
+    pl = pytest.importorskip("polars")
+    client, server = chunked
+    server.chunks = MIXED + [b"DHDE"]
+
+    reader = client.timeseries.retrieve_datapoints_binary_stream(_filter("rd_mixed"))
+    df = pl.DataFrame(reader)
+
+    assert df.columns == ["timeseries_id", "timestamp", "value_numeric", "value_text"]
+    assert df["timeseries_id"].to_list() == [17, 17, 17, 18, 18]
+    assert reader.external_ids == {17: "rd_mixed", 18: "rd_mixed_numbers"}
+    assert df["timestamp"].dtype == pl.Datetime("ms", "UTC")
+    assert df["value_text"].to_list() == [None, "fault", None, None, None]
+
+
+def test_a_reader_is_read_once(chunked):
+    pl = pytest.importorskip("polars")
+    client, server = chunked
+    server.chunks = MIXED + [b"DHDE"]
+    reader = client.timeseries.retrieve_datapoints_binary_stream(_filter("rd_mixed"))
+    assert reader.to_polars().height == 5
+    with pytest.raises(RuntimeError, match="already been read"):
+        reader.to_polars()
+
+    reader = client.timeseries.retrieve_datapoints_binary_stream(_filter("rd_mixed"))
+    next(reader)
+    with pytest.raises(RuntimeError, match="already been read"):
+        pl.DataFrame(reader)
+
+
+def test_series_of_different_value_types_cannot_share_the_long_table(chunked):
+    pl = pytest.importorskip("polars")
+    client, server = chunked
+    server.chunks = VALUES[:2] + [b"DHDE"]  # bigint, then float
+    with pytest.raises(Exception, match="rd_float has columns"):
+        pl.DataFrame(client.timeseries.retrieve_datapoints_binary_stream(_filter()))
+
+
+def test_no_rows_iterates_as_nothing_and_has_no_arrow_schema(chunked):
+    pl = pytest.importorskip("polars")
+    client, server = chunked
+    server.chunks = [b"DHDE"]
+    assert list(client.timeseries.retrieve_datapoints_binary_stream(_filter())) == []
+    with pytest.raises(ValueError, match="no rows"):
+        pl.DataFrame(client.timeseries.retrieve_datapoints_binary_stream(_filter()))
+
+
+def test_a_stream_cut_short_raises_after_the_chunks_that_arrived(chunked):
+    client, server = chunked
+    server.chunks = VALUES[:2]  # two whole frames, no end marker
+    reader = client.timeseries.retrieve_datapoints_binary_stream(_filter())
+    assert [c.external_id for c in (next(reader), next(reader))] == ["rd_bigint", "rd_float"]
+    with pytest.raises(DataHubException, match="cut short") as excinfo:
+        next(reader)
+    assert excinfo.value.status_code == 502
+
+
+def test_a_refusal_is_raised_before_there_is_a_reader(chunked):
+    client, server = chunked
+    server.status, server.content_type = 400, "application/problem+json"
+    server.chunks = [b'{"type":"https://intellistream.ai/errors/bad-request","status":400,"detail":"no cursors here"}']
+    with pytest.raises(DataHubException, match="no cursors") as excinfo:
+        client.timeseries.retrieve_datapoints_binary_stream(_filter())
+    assert excinfo.value.status_code == 400
+
+
 # --- live ---------------------------------------------------------------------------------------
 
 START = datetime.datetime(2024, 3, 1, tzinfo=datetime.timezone.utc)
@@ -210,3 +354,21 @@ def test_binary_read_of_an_unknown_series_is_a_bad_request(make_ts, binary_read)
     with pytest.raises(DataHubException, match=missing) as excinfo:
         binary_read(intellistream_datahub_sdk.RetrieveFilter(ts=missing, start=START))
     assert excinfo.value.status_code == 400
+
+
+def test_streaming_read_matches_the_buffered_read(sync_client, make_ts, binary_read):
+    pl = pytest.importorskip("polars")
+    ts = make_ts(value_type="float")
+    values = [i * 0.5 - 30.0 for i in range(len(TIMESTAMPS))]
+    sync_client.timeseries.insert_from_lists_binary(TIMESTAMPS, values, ts)
+    _wait_for(sync_client, ts, len(TIMESTAMPS))
+    rf = intellistream_datahub_sdk.RetrieveFilter(ts=ts, start=START, limit=10_000)
+
+    (buffered,) = binary_read(rf)
+    chunks = list(sync_client.timeseries.retrieve_datapoints_binary_stream(rf))
+    reader = sync_client.timeseries.retrieve_datapoints_binary_stream(rf)
+    long = reader.to_polars()
+
+    assert pl.concat([c.to_polars() for c in chunks]).equals(buffered.to_polars())
+    assert long.select("timestamp", "value").equals(buffered.to_polars())
+    assert reader.external_ids == {buffered.id: ts.external_id}

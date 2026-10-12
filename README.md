@@ -168,11 +168,25 @@ answer is held in memory. There is no cursor: to read on in pieces, send the req
 the JSON read answers empty. A response the server could not finish is a 502 rather than fewer
 points, and is safe to send again.
 
+`time_series.stream_datapoints_binary(&filters)` is the same read handed over as it arrives: a
+`Stream` of `BinaryDatapoints`, one per frame, decoded on blocking threads while the rest of the
+response downloads, so nothing waits for the whole body and memory holds what the consumer keeps.
+A series longer than one frame comes as consecutive items. A refusal is the `Err` before there is
+a stream; a response that breaks off is an error item **after** the items that arrived, so a
+consumer acting on items as they come has to treat what it took as incomplete. The blocking
+client has it as an iterator. `retrieve_datapoints_binary` collects this stream, which is where
+all-or-nothing lives.
+
 In Python, `client.timeseries.retrieve_datapoints_binary(filter_or_list)` on the sync client
 returns objects that implement the Arrow PyCapsule stream protocol, so
 `polars.DataFrame(series)`, `pyarrow.table(series)` and `pandas.DataFrame.from_arrow(series)`
 take them without copying; `series.to_polars()` and `series.to_pandas()` do the same. The package
 adds no dependency for this — bring polars, or pyarrow for pandas.
+`retrieve_datapoints_binary_stream(filter_or_list)` returns a single-use reader: iterate it for one
+`BinaryDatapoints` per frame, or hand it to `polars.DataFrame(reader)` (or `reader.to_polars()`)
+for one long table of `timeseries_id`, `timestamp` and the value columns, with
+`reader.external_ids` mapping the ids. Reading 100M float rows into polars that way costs about
+as long as the download itself.
 
 ## Python bindings
 

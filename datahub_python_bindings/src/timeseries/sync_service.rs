@@ -4,7 +4,7 @@ use crate::timeseries::datapoints::{
 };
 use crate::{DatahubIdentity, Identifiable};
 use crate::{PyIdCollection, PyRetrieveFilter};
-use crate::timeseries::binary_read::{self, PyBinaryDatapoints};
+use crate::timeseries::binary_read::{self, PyBinaryDatapointReader, PyBinaryDatapoints};
 use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
 use intellistream_datahub_sdk::{ApiService, TimeSeriesUpdateCollection};
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -381,6 +381,26 @@ impl PyTimeSeriesServiceSync {
                 .map_err(crate::datahub_err)
         })?;
         binary_read::to_py(series)
+    }
+    /// The read `retrieve_datapoints_binary` makes, handed over as it arrives: a single-use
+    /// `BinaryDatapointReader`, iterated frame by frame or read as an Arrow stream.
+    fn retrieve_datapoints_binary_stream<'py>(
+        &self,
+        py: Python<'py>,
+        input: RetrieveFilters,
+    ) -> PyResult<PyBinaryDatapointReader> {
+        let service = self.api_service.clone();
+        let filters: Vec<RetrieveFilter> = match input {
+            RetrieveFilters::One(f) => vec![f.into()],
+            RetrieveFilters::Many(fs) => fs.into_iter().map(Into::into).collect(),
+        };
+        let wrapper = DataWrapper::<RetrieveFilter>::from_vec(filters);
+        let stream = py.detach(|| {
+            self.runtime
+                .block_on(service.time_series.stream_datapoints_binary(&wrapper))
+                .map_err(crate::datahub_err)
+        })?;
+        Ok(PyBinaryDatapointReader::new(self.runtime.clone(), stream))
     }
     fn delete_datapoints<'py>(&self, py: Python<'py>, input: Vec<PyDeleteFilter>) -> PyResult<()> {
         let service = self.api_service.clone();

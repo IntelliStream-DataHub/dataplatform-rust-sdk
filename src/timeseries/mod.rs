@@ -4,7 +4,7 @@ pub mod datapoint_listen;
 mod test;
 
 pub use binary::{BinaryIngestOptions, DatapointValueType, Frame, FrameWriter, ResolvedSeries};
-pub use binary_read::{BinaryDatapoints, BinaryValues};
+pub use binary_read::{BinaryDatapointStream, BinaryDatapoints, BinaryValues};
 pub use datapoint_listen::{DatapointListener, LiveDatapoint};
 
 use crate::buffer::DurableSpool;

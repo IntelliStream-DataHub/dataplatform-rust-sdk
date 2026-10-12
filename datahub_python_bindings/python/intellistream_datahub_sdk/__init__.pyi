@@ -590,6 +590,40 @@ class DatapointsCollectionDatapoints:
     def id(self) -> int | None: ...
 
 
+class BinaryDatapointReader:
+    """A binary read as it arrives, from ``TimeSeriesServiceSync.retrieve_datapoints_binary_stream``.
+
+    Single use, in one of two ways; a second use raises ``RuntimeError``.
+
+    **Iterating** yields one :class:`BinaryDatapoints` per frame, as the frames arrive. A series
+    longer than one frame comes as several consecutive items, oldest first, so an item is a chunk
+    of a series rather than all of it; series of different value types mix freely.
+
+    **As an Arrow stream** (``polars.DataFrame(reader)``, :meth:`to_polars`,
+    ``pyarrow.RecordBatchReader.from_stream(reader)``) it is one long table: ``timeseries_id``,
+    ``timestamp`` and the value columns, a batch per frame. Every series in the read has to share
+    those columns, so a read mixing value types (or values and aggregates) raises at the first
+    batch that differs; iterate such a read instead. A read with no rows has no schema and raises
+    ``ValueError``. The network is waited on with the GIL held, as the C stream protocol gives no
+    way to release it.
+
+    A response that breaks off raises ``DataHubException`` (502, "cut short") from ``next()`` or
+    from the Arrow stream, **after** the rows that did arrive were handed out: treat what was
+    already taken as incomplete. ``retrieve_datapoints_binary`` is the all-or-nothing form.
+    """
+
+    def __iter__(self) -> Iterator[BinaryDatapoints]: ...
+    def __next__(self) -> BinaryDatapoints: ...
+    @property
+    def external_ids(self) -> dict[int, str]:
+        """``{timeseries_id: external_id}`` for the series read so far, in the order they came:
+        the key to the long table's ``timeseries_id``. Complete once the reader is exhausted."""
+    def __arrow_c_stream__(self, requested_schema: object | None = None) -> object:
+        """The Arrow PyCapsule stream protocol, as the long table. ``requested_schema`` is ignored."""
+    def to_polars(self) -> Any:
+        """The long table as a ``polars.DataFrame``. Needs polars; raises ``ImportError`` without it."""
+
+
 class BinaryDatapoints:
     """One series' rows from ``TimeSeriesServiceSync.retrieve_datapoints_binary``, as an Arrow table.
 
@@ -816,7 +850,37 @@ class TimeSeriesServiceSync:
 
         Notes
         -----
-        Sync client only, like the binary insert.
+        Sync client only, like the binary insert. The frames are decoded while the rest of the
+        response downloads; for rows as they arrive, or a window too large to hold, use
+        :meth:`retrieve_datapoints_binary_stream`.
+        """
+    def retrieve_datapoints_binary_stream(
+        self, input: RetrieveFilter | list[RetrieveFilter]
+    ) -> BinaryDatapointReader:
+        """The read :meth:`retrieve_datapoints_binary` makes, handed over as it arrives.
+
+        Parameters
+        ----------
+        input
+            As for :meth:`retrieve_datapoints_binary`.
+
+        Returns
+        -------
+        BinaryDatapointReader
+            Single use: iterate it for one :class:`BinaryDatapoints` per frame, or read it as an
+            Arrow stream of one long table.
+
+        Raises
+        ------
+        DataHubException
+            A refusal (400 for an unknown series, a ``cursor``, aggregates on a text series)
+            raises here, before there is a reader. A response that breaks off raises from the
+            reader instead, after the rows that did arrive: see :class:`BinaryDatapointReader`.
+
+        Notes
+        -----
+        Sync client only. Holding the reader holds the connection and the server's query open,
+        so read it through rather than leaving it half-consumed.
         """
     def delete_datapoints(self, input: list[DeleteFilter]) -> None: ...
     def retrieve_latest_datapoints(

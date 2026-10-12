@@ -779,8 +779,9 @@ mod tests {
         whole_window.set_external_id(&float_ext_id);
         whole_window.set_start(start);
         whole_window.set_end(start + Duration::seconds(count));
+        let request = DataWrapper::from_vec(vec![whole_window, item(&text_ext_id, text_count as u64)]);
         let first = api_service.time_series
-            .retrieve_datapoints_binary(&DataWrapper::from_vec(vec![whole_window, item(&text_ext_id, text_count as u64)]))
+            .retrieve_datapoints_binary(&request)
             .await
             .unwrap_or_else(|e| panic!("binary read failed with {}: {}", e.get_status(), e.get_message()));
         assert_eq!(first.len(), 2, "one entry per series, the frames of one merged");
@@ -791,6 +792,19 @@ mod tests {
         assert_eq!(float.timestamps, want_timestamps);
         let want_values: Vec<f64> = (0..count).map(value).collect();
         assert_eq!(float.values, BinaryValues::Float(want_values));
+
+        println!("The same read, streamed frame by frame...");
+        let mut stream = api_service.time_series.stream_datapoints_binary(&request).await?;
+        let (mut frames, mut streamed) = (Vec::new(), Vec::new());
+        while let Some(chunk) = futures::StreamExt::next(&mut stream).await {
+            let chunk = chunk?;
+            if chunk.id == float.id {
+                streamed.extend_from_slice(&chunk.timestamps);
+            }
+            frames.push((chunk.len(), chunk.external_id));
+        }
+        assert_eq!(frames.len(), 5, "two float frames and three text frames, one item each: {frames:?}");
+        assert_eq!(streamed, want_timestamps);
 
         let texts = &first[1];
         assert_eq!(texts.external_id, text_ext_id);

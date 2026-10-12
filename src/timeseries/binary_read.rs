@@ -5,13 +5,16 @@
 //! the marker was cut short, whether inside a frame or between two, and is an error rather than a
 //! shorter answer. Codec 2 frames carry bucketed aggregates instead of values.
 //!
-//! [`parse_read_response`] turns a body into one [`BinaryDatapoints`] per series, columnar, with
-//! the frames of one series merged. [`TimeSeriesService::retrieve_datapoints_binary`] posts the
-//! request and parses the answer.
+//! [`TimeSeriesService::stream_datapoints_binary`] hands the frames over as they arrive, decoded
+//! on blocking threads while the rest download; [`TimeSeriesService::retrieve_datapoints_binary`]
+//! collects that stream into one [`BinaryDatapoints`] per series. [`parse_read_response`] does the
+//! same for a body already in memory.
 
 use std::io::Cursor;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use arrow_array::{
     Array, Decimal128Array, Float32Array, Float64Array, Int64Array, RecordBatch, StringArray,
@@ -19,6 +22,9 @@ use arrow_array::{
 };
 use arrow_ipc::reader::StreamReader;
 use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
+use bytes::{Buf, Bytes, BytesMut};
+use futures::stream::{FuturesOrdered, Stream, StreamExt};
+use tokio::sync::mpsc;
 use oauth2::http::StatusCode;
 
 use crate::generic::{ApiServiceProvider, DataWrapper, RetrieveFilter};
@@ -182,43 +188,51 @@ fn read_varint(body: &[u8], pos: &mut usize) -> Option<usize> {
 /// Errors on anything short of a complete, well-formed answer: a missing end marker, bytes after
 /// it, a frame that breaks the envelope, or a payload outside its canon.
 pub fn parse_read_response(body: &[u8]) -> Result<Vec<BinaryDatapoints>, String> {
-    let frames = scan_frames(body)?;
+    let mut assembler = FrameAssembler::new();
+    assembler.push(body);
+    let mut frames = Vec::new();
+    while let Some(frame) = assembler.next_frame()? {
+        frames.push(frame);
+    }
+    assembler.finish()?;
     let decoded = decode_frames(&frames)?;
+    merge_series(decoded.into_iter().flatten())
+}
+
+/// Merges consecutive parts of one series, the way they come off the frames, into one entry each.
+fn merge_series(
+    parts: impl IntoIterator<Item = BinaryDatapoints>,
+) -> Result<Vec<BinaryDatapoints>, String> {
     // Grouped before merging so each series is allocated once at its final size: extending part
     // by part regrows and recopies a long series dozens of times.
-    let mut groups: Vec<Vec<(usize, BinaryDatapoints)>> = Vec::new();
-    for (index, parts) in decoded.into_iter().enumerate() {
-        for part in parts {
-            let continues = groups.last().and_then(|g| g.last()).is_some_and(|(_, last)| {
-                last.id == part.id
-                    && last.is_aggregates() == part.is_aggregates()
-                    && last.timestamps.last() < part.timestamps.first()
-            });
-            if continues {
-                groups.last_mut().unwrap().push((index, part));
-            } else {
-                groups.push(vec![(index, part)]);
-            }
+    let mut groups: Vec<Vec<BinaryDatapoints>> = Vec::new();
+    for part in parts {
+        let continues = groups.last().and_then(|g| g.last()).is_some_and(|last| {
+            last.id == part.id
+                && last.is_aggregates() == part.is_aggregates()
+                && last.timestamps.last() < part.timestamps.first()
+        });
+        if continues {
+            groups.last_mut().unwrap().push(part);
+        } else {
+            groups.push(vec![part]);
         }
     }
     groups.into_iter().map(merge).collect()
 }
 
 /// One series from its consecutive parts, in order.
-fn merge(parts: Vec<(usize, BinaryDatapoints)>) -> Result<BinaryDatapoints, String> {
-    let rows: usize = parts.iter().map(|(_, p)| p.len()).sum();
+fn merge(parts: Vec<BinaryDatapoints>) -> Result<BinaryDatapoints, String> {
+    let rows: usize = parts.iter().map(BinaryDatapoints::len).sum();
     let mut parts = parts.into_iter();
-    let (_, mut series) = parts.next().expect("a group has at least one part");
+    let mut series = parts.next().expect("a group has at least one part");
     series.timestamps.reserve_exact(rows - series.len());
     series.values.reserve_exact(rows - series.len());
-    for (index, part) in parts {
+    for part in parts {
         let BinaryDatapoints { timestamps, values, .. } = part;
         series.timestamps.extend(timestamps);
         if !series.values.append(values) {
-            return Err(format!(
-                "frame {index}: series {} changes shape between frames",
-                series.id
-            ));
+            return Err(format!("series {} changes shape between frames", series.id));
         }
     }
     Ok(series)
@@ -228,65 +242,80 @@ fn cut_short(index: usize) -> String {
     format!("the response ends without its end marker, at frame {index}; it was cut short")
 }
 
-/// One frame's envelope, checked, with its payload still compressed.
-struct FrameView<'a> {
+/// Cuts a response into frames as its bytes arrive, in chunks of any size: a frame's header, its
+/// directory and its payload may each be split anywhere.
+struct FrameAssembler {
+    buf: BytesMut,
     index: usize,
-    value_type: DatapointValueType,
-    aggregates: bool,
-    rows: usize,
-    names: Vec<(i64, String)>,
-    payload: &'a [u8],
-    raw_len: usize,
+    ended: bool,
 }
 
-/// Every frame up to the end marker, in order.
-fn scan_frames(body: &[u8]) -> Result<Vec<FrameView<'_>>, String> {
-    let mut frames = Vec::new();
-    let mut pos = 0;
-    loop {
-        let rest = &body[pos..];
-        if rest.starts_with(END_OF_RESPONSE) {
-            if rest.len() != END_OF_RESPONSE.len() {
-                return Err(format!(
-                    "{} bytes after the end marker",
-                    rest.len() - END_OF_RESPONSE.len()
-                ));
+impl FrameAssembler {
+    fn new() -> Self {
+        FrameAssembler {
+            buf: BytesMut::new(),
+            index: 0,
+            ended: false,
+        }
+    }
+
+    fn push(&mut self, chunk: &[u8]) {
+        self.buf.extend_from_slice(chunk);
+    }
+
+    /// The next complete frame; `None` until more bytes arrive, and after the end marker.
+    fn next_frame(&mut self) -> Result<Option<FrameView>, String> {
+        if !self.ended && self.buf.starts_with(END_OF_RESPONSE) {
+            self.ended = true;
+            self.buf.advance(END_OF_RESPONSE.len());
+        }
+        if self.ended {
+            if !self.buf.is_empty() {
+                return Err(format!("{} bytes after the end marker", self.buf.len()));
             }
-            return Ok(frames);
+            return Ok(None);
         }
-        if rest.len() < HEADER_BYTES {
-            return Err(cut_short(frames.len()));
+        if self.buf.len() >= MAGIC.len() && !self.buf.starts_with(MAGIC) {
+            return Err(format!("frame {}: does not start with DHDP", self.index));
         }
-        let (consumed, frame) = scan_frame(rest, frames.len())?;
-        frames.push(frame);
-        pos += consumed;
+        if self.buf.len() < HEADER_BYTES {
+            return Ok(None);
+        }
+        let total = check_header(&self.buf[..HEADER_BYTES], self.index)?;
+        if self.buf.len() < total {
+            return Ok(None);
+        }
+        let frame = FrameView::parse(self.buf.split_to(total).freeze(), self.index)?;
+        self.index += 1;
+        Ok(Some(frame))
+    }
+
+    /// After the last byte: the body has to have ended with its marker and nothing after it.
+    fn finish(&mut self) -> Result<(), String> {
+        if self.next_frame()?.is_some() || !self.ended {
+            return Err(cut_short(self.index));
+        }
+        Ok(())
     }
 }
 
-/// One frame's envelope and directory: how many bytes it takes, and the view of it.
-fn scan_frame(body: &[u8], index: usize) -> Result<(usize, FrameView<'_>), String> {
+/// Checks a frame's 28-byte header and returns the frame's whole length.
+fn check_header(header: &[u8], index: usize) -> Result<usize, String> {
     let fail = |message: String| format!("frame {index}: {message}");
-    if &body[0..4] != MAGIC {
-        return Err(fail("does not start with DHDP".to_string()));
+    if header[4] != VERSION {
+        return Err(fail(format!("version {}", header[4])));
     }
-    if body[4] != VERSION {
-        return Err(fail(format!("version {}", body[4])));
-    }
-    let value_type = DatapointValueType::from_id(body[5])
-        .ok_or_else(|| fail(format!("value type id {}", body[5])))?;
-    let aggregates = match body[6] {
+    let value_type = DatapointValueType::from_id(header[5])
+        .ok_or_else(|| fail(format!("value type id {}", header[5])))?;
+    let aggregates = match header[6] {
         CODEC_ARROW_IPC => false,
         CODEC_ARROW_IPC_AGGREGATES => true,
         codec => return Err(fail(format!("codec {codec}"))),
     };
-    if body[7] != COMPRESSION_ZSTD {
-        return Err(fail(format!("compression {}", body[7])));
+    if header[7] != COMPRESSION_ZSTD {
+        return Err(fail(format!("compression {}", header[7])));
     }
-    let rows = u32_at(body, 8);
-    let series_count = u32_at(body, 12);
-    let directory_len = u32_at(body, 16);
-    let payload_len = u32_at(body, 20);
-    let raw_len = u32_at(body, 24);
+    let rows = u32_at(header, 8);
     let max_rows = if aggregates {
         MAX_AGGREGATE_ROWS
     } else {
@@ -295,53 +324,72 @@ fn scan_frame(body: &[u8], index: usize) -> Result<(usize, FrameView<'_>), Strin
     if rows < 1 || rows > max_rows {
         return Err(fail(format!("{rows} rows, allowed 1 to {max_rows}")));
     }
+    let raw_len = u32_at(header, 24);
     if raw_len > MAX_FRAME_RAW_BYTES {
         return Err(fail(format!(
             "payload is {raw_len} bytes raw, the cap is {MAX_FRAME_RAW_BYTES}"
         )));
     }
-    let total = HEADER_BYTES + directory_len + payload_len;
-    if body.len() < total {
-        return Err(cut_short(index));
-    }
+    Ok(HEADER_BYTES + u32_at(header, 16) + u32_at(header, 20))
+}
 
-    let directory = &body[HEADER_BYTES..HEADER_BYTES + directory_len];
-    let mut names: Vec<(i64, String)> = Vec::with_capacity(series_count);
-    let mut at = 0;
-    for _ in 0..series_count {
-        let id = directory
-            .get(at..at + 8)
-            .map(|b| i64::from_le_bytes(b.try_into().unwrap()))
-            .ok_or_else(|| fail("directory is shorter than its series count".to_string()))?;
-        at += 8;
-        let len = read_varint(directory, &mut at)
-            .ok_or_else(|| fail("directory is shorter than its series count".to_string()))?;
-        let name = directory
-            .get(at..at + len)
-            .ok_or_else(|| fail("directory is shorter than its series count".to_string()))?;
-        at += len;
-        let name = String::from_utf8(name.to_vec())
-            .map_err(|_| fail(format!("external id of series {id} is not UTF-8")))?;
-        names.push((id, name));
+/// One complete frame whose header passed [`check_header`], its payload still compressed. Owns its
+/// bytes, so it can be decoded on another thread.
+struct FrameView {
+    index: usize,
+    value_type: DatapointValueType,
+    aggregates: bool,
+    rows: usize,
+    names: Vec<(i64, String)>,
+    bytes: Bytes,
+    payload_start: usize,
+    raw_len: usize,
+}
+
+impl FrameView {
+    fn parse(bytes: Bytes, index: usize) -> Result<Self, String> {
+        let fail = |message: String| format!("frame {index}: {message}");
+        let series_count = u32_at(&bytes, 12);
+        let directory_len = u32_at(&bytes, 16);
+        let directory = &bytes[HEADER_BYTES..HEADER_BYTES + directory_len];
+        let mut names: Vec<(i64, String)> = Vec::with_capacity(series_count);
+        let mut at = 0;
+        for _ in 0..series_count {
+            let id = directory
+                .get(at..at + 8)
+                .map(|b| i64::from_le_bytes(b.try_into().unwrap()))
+                .ok_or_else(|| fail("directory is shorter than its series count".to_string()))?;
+            at += 8;
+            let len = read_varint(directory, &mut at)
+                .ok_or_else(|| fail("directory is shorter than its series count".to_string()))?;
+            let name = directory
+                .get(at..at + len)
+                .ok_or_else(|| fail("directory is shorter than its series count".to_string()))?;
+            at += len;
+            let name = String::from_utf8(name.to_vec())
+                .map_err(|_| fail(format!("external id of series {id} is not UTF-8")))?;
+            names.push((id, name));
+        }
+        if at != directory_len {
+            return Err(fail(format!("{} bytes after the directory", directory_len - at)));
+        }
+        let aggregates = bytes[6] == CODEC_ARROW_IPC_AGGREGATES;
+        Ok(FrameView {
+            index,
+            value_type: DatapointValueType::from_id(bytes[5]).expect("checked with the header"),
+            aggregates,
+            rows: u32_at(&bytes, 8),
+            names,
+            payload_start: HEADER_BYTES + directory_len,
+            raw_len: u32_at(&bytes, 24),
+            bytes,
+        })
     }
-    if at != directory_len {
-        return Err(fail(format!("{} bytes after the directory", directory_len - at)));
-    }
-    let frame = FrameView {
-        index,
-        value_type,
-        aggregates,
-        rows,
-        names,
-        payload: &body[HEADER_BYTES + directory_len..total],
-        raw_len,
-    };
-    Ok((total, frame))
 }
 
 /// Decodes every frame, on as many threads as there are cores and frames, keeping their order.
 /// On failure, the error of the earliest frame that failed.
-fn decode_frames(frames: &[FrameView<'_>]) -> Result<Vec<Vec<BinaryDatapoints>>, String> {
+fn decode_frames(frames: &[FrameView]) -> Result<Vec<Vec<BinaryDatapoints>>, String> {
     let threads = std::thread::available_parallelism()
         .map_or(1, |n| n.get())
         .min(frames.len());
@@ -349,32 +397,33 @@ fn decode_frames(frames: &[FrameView<'_>]) -> Result<Vec<Vec<BinaryDatapoints>>,
         return frames.iter().map(decode_frame).collect();
     }
     let next = AtomicUsize::new(0);
-    let mut decoded: Vec<(usize, Result<Vec<BinaryDatapoints>, String>)> = std::thread::scope(|scope| {
-        let workers: Vec<_> = (0..threads)
-            .map(|_| {
-                scope.spawn(|| {
-                    let mut done = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(frame) = frames.get(i) else { return done };
-                        done.push((i, decode_frame(frame)));
-                    }
+    let mut decoded: Vec<(usize, Result<Vec<BinaryDatapoints>, String>)> =
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..threads)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut done = Vec::new();
+                        loop {
+                            let i = next.fetch_add(1, Ordering::Relaxed);
+                            let Some(frame) = frames.get(i) else { return done };
+                            done.push((i, decode_frame(frame)));
+                        }
+                    })
                 })
-            })
-            .collect();
-        workers
-            .into_iter()
-            .flat_map(|w| w.join().expect("a frame decoder panicked"))
-            .collect()
-    });
+                .collect();
+            workers
+                .into_iter()
+                .flat_map(|w| w.join().expect("a frame decoder panicked"))
+                .collect()
+        });
     decoded.sort_unstable_by_key(|(i, _)| *i);
     decoded.into_iter().map(|(_, result)| result).collect()
 }
 
 /// One frame's rows, split into one part per series it names.
-fn decode_frame(frame: &FrameView<'_>) -> Result<Vec<BinaryDatapoints>, String> {
+fn decode_frame(frame: &FrameView) -> Result<Vec<BinaryDatapoints>, String> {
     let fail = |message: String| format!("frame {}: {message}", frame.index);
-    let raw = zstd::bulk::decompress(frame.payload, frame.raw_len)
+    let raw = zstd::bulk::decompress(&frame.bytes[frame.payload_start..], frame.raw_len)
         .map_err(|e| fail(format!("zstd: {e}")))?;
     if raw.len() != frame.raw_len {
         return Err(fail(format!(
@@ -416,6 +465,122 @@ fn decode_frame(frame: &FrameView<'_>) -> Result<Vec<BinaryDatapoints>, String> 
         )));
     }
     Ok(parts)
+}
+
+type Item = Result<BinaryDatapoints, ResponseError>;
+
+/// A binary read as it arrives: one [`BinaryDatapoints`] per frame, in the order the frames come,
+/// which is the order of the request's items. Consecutive items may belong to the same series —
+/// a series longer than one frame comes as several, oldest first — so an item is a *chunk* of a
+/// series, not all of it.
+///
+/// Frames are decoded on blocking threads, several at a time, while the rest are still
+/// downloading. A refusal is not an item: it is the error [`TimeSeriesService::stream_datapoints_binary`]
+/// returns before there is a stream. **A response that breaks off is an error item after the
+/// items that did arrive**, so a consumer that acts on items as they come has to treat what it
+/// already took as incomplete when one appears; the stream ends after it. Dropping the stream
+/// closes the connection.
+///
+/// Read it with [`futures::StreamExt::next`].
+pub struct BinaryDatapointStream {
+    items: mpsc::Receiver<Item>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Stream for BinaryDatapointStream {
+    type Item = Item;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Item>> {
+        self.items.poll_recv(cx)
+    }
+}
+
+impl Drop for BinaryDatapointStream {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+/// Frames decoded at once. Past a handful the decoders only compete for memory bandwidth.
+fn decoders() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 8)
+}
+
+fn unreadable(path: &str, message: String) -> ResponseError {
+    ResponseError {
+        status: StatusCode::BAD_GATEWAY,
+        message: format!("POST {path} returned an unreadable answer: {message}"),
+        content_type: None,
+    }
+}
+
+/// Reads the body, cuts it into frames, decodes up to [`decoders`] of them at once and sends their
+/// parts on in frame order. Whatever fails, the parts of the frames before it are sent first.
+async fn produce(response: reqwest::Response, path: String, items: mpsc::Sender<Item>) {
+    let limit = decoders();
+    let mut body = response.bytes_stream();
+    let mut assembler = FrameAssembler::new();
+    let mut pending = FuturesOrdered::new();
+    let mut failure: Option<ResponseError> = None;
+    let mut eof = false;
+    loop {
+        while failure.is_none() && pending.len() < limit {
+            match assembler.next_frame() {
+                Ok(Some(frame)) => {
+                    pending.push_back(tokio::task::spawn_blocking(move || decode_frame(&frame)))
+                }
+                Ok(None) => break,
+                Err(message) => failure = Some(unreadable(&path, message)),
+            }
+        }
+        let reading = !eof && failure.is_none() && pending.len() < limit;
+        if pending.is_empty() && !reading {
+            let last = match failure {
+                Some(error) => Some(error),
+                None => assembler.finish().err().map(|m| unreadable(&path, m)),
+            };
+            if let Some(error) = last {
+                let _ = items.send(Err(error)).await;
+            }
+            return;
+        }
+        tokio::select! {
+            biased;
+            Some(decoded) = pending.next(), if !pending.is_empty() => match decoded {
+                Ok(Ok(parts)) => {
+                    for part in parts {
+                        if items.send(Ok(part)).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                // The earliest frame still in flight, so its error comes before any other.
+                Ok(Err(message)) => {
+                    failure = Some(unreadable(&path, message));
+                    pending = FuturesOrdered::new();
+                }
+                Err(join) => {
+                    failure = Some(ResponseError {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        message: format!("decoding a frame failed: {join}"),
+                        content_type: None,
+                    });
+                    pending = FuturesOrdered::new();
+                }
+            },
+            chunk = body.next(), if reading => match chunk {
+                Some(Ok(bytes)) => assembler.push(&bytes),
+                Some(Err(error)) => {
+                    failure = Some(ResponseError {
+                        status: StatusCode::BAD_GATEWAY,
+                        message: format!("the response was cut short while it was being read: {error}"),
+                        content_type: None,
+                    })
+                }
+                None => eof = true,
+            },
+        }
+    }
 }
 
 /// Appends a batch's rows to `parts`, one part per run of a series id.
@@ -554,26 +719,49 @@ impl TimeSeriesService {
     /// read is a 400 for the whole request, not an empty result. A response the server could not
     /// finish is a 502 whose message says it was cut short, never fewer points; sending the
     /// request again is safe.
+    ///
+    /// The frames are decoded as they arrive, so this costs little more than the download; for
+    /// rows as they come, or a window too large to hold, use
+    /// [`stream_datapoints_binary`](Self::stream_datapoints_binary).
     pub async fn retrieve_datapoints_binary(
         &self,
         json: &DataWrapper<RetrieveFilter>,
     ) -> Result<Vec<BinaryDatapoints>, ResponseError> {
         let path = format!("{}/data/list/binary", self.base_url);
-        let body = self
-            .execute_post_request_for_bytes(&path, json, MEDIA_TYPE)
-            .await?;
-        let parsed = tokio::task::spawn_blocking(move || parse_read_response(&body))
+        let mut stream = self.stream_datapoints_binary(json).await?;
+        let mut parts = Vec::new();
+        while let Some(part) = stream.next().await {
+            parts.push(part?);
+        }
+        tokio::task::spawn_blocking(move || merge_series(parts))
             .await
             .map_err(|e| ResponseError {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("decoding the binary read failed: {e}"),
+                message: format!("merging the binary read failed: {e}"),
                 content_type: None,
-            })?;
-        parsed.map_err(|message| ResponseError {
-            status: StatusCode::BAD_GATEWAY,
-            message: format!("POST {path} returned an unreadable answer: {message}"),
-            content_type: None,
-        })
+            })?
+            .map_err(|message| unreadable(&path, message))
+    }
+
+    /// The same read as [`retrieve_datapoints_binary`](Self::retrieve_datapoints_binary), handed
+    /// over frame by frame as the response arrives instead of collected: see
+    /// [`BinaryDatapointStream`] for what an item is and how a broken-off response shows up.
+    ///
+    /// The request is checked before there is a stream, so a refusal (a 400 for an unknown
+    /// series, a `cursor`, aggregates on a text series) is the `Err` here rather than an item.
+    /// Holding the stream holds the connection, and the server's query, open: a consumer that
+    /// stops reading for long can run into the server's timeouts.
+    pub async fn stream_datapoints_binary(
+        &self,
+        json: &DataWrapper<RetrieveFilter>,
+    ) -> Result<BinaryDatapointStream, ResponseError> {
+        let path = format!("{}/data/list/binary", self.base_url);
+        let response = self
+            .execute_post_request_for_stream(&path, json, MEDIA_TYPE)
+            .await?;
+        let (tx, items) = mpsc::channel(2 * decoders());
+        let task = tokio::spawn(produce(response, path, tx));
+        Ok(BinaryDatapointStream { items, task })
     }
 }
 
@@ -737,6 +925,129 @@ mod tests {
         frames[17] = bad;
         let error = parse_read_response(&response(&frames)).unwrap_err();
         assert!(error.starts_with("frame 17:"), "{error}");
+    }
+
+    fn assemble_in_chunks(body: &[u8], chunk: usize) -> Result<Vec<BinaryDatapoints>, String> {
+        let mut assembler = FrameAssembler::new();
+        let mut frames = Vec::new();
+        for piece in body.chunks(chunk) {
+            assembler.push(piece);
+            while let Some(frame) = assembler.next_frame()? {
+                frames.push(frame);
+            }
+        }
+        assembler.finish()?;
+        merge_series(decode_frames(&frames)?.into_iter().flatten())
+    }
+
+    #[test]
+    fn a_frame_may_be_split_anywhere() {
+        for body in [JAVA_VALUES, JAVA_AGGREGATES] {
+            let whole = parse_read_response(body).unwrap();
+            for chunk in [1, 3, 7, 28, 1000, 65536] {
+                assert_eq!(assemble_in_chunks(body, chunk).unwrap(), whole, "chunks of {chunk}");
+            }
+        }
+        // Cut inside the marker itself: "DH" then nothing.
+        let mut body = response(&[float_frame(1, "a", 0..2)]);
+        body.truncate(body.len() - 2);
+        assert!(assemble_in_chunks(&body, 1).unwrap_err().contains("cut short"));
+    }
+
+    /// A local HTTP server answering with `chunks` as a chunked body, each written and flushed on
+    /// its own; the chunk at `gate_after` waits for a permit on `permits`.
+    async fn serve(chunks: Vec<Vec<u8>>, permits: tokio::sync::mpsc::Receiver<()>, gate_after: usize) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut permits = permits;
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = vec![0u8; 4096];
+            let _ = socket.read(&mut request).await;
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/vnd.intellistream.datapoint-block\r\nTransfer-Encoding: chunked\r\n\r\n")
+                .await
+                .unwrap();
+            for (i, chunk) in chunks.iter().enumerate() {
+                if i == gate_after {
+                    permits.recv().await;
+                }
+                socket.write_all(format!("{:x}\r\n", chunk.len()).as_bytes()).await.unwrap();
+                socket.write_all(chunk).await.unwrap();
+                socket.write_all(b"\r\n").await.unwrap();
+                socket.flush().await.unwrap();
+            }
+            let _ = socket.write_all(b"0\r\n\r\n").await;
+            let _ = socket.shutdown().await;
+        });
+        format!("http://{address}/")
+    }
+
+    async fn stream_of(url: &str) -> BinaryDatapointStream {
+        let response = reqwest::get(url).await.unwrap();
+        let (tx, items) = mpsc::channel(4);
+        let task = tokio::spawn(produce(response, "test".to_string(), tx));
+        BinaryDatapointStream { items, task }
+    }
+
+    #[tokio::test]
+    async fn items_arrive_while_the_body_is_still_coming() {
+        let first = float_frame(1, "a", 0..3);
+        let rest = [float_frame(1, "a", 3..5), float_frame(2, "b", 0..2), END_OF_RESPONSE.to_vec()].concat();
+        let (release, permits) = tokio::sync::mpsc::channel(1);
+        let url = serve(vec![first, rest], permits, 1).await;
+        let mut stream = stream_of(&url).await;
+
+        // The server sends nothing more until this item is in hand.
+        let item = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+            .await
+            .expect("the first frame did not arrive before the rest of the body")
+            .unwrap()
+            .unwrap();
+        assert_eq!((item.id, item.timestamps.clone()), (1, vec![0, 1, 2]));
+        release.send(()).await.unwrap();
+
+        let rest: Vec<BinaryDatapoints> = stream.map(|i| i.unwrap()).collect().await;
+        assert_eq!(rest.iter().map(|s| s.id).collect::<Vec<_>>(), [1, 2], "one item per frame");
+        let merged = merge_series(std::iter::once(item).chain(rest)).unwrap();
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].timestamps, [0, 1, 2, 3, 4]);
+    }
+
+    #[tokio::test]
+    async fn a_stream_cut_short_ends_with_an_error_after_what_arrived() {
+        let frames = vec![float_frame(1, "a", 0..2), float_frame(2, "b", 0..2)];
+        // Every frame intact and the chunked body properly ended, but no end marker.
+        let (_release, permits) = tokio::sync::mpsc::channel(1);
+        let url = serve(frames, permits, usize::MAX).await;
+        let items: Vec<Item> = stream_of(&url).await.collect().await;
+        assert_eq!(items.len(), 3);
+        assert!(items[0].is_ok() && items[1].is_ok());
+        let error = items[2].as_ref().unwrap_err();
+        assert_eq!(error.get_status(), StatusCode::BAD_GATEWAY);
+        assert!(error.get_message().contains("cut short"), "{}", error.get_message());
+    }
+
+    #[tokio::test]
+    async fn a_bad_frame_ends_the_stream_after_the_frames_before_it() {
+        let batch = RecordBatch::try_new(
+            DatapointValueType::Float.schema(),
+            vec![
+                Arc::new(Int64Array::from(vec![1])),
+                Arc::new(TimestampMillisecondArray::from(vec![0]).with_timezone("UTC")),
+                Arc::new(Float64Array::from(vec![1.0])),
+            ],
+        )
+        .unwrap();
+        let bad = frame_around(DatapointValueType::Float, CODEC_ARROW_IPC_AGGREGATES, 2, "b", &batch);
+        let body = response(&[float_frame(1, "a", 0..2), bad, float_frame(3, "c", 0..2)]);
+        let (_release, permits) = tokio::sync::mpsc::channel(1);
+        let url = serve(body.chunks(5).map(<[u8]>::to_vec).collect(), permits, usize::MAX).await;
+        let items: Vec<Item> = stream_of(&url).await.collect().await;
+        assert_eq!(items.len(), 2, "the good frame, then the error; nothing after it");
+        assert_eq!(items[0].as_ref().unwrap().id, 1);
+        assert!(items[1].as_ref().unwrap_err().get_message().contains("frame 1:"));
     }
 
     /// The same series asked for twice, the second window starting before the first ended: two
