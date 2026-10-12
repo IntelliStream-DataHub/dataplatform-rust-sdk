@@ -33,6 +33,7 @@ use std::sync::Arc;
 use strum::{Display, EnumString};
 
 pub mod async_service;
+pub mod binary_read;
 mod construction;
 pub mod datapoints;
 pub mod general;
@@ -469,6 +470,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTimeSeries>()?;
     m.add_class::<PyDatapointString>()?;
     m.add_class::<PyDatapointsCollectionDatapoints>()?;
+    m.add_class::<binary_read::PyBinaryDatapoints>()?;
     m.add_class::<PyDatapointsCollectionString>()?;
     m.add_class::<live::PyLiveDatapoint>()?;
     m.add_class::<live::PyValueTypeRecommendation>()?;

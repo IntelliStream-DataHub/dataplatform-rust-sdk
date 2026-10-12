@@ -139,6 +139,41 @@ and sends again, once. Resolving by external id goes through
 The durable spool does not cover this path. `binary::FrameWriter` is public for producers that
 build frames themselves.
 
+## Binary datapoint read
+
+`time_series.retrieve_datapoints_binary(&filters)` takes the request `retrieve_datapoints`
+takes and reads the same frames back from `POST /timeseries/data/list/binary`, so a large read
+costs no JSON and no object per point. It returns one `BinaryDatapoints` per series that has
+points, in the order of the request's items: `timestamps` in epoch milliseconds and `values` as
+one typed column (`BinaryValues::Float(Vec<f64>)`, exact `Decimal { unscaled, scale }` for
+`numeric` and `decimal32`, two optional columns for `mixed`, or `Aggregates { avg, min, max,
+sum }` for an item with `aggregates` and a `granularity`).
+
+```rust
+let mut filter = RetrieveFilter::default();
+filter.external_id = Some("engine.temp".to_string());
+filter.start = Some(Utc.with_ymd_and_hms(2026, 10, 1, 0, 0, 0).unwrap());
+filter.end = Some(Utc.with_ymd_and_hms(2026, 10, 2, 0, 0, 0).unwrap());
+for series in api.time_series.retrieve_datapoints_binary(&DataWrapper::from_vec(vec![filter])).await? {
+    if let BinaryValues::Float(values) = &series.values {
+        println!("{}: {} points", series.external_id, values.len());
+    }
+}
+```
+
+An item with a `limit` (at most 100 000) returns that many of the oldest points from `start`;
+an item without one returns its whole window, so bound a long series with `end`, as the whole
+answer is held in memory. There is no cursor: to read on in pieces, send the request again with
+`start` one millisecond past the last timestamp you got. A series that does not exist is a 400 for the whole request, where
+the JSON read answers empty. A response the server could not finish is a 502 rather than fewer
+points, and is safe to send again.
+
+In Python, `client.timeseries.retrieve_datapoints_binary(filter_or_list)` on the sync client
+returns objects that implement the Arrow PyCapsule stream protocol, so
+`polars.DataFrame(series)`, `pyarrow.table(series)` and `pandas.DataFrame.from_arrow(series)`
+take them without copying; `series.to_polars()` and `series.to_pandas()` do the same. The package
+adds no dependency for this — bring polars, or pyarrow for pandas.
+
 ## Python bindings
 
 `datahub_python_bindings/` wraps this SDK as the Python package `intellistream-datahub-sdk` (import name

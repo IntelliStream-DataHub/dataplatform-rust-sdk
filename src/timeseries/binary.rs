@@ -86,6 +86,20 @@ impl DatapointValueType {
         self as u8
     }
 
+    /// The value type a frame envelope numbers `id`.
+    pub fn from_id(id: u8) -> Option<Self> {
+        Some(match id {
+            1 => Self::Bigint,
+            2 => Self::Float,
+            3 => Self::Numeric,
+            4 => Self::Text,
+            5 => Self::Decimal32,
+            6 => Self::Mixed,
+            7 => Self::Float32,
+            _ => return None,
+        })
+    }
+
     pub fn carries_text(self) -> bool {
         matches!(self, Self::Text | Self::Mixed)
     }

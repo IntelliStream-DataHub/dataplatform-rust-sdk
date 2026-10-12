@@ -4,10 +4,17 @@ use crate::timeseries::datapoints::{
 };
 use crate::{DatahubIdentity, Identifiable};
 use crate::{PyIdCollection, PyRetrieveFilter};
+use crate::timeseries::binary_read::{self, PyBinaryDatapoints};
 use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
 use intellistream_datahub_sdk::{ApiService, TimeSeriesUpdateCollection};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::sync::Arc;
+
+#[derive(FromPyObject)]
+enum RetrieveFilters {
+    One(PyRetrieveFilter),
+    Many(Vec<PyRetrieveFilter>),
+}
 
 #[pyclass(module = "intellistream_datahub_sdk", name = "TimeSeriesServiceSync")]
 pub struct PyTimeSeriesServiceSync {
@@ -354,6 +361,26 @@ impl PyTimeSeriesServiceSync {
                 .collect();
             Ok(result)
         })
+    }
+    /// `POST /timeseries/data/list/binary`: the request `retrieve_datapoints` takes, one filter or
+    /// a list, answered as Arrow frames. One `BinaryDatapoints` per series that has points.
+    fn retrieve_datapoints_binary<'py>(
+        &self,
+        py: Python<'py>,
+        input: RetrieveFilters,
+    ) -> PyResult<Vec<PyBinaryDatapoints>> {
+        let service = self.api_service.clone();
+        let filters: Vec<RetrieveFilter> = match input {
+            RetrieveFilters::One(f) => vec![f.into()],
+            RetrieveFilters::Many(fs) => fs.into_iter().map(Into::into).collect(),
+        };
+        let wrapper = DataWrapper::<RetrieveFilter>::from_vec(filters);
+        let series = py.detach(|| {
+            self.runtime
+                .block_on(service.time_series.retrieve_datapoints_binary(&wrapper))
+                .map_err(crate::datahub_err)
+        })?;
+        binary_read::to_py(series)
     }
     fn delete_datapoints<'py>(&self, py: Python<'py>, input: Vec<PyDeleteFilter>) -> PyResult<()> {
         let service = self.api_service.clone();

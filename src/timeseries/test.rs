@@ -12,7 +12,8 @@ mod tests {
     use crate::generic::{DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter};
     use crate::http::ResponseError;
     use crate::timeseries::{TimeSeries, TimeSeriesFilter, TimeSeriesFilterForm, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
-    use crate::timeseries::binary::BinaryIngestOptions;
+    use crate::timeseries::binary::{BinaryIngestOptions, DatapointValueType};
+    use crate::timeseries::binary_read::{BinaryDatapoints, BinaryValues};
     use crate::tests::cleanup::cleanup_timeseries;
     use crate::tests::ids::{unique_id, unique_token};
     use crate::tests::polling::poll_until_for;
@@ -710,6 +711,163 @@ mod tests {
         json_cleanup.disarm();
 
         Ok(())
+    }
+
+    /// `POST /timeseries/data/list/binary` against the JSON read of the same series: every point
+    /// of a float series past one frame's row cap, hourly aggregates, a text series, an empty
+    /// window, and the two refusals the JSON read does not have. Needs a backend that serves the
+    /// binary read.
+    #[tokio::test]
+    #[ignore]
+    async fn test_datapoints_binary_read() -> Result<(), Box<dyn std::error::Error>> {
+        let api_service = create_api_service();
+        let float_ext_id = unique_id("bin_read_float");
+        let text_ext_id = unique_id("bin_read_text");
+        let mut ts_collection = DataWrapper::new();
+        for (external_id, value_type) in [(&float_ext_id, "float"), (&text_ext_id, "text")] {
+            ts_collection.add_item(
+                TimeSeries::builder()
+                    .set_external_id(external_id)
+                    .set_name(external_id)
+                    .set_unit("celsius")
+                    .set_value_type(value_type)
+                    .clone(),
+            );
+        }
+        let mut cleanup = cleanup_timeseries(vec![float_ext_id.clone(), text_ext_id.clone()]);
+        api_service.time_series.create(&ts_collection).await.expect("could not create the series");
+
+        // 150 000 one-second floats: past the 100 000-row numeric frame cap and past the 100 000
+        // an item's `limit` may ask for, so they come back whole only from an item without one,
+        // as two frames. 25 000 texts: past the 10 000-row text frame cap, so three frames.
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let count: i64 = 150_000;
+        let value = |i: i64| (i % 3600) as f64 * 0.25 - 100.0;
+        let mut floats = DatapointsCollection::from_external_id(&float_ext_id);
+        floats.datapoints = (0..count)
+            .map(|i| DatapointString::new(&(start.timestamp_millis() + i * 1000).to_string(), &value(i).to_string()))
+            .collect();
+        let mut texts = DatapointsCollection::from_external_id(&text_ext_id);
+        let text_count: i64 = 25_000;
+        let text = |i: i64| format!("blåbær_{}", i % 97);
+        texts.datapoints = (0..text_count)
+            .map(|i| DatapointString::new(&(start.timestamp_millis() + i * 1000).to_string(), &text(i)))
+            .collect();
+        api_service.time_series
+            .insert_datapoints_binary(&DataWrapper::from_vec(vec![floats, texts]), &BinaryIngestOptions::default())
+            .await
+            .unwrap_or_else(|e| panic!("binary insert failed with {}: {}", e.get_status(), e.get_message()));
+        let item = |external_id: &str, limit: u64| {
+            let mut rf = RetrieveFilter::new();
+            rf.set_external_id(external_id);
+            rf.set_start(start);
+            rf.set_limit(limit);
+            rf
+        };
+        poll_all_points(&api_service, &float_ext_id, count as usize).await;
+        // Not poll_all_points: the JSON `Datapoint` holds only numbers and cannot read text.
+        let text_request = DataWrapper::from_vec(vec![item(&text_ext_id, text_count as u64)]);
+        poll_until_for(
+            std::time::Duration::from_secs(60),
+            || api_service.time_series.retrieve_datapoints_binary(&text_request),
+            |read| matches!(read, Ok(series) if series.first().is_some_and(|s| s.len() == text_count as usize)),
+        )
+        .await;
+
+        println!("Every point, in order, across frames...");
+        let mut whole_window = RetrieveFilter::new();
+        whole_window.set_external_id(&float_ext_id);
+        whole_window.set_start(start);
+        whole_window.set_end(start + Duration::seconds(count));
+        let first = api_service.time_series
+            .retrieve_datapoints_binary(&DataWrapper::from_vec(vec![whole_window, item(&text_ext_id, text_count as u64)]))
+            .await
+            .unwrap_or_else(|e| panic!("binary read failed with {}: {}", e.get_status(), e.get_message()));
+        assert_eq!(first.len(), 2, "one entry per series, the frames of one merged");
+        let float = first[0].clone();
+        assert_eq!(float.external_id, float_ext_id);
+        assert_eq!(float.value_type, DatapointValueType::Float);
+        let want_timestamps: Vec<i64> = (0..count).map(|i| start.timestamp_millis() + i * 1000).collect();
+        assert_eq!(float.timestamps, want_timestamps);
+        let want_values: Vec<f64> = (0..count).map(value).collect();
+        assert_eq!(float.values, BinaryValues::Float(want_values));
+
+        let texts = &first[1];
+        assert_eq!(texts.external_id, text_ext_id);
+        assert_eq!(texts.timestamps, want_timestamps[..text_count as usize]);
+        assert_eq!(texts.values, BinaryValues::Text((0..text_count).map(text).collect()));
+
+        println!("The same window as the JSON read...");
+        let json = api_service.time_series
+            .retrieve_datapoints(&DataWrapper::from_vec(vec![item(&float_ext_id, 1000)]))
+            .await?;
+        let json_points = &json.get_items()[0].datapoints;
+        assert_eq!(json_points.len(), 1000);
+        for (i, dp) in json_points.iter().enumerate() {
+            assert_eq!(dp.timestamp.timestamp_millis(), float.timestamps[i]);
+            assert_eq!(dp.value, Some(want_value_at(&float, i)));
+        }
+
+        println!("Hourly aggregates against the JSON aggregates...");
+        let hourly = |mut rf: RetrieveFilter| {
+            rf.set_aggregates(vec!["avg".to_string(), "min".to_string(), "max".to_string(), "sum".to_string()]);
+            rf.set_granularity("1h");
+            rf.set_end(start + Duration::seconds(count));
+            DataWrapper::from_vec(vec![rf])
+        };
+        let mut rf = RetrieveFilter::new();
+        rf.set_external_id(&float_ext_id);
+        rf.set_start(start);
+        let binary_aggs = api_service.time_series.retrieve_datapoints_binary(&hourly(rf.clone())).await?;
+        let json_aggs = api_service.time_series.retrieve_datapoints(&hourly(rf)).await?;
+        let json_buckets = &json_aggs.get_items()[0].datapoints;
+        let BinaryValues::Aggregates { avg, min, max, sum } = &binary_aggs[0].values else {
+            panic!("an aggregate read came back as {:?}", binary_aggs[0].values);
+        };
+        assert_eq!(binary_aggs[0].len(), json_buckets.len(), "the two reads answered a different number of buckets");
+        assert_eq!(json_buckets.len(), (count as usize).div_ceil(3600));
+        for (i, bucket) in json_buckets.iter().enumerate() {
+            assert_eq!(binary_aggs[0].timestamps[i], bucket.timestamp.timestamp_millis());
+            assert_eq!((Some(min[i]), Some(max[i])), (bucket.min, bucket.max), "bucket {i}");
+            assert!((avg[i] - bucket.average.unwrap()).abs() < AVG_TOLERANCE, "bucket {i}: avg");
+            assert!((sum[i] - bucket.sum.unwrap()).abs() < 1e-6 * sum[i].abs().max(1.0), "bucket {i}: sum");
+        }
+
+        println!("An empty window is no entry...");
+        let mut empty = item(&float_ext_id, 10);
+        empty.set_start(start - Duration::days(10));
+        empty.set_end(start - Duration::days(9));
+        let none = api_service.time_series.retrieve_datapoints_binary(&DataWrapper::from_vec(vec![empty])).await?;
+        assert!(none.is_empty(), "{none:?}");
+
+        println!("Refusals...");
+        let mut with_cursor = item(&float_ext_id, 10);
+        with_cursor.cursor = Some("anything".to_string());
+        let error = api_service.time_series
+            .retrieve_datapoints_binary(&DataWrapper::from_vec(vec![with_cursor]))
+            .await
+            .unwrap_err();
+        assert_eq!(error.get_status(), StatusCode::BAD_REQUEST, "{}", error.get_message());
+        assert!(error.problem().is_some(), "a refusal is a problem document: {}", error.get_message());
+
+        let unknown = unique_id("bin_read_missing");
+        let error = api_service.time_series
+            .retrieve_datapoints_binary(&DataWrapper::from_vec(vec![item(&unknown, 10)]))
+            .await
+            .unwrap_err();
+        assert_eq!(error.get_status(), StatusCode::BAD_REQUEST, "{}", error.get_message());
+        assert!(error.get_message().contains(&unknown), "{}", error.get_message());
+
+        delete_timeseries(&api_service, &[&float_ext_id, &text_ext_id]).await;
+        cleanup.disarm();
+        Ok(())
+    }
+
+    fn want_value_at(series: &BinaryDatapoints, i: usize) -> f64 {
+        match &series.values {
+            BinaryValues::Float(values) => values[i],
+            other => panic!("not a float series: {other:?}"),
+        }
     }
 
     /// JSON against binary ingest from Rust, reporting the same columns as the Java benchmark in

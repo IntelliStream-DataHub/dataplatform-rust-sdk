@@ -590,6 +590,43 @@ class DatapointsCollectionDatapoints:
     def id(self) -> int | None: ...
 
 
+class BinaryDatapoints:
+    """One series' rows from ``TimeSeriesServiceSync.retrieve_datapoints_binary``, as an Arrow table.
+
+    Implements the Arrow PyCapsule stream protocol, so ``polars.DataFrame(series)``,
+    ``pyarrow.table(series)`` and ``pandas.DataFrame.from_arrow(series)`` (pandas 3) take it
+    without copying. Every call makes a new stream, so one object converts more than once.
+
+    Columns are ``timestamp`` (``timestamp[ms, UTC]``; the bucket start for aggregates) and then,
+    by value type: ``value`` as int64 (``bigint``), float64 (``float``), float32 (``float32``),
+    ``decimal128(18, 6)`` (``numeric``), ``decimal128(9, 4)`` (``decimal32``) or utf8 (``text``);
+    nullable ``value_numeric`` and ``value_text`` for ``mixed``, each row setting one; or
+    ``avg``, ``min``, ``max`` and ``sum`` as float64 when :attr:`is_aggregates`.
+    """
+
+    @property
+    def id(self) -> int: ...
+    @property
+    def external_id(self) -> str: ...
+    @property
+    def value_type(self) -> str:
+        """The series' value type: ``bigint``, ``float``, ``float32``, ``numeric``, ``decimal32``,
+        ``text`` or ``mixed``. An aggregate read reports the series' own type."""
+    @property
+    def is_aggregates(self) -> bool:
+        """Whether the rows are buckets with ``avg``, ``min``, ``max`` and ``sum``."""
+    @property
+    def columns(self) -> list[str]: ...
+    def __len__(self) -> int: ...
+    def __arrow_c_stream__(self, requested_schema: object | None = None) -> object:
+        """The Arrow PyCapsule stream protocol. ``requested_schema`` is ignored."""
+    def to_polars(self) -> Any:
+        """A ``polars.DataFrame``. Needs polars; raises ``ImportError`` without it."""
+    def to_pandas(self) -> Any:
+        """A ``pandas.DataFrame``, converted through pyarrow. Needs pandas and pyarrow; raises
+        ``ImportError`` without pyarrow."""
+
+
 class RetrieveFilter:
     def __init__(
         self,
@@ -748,6 +785,39 @@ class TimeSeriesServiceSync:
         ts: Identifiable,
     ) -> list[str]: ...
     def retrieve_datapoints(self, input: RetrieveFilter) -> list[DatapointsCollectionDatapoints]: ...
+    def retrieve_datapoints_binary(
+        self, input: RetrieveFilter | list[RetrieveFilter]
+    ) -> list[BinaryDatapoints]:
+        """Read datapoints through ``POST /timeseries/data/list/binary``: the request
+        ``retrieve_datapoints`` takes, answered as compressed Arrow frames instead of JSON.
+
+        Parameters
+        ----------
+        input
+            One filter or a list. Each needs a ``start`` or an ``end``. With a ``limit`` (at most
+            100 000) it returns that many of the oldest points from there; without one it returns
+            every point in its window, so bound a long series with ``end``, as the whole answer is
+            held in memory. With ``aggregates`` and a ``granularity``
+            the series comes back as buckets carrying all four aggregates, whichever were named.
+
+        Returns
+        -------
+        list[BinaryDatapoints]
+            One per series that has points in its window, in the order of ``input``; a series
+            with none is left out rather than returned empty.
+
+        Raises
+        ------
+        DataHubException
+            400 for a ``cursor`` (there is no paging: send the request again with ``start`` one
+            millisecond past the last timestamp read), for aggregates on a text series, and for
+            a series that does not exist or that you cannot read, where the JSON read answers
+            empty. 502 when the response was cut short; sending it again is safe.
+
+        Notes
+        -----
+        Sync client only, like the binary insert.
+        """
     def delete_datapoints(self, input: list[DeleteFilter]) -> None: ...
     def retrieve_latest_datapoints(
         self, input: list[Identifiable]

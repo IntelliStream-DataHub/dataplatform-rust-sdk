@@ -882,6 +882,57 @@ pub trait ApiServiceProvider {
         }
     }
 
+    /// `POST` a JSON body to an endpoint that answers with bytes of type `accept` rather than JSON
+    /// (currently only `/timeseries/data/list/binary`), and return the whole body.
+    ///
+    /// `application/problem+json` is offered beside `accept` so a refusal reaches the caller as the
+    /// problem document it is, rather than as Spring's 406 for a type the handler does not produce.
+    /// A body that breaks off while it is being read is a 502: the server answered 200 and then
+    /// failed to finish, which is not the caller's fault and is safe to send again.
+    async fn execute_post_request_for_bytes<J: Serialize>(
+        &self,
+        path: &str,
+        json: &J,
+        accept: &str,
+    ) -> Result<Vec<u8>, ResponseError> {
+        let token = self.get_token().await?;
+        let response = self
+            .get_api_service()
+            .http_client
+            .post(path)
+            .json(json)
+            .header(http::header::ACCEPT, format!("{accept}, application/problem+json"))
+            .bearer_auth(token.clone())
+            .send()
+            .await
+            .map_err(ResponseError::from_err)?;
+        let status = response.status();
+        if !status.is_success() {
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            let error = ResponseError {
+                status,
+                message: response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Failed to read response body".to_string()),
+                content_type,
+            };
+            return Err(self.on_request_error(error, &token).await);
+        }
+        match response.bytes().await {
+            Ok(body) => Ok(body.into()),
+            Err(error) => Err(ResponseError {
+                status: http::StatusCode::BAD_GATEWAY,
+                message: format!("the response was cut short while it was being read: {error}"),
+                content_type: None,
+            }),
+        }
+    }
+
     /// `GET` an endpoint that answers with bytes rather than JSON (currently only
     /// `/files/download/{id}`).
     ///

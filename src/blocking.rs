@@ -49,7 +49,7 @@ use crate::resources::{
     ResourceNetwork, ResourceUpdate,
 };
 use crate::timeseries::{
-    BinaryIngestOptions, TimeSeries, TimeSeriesFilter, TimeSeriesUpdateCollection,
+    BinaryDatapoints, BinaryIngestOptions, TimeSeries, TimeSeriesFilter, TimeSeriesUpdateCollection,
     ValueTypeRecommendation,
 };
 use crate::unit::Unit;
@@ -182,6 +182,7 @@ impl TimeSeriesService {
         fn insert_datapoints(json: &mut DataWrapper<DatapointsCollection<DatapointString>>) -> Result<DataWrapper<String>, ResponseError>;
         fn insert_datapoints_binary(json: &DataWrapper<DatapointsCollection<DatapointString>>, options: &BinaryIngestOptions) -> Result<DataWrapper<String>, ResponseError>;
         fn retrieve_datapoints(json: &DataWrapper<RetrieveFilter>) -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>;
+        fn retrieve_datapoints_binary(json: &DataWrapper<RetrieveFilter>) -> Result<Vec<BinaryDatapoints>, ResponseError>;
         fn delete_datapoints(json: &DataWrapper<DeleteFilter>) -> Result<DataWrapper<String>, ResponseError>;
         fn retrieve_latest_datapoint(json: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>;
     }
