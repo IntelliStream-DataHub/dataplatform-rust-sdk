@@ -4,7 +4,7 @@ use crate::timeseries::datapoints::{
 };
 use crate::{DatahubIdentity, Identifiable};
 use crate::{PyIdCollection, PyRetrieveFilter};
-use crate::timeseries::binary_read::{self, PyBinaryDatapointReader, PyBinaryDatapoints};
+use crate::timeseries::binary_read::{PyBinaryDatapointReader, PyBinaryReadResult};
 use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
 use intellistream_datahub_sdk::{ApiService, TimeSeriesUpdateCollection};
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -368,7 +368,7 @@ impl PyTimeSeriesServiceSync {
         &self,
         py: Python<'py>,
         input: RetrieveFilters,
-    ) -> PyResult<Vec<PyBinaryDatapoints>> {
+    ) -> PyResult<PyBinaryReadResult> {
         let service = self.api_service.clone();
         let filters: Vec<RetrieveFilter> = match input {
             RetrieveFilters::One(f) => vec![f.into()],
@@ -380,7 +380,7 @@ impl PyTimeSeriesServiceSync {
                 .block_on(service.time_series.retrieve_datapoints_binary(&wrapper))
                 .map_err(crate::datahub_err)
         })?;
-        binary_read::to_py(series)
+        PyBinaryReadResult::new(py, series)
     }
     /// The read `retrieve_datapoints_binary` makes, handed over as it arrives: a single-use
     /// `BinaryDatapointReader`, iterated frame by frame or read as an Arrow stream.

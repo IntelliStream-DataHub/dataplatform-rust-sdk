@@ -182,11 +182,20 @@ returns objects that implement the Arrow PyCapsule stream protocol, so
 `polars.DataFrame(series)`, `pyarrow.table(series)` and `pandas.DataFrame.from_arrow(series)`
 take them without copying; `series.to_polars()` and `series.to_pandas()` do the same. The package
 adds no dependency for this — bring polars, or pyarrow for pandas.
-`retrieve_datapoints_binary_stream(filter_or_list)` returns a single-use reader: iterate it for one
-`BinaryDatapoints` per frame, or hand it to `polars.DataFrame(reader)` (or `reader.to_polars()`)
-for one long table of `timeseries_id`, `timestamp` and the value columns, with
-`reader.external_ids` mapping the ids. Reading 100M float rows into polars that way costs about
-as long as the download itself.
+`retrieve_datapoints_binary_stream(filter_or_list)` returns a single-use reader of the same read
+as it arrives: iterate it for one `BinaryDatapoints` per frame. Both the buffered result and the
+reader turn into one table the same way:
+
+```python
+read = client.timeseries.retrieve_datapoints_binary(filters)        # or ..._binary_stream(filters)
+long = read.to_polars()           # timeseries_id, timestamp, value: one row per point
+wide = read.to_polars(wide=True)  # timestamp, then one column per series named by external id
+read.external_ids                 # {timeseries_id: external_id}
+```
+
+The wide table matches series on `timestamp`, leaving nulls where one has no point, and holds
+series of different value types side by side. Reading 100M float rows into either costs within
+half a second of the download itself.
 
 ## Python bindings
 

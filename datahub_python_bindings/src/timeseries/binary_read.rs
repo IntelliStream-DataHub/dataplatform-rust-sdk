@@ -15,7 +15,7 @@ use intellistream_datahub_sdk::timeseries::{
 use tokio::runtime::Runtime;
 use pyo3::exceptions::{PyImportError, PyRuntimeError, PyStopIteration, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyCapsule, PyDict};
+use pyo3::types::{PyCapsule, PyDict, PyList};
 
 /// One series' rows from `retrieve_datapoints_binary`, as an Arrow table: `timestamp` and the
 /// value columns of its type. Read it with anything that takes the Arrow PyCapsule protocol.
@@ -295,10 +295,125 @@ impl PyBinaryDatapointReader {
         PyCapsule::new_with_value(py, ffi, c"arrow_array_stream")
     }
 
-    /// A `polars.DataFrame` of the long table. Needs polars.
-    fn to_polars<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
-        let polars = import(slf.py(), "polars", "to_polars")?;
-        polars.call_method1("DataFrame", (slf,))
+    /// A `polars.DataFrame`: the long table, or with `wide` one column per series, matched on
+    /// timestamp. Needs polars. Reads the reader, like any other use of it.
+    #[pyo3(signature = (wide=false))]
+    fn to_polars<'py>(slf: &Bound<'py, Self>, wide: bool) -> PyResult<Bound<'py, PyAny>> {
+        tables_to_polars(slf.as_any(), wide)
+    }
+}
+
+fn tables_to_polars<'py>(read: &Bound<'py, PyAny>, wide: bool) -> PyResult<Bound<'py, PyAny>> {
+    read.py()
+        .import("intellistream_datahub_sdk._tables")?
+        .call_method1("to_polars", (read, wide))
+}
+
+/// A buffered binary read, from `retrieve_datapoints_binary`: the series it returned, one
+/// `BinaryDatapoints` each, which it behaves as a list of, and the same tables the streamed
+/// reader gives.
+#[pyclass(module = "intellistream_datahub_sdk", name = "BinaryReadResult", frozen, sequence)]
+pub struct PyBinaryReadResult {
+    series: Vec<Py<PyBinaryDatapoints>>,
+}
+
+impl PyBinaryReadResult {
+    pub(crate) fn new(py: Python<'_>, series: Vec<BinaryDatapoints>) -> PyResult<Self> {
+        let series = series
+            .into_iter()
+            .map(|s| {
+                let s = PyBinaryDatapoints::try_from(s).map_err(|e| PyValueError::new_err(e.to_string()))?;
+                Py::new(py, s)
+            })
+            .collect::<PyResult<_>>()?;
+        Ok(Self { series })
+    }
+}
+
+#[pymethods]
+impl PyBinaryReadResult {
+    fn __len__(&self) -> usize {
+        self.series.len()
+    }
+
+    fn __getitem__(&self, py: Python<'_>, index: isize) -> PyResult<Py<PyBinaryDatapoints>> {
+        let len = self.series.len() as isize;
+        let at = if index < 0 { index + len } else { index };
+        if at < 0 || at >= len {
+            return Err(pyo3::exceptions::PyIndexError::new_err("series index out of range"));
+        }
+        Ok(self.series[at as usize].clone_ref(py))
+    }
+
+    fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        Ok(PyList::new(py, &self.series)?.into_any().try_iter()?.into_any())
+    }
+
+    fn __repr__(&self) -> String {
+        let rows: usize = self.series.iter().map(|s| s.get().batch.num_rows()).sum();
+        format!("BinaryReadResult(series={}, rows={rows})", self.series.len())
+    }
+
+    /// `{timeseries_id: external_id}` for the series in the read, in order: the key to the long
+    /// table's `timeseries_id`.
+    #[getter]
+    fn external_ids<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let ids = PyDict::new(py);
+        for s in &self.series {
+            ids.set_item(s.get().id, &s.get().external_id)?;
+        }
+        Ok(ids)
+    }
+
+    /// The Arrow PyCapsule stream protocol, as the long table: `timeseries_id`, `timestamp` and
+    /// the value columns, a batch per series, which all have to share those columns. A read with
+    /// no rows has no schema and raises.
+    #[pyo3(signature = (requested_schema=None))]
+    fn __arrow_c_stream__<'py>(
+        &self,
+        py: Python<'py>,
+        requested_schema: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyCapsule>> {
+        let _ = requested_schema;
+        let mut batches = Vec::with_capacity(self.series.len());
+        for s in &self.series {
+            let s = s.get();
+            let id = Arc::new(Int64Array::from(vec![s.id as i64; s.batch.num_rows()])) as ArrayRef;
+            let mut fields = vec![Arc::new(Field::new("timeseries_id", DataType::Int64, false))];
+            fields.extend(s.batch.schema().fields().iter().cloned());
+            let mut columns = vec![id];
+            columns.extend(s.batch.columns().iter().cloned());
+            let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            if let Some(first) = batches.first() {
+                let first: &RecordBatch = first;
+                if first.schema().fields() != batch.schema().fields() {
+                    return Err(PyValueError::new_err(format!(
+                        "series {} has columns {:?}, the table's are {:?}; series of different value \
+                         types do not share one long table, but to_polars(wide=True) holds them",
+                        s.external_id,
+                        batch.schema().fields().iter().map(|f| f.name()).collect::<Vec<_>>(),
+                        first.schema().fields().iter().map(|f| f.name()).collect::<Vec<_>>(),
+                    )));
+                }
+            }
+            batches.push(batch);
+        }
+        let Some(first) = batches.first() else {
+            return Err(PyValueError::new_err(
+                "the read returned no rows, so there is no schema for an Arrow stream",
+            ));
+        };
+        let schema = first.schema();
+        let reader = RecordBatchIterator::new(batches.into_iter().map(Ok), schema);
+        PyCapsule::new_with_value(py, FFI_ArrowArrayStream::new(Box::new(reader)), c"arrow_array_stream")
+    }
+
+    /// A `polars.DataFrame`: the long table, or with `wide` one column per series, matched on
+    /// timestamp. Needs polars.
+    #[pyo3(signature = (wide=false))]
+    fn to_polars<'py>(slf: &Bound<'py, Self>, wide: bool) -> PyResult<Bound<'py, PyAny>> {
+        tables_to_polars(slf.as_any(), wide)
     }
 }
 
@@ -336,7 +451,7 @@ impl Iterator for LongTable {
         if batch.schema().fields() != self.schema.fields() {
             return Some(Err(ArrowError::SchemaError(format!(
                 "series {external_id} has columns {:?}, the stream's are {:?}; read series of \
-                 different value types by iterating instead",
+                 different value types with to_polars(wide=True), or by iterating",
                 batch.schema().fields().iter().map(|f| f.name()).collect::<Vec<_>>(),
                 self.schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>(),
             ))));
@@ -359,9 +474,4 @@ fn import<'py>(py: Python<'py>, module: &str, method: &str) -> PyResult<Bound<'p
     })
 }
 
-pub(crate) fn to_py(series: Vec<BinaryDatapoints>) -> PyResult<Vec<PyBinaryDatapoints>> {
-    series
-        .into_iter()
-        .map(|s| PyBinaryDatapoints::try_from(s).map_err(|e| PyValueError::new_err(e.to_string())))
-        .collect()
-}
+

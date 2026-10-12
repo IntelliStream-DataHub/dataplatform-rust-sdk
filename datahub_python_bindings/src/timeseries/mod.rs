@@ -472,6 +472,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDatapointsCollectionDatapoints>()?;
     m.add_class::<binary_read::PyBinaryDatapoints>()?;
     m.add_class::<binary_read::PyBinaryDatapointReader>()?;
+    m.add_class::<binary_read::PyBinaryReadResult>()?;
     m.add_class::<PyDatapointsCollectionString>()?;
     m.add_class::<live::PyLiveDatapoint>()?;
     m.add_class::<live::PyValueTypeRecommendation>()?;

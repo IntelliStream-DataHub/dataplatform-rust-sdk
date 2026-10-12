@@ -603,7 +603,8 @@ class BinaryDatapointReader:
     ``pyarrow.RecordBatchReader.from_stream(reader)``) it is one long table: ``timeseries_id``,
     ``timestamp`` and the value columns, a batch per frame. Every series in the read has to share
     those columns, so a read mixing value types (or values and aggregates) raises at the first
-    batch that differs; iterate such a read instead. A read with no rows has no schema and raises
+    batch that differs; read such a read with ``to_polars(wide=True)`` or by iterating. A read
+    with no rows has no schema and raises
     ``ValueError``. The network is waited on with the GIL held, as the C stream protocol gives no
     way to release it.
 
@@ -620,8 +621,75 @@ class BinaryDatapointReader:
         the key to the long table's ``timeseries_id``. Complete once the reader is exhausted."""
     def __arrow_c_stream__(self, requested_schema: object | None = None) -> object:
         """The Arrow PyCapsule stream protocol, as the long table. ``requested_schema`` is ignored."""
-    def to_polars(self) -> Any:
-        """The long table as a ``polars.DataFrame``. Needs polars; raises ``ImportError`` without it."""
+    def to_polars(self, wide: bool = False) -> Any:
+        """A ``polars.DataFrame`` of the read; needs polars, and raises ``ImportError`` without it.
+
+        Parameters
+        ----------
+        wide
+            ``False`` (default): the long table, ``timeseries_id``, ``timestamp`` and the value
+            columns, one row per point. Every series has to share those columns.
+            ``True``: one row per timestamp and one column per series, named after its external
+            id (``{external_id}.{column}`` for a series with several value columns: ``mixed``, or
+            aggregates), matched on ``timestamp`` with nulls where a series has no point. Series
+            of different value types sit side by side, each keeping its type.
+
+        Raises
+        ------
+        ValueError
+            The read returned no rows; or, for the long table, its series do not share their
+            columns; or, for the wide one, a series has repeated timestamps.
+
+        Notes
+        -----
+        The same table whether the read was buffered or streamed. The wide table costs nothing
+        beyond the long one when every series has the same timestamps, and a pivot (about 1.7 s
+        per 100M rows) when they do not.
+        """
+
+
+class BinaryReadResult(Sequence[BinaryDatapoints]):
+    """A buffered binary read, from ``TimeSeriesServiceSync.retrieve_datapoints_binary``.
+
+    A sequence of :class:`BinaryDatapoints`, one per series that had points, in the order of the
+    request; and the same tables a :class:`BinaryDatapointReader` gives, through
+    :meth:`to_polars` and the Arrow stream of the long table.
+    """
+
+    def __len__(self) -> int: ...
+    def __getitem__(self, index: int) -> BinaryDatapoints: ...  # type: ignore[override]
+    def __iter__(self) -> Iterator[BinaryDatapoints]: ...
+    @property
+    def external_ids(self) -> dict[int, str]:
+        """``{timeseries_id: external_id}`` for the series in the read: the key to the long
+        table's ``timeseries_id``."""
+    def __arrow_c_stream__(self, requested_schema: object | None = None) -> object:
+        """The Arrow PyCapsule stream protocol, as the long table. ``requested_schema`` is ignored."""
+    def to_polars(self, wide: bool = False) -> Any:
+        """A ``polars.DataFrame`` of the read; needs polars, and raises ``ImportError`` without it.
+
+        Parameters
+        ----------
+        wide
+            ``False`` (default): the long table, ``timeseries_id``, ``timestamp`` and the value
+            columns, one row per point. Every series has to share those columns.
+            ``True``: one row per timestamp and one column per series, named after its external
+            id (``{external_id}.{column}`` for a series with several value columns: ``mixed``, or
+            aggregates), matched on ``timestamp`` with nulls where a series has no point. Series
+            of different value types sit side by side, each keeping its type.
+
+        Raises
+        ------
+        ValueError
+            The read returned no rows; or, for the long table, its series do not share their
+            columns; or, for the wide one, a series has repeated timestamps.
+
+        Notes
+        -----
+        The same table whether the read was buffered or streamed. The wide table costs nothing
+        beyond the long one when every series has the same timestamps, and a pivot (about 1.7 s
+        per 100M rows) when they do not.
+        """
 
 
 class BinaryDatapoints:
@@ -821,7 +889,7 @@ class TimeSeriesServiceSync:
     def retrieve_datapoints(self, input: RetrieveFilter) -> list[DatapointsCollectionDatapoints]: ...
     def retrieve_datapoints_binary(
         self, input: RetrieveFilter | list[RetrieveFilter]
-    ) -> list[BinaryDatapoints]:
+    ) -> BinaryReadResult:
         """Read datapoints through ``POST /timeseries/data/list/binary``: the request
         ``retrieve_datapoints`` takes, answered as compressed Arrow frames instead of JSON.
 
@@ -836,9 +904,10 @@ class TimeSeriesServiceSync:
 
         Returns
         -------
-        list[BinaryDatapoints]
-            One per series that has points in its window, in the order of ``input``; a series
-            with none is left out rather than returned empty.
+        BinaryReadResult
+            A sequence of :class:`BinaryDatapoints`, one per series that has points in its window,
+            in the order of ``input`` (a series with none is left out rather than returned empty),
+            with ``to_polars(wide=False)`` for one table of them all.
 
         Raises
         ------

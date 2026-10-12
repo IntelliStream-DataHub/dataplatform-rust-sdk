@@ -118,7 +118,7 @@ def test_aggregates_convert_to_pandas(stand_in):
 def test_no_points_is_no_series(stand_in):
     client, server = stand_in
     server.body = b"DHDE"
-    assert client.timeseries.retrieve_datapoints_binary(_filter()) == []
+    assert len(client.timeseries.retrieve_datapoints_binary(_filter())) == 0
 
 
 def test_a_response_cut_short_raises_rather_than_returning_fewer_points(stand_in):
@@ -285,6 +285,73 @@ def test_a_refusal_is_raised_before_there_is_a_reader(chunked):
     assert excinfo.value.status_code == 400
 
 
+# --- one table, buffered or streamed --------------------------------------------------------
+
+
+def _both(client, server, frames):
+    """The same body read buffered and streamed."""
+    server.chunks = frames + [b"DHDE"]
+    buffered = client.timeseries.retrieve_datapoints_binary(_filter())
+    return buffered, lambda: client.timeseries.retrieve_datapoints_binary_stream(_filter())
+
+
+def test_buffered_and_streamed_give_the_same_tables(chunked):
+    pl = pytest.importorskip("polars")
+    client, server = chunked
+    buffered, streamed = _both(client, server, MIXED)
+
+    assert len(buffered) == 2 and buffered[-1].external_id == "rd_mixed_numbers"
+    assert buffered.external_ids == {17: "rd_mixed", 18: "rd_mixed_numbers"}
+    long = buffered.to_polars()
+    assert long.columns == ["timeseries_id", "timestamp", "value_numeric", "value_text"]
+    assert long.equals(streamed().to_polars())
+    assert long.equals(pl.DataFrame(buffered))
+    assert buffered.to_polars(wide=True).equals(streamed().to_polars(wide=True))
+
+
+def test_wide_names_several_value_columns_after_their_series(chunked):
+    pl = pytest.importorskip("polars")
+    client, server = chunked
+    buffered, _ = _both(client, server, MIXED)
+
+    wide = buffered.to_polars(wide=True)
+
+    # rd_mixed has three rows, rd_mixed_numbers two: matched on timestamp, the gap left null.
+    assert wide.columns == [
+        "timestamp",
+        "rd_mixed.value_numeric", "rd_mixed.value_text",
+        "rd_mixed_numbers.value_numeric", "rd_mixed_numbers.value_text",
+    ]
+    assert wide["timestamp"].to_list() == [T0 + datetime.timedelta(seconds=s) for s in range(3)]
+    assert wide["rd_mixed.value_text"].to_list() == [None, "fault", None]
+    assert wide["rd_mixed_numbers.value_numeric"].to_list() == [1.0, 2.0, None]
+
+
+def test_wide_holds_series_of_different_value_types(chunked):
+    pl = pytest.importorskip("polars")
+    client, server = chunked
+    buffered, streamed = _both(client, server, VALUES[:2] + [VALUES[5]])  # bigint, float, text
+
+    with pytest.raises(ValueError, match="do not share one long table"):
+        buffered.to_polars()
+    wide = buffered.to_polars(wide=True)
+    assert wide.columns == ["timestamp", "rd_bigint", "rd_float", "rd_text"]
+    assert wide.schema["rd_bigint"] == pl.Int64 and wide.schema["rd_text"] == pl.String
+    assert wide["rd_bigint"].to_list() == [1, 42, -9_000_000_000]
+    assert wide["rd_float"].to_list() == [1.5, -2.25, None]
+    assert wide["rd_text"].to_list() == ["open", "blåbær", None]
+    assert wide.equals(streamed().to_polars(wide=True))
+
+
+def test_wide_of_no_rows_raises_like_the_long_table(chunked):
+    pytest.importorskip("polars")
+    client, server = chunked
+    buffered, streamed = _both(client, server, [])
+    for read in (buffered, streamed()):
+        with pytest.raises(ValueError, match="no rows"):
+            read.to_polars(wide=True)
+
+
 # --- live ---------------------------------------------------------------------------------------
 
 START = datetime.datetime(2024, 3, 1, tzinfo=datetime.timezone.utc)
@@ -372,3 +439,27 @@ def test_streaming_read_matches_the_buffered_read(sync_client, make_ts, binary_r
     assert pl.concat([c.to_polars() for c in chunks]).equals(buffered.to_polars())
     assert long.select("timestamp", "value").equals(buffered.to_polars())
     assert reader.external_ids == {buffered.id: ts.external_id}
+
+
+def test_wide_from_series_on_the_same_and_on_different_timestamps(sync_client, make_ts, binary_read):
+    pl = pytest.importorskip("polars")
+    a, b, c = (make_ts(value_type="float") for _ in range(3))
+    sync_client.timeseries.insert_from_lists_binary(TIMESTAMPS, [float(i) for i in range(len(TIMESTAMPS))], a)
+    sync_client.timeseries.insert_from_lists_binary(TIMESTAMPS, [-float(i) for i in range(len(TIMESTAMPS))], b)
+    every_other = TIMESTAMPS[1::2]
+    sync_client.timeseries.insert_from_lists_binary(every_other, [0.5] * len(every_other), c)
+    for ts, n in ((a, len(TIMESTAMPS)), (b, len(TIMESTAMPS)), (c, len(every_other))):
+        _wait_for(sync_client, ts, n)
+    rf = lambda *series: [intellistream_datahub_sdk.RetrieveFilter(ts=s, start=START, limit=10_000) for s in series]
+
+    # Same timestamps: the columns side by side.
+    same = sync_client.timeseries.retrieve_datapoints_binary(rf(a, b)).to_polars(wide=True)
+    assert same.columns == ["timestamp", a.external_id, b.external_id]
+    assert same["timestamp"].to_list() == TIMESTAMPS
+    assert same[b.external_id].to_list() == [-float(i) for i in range(len(TIMESTAMPS))]
+
+    # Different timestamps: matched up, the gaps null; streamed gives the same table.
+    mixed = sync_client.timeseries.retrieve_datapoints_binary(rf(a, c)).to_polars(wide=True)
+    assert mixed["timestamp"].to_list() == TIMESTAMPS
+    assert mixed[c.external_id].to_list() == [None, 0.5] * (len(TIMESTAMPS) // 2)
+    assert mixed.equals(sync_client.timeseries.retrieve_datapoints_binary_stream(rf(a, c)).to_polars(wide=True))
