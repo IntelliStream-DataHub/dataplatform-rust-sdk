@@ -139,6 +139,23 @@ and sends again, once. Resolving by external id goes through
 The durable spool does not cover this path. `binary::FrameWriter` is public for producers that
 build frames themselves.
 
+### From a dataframe
+
+`time_series.insert_table_binary(&batches, "timestamp", &options)` takes Arrow `RecordBatch`es in
+the wide shape: a timestamp column and one column per series, named by its external id. In Python
+that is `insert_dataframe_binary`, which takes a polars or pandas DataFrame or a pyarrow table as
+it is, through the Arrow C stream:
+
+```python
+df = pl.DataFrame({"timestamp": stamps, "pump.temp": temps, "pump.count": counts})
+client.timeseries.insert_dataframe_binary(df)        # or a pandas frame with a timestamp index
+```
+
+Columns are used without copying where they already have their series' type; nulls are "no
+point here", so a ragged table works; values are stored as the string path stores them. 100M float
+points from a polars frame took about 3 s, against about 75 s through Python lists. What
+`to_polars(wide=True)` returns from a read goes back in unchanged.
+
 ## Binary datapoint read
 
 `time_series.retrieve_datapoints_binary(&filters)` takes the request `retrieve_datapoints`

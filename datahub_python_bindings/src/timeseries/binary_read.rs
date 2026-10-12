@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use std::sync::Mutex;
 
 use arrow_array::{
@@ -475,3 +475,92 @@ fn import<'py>(py: Python<'py>, module: &str, method: &str) -> PyResult<Bound<'p
 }
 
 
+
+/// The table behind any object with `__arrow_c_stream__`, imported without copying: its batches,
+/// and the names pandas records as its index columns.
+pub(crate) fn import_table(table: &Bound<'_, PyAny>) -> PyResult<(Vec<RecordBatch>, Vec<String>)> {
+    if !table.hasattr("__arrow_c_stream__")? {
+        return Err(pyo3::exceptions::PyTypeError::new_err(
+            "expected a table with __arrow_c_stream__: a polars or pandas DataFrame (pandas 2.2 or \
+             later, with pyarrow), or a pyarrow Table or RecordBatchReader",
+        ));
+    }
+    let capsule = table.call_method0("__arrow_c_stream__")?;
+    let capsule = capsule.cast::<PyCapsule>()?;
+    // Checks the capsule's name is arrow_array_stream before handing out the pointer.
+    let pointer = capsule.pointer_checked(Some(c"arrow_array_stream"))?.cast::<FFI_ArrowArrayStream>();
+    // Moves the stream out of the capsule and leaves it released, as the protocol requires.
+    let reader = unsafe { ArrowArrayStreamReader::from_raw(pointer.as_ptr()) }
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let schema = reader.schema();
+    let batches = reader
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let index = schema
+        .metadata()
+        .get("pandas")
+        .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+        .and_then(|m| m.get("index_columns").cloned())
+        .and_then(|c| c.as_array().cloned())
+        .map(|c| c.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    Ok((batches, index))
+}
+
+/// The timestamp column: as named, else the pandas index if it is a timestamp, else `timestamp`,
+/// else the one timestamp column there is.
+pub(crate) fn timestamp_column(schema: &Schema, named: Option<String>, index: &[String]) -> PyResult<String> {
+    if let Some(name) = named {
+        return Ok(name);
+    }
+    let is_time = |name: &str| {
+        schema
+            .field_with_name(name)
+            .is_ok_and(|f| matches!(f.data_type(), DataType::Timestamp(_, _)))
+    };
+    if let [only] = index {
+        if is_time(only) {
+            return Ok(only.clone());
+        }
+    }
+    if schema.field_with_name("timestamp").is_ok() {
+        return Ok("timestamp".to_string());
+    }
+    let times: Vec<&str> = schema
+        .fields()
+        .iter()
+        .filter(|f| matches!(f.data_type(), DataType::Timestamp(_, _)))
+        .map(|f| f.name().as_str())
+        .collect();
+    match times[..] {
+        [only] => Ok(only.to_string()),
+        [] => Err(PyValueError::new_err(
+            "the table has no timestamp column; name one with timestamp=, or give it a \
+             timestamp index",
+        )),
+        _ => Err(PyValueError::new_err(format!(
+            "the table has several timestamp columns ({}); name one with timestamp=",
+            times.join(", ")
+        ))),
+    }
+}
+
+/// The batches without the pandas index columns that are not the timestamp: an index is not a
+/// series.
+pub(crate) fn without_index(batches: Vec<RecordBatch>, index: &[String], timestamp: &str) -> PyResult<Vec<RecordBatch>> {
+    let Some(first) = batches.first() else { return Ok(batches) };
+    let schema = first.schema();
+    let keep: Vec<usize> = (0..schema.fields().len())
+        .filter(|&i| {
+            let name = schema.field(i).name();
+            name == timestamp || !index.iter().any(|x| x == name)
+        })
+        .collect();
+    if keep.len() == schema.fields().len() {
+        return Ok(batches);
+    }
+    batches
+        .iter()
+        .map(|b| b.project(&keep).map_err(|e| PyValueError::new_err(e.to_string())))
+        .collect()
+}

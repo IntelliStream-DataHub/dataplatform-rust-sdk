@@ -4,7 +4,7 @@ use crate::timeseries::datapoints::{
 };
 use crate::{DatahubIdentity, Identifiable};
 use crate::{PyIdCollection, PyRetrieveFilter};
-use crate::timeseries::binary_read::{PyBinaryDatapointReader, PyBinaryReadResult};
+use crate::timeseries::binary_read::{self, PyBinaryDatapointReader, PyBinaryReadResult};
 use intellistream_datahub_sdk::generic::{DataWrapper, IdAndExtId};
 use intellistream_datahub_sdk::{ApiService, TimeSeriesUpdateCollection};
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -296,6 +296,31 @@ impl PyTimeSeriesServiceSync {
                 .map_err(|e| crate::datahub_err(e))?;
             Ok(result.get_items().clone())
         })
+    }
+
+    /// `POST /timeseries/data/binary` from a table: a polars or pandas DataFrame, or anything else
+    /// with `__arrow_c_stream__`, one column per series named by its external id beside a
+    /// timestamp column (or index). Returns the number of points sent.
+    #[pyo3(signature = (table, timestamp=None, zstd_level=None))]
+    fn insert_dataframe_binary<'py>(
+        &self,
+        py: Python<'py>,
+        table: Bound<'py, PyAny>,
+        timestamp: Option<String>,
+        zstd_level: Option<i32>,
+    ) -> PyResult<usize> {
+        let (batches, index) = binary_read::import_table(&table)?;
+        let Some(first) = batches.first() else { return Ok(0) };
+        let timestamp = binary_read::timestamp_column(&first.schema(), timestamp, &index)?;
+        let batches = binary_read::without_index(batches, &index, &timestamp)?;
+        let service = self.api_service.clone();
+        let options = binary_options(zstd_level);
+        let sent = py.detach(|| {
+            self.runtime
+                .block_on(service.time_series.insert_table_binary(&batches, &timestamp, &options))
+                .map_err(crate::datahub_err)
+        })?;
+        Ok(sent.points)
     }
 
     /// The binary twin of `insert_from_lists`: parallel timestamp and value sequences for one

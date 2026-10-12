@@ -873,6 +873,57 @@ class TimeSeriesServiceSync:
         input: list[DatapointsCollectionString],
         zstd_level: int | None = None,
     ) -> list[str]: ...
+    def insert_dataframe_binary(
+        self,
+        table: Any,
+        timestamp: str | None = None,
+        zstd_level: int | None = None,
+    ) -> int:
+        """Insert a wide table through ``POST /timeseries/data/binary``, straight from Arrow.
+
+        Parameters
+        ----------
+        table
+            A polars or pandas DataFrame (pandas 2.2 or later, which exports through pyarrow), a
+            pyarrow Table or RecordBatchReader: anything with ``__arrow_c_stream__``. Every column
+            but the timestamp is a series, named by its external id.
+        timestamp
+            The timestamp column. If not given: the pandas index when it is a timestamp, else a
+            column named ``timestamp``, else the only timestamp-typed column. It has to carry a time
+            zone and whole milliseconds, or be ``Int64`` epoch milliseconds.
+        zstd_level
+            1, 3 or 9, as for :meth:`insert_datapoints_binary`.
+
+        Returns
+        -------
+        int
+            The points sent.
+
+        Raises
+        ------
+        DataHubException
+            404 naming a column that is not a series you can read, before anything is sent; 422
+            for a naive or sub-millisecond timestamp, or a column its series cannot hold (a float
+            column for a ``bigint`` series, say).
+        ValueError
+            No timestamp column, or several and none named.
+
+        Notes
+        -----
+        The table is read without copying it; timestamps get one pass to milliseconds and the
+        frames are compressed on several threads, so no object or string is made per value.
+        100M float points from a polars frame took about 3 s, against about 75 s through
+        :meth:`insert_from_lists_binary`.
+
+        A null is "no point at this timestamp", so a ragged table works (pandas exports NaN as
+        null; polars keeps NaN, which is then stored as a value). Rows need not be sorted, and a
+        timestamp repeated within a series keeps its last value. Values are stored as the string
+        path stores them, decimals rounded half-up and ``decimal32`` clamped, with one deliberate
+        difference: a ``mixed`` series takes a numeric column as numbers and a string column as
+        text, where the string path classifies each value. ``to_polars(wide=True)`` on a read
+        gives back exactly this shape. A table larger than one request is not atomic: a refusal
+        can leave the earlier requests stored.
+        """
     def insert_from_lists_binary(
         self,
         timestamps: list[datetime.datetime],

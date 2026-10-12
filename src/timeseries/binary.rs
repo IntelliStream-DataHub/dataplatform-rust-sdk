@@ -50,8 +50,8 @@ pub const NUMERIC_ROWS_PER_FRAME: usize = 100_000;
 /// Rows per frame for `text` and `mixed`.
 pub const TEXT_ROWS_PER_FRAME: usize = 10_000;
 
-const NUMERIC_UNSCALED_MAX: i128 = 999_999_999_999_999_999;
-const DECIMAL32_UNSCALED_MAX: i128 = 999_999_999;
+pub(crate) const NUMERIC_UNSCALED_MAX: i128 = 999_999_999_999_999_999;
+pub(crate) const DECIMAL32_UNSCALED_MAX: i128 = 999_999_999;
 /// Headroom under the raw cap: arrow-rs pads every buffer to 64 bytes, which the estimate ignores.
 const RAW_BYTES_MARGIN: usize = 64 * 1024;
 
@@ -191,7 +191,7 @@ impl BinaryIngestOptions {
         self
     }
 
-    fn validate(&self) -> Result<(), ResponseError> {
+    pub(crate) fn validate(&self) -> Result<(), ResponseError> {
         if ![1, 3, 9].contains(&self.zstd_level) {
             return Err(ResponseError::bad_request(format!(
                 "zstd level {} is not one of 1, 3 or 9",
@@ -456,41 +456,9 @@ impl FrameWriter {
         }
 
         let raw = self.write_ipc(&kept)?;
-        if raw.len() > MAX_FRAME_RAW_BYTES {
-            return Err(format!(
-                "frame payload is {} bytes, the cap is {MAX_FRAME_RAW_BYTES}; split it",
-                raw.len()
-            ));
-        }
-        let compressed =
-            zstd::bulk::compress(&raw, zstd_level).map_err(|e| format!("zstd failed: {e}"))?;
-
-        let directory_len: usize = directory
-            .iter()
-            .map(|(_, external_id)| 8 + varint_size(external_id.len()) + external_id.len())
-            .sum();
-        let mut frame = Vec::with_capacity(HEADER_BYTES + directory_len + compressed.len());
-        frame.extend_from_slice(MAGIC);
-        frame.push(VERSION);
-        frame.push(self.value_type.id());
-        frame.push(CODEC_ARROW_IPC);
-        frame.push(COMPRESSION_ZSTD);
-        for n in [rows, directory.len(), directory_len, compressed.len(), raw.len()] {
-            frame.extend_from_slice(&(n as u32).to_le_bytes());
-        }
-        for (id, external_id) in &directory {
-            frame.extend_from_slice(&id.to_le_bytes());
-            write_varint(&mut frame, external_id.len());
-            frame.extend_from_slice(external_id.as_bytes());
-        }
-        frame.extend_from_slice(&compressed);
-        Ok(Frame {
-            bytes: frame,
-            rows,
-            series: directory.len(),
-            raw_len: raw.len(),
-            clamped: self.clamped,
-        })
+        let mut frame = assemble_frame(self.value_type, rows, &directory, &raw, zstd_level)?;
+        frame.clamped = self.clamped;
+        Ok(frame)
     }
 
     fn write_ipc(&self, kept: &[usize]) -> Result<Vec<u8>, String> {
@@ -575,20 +543,70 @@ impl FrameWriter {
                 columns.push(Arc::new(StringArray::from(text)));
             }
         }
-        let schema = self.value_type.schema();
-        let batch = RecordBatch::try_new(schema.clone(), columns).map_err(|e| e.to_string())?;
-        let mut raw = Vec::with_capacity(self.estimated_raw_bytes());
-        let mut writer =
-            StreamWriter::try_new(&mut raw, schema.as_ref()).map_err(|e| e.to_string())?;
-        writer.write(&batch).map_err(|e| e.to_string())?;
-        writer.finish().map_err(|e| e.to_string())?;
-        drop(writer);
-        Ok(raw)
+        let batch =
+            RecordBatch::try_new(self.value_type.schema(), columns).map_err(|e| e.to_string())?;
+        ipc_stream(&batch, self.estimated_raw_bytes())
     }
 }
 
+/// A batch in the canon as an uncompressed Arrow IPC stream: a frame's payload before zstd.
+pub(crate) fn ipc_stream(batch: &RecordBatch, capacity: usize) -> Result<Vec<u8>, String> {
+    let mut raw = Vec::with_capacity(capacity);
+    let mut writer =
+        StreamWriter::try_new(&mut raw, batch.schema().as_ref()).map_err(|e| e.to_string())?;
+    writer.write(batch).map_err(|e| e.to_string())?;
+    writer.finish().map_err(|e| e.to_string())?;
+    drop(writer);
+    Ok(raw)
+}
+
+/// The envelope around a payload: header, series directory (ascending ids, as the rows are
+/// ordered) and the zstd-compressed stream.
+pub(crate) fn assemble_frame(
+    value_type: DatapointValueType,
+    rows: usize,
+    directory: &[(i64, &str)],
+    raw: &[u8],
+    zstd_level: i32,
+) -> Result<Frame, String> {
+    if raw.len() > MAX_FRAME_RAW_BYTES {
+        return Err(format!(
+            "frame payload is {} bytes, the cap is {MAX_FRAME_RAW_BYTES}; split it",
+            raw.len()
+        ));
+    }
+    let compressed =
+        zstd::bulk::compress(raw, zstd_level).map_err(|e| format!("zstd failed: {e}"))?;
+    let directory_len: usize = directory
+        .iter()
+        .map(|(_, external_id)| 8 + varint_size(external_id.len()) + external_id.len())
+        .sum();
+    let mut frame = Vec::with_capacity(HEADER_BYTES + directory_len + compressed.len());
+    frame.extend_from_slice(MAGIC);
+    frame.push(VERSION);
+    frame.push(value_type.id());
+    frame.push(CODEC_ARROW_IPC);
+    frame.push(COMPRESSION_ZSTD);
+    for n in [rows, directory.len(), directory_len, compressed.len(), raw.len()] {
+        frame.extend_from_slice(&(n as u32).to_le_bytes());
+    }
+    for (id, external_id) in directory {
+        frame.extend_from_slice(&id.to_le_bytes());
+        write_varint(&mut frame, external_id.len());
+        frame.extend_from_slice(external_id.as_bytes());
+    }
+    frame.extend_from_slice(&compressed);
+    Ok(Frame {
+        bytes: frame,
+        rows,
+        series: directory.len(),
+        raw_len: raw.len(),
+        clamped: 0,
+    })
+}
+
 /// The server counts the character limit in UTF-16 units, so this does too.
-fn checked_text(value: &str) -> Result<String, String> {
+pub(crate) fn checked_text(value: &str) -> Result<String, String> {
     if value.is_empty() {
         return Err("text value is empty".to_string());
     }
@@ -634,7 +652,7 @@ fn decimal_parts(value: &str) -> Option<(bool, String, i32)> {
 }
 
 /// Parses a decimal literal to its unscaled value at `scale` decimals, rounded half-up.
-fn parse_scaled(value: &str, scale: u32) -> Option<i128> {
+pub(crate) fn parse_scaled(value: &str, scale: u32) -> Option<i128> {
     let (negative, digits, point) = decimal_parts(value)?;
     let total = i32::try_from(digits.len()).ok()?;
     // Digits to keep: everything before the point plus `scale` after it.
@@ -747,7 +765,7 @@ pub(crate) fn pack_requests(frames: Vec<Frame>) -> Vec<Vec<u8>> {
     requests
 }
 
-fn unprocessable(message: String) -> ResponseError {
+pub(crate) fn unprocessable(message: String) -> ResponseError {
     ResponseError {
         status: StatusCode::UNPROCESSABLE_ENTITY,
         message,
@@ -761,7 +779,7 @@ fn unprocessable(message: String) -> ResponseError {
 /// Read from the problem document, not the body text: the SDK's own pre-flight 404 names the
 /// series it could not resolve, so an external id spelling one of these slugs used to earn a
 /// pointless second attempt.
-fn is_stale_series_rejection(error: &ResponseError) -> bool {
+pub(crate) fn is_stale_series_rejection(error: &ResponseError) -> bool {
     let Some(problem) = error.problem() else {
         return false;
     };
@@ -814,7 +832,11 @@ impl TimeSeriesService {
         options: &BinaryIngestOptions,
     ) -> Result<DataWrapper<String>, ResponseError> {
         let collections = json.get_items();
-        let resolved = self.resolve_series(collections).await?;
+        let wanted: Vec<(Option<u64>, Option<&str>)> = collections
+            .iter()
+            .map(|c| (c.id, c.external_id.as_deref()))
+            .collect();
+        let resolved = self.resolve_series(&wanted).await?;
         let items: Vec<(ResolvedSeries, &[DatapointString])> = resolved
             .into_iter()
             .zip(collections.iter())
@@ -833,12 +855,23 @@ impl TimeSeriesService {
                 .map_err(unprocessable)?;
             frames.push(frame);
         }
+        self.post_frame_requests(frames, options).await?;
+        let mut result = DataWrapper::new();
+        result.set_http_status_code(204);
+        Ok(result)
+    }
 
-        // Concurrently, not one after another. A call of up to 3.2M points packs into a single
-        // request and this changes nothing, but a larger one becomes several and the api
-        // validates them independently, so there is no reason to serialise them. Bounded by
-        // `request_concurrency` so a very large call cannot open an unbounded number of
-        // connections.
+    /// Packs frames into requests under the caps and posts them.
+    ///
+    /// Concurrently, not one after another. A call of up to 3.2M points packs into a single
+    /// request and this changes nothing, but a larger one becomes several and the api validates
+    /// them independently, so there is no reason to serialise them. Bounded by
+    /// `request_concurrency` so a very large call cannot open an unbounded number of connections.
+    pub(crate) async fn post_frame_requests(
+        &self,
+        frames: Vec<Frame>,
+        options: &BinaryIngestOptions,
+    ) -> Result<(), ResponseError> {
         let path = format!("{}/data/binary", self.base_url);
         let bodies = pack_requests(frames);
         let limit = options.request_concurrency.max(1);
@@ -850,9 +883,7 @@ impl TimeSeriesService {
                 outcome?;
             }
         }
-        let mut result = DataWrapper::new();
-        result.set_http_status_code(204);
-        Ok(result)
+        Ok(())
     }
 
     async fn post_frames(
@@ -881,17 +912,18 @@ impl TimeSeriesService {
         }
     }
 
-    /// One [`ResolvedSeries`] per collection, in order, from the cache or `/timeseries/byids`.
-    async fn resolve_series(
+    /// One [`ResolvedSeries`] per `(id, external id)` asked for, in order, from the cache or
+    /// `/timeseries/byids`; the id wins when both are given.
+    pub(crate) async fn resolve_series(
         &self,
-        collections: &[DatapointsCollection<DatapointString>],
+        wanted: &[(Option<u64>, Option<&str>)],
     ) -> Result<Vec<ResolvedSeries>, ResponseError> {
         let mut lookups: Vec<IdAndExtId> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         {
             let cache = self.binary_series.lock().unwrap();
-            for collection in collections {
-                match (collection.id, &collection.external_id) {
+            for &(id, external_id) in wanted {
+                match (id, external_id) {
                     (Some(id), _) => {
                         if !cache.by_id.contains_key(&id) && seen.insert(format!("id:{id}")) {
                             lookups.push(IdAndExtId::from_id(id));
@@ -930,10 +962,10 @@ impl TimeSeriesService {
         }
 
         let cache = self.binary_series.lock().unwrap();
-        let mut resolved = Vec::with_capacity(collections.len());
+        let mut resolved = Vec::with_capacity(wanted.len());
         let mut missing = Vec::new();
-        for collection in collections {
-            let hit = match (collection.id, &collection.external_id) {
+        for &(id, external_id) in wanted {
+            let hit = match (id, external_id) {
                 (Some(id), _) => cache.by_id.get(&id),
                 (None, Some(external_id)) => cache.by_external_id.get(external_id),
                 (None, None) => None,
@@ -941,10 +973,8 @@ impl TimeSeriesService {
             match hit {
                 Some(series) => resolved.push(series.clone()),
                 None => missing.push(
-                    collection
-                        .id
-                        .map(|id| id.to_string())
-                        .or_else(|| collection.external_id.clone())
+                    id.map(|id| id.to_string())
+                        .or_else(|| external_id.map(str::to_string))
                         .unwrap_or_default(),
                 ),
             }

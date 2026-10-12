@@ -1,10 +1,12 @@
 pub mod binary;
 pub mod binary_read;
+pub mod binary_table;
 pub mod datapoint_listen;
 mod test;
 
 pub use binary::{BinaryIngestOptions, DatapointValueType, Frame, FrameWriter, ResolvedSeries};
 pub use binary_read::{BinaryDatapointStream, BinaryDatapoints, BinaryValues};
+pub use binary_table::TableIngest;
 pub use datapoint_listen::{DatapointListener, LiveDatapoint};
 
 use crate::buffer::DurableSpool;
