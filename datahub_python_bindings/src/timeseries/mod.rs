@@ -482,15 +482,27 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 /// Options for the binary ingest bindings. zstd level 1, 3 or 9; 9 is the default, as in the
-/// Rust and Java SDKs, because the client is what pays for it.
+/// Rust and Java SDKs, because the client is what pays for it. `compression` is `"payload"`
+/// (the default) or `"buffers"`.
 pub(crate) fn binary_options(
     zstd_level: Option<i32>,
-) -> intellistream_datahub_sdk::timeseries::BinaryIngestOptions {
-    use intellistream_datahub_sdk::timeseries::BinaryIngestOptions;
-    match zstd_level {
-        Some(level) => BinaryIngestOptions::new().zstd_level(level),
-        None => BinaryIngestOptions::default(),
+    compression: Option<&str>,
+) -> PyResult<intellistream_datahub_sdk::timeseries::BinaryIngestOptions> {
+    use intellistream_datahub_sdk::timeseries::{BinaryIngestOptions, FrameCompression};
+    let mut options = BinaryIngestOptions::default();
+    if let Some(level) = zstd_level {
+        options = options.zstd_level(level);
     }
+    options.compression = match compression {
+        None | Some("payload") => FrameCompression::Payload,
+        Some("buffers") => FrameCompression::Buffers,
+        Some(other) => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "compression {other:?} is not \"payload\" or \"buffers\""
+            )))
+        }
+    };
+    Ok(options)
 }
 
 /// Parallel timestamp and value sequences for one series, which is the shape a DataFrame's

@@ -31,8 +31,8 @@ use oauth2::http::StatusCode;
 
 use crate::http::ResponseError;
 use crate::timeseries::binary::{
-    assemble_frame, checked_text, ipc_stream, is_stale_series_rejection, parse_scaled,
-    unprocessable, BinaryIngestOptions, DatapointValueType, Frame, ResolvedSeries,
+    assemble_frame, checked_text, is_stale_series_rejection, parse_scaled,
+    unprocessable, BinaryIngestOptions, DatapointValueType, Frame, FrameCompression, ResolvedSeries,
     DECIMAL32_UNSCALED_MAX, MAX_SERIES_PER_FRAME, NUMERIC_UNSCALED_MAX,
 };
 use crate::timeseries::TimeSeriesService;
@@ -364,6 +364,7 @@ fn build_frame(
     spec: &FrameSpec,
     points: &[Points],
     series: &[ResolvedSeries],
+    compression: FrameCompression,
     zstd_level: i32,
 ) -> Result<Frame, String> {
     let rows: usize = spec.pieces.iter().map(|(_, _, n)| n).sum();
@@ -389,8 +390,7 @@ fn build_frame(
         columns.push(column(&|p| &p.values[v])?);
     }
     let batch = RecordBatch::try_new(spec.value_type.schema(), columns).map_err(|e| e.to_string())?;
-    let raw = ipc_stream(&batch, rows * 32 + 2048)?;
-    assemble_frame(spec.value_type, rows, &directory, &raw, zstd_level)
+    assemble_frame(spec.value_type, rows, &directory, &batch, rows * 32 + 2048, compression, zstd_level)
 }
 
 /// A batch's frames, compressed on as many threads as there are cores and frames.
@@ -398,6 +398,7 @@ fn table_frames(
     batch: &RecordBatch,
     timestamp: &str,
     series: &[ResolvedSeries],
+    compression: FrameCompression,
     zstd_level: i32,
 ) -> Result<(Vec<Frame>, TableIngest), String> {
     let schema = batch.schema();
@@ -424,7 +425,7 @@ fn table_frames(
                     loop {
                         let i = next.fetch_add(1, Ordering::Relaxed);
                         let Some(spec) = specs.get(i) else { return done };
-                        done.push((i, build_frame(spec, &all, series, zstd_level)));
+                        done.push((i, build_frame(spec, &all, series, compression, zstd_level)));
                     }
                 })
             })
@@ -513,9 +514,10 @@ impl TimeSeriesService {
     ) -> Result<TableIngest, ResponseError> {
         let wanted: Vec<(Option<u64>, Option<&str>)> = names.iter().map(|n| (None, Some(n.as_str()))).collect();
         let series = self.resolve_series(&wanted).await?;
-        let (batch, timestamp, level) = (batch.clone(), timestamp.to_string(), options.zstd_level);
+        let (batch, timestamp) = (batch.clone(), timestamp.to_string());
+        let (compression, level) = (options.compression, options.zstd_level);
         let (frames, summary) =
-            tokio::task::spawn_blocking(move || table_frames(&batch, &timestamp, &series, level))
+            tokio::task::spawn_blocking(move || table_frames(&batch, &timestamp, &series, compression, level))
                 .await
                 .map_err(|e| ResponseError {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -573,8 +575,12 @@ mod tests {
         decode(&[writer.build(1).unwrap()])
     }
 
+    /// Built both ways, which must read back the same.
     fn through_table(batch: &RecordBatch, resolved: &[ResolvedSeries]) -> Vec<BinaryDatapoints> {
-        decode(&table_frames(batch, "timestamp", resolved, 1).unwrap().0)
+        let payload = decode(&table_frames(batch, "timestamp", resolved, FrameCompression::Payload, 1).unwrap().0);
+        let buffers = decode(&table_frames(batch, "timestamp", resolved, FrameCompression::Buffers, 1).unwrap().0);
+        assert_eq!(format!("{payload:?}"), format!("{buffers:?}"), "compression 1 and 2 differ");
+        payload
     }
 
     #[test]
@@ -608,7 +614,7 @@ mod tests {
         );
         let ints = Arc::new(arrow_array::Int32Array::from(vec![7, -3, 0]));
         let batch = table(ms(&[1, 2, 3]), vec![("numeric_from_float", floats), ("decimal32_from_decimal", decimals), ("numeric_from_int", ints)]);
-        let (frames, summary) = table_frames(&batch, "timestamp", &s, 1).unwrap();
+        let (frames, summary) = table_frames(&batch, "timestamp", &s, FrameCompression::Payload, 1).unwrap();
         let got = decode(&frames);
 
         let strings: [&[&str]; 3] = [
@@ -671,7 +677,7 @@ mod tests {
             Arc::new(Float64Array::from_iter((0..n).map(|i| (i % every == 0).then_some(1.0))))
         };
         let batch = table(ms(&ts), vec![("long", long), ("short_b", sparse(100_000)), ("short_a", sparse(50_000))]);
-        let (frames, summary) = table_frames(&batch, "timestamp", &s, 1).unwrap();
+        let (frames, summary) = table_frames(&batch, "timestamp", &s, FrameCompression::Payload, 1).unwrap();
 
         assert_eq!(summary.points, n + 3 + 5);
         // Ascending ids: the two short series (5 + 3 rows) open the first frame, and the long one
@@ -687,22 +693,22 @@ mod tests {
     fn what_the_table_cannot_say_is_refused() {
         let float = [series(1, "v", DatapointValueType::Float)];
         let naive = Arc::new(TimestampMillisecondArray::from(vec![1]));
-        assert!(table_frames(&table(naive, vec![("v", Arc::new(Float64Array::from(vec![1.0])))]), "timestamp", &float, 1)
+        assert!(table_frames(&table(naive, vec![("v", Arc::new(Float64Array::from(vec![1.0])))]), "timestamp", &float, FrameCompression::Payload, 1)
             .unwrap_err()
             .contains("no time zone"));
 
         let sub_ms = Arc::new(TimestampMicrosecondArray::from(vec![1_500]).with_timezone("UTC"));
-        assert!(table_frames(&table(sub_ms, vec![("v", Arc::new(Float64Array::from(vec![1.0])))]), "timestamp", &float, 1)
+        assert!(table_frames(&table(sub_ms, vec![("v", Arc::new(Float64Array::from(vec![1.0])))]), "timestamp", &float, FrameCompression::Payload, 1)
             .unwrap_err()
             .contains("finer than a millisecond"));
 
         let bigint = [series(1, "v", DatapointValueType::Bigint)];
-        assert!(table_frames(&table(ms(&[1]), vec![("v", Arc::new(Float64Array::from(vec![1.0])))]), "timestamp", &bigint, 1)
+        assert!(table_frames(&table(ms(&[1]), vec![("v", Arc::new(Float64Array::from(vec![1.0])))]), "timestamp", &bigint, FrameCompression::Payload, 1)
             .unwrap_err()
             .contains("cannot hold"));
 
         let text = [series(1, "v", DatapointValueType::Text)];
-        assert!(table_frames(&table(ms(&[1]), vec![("v", Arc::new(StringArray::from(vec!["x".repeat(65)])))]), "timestamp", &text, 1)
+        assert!(table_frames(&table(ms(&[1]), vec![("v", Arc::new(StringArray::from(vec!["x".repeat(65)])))]), "timestamp", &text, FrameCompression::Payload, 1)
             .unwrap_err()
             .contains("characters"));
     }

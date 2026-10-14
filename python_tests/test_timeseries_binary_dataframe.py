@@ -96,6 +96,23 @@ def test_a_polars_frame_round_trips(api):
     assert back["pump.state"].to_list() == ["on", "on", "off"]
 
 
+def test_buffers_compression_sends_compression_2_frames_that_read_back_the_same(api):
+    client, server = api
+    df = pl.DataFrame({
+        "timestamp": [T0 + datetime.timedelta(seconds=s) for s in range(3)],
+        "pump.temp": [0.5, None, 2.5],
+        "pump.state": ["on", "on", "off"],
+    })
+    assert client.timeseries.insert_dataframe_binary(df, compression="buffers") == 5
+    assert [server.posted[0][7]] == [2]
+    back = _read_back(client)
+    assert back["pump.temp"].to_list() == [0.5, None, 2.5]
+    assert back["pump.state"].to_list() == ["on", "on", "off"]
+
+    with pytest.raises(ValueError, match="compression"):
+        client.timeseries.insert_dataframe_binary(df, compression="lz4")
+
+
 def test_a_pandas_frame_uses_its_timestamp_index(api):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
@@ -165,7 +182,8 @@ def test_the_timestamp_column_has_to_be_found(api):
 START = datetime.datetime(2024, 3, 1, tzinfo=UTC)
 
 
-def test_a_wide_table_round_trips_through_the_api(sync_client, make_ts):
+@pytest.mark.parametrize("compression", ["payload", "buffers"])
+def test_a_wide_table_round_trips_through_the_api(sync_client, make_ts, compression):
     temp, count = make_ts(value_type="float"), make_ts(value_type="bigint")
     n = 150_000  # past one frame's 100 000 rows
     stamps = pl.datetime_range(START, START + datetime.timedelta(seconds=n - 1), "1s", time_zone="UTC", eager=True)
@@ -176,7 +194,7 @@ def test_a_wide_table_round_trips_through_the_api(sync_client, make_ts):
         count.external_id: pl.Series([None if i % 3 == 0 else i for i in range(n)], dtype=pl.Int64),
     })
 
-    sent = sync_client.timeseries.insert_dataframe_binary(df)
+    sent = sync_client.timeseries.insert_dataframe_binary(df, compression=compression)
     assert sent == n + n - (n + 2) // 3
 
     end = START + datetime.timedelta(seconds=n)
@@ -191,3 +209,34 @@ def test_a_wide_table_round_trips_through_the_api(sync_client, make_ts):
 
     # What came back goes back in as it is.
     assert sync_client.timeseries.insert_dataframe_binary(back) == sent
+
+
+def test_a_pandas_frame_round_trips_through_the_api(sync_client, make_ts):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
+    temp, count = make_ts(value_type="float"), make_ts(value_type="bigint")
+    n = 120_000  # past one frame's 100 000 rows
+    index = pd.date_range(START, periods=n, freq="s", tz="UTC", name="time")
+    df = pd.DataFrame({
+        # NaN every fifth row: pandas exports it as null, so no point there.
+        temp.external_id: [float("nan") if i % 5 == 0 else i * 0.25 for i in range(n)],
+        count.external_id: pd.array([None if i % 3 == 0 else i for i in range(n)], dtype="Int64"),
+    }, index=index)
+
+    sent = sync_client.timeseries.insert_dataframe_binary(df)
+    temps, counts = df[temp.external_id].dropna(), df[count.external_id].dropna()
+    assert sent == len(temps) + len(counts)
+
+    end = START + datetime.timedelta(seconds=n)
+    filters = [intellistream_datahub_sdk.RetrieveFilter(ts=s, start=START, end=end) for s in (temp, count)]
+
+    from polling import poll_until
+    read = poll_until(
+        lambda: sync_client.timeseries.retrieve_datapoints_binary(filters),
+        lambda read: sum(len(s) for s in read) == sent,
+    )
+    by_id = {s.external_id: s.to_pandas() for s in read}
+    for column in (temps, counts):
+        back = by_id[column.name]
+        assert back["timestamp"].tolist() == column.index.tolist()
+        assert back["value"].tolist() == column.tolist()

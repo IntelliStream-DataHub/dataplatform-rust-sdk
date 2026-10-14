@@ -276,19 +276,21 @@ impl PyTimeSeriesServiceSync {
         })
     }
     /// `POST /timeseries/data/binary`: the same collections as `insert_datapoints`, sent as
-    /// zstd-compressed Arrow frames. `zstd_level` is 1, 3 or 9 and defaults to 9.
-    #[pyo3(signature = (input, zstd_level=None))]
+    /// zstd-compressed Arrow frames. `zstd_level` is 1, 3 or 9 and defaults to 9; `compression` is
+    /// `"payload"` (default) or `"buffers"`.
+    #[pyo3(signature = (input, zstd_level=None, compression=None))]
     fn insert_datapoints_binary<'py>(
         &self,
         py: Python<'py>,
         input: Vec<PyDatapointsCollectionString>,
         zstd_level: Option<i32>,
+        compression: Option<&str>,
     ) -> PyResult<Vec<String>> {
         let service = self.api_service.clone();
         let vec: Vec<DatapointsCollection<DatapointString>> =
             input.into_iter().map(|item| item.into()).collect();
         let wrapper = DataWrapper::<DatapointsCollection<DatapointString>>::from_vec(vec);
-        let options = binary_options(zstd_level);
+        let options = binary_options(zstd_level, compression)?;
         py.detach(|| {
             let result = self
                 .runtime
@@ -301,20 +303,21 @@ impl PyTimeSeriesServiceSync {
     /// `POST /timeseries/data/binary` from a table: a polars or pandas DataFrame, or anything else
     /// with `__arrow_c_stream__`, one column per series named by its external id beside a
     /// timestamp column (or index). Returns the number of points sent.
-    #[pyo3(signature = (table, timestamp=None, zstd_level=None))]
+    #[pyo3(signature = (table, timestamp=None, zstd_level=None, compression=None))]
     fn insert_dataframe_binary<'py>(
         &self,
         py: Python<'py>,
         table: Bound<'py, PyAny>,
         timestamp: Option<String>,
         zstd_level: Option<i32>,
+        compression: Option<&str>,
     ) -> PyResult<usize> {
         let (batches, index) = binary_read::import_table(&table)?;
         let Some(first) = batches.first() else { return Ok(0) };
         let timestamp = binary_read::timestamp_column(&first.schema(), timestamp, &index)?;
         let batches = binary_read::without_index(batches, &index, &timestamp)?;
         let service = self.api_service.clone();
-        let options = binary_options(zstd_level);
+        let options = binary_options(zstd_level, compression)?;
         let sent = py.detach(|| {
             self.runtime
                 .block_on(service.time_series.insert_table_binary(&batches, &timestamp, &options))
@@ -325,7 +328,7 @@ impl PyTimeSeriesServiceSync {
 
     /// The binary twin of `insert_from_lists`: parallel timestamp and value sequences for one
     /// series, which is the shape a DataFrame column pair arrives in.
-    #[pyo3(signature = (timestamps, values, ts, zstd_level=None))]
+    #[pyo3(signature = (timestamps, values, ts, zstd_level=None, compression=None))]
     fn insert_from_lists_binary<'py>(
         &self,
         py: Python<'py>,
@@ -333,11 +336,12 @@ impl PyTimeSeriesServiceSync {
         values: Vec<f64>,
         ts: Identifiable,
         zstd_level: Option<i32>,
+        compression: Option<&str>,
     ) -> PyResult<Vec<String>> {
         let service = self.api_service.clone();
         let collection = lists_to_collection(timestamps, values, ts)?;
         let wrapper = DataWrapper::<DatapointsCollection<DatapointString>>::from_vec(vec![collection]);
-        let options = binary_options(zstd_level);
+        let options = binary_options(zstd_level, compression)?;
         py.detach(|| {
             let result = self
                 .runtime

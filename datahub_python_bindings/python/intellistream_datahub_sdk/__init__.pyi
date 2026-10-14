@@ -8,7 +8,7 @@ registration in src/lib.rs::intellistream_datahub_sdk() also adds them.
 from __future__ import annotations
 
 import datetime
-from typing import Any, Iterable, Iterator, Mapping, Optional, Sequence, Union
+from typing import Any, Iterable, Iterator, Literal, Mapping, Optional, Sequence, Union
 from uuid import UUID
 
 
@@ -872,12 +872,14 @@ class TimeSeriesServiceSync:
         self,
         input: list[DatapointsCollectionString],
         zstd_level: int | None = None,
+        compression: Literal["payload", "buffers"] | None = None,
     ) -> list[str]: ...
     def insert_dataframe_binary(
         self,
         table: Any,
         timestamp: str | None = None,
         zstd_level: int | None = None,
+        compression: Literal["payload", "buffers"] | None = None,
     ) -> int:
         """Insert a wide table through ``POST /timeseries/data/binary``, straight from Arrow.
 
@@ -893,6 +895,10 @@ class TimeSeriesServiceSync:
             zone and whole milliseconds, or be ``Int64`` epoch milliseconds.
         zstd_level
             1, 3 or 9, as for :meth:`insert_datapoints_binary`.
+        compression
+            ``"payload"`` (the default) zstd-compresses each frame's Arrow stream whole;
+            ``"buffers"`` compresses each Arrow buffer inside it, the form a binary read answers
+            with. The server stores the same points either way.
 
         Returns
         -------
@@ -930,6 +936,7 @@ class TimeSeriesServiceSync:
         values: list[float],
         ts: Identifiable,
         zstd_level: int | None = None,
+        compression: Literal["payload", "buffers"] | None = None,
     ) -> list[str]: ...
     def insert_from_lists(
         self,
