@@ -894,7 +894,7 @@ class TimeSeriesServiceSync:
             column named ``timestamp``, else the only timestamp-typed column. It has to carry a time
             zone and whole milliseconds, or be ``Int64`` epoch milliseconds.
         zstd_level
-            1, 3 or 9, as for :meth:`insert_datapoints_binary`.
+            1, 3 or 9; 3 by default.
         compression
             ``"payload"`` (the default) zstd-compresses each frame's Arrow stream whole;
             ``"buffers"`` compresses each Arrow buffer inside it, the form a binary read answers

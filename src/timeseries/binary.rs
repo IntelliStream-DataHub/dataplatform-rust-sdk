@@ -193,7 +193,7 @@ pub struct BinaryIngestOptions {
 impl Default for BinaryIngestOptions {
     fn default() -> Self {
         BinaryIngestOptions {
-            zstd_level: 9,
+            zstd_level: 3,
             compression: FrameCompression::Payload,
             max_retries: 3,
             request_concurrency: 4,
@@ -1391,7 +1391,7 @@ mod tests {
     #[test]
     fn options_accept_only_the_three_levels() {
         assert!(BinaryIngestOptions::default().validate().is_ok());
-        assert_eq!(BinaryIngestOptions::default().zstd_level, 9);
+        assert_eq!(BinaryIngestOptions::default().zstd_level, 3);
         assert!(BinaryIngestOptions::new().zstd_level(3).validate().is_ok());
         assert!(BinaryIngestOptions::new().zstd_level(0).validate().is_err());
         assert!(BinaryIngestOptions::new().zstd_level(22).validate().is_err());

@@ -481,8 +481,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-/// Options for the binary ingest bindings. zstd level 1, 3 or 9; 9 is the default, as in the
-/// Rust and Java SDKs, because the client is what pays for it. `compression` is `"payload"`
+/// Options for the binary ingest bindings. zstd level 1, 3 or 9; 3 is the default, as in the
+/// Rust SDK. `compression` is `"payload"`
 /// (the default) or `"buffers"`.
 pub(crate) fn binary_options(
     zstd_level: Option<i32>,
