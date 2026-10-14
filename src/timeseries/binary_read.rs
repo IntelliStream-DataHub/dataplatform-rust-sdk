@@ -3,7 +3,8 @@
 //! The request is the JSON retrieve body; the answer is the frames `POST /timeseries/data/binary`
 //! takes, one series per frame, concatenated, and ended by the 4-byte marker `DHDE`. A body without
 //! the marker was cut short, whether inside a frame or between two, and is an error rather than a
-//! shorter answer. Codec 2 frames carry bucketed aggregates instead of values.
+//! shorter answer. Codec 2 frames carry bucketed aggregates instead of values. A read's frames are
+//! compression 2, each record batch compressing its own buffers, but compression 1 is read too.
 //!
 //! [`TimeSeriesService::stream_datapoints_binary`] hands the frames over as they arrive, decoded
 //! on blocking threads while the rest download; [`TimeSeriesService::retrieve_datapoints_binary`]
@@ -30,8 +31,8 @@ use oauth2::http::StatusCode;
 use crate::generic::{ApiServiceProvider, DataWrapper, RetrieveFilter};
 use crate::http::ResponseError;
 use crate::timeseries::binary::{
-    DatapointValueType, CODEC_ARROW_IPC, COMPRESSION_ZSTD, HEADER_BYTES, MAGIC, MAX_FRAME_RAW_BYTES,
-    MEDIA_TYPE, VERSION,
+    DatapointValueType, CODEC_ARROW_IPC, COMPRESSION_ARROW_ZSTD, COMPRESSION_ZSTD, HEADER_BYTES,
+    MAGIC, MAX_FRAME_RAW_BYTES, MEDIA_TYPE, VERSION,
 };
 use crate::timeseries::TimeSeriesService;
 
@@ -312,7 +313,7 @@ fn check_header(header: &[u8], index: usize) -> Result<usize, String> {
         CODEC_ARROW_IPC_AGGREGATES => true,
         codec => return Err(fail(format!("codec {codec}"))),
     };
-    if header[7] != COMPRESSION_ZSTD {
+    if header[7] != COMPRESSION_ZSTD && header[7] != COMPRESSION_ARROW_ZSTD {
         return Err(fail(format!("compression {}", header[7])));
     }
     let rows = u32_at(header, 8);
@@ -339,10 +340,14 @@ struct FrameView {
     index: usize,
     value_type: DatapointValueType,
     aggregates: bool,
+    compression: u8,
     rows: usize,
     names: Vec<(i64, String)>,
     bytes: Bytes,
     payload_start: usize,
+    /// The payload decompressed at compression 1. At compression 2 it is the batches' buffers
+    /// uncompressed, which arrow-rs does not report, so only its cap is checked; each buffer's own
+    /// zstd frame and the row count still are.
     raw_len: usize,
 }
 
@@ -378,6 +383,7 @@ impl FrameView {
             index,
             value_type: DatapointValueType::from_id(bytes[5]).expect("checked with the header"),
             aggregates,
+            compression: bytes[7],
             rows: u32_at(&bytes, 8),
             names,
             payload_start: HEADER_BYTES + directory_len,
@@ -423,17 +429,23 @@ fn decode_frames(frames: &[FrameView]) -> Result<Vec<Vec<BinaryDatapoints>>, Str
 /// One frame's rows, split into one part per series it names.
 fn decode_frame(frame: &FrameView) -> Result<Vec<BinaryDatapoints>, String> {
     let fail = |message: String| format!("frame {}: {message}", frame.index);
-    let raw = zstd::bulk::decompress(&frame.bytes[frame.payload_start..], frame.raw_len)
-        .map_err(|e| fail(format!("zstd: {e}")))?;
-    if raw.len() != frame.raw_len {
-        return Err(fail(format!(
-            "payload decompressed to {} bytes, the envelope says {}",
-            raw.len(),
-            frame.raw_len
-        )));
-    }
-    let reader =
-        StreamReader::try_new(Cursor::new(raw), None).map_err(|e| fail(format!("arrow: {e}")))?;
+    let payload = frame.bytes.slice(frame.payload_start..);
+    let payload = if frame.compression == COMPRESSION_ZSTD {
+        let raw = zstd::bulk::decompress(&payload, frame.raw_len)
+            .map_err(|e| fail(format!("zstd: {e}")))?;
+        if raw.len() != frame.raw_len {
+            return Err(fail(format!(
+                "payload decompressed to {} bytes, the envelope says {}",
+                raw.len(),
+                frame.raw_len
+            )));
+        }
+        Bytes::from(raw)
+    } else {
+        payload
+    };
+    let reader = StreamReader::try_new(Cursor::new(payload), None)
+        .map_err(|e| fail(format!("arrow: {e}")))?;
     let expected = if frame.aggregates {
         aggregates_schema()
     } else {
@@ -771,12 +783,18 @@ mod tests {
     use crate::timeseries::binary::FrameWriter;
     use arrow_ipc::writer::StreamWriter;
 
-    /// Written by the platform's own frame writer (`DatapointFrameWriter.wrap`, the code that
+    /// Written by the platform's own frame writer (`DatapointFrameWriter.relayStream`, the code that
     /// answers a binary read), from `feat/binary-datapoint-read`: one series per value type, then
-    /// the end marker. What the Rust reader must accept from the Java writer.
+    /// the end marker, every frame compression 2. What the Rust reader must accept from the Java writer.
     const JAVA_VALUES: &[u8] = include_bytes!("fixtures/read_values.bin");
+    /// The same series as compression 1 frames, which a read answered with before the relay.
+    const JAVA_VALUES_ZSTD: &[u8] = include_bytes!("fixtures/read_values_zstd.bin");
     /// One codec-2 frame of three hourly buckets for series 21, `rd_aggregates`.
     const JAVA_AGGREGATES: &[u8] = include_bytes!("fixtures/read_aggregates.bin");
+    const JAVA_AGGREGATES_ZSTD: &[u8] = include_bytes!("fixtures/read_aggregates_zstd.bin");
+    /// Compression 2 with buffers zstd actually shrinks: two record batches of 3000 floats in one
+    /// frame for series 31, then 12 000 texts for series 32 that the relay cut into two frames.
+    const JAVA_BATCHES: &[u8] = include_bytes!("fixtures/read_batches.bin");
 
     const T0: i64 = 1_700_000_000_000;
 
@@ -818,7 +836,15 @@ mod tests {
 
     #[test]
     fn reads_every_value_type_the_java_writer_answers_with() {
-        let series = parse_read_response(JAVA_VALUES).unwrap();
+        assert_eq!(JAVA_VALUES[7], COMPRESSION_ARROW_ZSTD);
+        assert_eq!(JAVA_VALUES_ZSTD[7], COMPRESSION_ZSTD);
+        for body in [JAVA_VALUES, JAVA_VALUES_ZSTD] {
+            reads_every_value_type(body);
+        }
+    }
+
+    fn reads_every_value_type(body: &[u8]) {
+        let series = parse_read_response(body).unwrap();
         let names: Vec<&str> = series.iter().map(|s| s.external_id.as_str()).collect();
         assert_eq!(
             names,
@@ -860,7 +886,13 @@ mod tests {
 
     #[test]
     fn reads_an_aggregate_frame_the_java_writer_answers_with() {
-        let series = parse_read_response(JAVA_AGGREGATES).unwrap();
+        for body in [JAVA_AGGREGATES, JAVA_AGGREGATES_ZSTD] {
+            reads_an_aggregate_frame(body);
+        }
+    }
+
+    fn reads_an_aggregate_frame(body: &[u8]) {
+        let series = parse_read_response(body).unwrap();
         assert_eq!(series.len(), 1);
         let s = &series[0];
         assert_eq!((s.id, s.external_id.as_str()), (21, "rd_aggregates"));
@@ -875,6 +907,23 @@ mod tests {
                 max: vec![2.0, 3.0, 4.0],
                 sum: vec![6.0, 10.0, 14.0],
             }
+        );
+    }
+
+    #[test]
+    fn reads_compressed_batches_several_to_a_frame_and_a_series_cut_across_frames() {
+        let series = parse_read_response(JAVA_BATCHES).unwrap();
+        assert_eq!(series.len(), 2);
+        let floats = &series[0];
+        assert_eq!((floats.id, floats.external_id.as_str()), (31, "rd_float_batches"));
+        assert_eq!(floats.timestamps, (0..6000).map(|i| T0 + i * 1000).collect::<Vec<_>>());
+        assert_eq!(floats.values, BinaryValues::Float((0..6000).map(|i| i as f64 * 0.5).collect()));
+        let texts = &series[1];
+        assert_eq!((texts.id, texts.external_id.as_str()), (32, "rd_text_cut"));
+        assert_eq!(texts.timestamps, (0..12_000).map(|i| T0 + i * 1000).collect::<Vec<_>>());
+        assert_eq!(
+            texts.values,
+            BinaryValues::Text((0..12_000).map(|i| format!("v{}", i % 10)).collect())
         );
     }
 
@@ -942,7 +991,7 @@ mod tests {
 
     #[test]
     fn a_frame_may_be_split_anywhere() {
-        for body in [JAVA_VALUES, JAVA_AGGREGATES] {
+        for body in [JAVA_VALUES, JAVA_VALUES_ZSTD, JAVA_AGGREGATES, JAVA_BATCHES] {
             let whole = parse_read_response(body).unwrap();
             for chunk in [1, 3, 7, 28, 1000, 65536] {
                 assert_eq!(assemble_in_chunks(body, chunk).unwrap(), whole, "chunks of {chunk}");

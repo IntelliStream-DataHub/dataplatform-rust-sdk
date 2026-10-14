@@ -45,7 +45,7 @@ geojson = "1"
 base64 = "0.22"
 arrow-array = "59.3"
 arrow-schema = "59.3"
-arrow-ipc = "59.3"
+arrow-ipc = { version = "59.3", features = ["zstd"] }
 arrow-select = "59.3"
 
 

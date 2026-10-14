@@ -32,7 +32,11 @@ pub const MEDIA_TYPE: &str = "application/vnd.intellistream.datapoint-block";
 pub const MAGIC: &[u8; 4] = b"DHDP";
 pub const VERSION: u8 = 1;
 pub const CODEC_ARROW_IPC: u8 = 1;
+/// The payload is one zstd stream around an Arrow IPC stream with uncompressed buffers.
 pub const COMPRESSION_ZSTD: u8 = 1;
+/// The payload is an Arrow IPC stream whose record batches compress each buffer with zstd
+/// (Arrow's body compression): what a binary read answers with, ClickHouse's batches relayed.
+pub const COMPRESSION_ARROW_ZSTD: u8 = 2;
 /// Bytes before the series directory.
 pub const HEADER_BYTES: usize = 28;
 

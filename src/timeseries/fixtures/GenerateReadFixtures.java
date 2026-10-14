@@ -1,15 +1,18 @@
-// Regenerates read_values.bin and read_aggregates.bin with the platform's own frame writer, the
-// code that answers POST /timeseries/data/list/binary. Run from a platform checkout that has built
-// datahub-api-model, with arrow-format, flatbuffers-java, zero-allocation-hashing, zstd-jni and
-// slf4j-api on the classpath:
+// Regenerates read_values.bin, read_aggregates.bin and read_batches.bin with the platform's own
+// DatapointFrameWriter.relayStream, the code that answers POST /timeseries/data/list/binary: Arrow
+// streams compressed in-band, as ClickHouse answers, relayed into compression 2 frames. Run from a
+// platform checkout that has built datahub-api-model, with arrow-format, flatbuffers-java,
+// zero-allocation-hashing, zstd-jni and slf4j-api on the classpath:
 //
 //   java -cp "<datahub-api-model/build/classes/java/main>:<those jars>" \
 //       GenerateReadFixtures.java src/timeseries/fixtures
 //
-// The Rust tests in binary_read.rs assert on the exact values written here.
+// The Rust tests in binary_read.rs assert on the exact values written here. read_*_zstd.bin are
+// the same series as compression 1 frames, written by the writer's former `wrap`, which is gone.
 import ai.intellistream.datahub.api.binary.*;
 import ai.intellistream.datahub.api.binary.ArrowIpc.*;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -24,8 +27,8 @@ public class GenerateReadFixtures {
     static final long T0 = 1_700_000_000_000L;
     static final PayloadCodec CODEC = new ZstdPayloadCodec(3);
 
-    /** An ingest frame's batches, rewrapped the way the API answers a read. */
-    static byte[] response(DatapointValueType type, long id, String ext, DatapointFrameWriter w) {
+    /** An ingest frame's batches as ClickHouse would answer them, relayed the way the API answers a read. */
+    static byte[] response(DatapointValueType type, long id, String ext, DatapointFrameWriter w) throws Exception {
         byte[] ingest = w.build(CODEC);
         int dirLen = ByteBuffer.wrap(ingest).order(ByteOrder.LITTLE_ENDIAN).getInt(16);
         int payLen = ByteBuffer.wrap(ingest).order(ByteOrder.LITTLE_ENDIAN).getInt(20);
@@ -36,7 +39,28 @@ public class GenerateReadFixtures {
         for (Batch b : ArrowIpc.readStream(ArrowSchemaCanon.of(type), raw, 0, 100_000)) {
             data.add(b.toData());
         }
-        return DatapointFrameWriter.wrap(type, false, id, ext, data, CODEC);
+        return relay(type, false, id, ext, ArrowIpc.writeStream(ArrowSchemaCanon.of(type), data, CODEC));
+    }
+
+    static byte[] relay(DatapointValueType type, boolean aggregates, long id, String ext, byte[] stream) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        DatapointFrameWriter.relayStream(type, aggregates, id, ext, new ByteArrayInputStream(stream), CODEC, out);
+        return out.toByteArray();
+    }
+
+    /** {@code rows} rows of series {@code id} from {@code from}, a second apart, values from {@code values}. */
+    static BatchData batch(long id, int from, int rows, java.util.function.IntFunction<ColumnData> values) {
+        long[] ids = new long[rows];
+        long[] stamps = new long[rows];
+        for (int r = 0; r < rows; r++) {
+            ids[r] = id;
+            stamps[r] = T0 + (from + r) * 1000L;
+        }
+        return new BatchData(rows, new ColumnData[]{
+                new ColumnData(null, 0, null, longs(ids)),
+                new ColumnData(null, 0, null, longs(stamps)),
+                values.apply(from),
+        });
     }
 
     static ByteBuffer longs(long... v) {
@@ -108,8 +132,34 @@ public class GenerateReadFixtures {
                 new ColumnData(null, 0, null, doubles(2, 3, 4)),
                 new ColumnData(null, 0, null, doubles(6, 10, 14)),
         });
-        aggregates.writeBytes(DatapointFrameWriter.wrap(DatapointValueType.FLOAT, true, 21, "rd_aggregates", List.of(buckets), CODEC));
+        aggregates.writeBytes(relay(DatapointValueType.FLOAT, true, 21, "rd_aggregates",
+                ArrowIpc.writeStream(ArrowSchemaCanon.aggregates(), List.of(buckets), CODEC)));
         aggregates.writeBytes(FrameLimits.END_OF_RESPONSE);
         Files.write(out.resolve("read_aggregates.bin"), aggregates.toByteArray());
+
+        // Batches big enough that zstd shrinks their buffers, several to a frame, and one stream
+        // that came uncompressed and longer than a frame, which the relay cuts and compresses.
+        ByteArrayOutputStream batches = new ByteArrayOutputStream();
+        int n = 3000;
+        List<BatchData> floats = List.of(
+                batch(31, 0, n, from -> new ColumnData(null, 0, null, doubles(java.util.stream.IntStream.range(from, from + n).mapToDouble(i -> i * 0.5).toArray()))),
+                batch(31, n, n, from -> new ColumnData(null, 0, null, doubles(java.util.stream.IntStream.range(from, from + n).mapToDouble(i -> i * 0.5).toArray()))));
+        batches.writeBytes(relay(DatapointValueType.FLOAT, false, 31, "rd_float_batches",
+                ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT), floats, CODEC)));
+        int t = 12_000;
+        BatchData texts = batch(32, 0, t, from -> {
+            ByteBuffer offsets = ByteBuffer.allocate((t + 1) * 4).order(ByteOrder.LITTLE_ENDIAN);
+            ByteArrayOutputStream chars = new ByteArrayOutputStream();
+            for (int i = 0; i < t; i++) {
+                offsets.putInt(chars.size());
+                chars.writeBytes(("v" + (i % 10)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            offsets.putInt(chars.size());
+            return new ColumnData(null, 0, offsets.flip(), ByteBuffer.wrap(chars.toByteArray()));
+        });
+        batches.writeBytes(relay(DatapointValueType.TEXT, false, 32, "rd_text_cut",
+                ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.TEXT), List.of(texts))));
+        batches.writeBytes(FrameLimits.END_OF_RESPONSE);
+        Files.write(out.resolve("read_batches.bin"), batches.toByteArray());
     }
 }

@@ -59,10 +59,13 @@ def _filter(ts="rd_float"):
     return intellistream_datahub_sdk.RetrieveFilter(ts=ts, start=T0, limit=1000)
 
 
-def test_every_value_type_converts_through_the_arrow_stream(stand_in):
+# read_values.bin is compression 2, record batches compressing their own buffers, as a read answers
+# now; read_values_zstd.bin is the same series as compression 1, one zstd stream per frame.
+@pytest.mark.parametrize("fixture", ["read_values.bin", "read_values_zstd.bin"])
+def test_every_value_type_converts_through_the_arrow_stream(stand_in, fixture):
     pl = pytest.importorskip("polars")
     client, server = stand_in
-    server.body = (FIXTURES / "read_values.bin").read_bytes()
+    server.body = (FIXTURES / fixture).read_bytes()
 
     series = client.timeseries.retrieve_datapoints_binary([_filter("rd_bigint"), _filter("rd_float")])
 
