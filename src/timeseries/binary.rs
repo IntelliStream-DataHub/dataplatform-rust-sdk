@@ -159,10 +159,11 @@ impl DatapointValueType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FrameCompression {
     /// Compression 1: one zstd stream around the whole Arrow IPC payload.
-    #[default]
     Payload,
     /// Compression 2: every record batch compresses each buffer in-band (Arrow's body
-    /// compression), the form a binary read answers with.
+    /// compression), the form a binary read answers with. The consumer relays these batches to
+    /// ClickHouse without decompressing them, where compression 1 has to be decoded first.
+    #[default]
     Buffers,
 }
 
@@ -194,7 +195,7 @@ impl Default for BinaryIngestOptions {
     fn default() -> Self {
         BinaryIngestOptions {
             zstd_level: 3,
-            compression: FrameCompression::Payload,
+            compression: FrameCompression::Buffers,
             max_retries: 3,
             request_concurrency: 4,
         }

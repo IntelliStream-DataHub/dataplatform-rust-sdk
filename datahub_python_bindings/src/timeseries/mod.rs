@@ -482,8 +482,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 /// Options for the binary ingest bindings. zstd level 1, 3 or 9; 3 is the default, as in the
-/// Rust SDK. `compression` is `"payload"`
-/// (the default) or `"buffers"`.
+/// Rust SDK. `compression` is `"buffers"`
+/// (the default) or `"payload"`.
 pub(crate) fn binary_options(
     zstd_level: Option<i32>,
     compression: Option<&str>,
@@ -494,11 +494,11 @@ pub(crate) fn binary_options(
         options = options.zstd_level(level);
     }
     options.compression = match compression {
-        None | Some("payload") => FrameCompression::Payload,
-        Some("buffers") => FrameCompression::Buffers,
+        None | Some("buffers") => FrameCompression::Buffers,
+        Some("payload") => FrameCompression::Payload,
         Some(other) => {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "compression {other:?} is not \"payload\" or \"buffers\""
+                "compression {other:?} is not \"buffers\" or \"payload\""
             )))
         }
     };

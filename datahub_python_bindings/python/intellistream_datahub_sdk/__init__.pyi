@@ -896,9 +896,10 @@ class TimeSeriesServiceSync:
         zstd_level
             1, 3 or 9; 3 by default.
         compression
-            ``"payload"`` (the default) zstd-compresses each frame's Arrow stream whole;
-            ``"buffers"`` compresses each Arrow buffer inside it, the form a binary read answers
-            with. The server stores the same points either way.
+            ``"buffers"`` (the default) compresses each Arrow buffer inside the frame, the form a
+            binary read answers with, which the server stores without decompressing;
+            ``"payload"`` zstd-compresses each frame's Arrow stream whole. The server stores the
+            same points either way.
 
         Returns
         -------

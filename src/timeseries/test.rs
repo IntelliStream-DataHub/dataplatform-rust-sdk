@@ -12,7 +12,7 @@ mod tests {
     use crate::generic::{DataWrapper, Datapoint, DatapointString, DatapointsCollection, DeleteFilter, IdAndExtId, RetrieveFilter};
     use crate::http::ResponseError;
     use crate::timeseries::{TimeSeries, TimeSeriesFilter, TimeSeriesFilterForm, TimeSeriesUpdate, TimeSeriesUpdateCollection, TimeSeriesUpdateFields};
-    use crate::timeseries::binary::{BinaryIngestOptions, DatapointValueType};
+    use crate::timeseries::binary::{BinaryIngestOptions, DatapointValueType, FrameCompression};
     use crate::timeseries::binary_read::{BinaryDatapoints, BinaryValues};
     use crate::tests::cleanup::cleanup_timeseries;
     use crate::tests::ids::{unique_id, unique_token};
@@ -889,7 +889,9 @@ mod tests {
     /// clients can be compared.
     ///
     /// Sized by `DATAHUB_BENCH_POINTS` (default 10 million) across `DATAHUB_BENCH_SERIES`
-    /// series. The api must have its daily quota and rate limiter off for a run of any size:
+    /// series. `DATAHUB_BENCH_ZSTD_LEVEL` and `DATAHUB_BENCH_COMPRESSION` (`payload` or `buffers`)
+    /// override the binary path's defaults. The api must have its daily quota and rate limiter off
+    /// for a run of any size:
     /// `-Ddatahub.limits.quota.enabled=false -Ddatahub.limits.rate.enabled=false`.
     ///
     /// **Run it with `--release`.** `cargo test` builds with the `dev` profile at
@@ -912,8 +914,16 @@ mod tests {
             .ok().and_then(|v| v.parse().ok()).unwrap_or(100);
         let chunk: usize = std::env::var("DATAHUB_BENCH_CHUNK")
             .ok().and_then(|v| v.parse().ok()).unwrap_or(1_000_000);
+        let zstd_level: i32 = std::env::var("DATAHUB_BENCH_ZSTD_LEVEL")
+            .ok().and_then(|v| v.parse().ok()).unwrap_or(BinaryIngestOptions::default().zstd_level);
+        let compression = match std::env::var("DATAHUB_BENCH_COMPRESSION").as_deref() {
+            Ok("buffers") => FrameCompression::Buffers,
+            Ok("payload") => FrameCompression::Payload,
+            Err(_) => BinaryIngestOptions::default().compression,
+            Ok(other) => panic!("DATAHUB_BENCH_COMPRESSION is payload or buffers, not {other}"),
+        };
         let api_service = create_api_service();
-        println!("\n=== {total} points across {series_count} series, float32 ===");
+        println!("\n=== {total} points across {series_count} series, float32, binary zstd {zstd_level} {compression:?} ===");
 
         // Which paths to run. A sweep over request sizes only needs the binary one, and the JSON
         // path is slow enough that running it every time makes the sweep the expensive part.
@@ -967,7 +977,10 @@ mod tests {
                     api_service.time_series
                         .insert_datapoints_binary(
                             &request,
-                            &BinaryIngestOptions::default().request_concurrency(concurrency),
+                            &BinaryIngestOptions::default()
+                                .zstd_level(zstd_level)
+                                .compression(compression)
+                                .request_concurrency(concurrency),
                         )
                         .await
                         .unwrap_or_else(|e| panic!("{label} insert failed: {}", e.get_message()));
@@ -1006,7 +1019,7 @@ mod tests {
         }
 
         println!("\n=== datapoint ingest from Rust ===");
-        println!("{total} points across {series_count} series, {chunk} per call, float32\n");
+        println!("{total} points across {series_count} series, {chunk} per call, float32, binary zstd {zstd_level} {compression:?}\n");
         print!("{:<28}", "metric");
         for r in &results { print!("{:>18}", r.0); }
         println!();

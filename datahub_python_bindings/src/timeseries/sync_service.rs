@@ -277,7 +277,7 @@ impl PyTimeSeriesServiceSync {
     }
     /// `POST /timeseries/data/binary`: the same collections as `insert_datapoints`, sent as
     /// zstd-compressed Arrow frames. `zstd_level` is 1, 3 or 9 and defaults to 3; `compression` is
-    /// `"payload"` (default) or `"buffers"`.
+    /// `"buffers"` (default) or `"payload"`.
     #[pyo3(signature = (input, zstd_level=None, compression=None))]
     fn insert_datapoints_binary<'py>(
         &self,
