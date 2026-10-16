@@ -49,7 +49,7 @@ use crate::resources::{
     ResourceNetwork, ResourceUpdate,
 };
 use crate::timeseries::{
-    BinaryIngestOptions, TimeSeries, TimeSeriesFilter, TimeSeriesUpdateCollection,
+    BinaryDatapointStream, BinaryDatapoints, BinaryIngestOptions, TimeSeries, TimeSeriesFilter, TimeSeriesUpdateCollection,
     ValueTypeRecommendation,
 };
 use crate::unit::Unit;
@@ -182,6 +182,7 @@ impl TimeSeriesService {
         fn insert_datapoints(json: &mut DataWrapper<DatapointsCollection<DatapointString>>) -> Result<DataWrapper<String>, ResponseError>;
         fn insert_datapoints_binary(json: &DataWrapper<DatapointsCollection<DatapointString>>, options: &BinaryIngestOptions) -> Result<DataWrapper<String>, ResponseError>;
         fn retrieve_datapoints(json: &DataWrapper<RetrieveFilter>) -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>;
+        fn retrieve_datapoints_binary(json: &DataWrapper<RetrieveFilter>) -> Result<Vec<BinaryDatapoints>, ResponseError>;
         fn delete_datapoints(json: &DataWrapper<DeleteFilter>) -> Result<DataWrapper<String>, ResponseError>;
         fn retrieve_latest_datapoint(json: &DataWrapper<IdAndExtId>) -> Result<DataWrapper<DatapointsCollection<Datapoint>>, ResponseError>;
     }
@@ -194,6 +195,37 @@ impl TimeSeriesService {
     /// Already synchronous on the async service; passed through directly.
     pub fn evict_binary_series_cache(&self) {
         self.api.time_series.evict_binary_series_cache()
+    }
+
+    /// [`stream_datapoints_binary`](crate::timeseries::TimeSeriesService::stream_datapoints_binary)
+    /// as an iterator: each `next` waits for the next frame's rows, decoded while the rest download.
+    pub fn stream_datapoints_binary(
+        &self,
+        json: &DataWrapper<RetrieveFilter>,
+    ) -> Result<BinaryDatapointIter, ResponseError> {
+        let stream = self
+            .rt
+            .block_on(self.api.time_series.stream_datapoints_binary(json))?;
+        Ok(BinaryDatapointIter {
+            stream,
+            rt: self.rt.clone(),
+        })
+    }
+}
+
+/// A binary read frame by frame; see
+/// [`BinaryDatapointStream`](crate::timeseries::BinaryDatapointStream) for what an item is and how
+/// a response that breaks off shows up.
+pub struct BinaryDatapointIter {
+    stream: BinaryDatapointStream,
+    rt: Arc<Runtime>,
+}
+
+impl Iterator for BinaryDatapointIter {
+    type Item = Result<BinaryDatapoints, ResponseError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.rt.block_on(futures::StreamExt::next(&mut self.stream))
     }
 }
 

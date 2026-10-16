@@ -16,7 +16,8 @@ use arrow_array::{
     ArrayRef, Decimal128Array, Float32Array, Float64Array, Int64Array, RecordBatch, StringArray,
     TimestampMillisecondArray,
 };
-use arrow_ipc::writer::StreamWriter;
+use arrow_ipc::writer::{IpcWriteOptions, StreamWriter};
+use arrow_ipc::CompressionType;
 use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
 use futures::future::join_all;
 use oauth2::http::StatusCode;
@@ -32,7 +33,11 @@ pub const MEDIA_TYPE: &str = "application/vnd.intellistream.datapoint-block";
 pub const MAGIC: &[u8; 4] = b"DHDP";
 pub const VERSION: u8 = 1;
 pub const CODEC_ARROW_IPC: u8 = 1;
+/// The payload is one zstd stream around an Arrow IPC stream with uncompressed buffers.
 pub const COMPRESSION_ZSTD: u8 = 1;
+/// The payload is an Arrow IPC stream whose record batches compress each buffer with zstd
+/// (Arrow's body compression): what a binary read answers with, ClickHouse's batches relayed.
+pub const COMPRESSION_ARROW_ZSTD: u8 = 2;
 /// Bytes before the series directory.
 pub const HEADER_BYTES: usize = 28;
 
@@ -50,8 +55,8 @@ pub const NUMERIC_ROWS_PER_FRAME: usize = 100_000;
 /// Rows per frame for `text` and `mixed`.
 pub const TEXT_ROWS_PER_FRAME: usize = 10_000;
 
-const NUMERIC_UNSCALED_MAX: i128 = 999_999_999_999_999_999;
-const DECIMAL32_UNSCALED_MAX: i128 = 999_999_999;
+pub(crate) const NUMERIC_UNSCALED_MAX: i128 = 999_999_999_999_999_999;
+pub(crate) const DECIMAL32_UNSCALED_MAX: i128 = 999_999_999;
 /// Headroom under the raw cap: arrow-rs pads every buffer to 64 bytes, which the estimate ignores.
 const RAW_BYTES_MARGIN: usize = 64 * 1024;
 
@@ -84,6 +89,20 @@ impl DatapointValueType {
 
     pub fn id(self) -> u8 {
         self as u8
+    }
+
+    /// The value type a frame envelope numbers `id`.
+    pub fn from_id(id: u8) -> Option<Self> {
+        Some(match id {
+            1 => Self::Bigint,
+            2 => Self::Float,
+            3 => Self::Numeric,
+            4 => Self::Text,
+            5 => Self::Decimal32,
+            6 => Self::Mixed,
+            7 => Self::Float32,
+            _ => return None,
+        })
     }
 
     pub fn carries_text(self) -> bool {
@@ -135,11 +154,36 @@ impl DatapointValueType {
     }
 }
 
+/// Where a frame's zstd goes. Either way the frame is zstd at the chosen level and the server
+/// stores the same points.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FrameCompression {
+    /// Compression 1: one zstd stream around the whole Arrow IPC payload.
+    Payload,
+    /// Compression 2: every record batch compresses each buffer in-band (Arrow's body
+    /// compression), the form a binary read answers with. The consumer relays these batches to
+    /// ClickHouse without decompressing them, where compression 1 has to be decoded first.
+    #[default]
+    Buffers,
+}
+
+impl FrameCompression {
+    /// The envelope's compression byte.
+    pub fn id(self) -> u8 {
+        match self {
+            FrameCompression::Payload => COMPRESSION_ZSTD,
+            FrameCompression::Buffers => COMPRESSION_ARROW_ZSTD,
+        }
+    }
+}
+
 /// How [`TimeSeriesService::insert_datapoints_binary`] compresses and retries.
 #[derive(Debug, Clone)]
 pub struct BinaryIngestOptions {
     /// zstd level per frame: 1, 3 or 9. Compression is mandatory, so there is no way to turn it off.
     pub zstd_level: i32,
+    /// Whether zstd wraps the whole payload or each Arrow buffer.
+    pub compression: FrameCompression,
     /// Retries of one request after a 429 or a 5xx, one second apart per attempt.
     pub max_retries: u32,
     /// Requests in flight at once when one call packs into more than one, which happens above
@@ -150,7 +194,8 @@ pub struct BinaryIngestOptions {
 impl Default for BinaryIngestOptions {
     fn default() -> Self {
         BinaryIngestOptions {
-            zstd_level: 9,
+            zstd_level: 3,
+            compression: FrameCompression::Buffers,
             max_retries: 3,
             request_concurrency: 4,
         }
@@ -167,6 +212,11 @@ impl BinaryIngestOptions {
         self
     }
 
+    pub fn compression(mut self, compression: FrameCompression) -> Self {
+        self.compression = compression;
+        self
+    }
+
     pub fn max_retries(mut self, retries: u32) -> Self {
         self.max_retries = retries;
         self
@@ -177,7 +227,7 @@ impl BinaryIngestOptions {
         self
     }
 
-    fn validate(&self) -> Result<(), ResponseError> {
+    pub(crate) fn validate(&self) -> Result<(), ResponseError> {
         if ![1, 3, 9].contains(&self.zstd_level) {
             return Err(ResponseError::bad_request(format!(
                 "zstd level {} is not one of 1, 3 or 9",
@@ -403,6 +453,11 @@ impl FrameWriter {
     /// Sorts by (id, timestamp), keeps the last value of a repeated pair, checks the caps, writes
     /// the Arrow stream, compresses it and returns the complete frame.
     pub fn build(&self, zstd_level: i32) -> Result<Frame, String> {
+        self.build_with(FrameCompression::Payload, zstd_level)
+    }
+
+    /// [`FrameWriter::build`] with the zstd where `compression` puts it.
+    pub fn build_with(&self, compression: FrameCompression, zstd_level: i32) -> Result<Frame, String> {
         if self.rows.is_empty() {
             return Err("frame has no rows".to_string());
         }
@@ -441,45 +496,21 @@ impl FrameWriter {
             ));
         }
 
-        let raw = self.write_ipc(&kept)?;
-        if raw.len() > MAX_FRAME_RAW_BYTES {
-            return Err(format!(
-                "frame payload is {} bytes, the cap is {MAX_FRAME_RAW_BYTES}; split it",
-                raw.len()
-            ));
-        }
-        let compressed =
-            zstd::bulk::compress(&raw, zstd_level).map_err(|e| format!("zstd failed: {e}"))?;
-
-        let directory_len: usize = directory
-            .iter()
-            .map(|(_, external_id)| 8 + varint_size(external_id.len()) + external_id.len())
-            .sum();
-        let mut frame = Vec::with_capacity(HEADER_BYTES + directory_len + compressed.len());
-        frame.extend_from_slice(MAGIC);
-        frame.push(VERSION);
-        frame.push(self.value_type.id());
-        frame.push(CODEC_ARROW_IPC);
-        frame.push(COMPRESSION_ZSTD);
-        for n in [rows, directory.len(), directory_len, compressed.len(), raw.len()] {
-            frame.extend_from_slice(&(n as u32).to_le_bytes());
-        }
-        for (id, external_id) in &directory {
-            frame.extend_from_slice(&id.to_le_bytes());
-            write_varint(&mut frame, external_id.len());
-            frame.extend_from_slice(external_id.as_bytes());
-        }
-        frame.extend_from_slice(&compressed);
-        Ok(Frame {
-            bytes: frame,
+        let batch = self.record_batch(&kept)?;
+        let mut frame = assemble_frame(
+            self.value_type,
             rows,
-            series: directory.len(),
-            raw_len: raw.len(),
-            clamped: self.clamped,
-        })
+            &directory,
+            &batch,
+            self.estimated_raw_bytes(),
+            compression,
+            zstd_level,
+        )?;
+        frame.clamped = self.clamped;
+        Ok(frame)
     }
 
-    fn write_ipc(&self, kept: &[usize]) -> Result<Vec<u8>, String> {
+    fn record_batch(&self, kept: &[usize]) -> Result<RecordBatch, String> {
         let ids: Vec<i64> = kept.iter().map(|&i| self.rows[i].id).collect();
         let timestamps: Vec<i64> = kept.iter().map(|&i| self.rows[i].timestamp).collect();
         let mut columns: Vec<ArrayRef> = vec![
@@ -561,20 +592,120 @@ impl FrameWriter {
                 columns.push(Arc::new(StringArray::from(text)));
             }
         }
-        let schema = self.value_type.schema();
-        let batch = RecordBatch::try_new(schema.clone(), columns).map_err(|e| e.to_string())?;
-        let mut raw = Vec::with_capacity(self.estimated_raw_bytes());
-        let mut writer =
-            StreamWriter::try_new(&mut raw, schema.as_ref()).map_err(|e| e.to_string())?;
-        writer.write(&batch).map_err(|e| e.to_string())?;
-        writer.finish().map_err(|e| e.to_string())?;
-        drop(writer);
-        Ok(raw)
+        RecordBatch::try_new(self.value_type.schema(), columns).map_err(|e| e.to_string())
     }
 }
 
+/// A batch in the canon as an Arrow IPC stream, its buffers compressed in-band when `in_band`
+/// names a zstd level.
+fn ipc_stream(batch: &RecordBatch, capacity: usize, in_band: Option<i32>) -> Result<Vec<u8>, String> {
+    let options = match in_band {
+        None => IpcWriteOptions::default(),
+        Some(level) => IpcWriteOptions::default()
+            .try_with_compression(Some(CompressionType::ZSTD))
+            .and_then(|o| o.try_with_compression_level(Some(level)))
+            .map_err(|e| e.to_string())?,
+    };
+    let mut raw = Vec::with_capacity(capacity);
+    let mut writer = StreamWriter::try_new_with_options(&mut raw, batch.schema().as_ref(), options)
+        .map_err(|e| e.to_string())?;
+    writer.write(batch).map_err(|e| e.to_string())?;
+    writer.finish().map_err(|e| e.to_string())?;
+    drop(writer);
+    Ok(raw)
+}
+
+/// A compression 2 frame's raw length as the server counts it: every record batch buffer
+/// uncompressed, each padded to 8 bytes. Read back from the stream, so it holds whichever buffers
+/// arrow-rs chose to write.
+fn in_band_raw_len(stream: &[u8]) -> Result<usize, String> {
+    let fail = |at: usize| format!("unreadable IPC message at {at}");
+    let mut total = 0;
+    let mut pos = 0;
+    loop {
+        let prefix = stream.get(pos..pos + 8).ok_or_else(|| fail(pos))?;
+        let meta_len = u32::from_le_bytes(prefix[4..8].try_into().unwrap()) as usize;
+        if meta_len == 0 {
+            return Ok(total);
+        }
+        let meta = stream.get(pos + 8..pos + 8 + meta_len).ok_or_else(|| fail(pos))?;
+        let message = arrow_ipc::root_as_message(meta).map_err(|_| fail(pos))?;
+        let body = pos + 8 + meta_len;
+        if let Some(batch) = message.header_as_record_batch() {
+            for buffer in batch.buffers().into_iter().flatten() {
+                let (offset, length) = (body + buffer.offset() as usize, buffer.length() as usize);
+                if length == 0 {
+                    continue;
+                }
+                let declared = stream.get(offset..offset + 8).ok_or_else(|| fail(pos))?;
+                let declared = i64::from_le_bytes(declared.try_into().unwrap());
+                let raw = if declared == -1 { length - 8 } else { declared as usize };
+                total += raw.div_ceil(8) * 8;
+            }
+        }
+        pos = body + message.bodyLength() as usize;
+    }
+}
+
+/// The envelope around a batch: header, series directory (ascending ids, as the rows are
+/// ordered) and the batch as an Arrow IPC stream compressed as `compression` says.
+pub(crate) fn assemble_frame(
+    value_type: DatapointValueType,
+    rows: usize,
+    directory: &[(i64, &str)],
+    batch: &RecordBatch,
+    capacity: usize,
+    compression: FrameCompression,
+    zstd_level: i32,
+) -> Result<Frame, String> {
+    let (compressed, raw_len) = match compression {
+        FrameCompression::Payload => {
+            let raw = ipc_stream(batch, capacity, None)?;
+            let compressed =
+                zstd::bulk::compress(&raw, zstd_level).map_err(|e| format!("zstd failed: {e}"))?;
+            (compressed, raw.len())
+        }
+        FrameCompression::Buffers => {
+            let stream = ipc_stream(batch, capacity / 2, Some(zstd_level))?;
+            let raw_len = in_band_raw_len(&stream)?;
+            (stream, raw_len)
+        }
+    };
+    if raw_len > MAX_FRAME_RAW_BYTES {
+        return Err(format!(
+            "frame payload is {raw_len} bytes, the cap is {MAX_FRAME_RAW_BYTES}; split it"
+        ));
+    }
+    let directory_len: usize = directory
+        .iter()
+        .map(|(_, external_id)| 8 + varint_size(external_id.len()) + external_id.len())
+        .sum();
+    let mut frame = Vec::with_capacity(HEADER_BYTES + directory_len + compressed.len());
+    frame.extend_from_slice(MAGIC);
+    frame.push(VERSION);
+    frame.push(value_type.id());
+    frame.push(CODEC_ARROW_IPC);
+    frame.push(compression.id());
+    for n in [rows, directory.len(), directory_len, compressed.len(), raw_len] {
+        frame.extend_from_slice(&(n as u32).to_le_bytes());
+    }
+    for (id, external_id) in directory {
+        frame.extend_from_slice(&id.to_le_bytes());
+        write_varint(&mut frame, external_id.len());
+        frame.extend_from_slice(external_id.as_bytes());
+    }
+    frame.extend_from_slice(&compressed);
+    Ok(Frame {
+        bytes: frame,
+        rows,
+        series: directory.len(),
+        raw_len,
+        clamped: 0,
+    })
+}
+
 /// The server counts the character limit in UTF-16 units, so this does too.
-fn checked_text(value: &str) -> Result<String, String> {
+pub(crate) fn checked_text(value: &str) -> Result<String, String> {
     if value.is_empty() {
         return Err("text value is empty".to_string());
     }
@@ -620,7 +751,7 @@ fn decimal_parts(value: &str) -> Option<(bool, String, i32)> {
 }
 
 /// Parses a decimal literal to its unscaled value at `scale` decimals, rounded half-up.
-fn parse_scaled(value: &str, scale: u32) -> Option<i128> {
+pub(crate) fn parse_scaled(value: &str, scale: u32) -> Option<i128> {
     let (negative, digits, point) = decimal_parts(value)?;
     let total = i32::try_from(digits.len()).ok()?;
     // Digits to keep: everything before the point plus `scale` after it.
@@ -733,7 +864,7 @@ pub(crate) fn pack_requests(frames: Vec<Frame>) -> Vec<Vec<u8>> {
     requests
 }
 
-fn unprocessable(message: String) -> ResponseError {
+pub(crate) fn unprocessable(message: String) -> ResponseError {
     ResponseError {
         status: StatusCode::UNPROCESSABLE_ENTITY,
         message,
@@ -747,7 +878,7 @@ fn unprocessable(message: String) -> ResponseError {
 /// Read from the problem document, not the body text: the SDK's own pre-flight 404 names the
 /// series it could not resolve, so an external id spelling one of these slugs used to earn a
 /// pointless second attempt.
-fn is_stale_series_rejection(error: &ResponseError) -> bool {
+pub(crate) fn is_stale_series_rejection(error: &ResponseError) -> bool {
     let Some(problem) = error.problem() else {
         return false;
     };
@@ -800,7 +931,11 @@ impl TimeSeriesService {
         options: &BinaryIngestOptions,
     ) -> Result<DataWrapper<String>, ResponseError> {
         let collections = json.get_items();
-        let resolved = self.resolve_series(collections).await?;
+        let wanted: Vec<(Option<u64>, Option<&str>)> = collections
+            .iter()
+            .map(|c| (c.id, c.external_id.as_deref()))
+            .collect();
+        let resolved = self.resolve_series(&wanted).await?;
         let items: Vec<(ResolvedSeries, &[DatapointString])> = resolved
             .into_iter()
             .zip(collections.iter())
@@ -808,10 +943,10 @@ impl TimeSeriesService {
             .collect();
         let writers = cut_into_writers(&items)?;
 
-        let level = options.zstd_level;
+        let (compression, level) = (options.compression, options.zstd_level);
         let builds = writers
             .into_iter()
-            .map(|writer| tokio::task::spawn_blocking(move || writer.build(level)));
+            .map(|writer| tokio::task::spawn_blocking(move || writer.build_with(compression, level)));
         let mut frames = Vec::new();
         for built in join_all(builds).await {
             let frame = built
@@ -819,12 +954,23 @@ impl TimeSeriesService {
                 .map_err(unprocessable)?;
             frames.push(frame);
         }
+        self.post_frame_requests(frames, options).await?;
+        let mut result = DataWrapper::new();
+        result.set_http_status_code(204);
+        Ok(result)
+    }
 
-        // Concurrently, not one after another. A call of up to 3.2M points packs into a single
-        // request and this changes nothing, but a larger one becomes several and the api
-        // validates them independently, so there is no reason to serialise them. Bounded by
-        // `request_concurrency` so a very large call cannot open an unbounded number of
-        // connections.
+    /// Packs frames into requests under the caps and posts them.
+    ///
+    /// Concurrently, not one after another. A call of up to 3.2M points packs into a single
+    /// request and this changes nothing, but a larger one becomes several and the api validates
+    /// them independently, so there is no reason to serialise them. Bounded by
+    /// `request_concurrency` so a very large call cannot open an unbounded number of connections.
+    pub(crate) async fn post_frame_requests(
+        &self,
+        frames: Vec<Frame>,
+        options: &BinaryIngestOptions,
+    ) -> Result<(), ResponseError> {
         let path = format!("{}/data/binary", self.base_url);
         let bodies = pack_requests(frames);
         let limit = options.request_concurrency.max(1);
@@ -836,9 +982,7 @@ impl TimeSeriesService {
                 outcome?;
             }
         }
-        let mut result = DataWrapper::new();
-        result.set_http_status_code(204);
-        Ok(result)
+        Ok(())
     }
 
     async fn post_frames(
@@ -867,17 +1011,18 @@ impl TimeSeriesService {
         }
     }
 
-    /// One [`ResolvedSeries`] per collection, in order, from the cache or `/timeseries/byids`.
-    async fn resolve_series(
+    /// One [`ResolvedSeries`] per `(id, external id)` asked for, in order, from the cache or
+    /// `/timeseries/byids`; the id wins when both are given.
+    pub(crate) async fn resolve_series(
         &self,
-        collections: &[DatapointsCollection<DatapointString>],
+        wanted: &[(Option<u64>, Option<&str>)],
     ) -> Result<Vec<ResolvedSeries>, ResponseError> {
         let mut lookups: Vec<IdAndExtId> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         {
             let cache = self.binary_series.lock().unwrap();
-            for collection in collections {
-                match (collection.id, &collection.external_id) {
+            for &(id, external_id) in wanted {
+                match (id, external_id) {
                     (Some(id), _) => {
                         if !cache.by_id.contains_key(&id) && seen.insert(format!("id:{id}")) {
                             lookups.push(IdAndExtId::from_id(id));
@@ -916,10 +1061,10 @@ impl TimeSeriesService {
         }
 
         let cache = self.binary_series.lock().unwrap();
-        let mut resolved = Vec::with_capacity(collections.len());
+        let mut resolved = Vec::with_capacity(wanted.len());
         let mut missing = Vec::new();
-        for collection in collections {
-            let hit = match (collection.id, &collection.external_id) {
+        for &(id, external_id) in wanted {
+            let hit = match (id, external_id) {
                 (Some(id), _) => cache.by_id.get(&id),
                 (None, Some(external_id)) => cache.by_external_id.get(external_id),
                 (None, None) => None,
@@ -927,10 +1072,8 @@ impl TimeSeriesService {
             match hit {
                 Some(series) => resolved.push(series.clone()),
                 None => missing.push(
-                    collection
-                        .id
-                        .map(|id| id.to_string())
-                        .or_else(|| collection.external_id.clone())
+                    id.map(|id| id.to_string())
+                        .or_else(|| external_id.map(str::to_string))
                         .unwrap_or_default(),
                 ),
             }
@@ -1058,6 +1201,43 @@ mod tests {
         assert_eq!(ids.values(), &[3, 7, 7]);
         assert_eq!(ts.values(), &[1_000, 1_000, 2_000]);
         assert_eq!(values.values(), &[1.5, 2.0, 2.5]);
+    }
+
+    /// Compression 2 stores what compression 1 does, and its raw length is the buffers'
+    /// uncompressed, padded to 8: compressible ones carry their length, tiny ones -1 and the bytes.
+    #[test]
+    fn buffers_compression_reads_back_as_payload_compression() {
+        use crate::timeseries::binary_read::{parse_read_response, END_OF_RESPONSE};
+        let cases: [(DatapointValueType, &[&str]); 7] = [
+            (DatapointValueType::Bigint, &["1", "-9000000000", "42"]),
+            (DatapointValueType::Float, &["1.5", "-2.25", "NaN"]),
+            (DatapointValueType::Float32, &["0.5", "3"]),
+            (DatapointValueType::Numeric, &["123456789012.345678", "-0.000001"]),
+            (DatapointValueType::Decimal32, &["12345.6789", "99999999"]),
+            (DatapointValueType::Text, &["open", "blåbær"]),
+            (DatapointValueType::Mixed, &["3.5", "fault", "-7"]),
+        ];
+        for (value_type, values) in cases {
+            for rows in [values.len(), 5000] {
+                let mut writer = FrameWriter::new(value_type);
+                writer.series(1, "s").unwrap();
+                for t in 0..rows {
+                    writer.add(1, t as i64 * 1000, values[t % values.len()]).unwrap();
+                }
+                let read = |frame: Frame| {
+                    let mut body = frame.bytes;
+                    body.extend_from_slice(END_OF_RESPONSE);
+                    parse_read_response(&body).unwrap()
+                };
+                let payload = writer.build_with(FrameCompression::Payload, 3).unwrap();
+                let buffers = writer.build_with(FrameCompression::Buffers, 3).unwrap();
+                assert_eq!(buffers.bytes[7], COMPRESSION_ARROW_ZSTD);
+                assert_eq!(u32_at(&buffers.bytes, 24) as usize, buffers.raw_len);
+                assert!(buffers.raw_len <= payload.raw_len, "{value_type:?}: buffers are part of the stream");
+                let (buffers, payload) = (format!("{:?}", read(buffers)), format!("{:?}", read(payload)));
+                assert_eq!(buffers, payload, "{value_type:?}, {rows} rows");
+            }
+        }
     }
 
     #[test]
@@ -1212,7 +1392,7 @@ mod tests {
     #[test]
     fn options_accept_only_the_three_levels() {
         assert!(BinaryIngestOptions::default().validate().is_ok());
-        assert_eq!(BinaryIngestOptions::default().zstd_level, 9);
+        assert_eq!(BinaryIngestOptions::default().zstd_level, 3);
         assert!(BinaryIngestOptions::new().zstd_level(3).validate().is_ok());
         assert!(BinaryIngestOptions::new().zstd_level(0).validate().is_err());
         assert!(BinaryIngestOptions::new().zstd_level(22).validate().is_err());

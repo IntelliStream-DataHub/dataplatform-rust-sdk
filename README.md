@@ -124,7 +124,7 @@ the same collections as `insert_datapoints` and sends them through
 `POST /timeseries/data/binary`: each series is resolved once to its id and value type and
 cached, values are checked against that type locally, sorted and de-duplicated, cut into Arrow
 IPC frames at the contract's caps (100 000 points per numeric frame, 10 000 per text or mixed
-frame, 32 frames per request), compressed with zstd (level 9 by default, 1 and 3 are the other
+frame, 32 frames per request), compressed with zstd (level 3 by default, 1 and 9 are the other
 choices) and posted. A 204 means every frame was accepted.
 
 A series that does not exist is a 404 before anything is sent, a value that does not fit its
@@ -138,6 +138,81 @@ and sends again, once. Resolving by external id goes through
 `/timeseries/byids`, so the caller needs read access on the dataset as well as write access.
 The durable spool does not cover this path. `binary::FrameWriter` is public for producers that
 build frames themselves.
+
+### From a dataframe
+
+`time_series.insert_table_binary(&batches, "timestamp", &options)` takes Arrow `RecordBatch`es in
+the wide shape: a timestamp column and one column per series, named by its external id. In Python
+that is `insert_dataframe_binary`, which takes a polars or pandas DataFrame or a pyarrow table as
+it is, through the Arrow C stream:
+
+```python
+df = pl.DataFrame({"timestamp": stamps, "pump.temp": temps, "pump.count": counts})
+client.timeseries.insert_dataframe_binary(df)        # or a pandas frame with a timestamp index
+```
+
+Columns are used without copying where they already have their series' type; nulls are "no
+point here", so a ragged table works; values are stored as the string path stores them. 100M float
+points from a polars frame took about 3 s, against about 75 s through Python lists. What
+`to_polars(wide=True)` returns from a read goes back in unchanged.
+
+## Binary datapoint read
+
+`time_series.retrieve_datapoints_binary(&filters)` takes the request `retrieve_datapoints`
+takes and reads the same frames back from `POST /timeseries/data/list/binary`, so a large read
+costs no JSON and no object per point. It returns one `BinaryDatapoints` per series that has
+points, in the order of the request's items: `timestamps` in epoch milliseconds and `values` as
+one typed column (`BinaryValues::Float(Vec<f64>)`, exact `Decimal { unscaled, scale }` for
+`numeric` and `decimal32`, two optional columns for `mixed`, or `Aggregates { avg, min, max,
+sum }` for an item with `aggregates` and a `granularity`).
+
+```rust
+let mut filter = RetrieveFilter::default();
+filter.external_id = Some("engine.temp".to_string());
+filter.start = Some(Utc.with_ymd_and_hms(2026, 10, 1, 0, 0, 0).unwrap());
+filter.end = Some(Utc.with_ymd_and_hms(2026, 10, 2, 0, 0, 0).unwrap());
+for series in api.time_series.retrieve_datapoints_binary(&DataWrapper::from_vec(vec![filter])).await? {
+    if let BinaryValues::Float(values) = &series.values {
+        println!("{}: {} points", series.external_id, values.len());
+    }
+}
+```
+
+An item with a `limit` (at most 100 000) returns that many of the oldest points from `start`;
+an item without one returns its whole window, so bound a long series with `end`, as the whole
+answer is held in memory. There is no cursor: to read on in pieces, send the request again with
+`start` one millisecond past the last timestamp you got. A series that does not exist is a 400 for the whole request, where
+the JSON read answers empty. A response the server could not finish is a 502 rather than fewer
+points, and is safe to send again.
+
+`time_series.stream_datapoints_binary(&filters)` is the same read handed over as it arrives: a
+`Stream` of `BinaryDatapoints`, one per frame, decoded on blocking threads while the rest of the
+response downloads, so nothing waits for the whole body and memory holds what the consumer keeps.
+A series longer than one frame comes as consecutive items. A refusal is the `Err` before there is
+a stream; a response that breaks off is an error item **after** the items that arrived, so a
+consumer acting on items as they come has to treat what it took as incomplete. The blocking
+client has it as an iterator. `retrieve_datapoints_binary` collects this stream, which is where
+all-or-nothing lives.
+
+In Python, `client.timeseries.retrieve_datapoints_binary(filter_or_list)` on the sync client
+returns objects that implement the Arrow PyCapsule stream protocol, so
+`polars.DataFrame(series)`, `pyarrow.table(series)` and `pandas.DataFrame.from_arrow(series)`
+take them without copying; `series.to_polars()` and `series.to_pandas()` do the same. The package
+adds no dependency for this — bring polars, or pyarrow for pandas.
+`retrieve_datapoints_binary_stream(filter_or_list)` returns a single-use reader of the same read
+as it arrives: iterate it for one `BinaryDatapoints` per frame. Both the buffered result and the
+reader turn into one table the same way:
+
+```python
+read = client.timeseries.retrieve_datapoints_binary(filters)        # or ..._binary_stream(filters)
+long = read.to_polars()           # timeseries_id, timestamp, value: one row per point
+wide = read.to_polars(wide=True)  # timestamp, then one column per series named by external id
+read.external_ids                 # {timeseries_id: external_id}
+```
+
+The wide table matches series on `timestamp`, leaving nulls where one has no point, and holds
+series of different value types side by side. Reading 100M float rows into either costs within
+half a second of the download itself.
 
 ## Python bindings
 

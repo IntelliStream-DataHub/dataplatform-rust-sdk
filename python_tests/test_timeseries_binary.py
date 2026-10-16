@@ -31,15 +31,15 @@ def _read_all(client, ts, expected):
     return poll_until(fetch, lambda dps: len(dps) >= expected)
 
 
-@pytest.mark.parametrize("zstd_level", [None, 1, 3, 9])
-def test_insert_from_lists_binary_round_trips_floats(sync_client, make_ts, zstd_level):
+@pytest.mark.parametrize("zstd_level, compression", [(None, None), (1, None), (3, None), (9, None), (3, "buffers")])
+def test_insert_from_lists_binary_round_trips_floats(sync_client, make_ts, zstd_level, compression):
     ts = make_ts(value_type="float")
     # Out of order on purpose: the frame writer sorts, the read must still be in time order.
     values = [i * 1.25 - 20.0 for i in range(len(TIMESTAMPS))]
     shuffled = list(zip(TIMESTAMPS, values))[::-1]
 
     result = sync_client.timeseries.insert_from_lists_binary(
-        [t for t, _ in shuffled], [v for _, v in shuffled], ts, zstd_level=zstd_level
+        [t for t, _ in shuffled], [v for _, v in shuffled], ts, zstd_level=zstd_level, compression=compression
     )
     assert result == []
 

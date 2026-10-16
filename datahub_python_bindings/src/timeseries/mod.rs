@@ -33,6 +33,7 @@ use std::sync::Arc;
 use strum::{Display, EnumString};
 
 pub mod async_service;
+pub mod binary_read;
 mod construction;
 pub mod datapoints;
 pub mod general;
@@ -469,6 +470,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTimeSeries>()?;
     m.add_class::<PyDatapointString>()?;
     m.add_class::<PyDatapointsCollectionDatapoints>()?;
+    m.add_class::<binary_read::PyBinaryDatapoints>()?;
+    m.add_class::<binary_read::PyBinaryDatapointReader>()?;
+    m.add_class::<binary_read::PyBinaryReadResult>()?;
     m.add_class::<PyDatapointsCollectionString>()?;
     m.add_class::<live::PyLiveDatapoint>()?;
     m.add_class::<live::PyValueTypeRecommendation>()?;
@@ -477,16 +481,28 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-/// Options for the binary ingest bindings. zstd level 1, 3 or 9; 9 is the default, as in the
-/// Rust and Java SDKs, because the client is what pays for it.
+/// Options for the binary ingest bindings. zstd level 1, 3 or 9; 3 is the default, as in the
+/// Rust SDK. `compression` is `"buffers"`
+/// (the default) or `"payload"`.
 pub(crate) fn binary_options(
     zstd_level: Option<i32>,
-) -> intellistream_datahub_sdk::timeseries::BinaryIngestOptions {
-    use intellistream_datahub_sdk::timeseries::BinaryIngestOptions;
-    match zstd_level {
-        Some(level) => BinaryIngestOptions::new().zstd_level(level),
-        None => BinaryIngestOptions::default(),
+    compression: Option<&str>,
+) -> PyResult<intellistream_datahub_sdk::timeseries::BinaryIngestOptions> {
+    use intellistream_datahub_sdk::timeseries::{BinaryIngestOptions, FrameCompression};
+    let mut options = BinaryIngestOptions::default();
+    if let Some(level) = zstd_level {
+        options = options.zstd_level(level);
     }
+    options.compression = match compression {
+        None | Some("buffers") => FrameCompression::Buffers,
+        Some("payload") => FrameCompression::Payload,
+        Some(other) => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "compression {other:?} is not \"buffers\" or \"payload\""
+            )))
+        }
+    };
+    Ok(options)
 }
 
 /// Parallel timestamp and value sequences for one series, which is the shape a DataFrame's
