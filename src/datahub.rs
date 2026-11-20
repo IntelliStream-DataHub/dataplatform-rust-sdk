@@ -25,7 +25,8 @@ pub const DEFAULT_BUFFER_DIR: &str = ".datahub-spool";
 /// Default number of datapoint insert requests in flight at once. Each carries up to 100 000 points,
 /// which the api holds in memory while it parses them, so this bounds what one insert costs its heap.
 pub const DEFAULT_DATAPOINT_INSERT_PARALLELISM: usize = 4;
-/// Scope sent with a token request when none is configured. See [`OAuthConfig::effective_scope`].
+/// Scope sent with every token request to `TOKEN_URI`. A configured `SCOPE` is added to it, never
+/// substituted for it.
 pub const DEFAULT_SCOPE: &str = "openid";
 /// RFC 7523 grant type: exchange an externally-issued JWT assertion for a token.
 const JWT_BEARER_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
@@ -119,7 +120,7 @@ impl OAuthConfig {
     /// `token_uri` — the identity provider issuing the API's own tokens, which must be the issuer
     /// the API validates against and calls UserInfo on. A provider that rejects `openid` alongside
     /// other scopes (Entra ID and its `.default`) appears in the assertion flow instead, where it is
-    /// governed by [`assertion_scope`](Self::effective_scope) and untouched by this.
+    /// governed by `assertion_scope` and untouched by this.
     pub(crate) fn effective_scope(&self) -> Cow<'_, str> {
         match self.scope.as_deref() {
             None => Cow::Borrowed(DEFAULT_SCOPE),

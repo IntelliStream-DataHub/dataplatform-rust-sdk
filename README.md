@@ -4,8 +4,12 @@ An async Rust client (reqwest + Tokio) for the **DataHub Platform** REST API, wi
 optional blocking client and Python bindings built from the same core.
 
 Services are fields on the `ApiService` returned by `create_api_service()`:
-`time_series` (including datapoint ingestion), `units`, `events`, `resources`, `datasets`,
-`files`, `subscriptions` (including WebSocket listening), and `functions`.
+`time_series` (including datapoint ingestion and the live datapoint tail), `units`, `events`,
+`resources`, `assets`, `edges`, `datasets`, `files`, `subscriptions` (including WebSocket
+listening), `functions`, `labels` and `tenant`.
+
+The developer documentation, with Python, Rust and Java examples for every endpoint, is at
+<https://intellistream.ai/sdk-documentation/>. It describes this repository's `main`.
 
 ## Installation
 
@@ -18,7 +22,7 @@ alias then applies across the whole crate, with no `use` line in any module:
 
 ```toml
 [dependencies]
-dh = { package = "intellistream-datahub-sdk", version = "0.2" }
+dh = { package = "intellistream-datahub-sdk", version = "1.0" }
 ```
 
 ```rust
@@ -69,7 +73,7 @@ environment:
 - Either `TOKEN` (bearer token used as-is, never considered expired), **or** the OAuth2
   client-credentials set: `CLIENT_ID`, `CLIENT_SECRET`, `TOKEN_URI`
 - `PROJECT_NAME` — optional
-- `SCOPE` — against DataHub, needed when the realm uses Keycloak Organizations: that claim comes
+- `SCOPE` — added to `openid`, which every token request carries. Against DataHub, needed when the realm uses Keycloak Organizations: that claim comes
   from a dynamic client scope, so the request must name it (`organization:*`, or
   `organization:<alias>` to pin one tenant). Without it the token carries no tenant and every call
   fails `401 invalid_token`, which looks like bad credentials but is not. Not needed where the
@@ -142,8 +146,13 @@ build frames themselves.
 ## Python bindings
 
 `datahub_python_bindings/` wraps this SDK as the Python package `intellistream-datahub-sdk` (import name
-`intellistream_datahub_sdk`) using PyO3 and maturin. The Python test suite in `python_tests/` runs against
-the **compiled** module — always use the wrapper script, which rebuilds the bindings first:
+`intellistream_datahub_sdk`) using PyO3 and maturin:
+
+```bash
+pip install intellistream-datahub-sdk
+```
+
+The Python test suite in `python_tests/` runs against the **compiled** module — always use the wrapper script, which rebuilds the bindings first:
 
 ```bash
 ./run_python_tests.sh                # build + run the whole suite
