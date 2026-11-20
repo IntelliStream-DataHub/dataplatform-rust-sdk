@@ -122,7 +122,7 @@ impl FunctionsService {
     /// `POST /functions/filter` — functions matching every supplied criterion, newest created
     /// first unless the form sorts otherwise.
     ///
-    /// The shared [`NodeFilter`](crate::filters::NodeFilter) rules apply — wildcards,
+    /// The shared [`NodeFilter`] rules apply — wildcards,
     /// case-insensitivity, what an empty list means — plus
     /// [`data_set_id`](FunctionFilter::data_set_id). Pages: the form carries `sort` and `cursor`,
     /// and the response carries `next_cursor`.
