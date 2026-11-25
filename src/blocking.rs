@@ -214,7 +214,7 @@ impl TimeSeriesService {
 }
 
 /// A binary read frame by frame; see
-/// [`BinaryDatapointStream`](crate::timeseries::BinaryDatapointStream) for what an item is and how
+/// [`BinaryDatapointStream`] for what an item is and how
 /// a response that breaks off shows up.
 pub struct BinaryDatapointIter {
     stream: BinaryDatapointStream,

@@ -317,7 +317,7 @@ impl DataSort {
 ///
 /// Flattened into each of them, so `sort` and `cursor` sit beside `filter` and `limit` on the wire.
 /// Events carry the same two fields but declare them directly on
-/// [`EventFilterForm`](crate::filters::EventFilterForm), which also has `advancedFilter`.
+/// [`EventFilterForm`], which also has `advancedFilter`.
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PageRequest {
@@ -457,7 +457,9 @@ impl EventFilterForm {
         self.limit = limit;
         self
     }
-    /// Set the boolean filter expression. See [`EventFilterForm::advanced_filter`].
+    /// Set the boolean filter expression, such as
+    /// `type NOT LIKE 'pump' AND (subType = 'water' OR subType = 'gas')`. The api parses and
+    /// validates it, so an invalid one is a 400 rather than an error here.
     pub fn set_advanced_filter(&mut self, expression: impl Into<String>) -> &mut Self {
         self.advanced_filter = Some(expression.into());
         self
